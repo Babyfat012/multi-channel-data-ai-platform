@@ -58,7 +58,23 @@ Kiểm chứng sau triển khai: ghi nhận một feature đã biết và `DBSIZ
 rồi tra lại cùng feature và kiểm tra AOF đã được tải. Việc này phải thử trước khi đóng D3.
 Nếu Redis đã trống từ trước, PVC mới không tự phục hồi dữ liệu cũ: cần `full_reload`
 để nạp lại batch từ Parquet; feature stream cần phục hồi qua đường riêng.
-Guard DAG và trạng thái dữ liệu Feature API vẫn là phần chưa sửa của D3.
+### Chặn incremental khi kho online mất sạch
+
+Trước `materialize-incremental`, DAG chạy `feature_repo/check_online_store.py` bằng Python
+của Feast, cùng repo và biến môi trường với lệnh materialize. Helper đọc mốc materialize
+của `sku_return_daily` trong registry và `DBSIZE` của đúng Redis database cấu hình trong Feast:
+
+| Redis | Mốc đã materialize của view batch | Xử lý |
+|---|---|---|
+| Rỗng | Chưa có | Cho nạp lần đầu |
+| Rỗng | Đã có | Fail rõ, yêu cầu người vận hành kiểm tra và chủ động `full_reload=true` |
+| Có key | Bất kỳ | Cho incremental tiếp tục |
+
+`full_reload=true` đổi lệnh thành `materialize START END`, không chạy guard incremental.
+Lỗi đọc registry/Redis hoặc guard quá 120 giây đều làm task fail; không tự xóa mốc hay
+tự nạp lại. Guard chỉ phát hiện DB mất sạch; key của stream/ứng dụng khác hoặc một phần
+batch còn sót có thể làm `DBSIZE > 0`, nên đây chưa phải kiểm tra đủ/đúng feature.
+Trạng thái thiếu dữ liệu của Feature API và kiểm chứng end-to-end trên AWS còn mở.
 
 ## Chạy local
 
