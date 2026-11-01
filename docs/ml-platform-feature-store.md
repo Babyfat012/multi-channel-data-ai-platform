@@ -42,6 +42,24 @@ Kiểm tra chứng minh hai điều: khớp phép đếm Python thuần, và lin
 số của ảnh chụp ngày đó (train và serve cùng định nghĩa). Trễ tối đa 1 ngày; nhãn vốn chờ
 30 ngày nên không đáng kể.
 
+## Redis giữ dữ liệu khi thay Pod
+
+Manifest Redis dùng một PVC `redis-data` 2 GiB, gắn tại `/data`; Redis ghi AOF vào
+chính thư mục đó với `appendonly yes`, `appendfsync everysec`. PVC dùng StorageClass
+mặc định của cụm (AWS hiện dùng gp3). Pod thay thế dùng lại PVC, đọc AOF để phục hồi RAM.
+Đây là cấu hình đã chuẩn bị trong repo; chưa xác nhận triển khai/khôi phục trên AWS.
+
+Deployment dùng `Recreate`: dừng Pod cũ trước khi tạo Pod mới, chấp nhận gián đoạn
+trong lúc cập nhật và khôi phục. Xóa PVC hoặc xóa cả cụm local vẫn có thể mất dữ liệu;
+PVC/AOF không thay thế backup. Chính sách đồng bộ mỗi giây có thể mất khoảng một giây
+thay đổi khi máy chết đột ngột; xem [Redis persistence](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/).
+
+Kiểm chứng sau triển khai: ghi nhận một feature đã biết và `DBSIZE`, thay Pod (giữ PVC),
+rồi tra lại cùng feature và kiểm tra AOF đã được tải. Việc này phải thử trước khi đóng D3.
+Nếu Redis đã trống từ trước, PVC mới không tự phục hồi dữ liệu cũ: cần `full_reload`
+để nạp lại batch từ Parquet; feature stream cần phục hồi qua đường riêng.
+Guard DAG và trạng thái dữ liệu Feature API vẫn là phần chưa sửa của D3.
+
 ## Chạy local
 
 RAM: chỉ bật phần cần. Không chạy cùng DataHub.

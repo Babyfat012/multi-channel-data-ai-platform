@@ -1,8 +1,18 @@
-# Kho online của Feast. Không bật persistence: mất pod thì materialize lại từ Parquet.
+# Kho online của Feast. Pod thay thế dùng lại PVC và đọc AOF để phục hồi.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: feature-store
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: feature-store
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 2Gi}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -11,6 +21,7 @@ metadata:
   namespace: feature-store
 spec:
   replicas: 1
+  strategy: {type: Recreate}
   selector:
     matchLabels: {app: redis}
   template:
@@ -20,14 +31,29 @@ spec:
       containers:
         - name: redis
           image: redis:7.4-alpine
-          args: ["--save", "", "--appendonly", "no", "--maxmemory", "256mb"]
+          args:
+            - --save
+            - ""
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --dir
+            - /data
+            - --maxmemory
+            - 256mb
           ports: [{containerPort: 6379}]
+          volumeMounts:
+            - {name: data, mountPath: /data}
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {memory: 320Mi}
           readinessProbe:
             exec: {command: ["redis-cli", "ping"]}
             periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: redis-data}
 ---
 # NodePort 30379: Airflow trong Compose gọi platform-control-plane:30379.
 apiVersion: v1
