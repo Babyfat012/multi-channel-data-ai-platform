@@ -42,6 +42,8 @@ spec:
             - /data
             - --maxmemory
             - 256mb
+            - --maxmemory-policy
+            - noeviction
           ports: [{containerPort: 6379}]
           volumeMounts:
             - {name: data, mountPath: /data}

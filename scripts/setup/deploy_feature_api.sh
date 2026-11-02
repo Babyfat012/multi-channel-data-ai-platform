@@ -37,6 +37,7 @@ bucket = env["LAKEHOUSE_BUCKET"] if cloud else env.get("MINIO_BUCKET", "platform
 values = {
     "FEAST_REGISTRY": env.get("FEAST_REGISTRY", f"s3://{bucket}/feature-store/registry.db"),
     "FEAST_REDIS": env.get("FEAST_REDIS", "redis.feature-store.svc.cluster.local:6379"),
+    "FEAST_PUBLICATION_ROOT": env.get("FEAST_PUBLICATION_ROOT", f"s3://{bucket}/feature-store/publications"),
     "FEAST_RAG_REGISTRY": env.get("FEAST_RAG_REGISTRY", f"s3://{bucket}/feature-store/rag-registry.db"),
     "RAG_PG_HOST": env.get("RAG_PG_HOST", "pgvector.rag.svc.cluster.local"),
     "RAG_PG_PORT": env.get("RAG_PG_PORT", "5432"),

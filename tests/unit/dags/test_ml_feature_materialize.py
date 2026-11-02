@@ -40,7 +40,15 @@ def test_full_reload_switches_to_ranged_materialize():
     assert _rewrite(inc, {"full_reload": False}) == inc
     assert _rewrite(inc, None) == inc
     assert _rewrite(("apply",), {"full_reload": True}) == ("apply",)
-    assert '"full_reload": Param(\n            False, type="boolean"' in DAG
+    parameter = next(
+        value
+        for node in ast.walk(ast.parse(DAG))
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "full_reload"
+    )
+    assert ast.literal_eval(parameter.args[0]) is False
+    assert {kw.arg: ast.literal_eval(kw.value) for kw in parameter.keywords}["type"] == "boolean"
 
 
 def test_run_feast_signature_takes_context_only_as_kwargs():
@@ -143,3 +151,19 @@ def test_failed_guard_prevents_materialization():
 def test_feast_apply_excludes_guard_helper():
     """Feast apply chỉ import định nghĩa feature, không import script kiểm tra."""
     assert "check_online_store.py" in (ROOT / "feature_repo/.feastignore").read_text().splitlines()
+
+
+@pytest.mark.parametrize("full_reload", [False, True])
+def test_publication_operator_invokes_isolated_publisher(full_reload):
+    """Đường DAG mới gọi publisher một lần với đúng root và recovery flag."""
+    run_feast, run = _run_feast_with_fake_runtime()
+    run_feast("publish-batch", "--end", "E", params={"full_reload": full_reload})
+    command = ["feast-python", "-m", "publish_batch", "--end", "E"]
+    if full_reload:
+        command.append("--full-reload")
+    run.assert_called_once()
+    assert run.call_args.args[0] == command
+    assert (
+        run.call_args.kwargs["env"]["FEAST_PUBLICATION_ROOT"] == "s3://test/features/publications"
+    )
+    assert run.call_args.kwargs["check"] is True

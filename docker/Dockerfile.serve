@@ -7,7 +7,9 @@ USER root
 RUN pip install --no-cache-dir "kserve==0.21.0"
 ARG MODEL_VERSION=unknown
 COPY ml /opt/ml/ml
+COPY feature_repo /opt/feature_repo
 COPY model.lgb /opt/model/model.lgb
 ENV MODEL_VERSION=${MODEL_VERSION} MODEL_PATH=/opt/model/model.lgb
+ENV PYTHONPATH=/opt:/opt/ml
 USER 65534
 ENTRYPOINT ["python", "-m", "ml.serve"]

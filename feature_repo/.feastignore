@@ -2,3 +2,5 @@
 replay_return_events.py
 push_stream_features.py
 check_online_store.py
+publication.py
+publish_batch.py

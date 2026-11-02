@@ -17,6 +17,11 @@ Trả về `{"predictions": [{"seller_sku", "score", "abstain", "reason", "model
 `score` là tín hiệu **xếp hạng**, không phải xác suất (Q38). Người gọi chỉ gửi thuộc tính đơn:
 predictor **tự đọc** feature SKU từ Feast online (Redis), nên danh sách feature chỉ nằm một chỗ.
 SKU có < 20 line có nhãn trong 90 ngày ⇒ `abstain: true, reason: insufficient_history`.
+Điều này chỉ áp dụng khi `labeled_count_90d` có giá trị. Nếu count thiếu (`null`/NaN),
+predictor bỏ qua bước gọi LightGBM cho dòng đó và trả `score: null, abstain: true,
+reason: feature_data_unavailable`; không tự đổi count thiếu thành 0. Batch hỗn hợp chỉ
+chấm các dòng có count, giữ đúng thứ tự kết quả. Các feature nullable khác giữ cách xử lý
+hiện tại. Đây là thay đổi trong repo, chưa kiểm chứng triển khai trên AWS.
 
 | Thành phần | File |
 |---|---|

@@ -1,7 +1,7 @@
-"""ML Platform: Gold → Parquet offline (feature SKU + tập train) → feast apply → materialize vào Redis online.
+"""ML Platform: Gold → Parquet offline/tập train → apply → nạp/đối soát bản batch riêng rồi công bố.
 
 `end` là mốc thời gian GIẢ LẬP (mặc định = cutoff Gold), không phải giờ thật: mỗi lần chạy
-Feast chỉ nạp ảnh chụp có event_timestamp trong (lần trước, end].
+Publisher chọn snapshot mới nhất mỗi SKU đến end; bản active tiếp tục phục vụ khi bản mới đang nạp.
 """
 
 from __future__ import annotations
@@ -66,9 +66,16 @@ def run_feast(*args, **context):
         "FEAST_SKU_DAILY_PATH": f"{root}/sku_daily",
         "FEAST_SKU_RETURN_24H_PATH": f"{root}/sku_return_24h.parquet",
         "FEAST_REDIS": redis,
+        "FEAST_PUBLICATION_ROOT": f"{root}/publications",
     }
     with tempfile.TemporaryDirectory() as tmp:
         repo = shutil.copytree(REPO, f"{tmp}/repo")
+        if args[0] == "publish-batch":
+            command = [FEAST_PYTHON, "-m", "publish_batch", *args[1:]]
+            if (params or {}).get("full_reload"):
+                command.append("--full-reload")
+            subprocess.run(command, cwd=repo, env=env, check=True, timeout=3600)
+            return
         if args[0] == "materialize-incremental":
             subprocess.run(
                 [FEAST_PYTHON, "-m", "check_online_store"],
@@ -91,7 +98,7 @@ def run_feast(*args, **context):
 
 with DAG(
     dag_id="ml_feature_materialize",
-    description="Feature SKU theo ngày: offline Parquet → Redis online",
+    description="Feature SKU theo ngày: Parquet → batch riêng → đối soát → công bố Redis A/B",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,
@@ -100,7 +107,9 @@ with DAG(
     params={
         "end": Param("", type="string", description="Mốc giả lập; trống = cutoff Gold"),
         "full_reload": Param(
-            False, type="boolean", description="Nạp lại toàn bộ vào Redis (sau khi Redis bị xoá)"
+            False,
+            type="boolean",
+            description="Cho phép phục hồi khi bản online đang phục vụ đã mất dữ liệu",
         ),
     },
     tags=["platform", "ml-platform", "feature-store"],
@@ -134,13 +143,11 @@ with DAG(
     )
     apply = PythonOperator(task_id="feast_apply", python_callable=run_feast, op_args=["apply"])
     materialize = PythonOperator(
-        task_id="materialize_incremental",
+        task_id="publish_batch",
         python_callable=run_feast,
         op_args=[
-            "materialize-incremental",
-            # Chỉ view batch; view stream do pusher ghi thẳng vào Redis.
-            "--views",
-            "sku_return_daily",
+            "publish-batch",
+            "--end",
             # Python 3.10 không đọc được đuôi "Z" của fromisoformat.
             "{{ (params.end or var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff))"
             " | replace('Z', '+00:00') }}",

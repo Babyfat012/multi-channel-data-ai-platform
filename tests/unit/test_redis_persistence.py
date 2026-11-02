@@ -20,6 +20,7 @@ def test_redis_aof_uses_persistent_volume_without_overlapping_rollout():
     options = dict(zip(args[::2], args[1::2], strict=True))
     assert options["--appendonly"] == "yes"
     assert options["--appendfsync"] == "everysec"
+    assert options["--maxmemory-policy"] == "noeviction"
     mount = next(m for m in redis["volumeMounts"] if m["mountPath"] == options["--dir"])
     assert not mount.get("readOnly", False)
     volume = next(v for v in pod["volumes"] if v["name"] == mount["name"])

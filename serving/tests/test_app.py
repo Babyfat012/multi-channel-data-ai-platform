@@ -81,6 +81,10 @@ def test_features_known_and_missing(client):
             "positive_count_90d": 3,
             "return_or_refund_rate_90d": 0.3,
             "approved_returns_24h": 2,
+            "batch_status": "ready",
+            "stream_status": "ready",
+            "batch_release": None,
+            "batch_cutoff": None,
         },
         {
             "seller_sku": "sku-99999",
@@ -88,6 +92,10 @@ def test_features_known_and_missing(client):
             "positive_count_90d": None,
             "return_or_refund_rate_90d": None,
             "approved_returns_24h": None,
+            "batch_status": "not_available",
+            "stream_status": "not_available",
+            "batch_release": None,
+            "batch_cutoff": None,
         },
     ]
 
@@ -677,3 +685,78 @@ def test_tool_calls_counted_ok_and_error(client):
     after = client.get("/metrics").text
     assert tool_count(after, "ok") - tool_count(before, "ok") == 1
     assert tool_count(after, "error") - tool_count(before, "error") == 1
+
+
+def test_partial_batch_failure_preserves_stream_status(client, store):
+    """Nhóm batch lỗi không chặn stream hợp lệ, không biến dữ liệu thiếu thành zero."""
+
+    def read(features, entity_rows):
+        """Giả lập registry/batch hỏng nhưng stream vẫn tra được."""
+        if features[0].startswith("sku_return_daily:"):
+            raise RuntimeError("batch unavailable")
+        return fake_online_features(features, entity_rows)
+
+    store.get_online_features_async.side_effect = read
+    response = client.post("/features", json={"seller_skus": ["sku-00001"]})
+    row = response.json()["features"][0]
+    assert response.status_code == 200
+    assert row["batch_status"] == "unavailable"
+    assert row["labeled_count_90d"] is None
+    assert row["stream_status"] == "ready" and row["approved_returns_24h"] == 2
+
+
+def test_zero_history_and_zero_stream_are_not_system_failure(client):
+    """Có số zero được xác nhận khác với null và lỗi store."""
+    row = client.post("/features", json={"seller_skus": ["sku-00002"]}).json()["features"][0]
+    assert row["batch_status"] == "insufficient_history"
+    assert row["stream_status"] == "ready" and row["approved_returns_24h"] == 0
+
+
+def test_published_snapshot_distinguishes_missing_expected_sku(client, store):
+    """SKU có trong bản công bố mà thiếu online là unavailable; SKU ngoài bản chỉ là not_available."""
+    from feature_repo.publication import FeatureResult, Release
+
+    release = Release("release-a", 1, "registry", "offline", "2026-06-30", frozenset({"sku-00001"}))
+
+    def read(features, entity_rows):
+        """Batch trả null cho mọi SKU, kèm phiếu đã kiểm tra."""
+        if features[0].startswith("sku_return_daily:"):
+            return FeatureResult(
+                {
+                    "seller_sku": [r["seller_sku"] for r in entity_rows],
+                    **{f.split(":")[1]: [None] * len(entity_rows) for f in features},
+                },
+                release,
+            )
+        return fake_online_features(features, entity_rows)
+
+    store.get_online_features_async.side_effect = read
+    rows = client.post("/features", json={"seller_skus": ["sku-00001", "sku-99999"]}).json()[
+        "features"
+    ]
+    assert [r["batch_status"] for r in rows] == ["unavailable", "not_available"]
+    assert all(
+        r["batch_release"] == "release-a" and r["batch_cutoff"] == "2026-06-30" for r in rows
+    )
+
+
+def test_predict_forwards_unavailable_without_inventing_score(store, monkeypatch):
+    """HTTP API giữ nguyên null/reason của predictor để agent không thấy điểm giả."""
+    monkeypatch.setenv("KSERVE_URL", KSERVE)
+    payload = {
+        "predictions": [
+            {
+                "seller_sku": "sku-00002",
+                "score": None,
+                "abstain": True,
+                "reason": "feature_data_unavailable",
+                "model_version": "3",
+                "batch_release": "a",
+                "batch_cutoff": "2026-06-30",
+            }
+        ]
+    }
+    _, factory = kserve(payload=payload)
+    with TestClient(create_app(store_factory=lambda: store, http_factory=factory)) as c:
+        result = c.post("/predict", json=ORDER_LINE).json()
+    assert result == payload["predictions"][0]

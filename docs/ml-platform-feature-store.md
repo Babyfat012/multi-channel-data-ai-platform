@@ -1,8 +1,8 @@
 <!-- Mục đích: cách dựng và chạy kho feature (Feast) cho phần ML Platform, -->
 # Kho feature (Feast) — ML Platform bước 2
 
-pipeline Airflow **materialize tăng dần** feature mới nhất từ kho
-OFFLINE sang kho ONLINE.
+Pipeline Airflow tạo feature OFFLINE, nạp một bản batch ONLINE riêng, đối soát rồi công bố.
+Phần bằng chứng tháng 10 bên dưới ghi lại luồng incremental cũ trước khi bổ sung publication A/B ngày 02/11.
 
 ## Đường đi của dữ liệu
 
@@ -58,23 +58,64 @@ Kiểm chứng sau triển khai: ghi nhận một feature đã biết và `DBSIZ
 rồi tra lại cùng feature và kiểm tra AOF đã được tải. Việc này phải thử trước khi đóng D3.
 Nếu Redis đã trống từ trước, PVC mới không tự phục hồi dữ liệu cũ: cần `full_reload`
 để nạp lại batch từ Parquet; feature stream cần phục hồi qua đường riêng.
-### Chặn incremental khi kho online mất sạch
+### Công bố batch A/B (code ngày 02/11, chưa triển khai AWS)
 
-Trước `materialize-incremental`, DAG chạy `feature_repo/check_online_store.py` bằng Python
-của Feast, cùng repo và biến môi trường với lệnh materialize. Helper đọc mốc materialize
-của `sku_return_daily` trong registry và `DBSIZE` của đúng Redis database cấu hình trong Feast:
+Redis standalone dùng DB0 cho stream, DB1/DB2 luân phiên cho batch. A/B là hai bộ feature
+của cùng các SKU. Các DB dùng chung RAM/CPU/AOF; đây không phải hai Redis có khả năng
+chịu lỗi độc lập. Manifest có `maxmemory-policy noeviction` để việc nạp không tự đẩy dữ liệu
+cũ ra khỏi RAM. Cần đo RAM cho cả hai bản trước khi bật cloud; giới hạn hiện vẫn là 256 MB.
 
-| Redis | Mốc đã materialize của view batch | Xử lý |
-|---|---|---|
-| Rỗng | Chưa có | Cho nạp lần đầu |
-| Rỗng | Đã có | Fail rõ, yêu cầu người vận hành kiểm tra và chủ động `full_reload=true` |
-| Có key | Bất kỳ | Cho incremental tiếp tục |
+Task `publish_batch` cuối DAG gọi `feature_repo/publish_batch.py`:
 
-`full_reload=true` đổi lệnh thành `materialize START END`, không chạy guard incremental.
-Lỗi đọc registry/Redis hoặc guard quá 120 giây đều làm task fail; không tự xóa mốc hay
-tự nạp lại. Guard chỉ phát hiện DB mất sạch; key của stream/ứng dụng khác hoặc một phần
-batch còn sót có thể làm `DBSIZE > 0`, nên đây chưa phải kiểm tra đủ/đúng feature.
-Trạng thái thiếu dữ liệu của Feature API và kiểm chứng end-to-end trên AWS còn mở.
+1. Giữ khóa writer trong Redis DB0; đọc con trỏ active trên S3.
+2. Nếu bản active đã mất sạch nhưng registry nhớ mốc, fail. `full_reload=true` là yêu cầu
+   chủ động cho phép phục hồi; bootstrap chưa có active thì được nạp.
+3. Chọn DB không active, chặn reader generation cũ; nếu còn lượt đọc có hiệu lực thì fail
+   trước khi xóa/nạp. Con trỏ cache cũ bị từ chối ở Redis sẽ refresh, không đọc slot mới nhầm thành bản cũ.
+4. Copy Parquet nguồn sang prefix riêng `publications/releases/<release_id>/sku_daily`
+   bằng ETag; registry riêng ở cùng prefix. Bản nguồn này không bị lần export kế tiếp ghi đè.
+5. Chỉ xóa DB candidate đã được fence, apply/materialize **toàn bộ** snapshot đến `end`.
+   Đối soát từng SKU, count/rate và provenance với snapshot, kiểm tổng key; lỗi thì dọn candidate.
+6. Ghi phiếu `validation=passed` bất biến lên S3, rồi đổi `publications/active.json` bằng
+   conditional write theo ETag cũ. Nạp/đối soát lỗi không đổi con trỏ, bản cũ tiếp tục được phục vụ.
+
+Publisher không materialize incremental vào slot candidate: slot đó có trạng thái/mốc riêng
+và phải được dựng đầy đủ trước công bố. Helper guard incremental cũ còn được dùng để kiểm
+bản active, không tự xóa registry hay tự chữa lỗi. DB1/2 chỉ chứa batch; tuyệt đối không flush DB0.
+
+Reader chung `feature_repo/publication.py` được dùng bởi Feature API và KServe:
+
+- Cache con trỏ S3 5 giây. Mỗi lần đọc batch ghim một manifest/registry/DB.
+- Reader giữ lease Redis tối đa 30 giây; chỉ được trả kết quả nếu lease còn hợp lệ khi đọc xong.
+  Lua dùng đồng hồ Redis, đồng thời kiểm generation để ngăn đọc slot đã được dùng lại.
+- Request đang đọc A tiếp tục A khi B công bố; chỉ reader hết hạn/đã kết thúc mới cho dùng lại slot A.
+  Lease quá hạn thì bỏ kết quả. Chỉ stream không cần con trỏ batch.
+- Cache hết hạn mà S3 lỗi thì batch báo unavailable, không giữ con trỏ cũ vô hạn; stream vẫn có thể hoạt động.
+- API trả `batch_status`, `stream_status`, `batch_release`, `batch_cutoff`. Thiếu SKU đã nằm trong phiếu
+  là unavailable; SKU ngoài snapshot là not_available, không tự kết luận SKU mới. Count=0 được xác nhận
+  là insufficient_history. Chỉ các nhóm có dữ liệu hợp lệ được sử dụng.
+- Predictor thiếu count hoặc không chọn/đọc được bản batch thì không chấm, trả `score=null`,
+  `abstain=true`, `reason=feature_data_unavailable`; có kèm bản/cutoff khi đọc thành công.
+
+Khóa writer **không tự hết hạn**: nếu tiến trình chết, phải xác minh run/Feast con đã dừng
+trước khi người vận hành mở khóa. Không tự xóa khóa để chạy chồng hai writer. Phiếu/offline
+release cũ giữ trên S3 để truy vết; chính sách dọn S3 và ngưỡng độ cũ dữ liệu còn cần chốt.
+
+### Thứ tự chuyển sang luồng mới
+
+Learner chạy mọi thao tác cloud. Xử lý Vault S1 và endpoint D4 trước khi bật pipeline.
+
+1. Đưa code DAG/feature_repo lên EC2; chạy DAG để tạo publication đầu tiên, kiểm phiếu và dữ liệu.
+2. Build/push image Feature API và predictor có module publication; script deploy truyền
+   `FEAST_PUBLICATION_ROOT=s3://<bucket>/feature-store/publications` cho cả hai reader.
+3. Kiểm request hiển thị đúng release/cutoff; thử nạp B lỗi vẫn đọc A, B đạt mới chuyển;
+   thử đọc A còn chạy thì không được tái dùng DB A. Khi chưa có pointer, reader bật chế độ mới
+   phải báo batch chưa sẵn sàng, không tự đọc DB0 làm fallback.
+4. DB0 có thể còn feature batch legacy trong giai đoạn chuyển; không xóa cả DB0 vì stream dùng chung.
+   Đo dung lượng trước khi quyết định dọn dữ liệu legacy. Reader chưa có biến opt-in vẫn chạy luồng cũ.
+
+Kiểm tra local: unit publication/API, integration Redis 7.4 + Feast 0.66 và mutation.
+Các kiểm tra này chưa thay thế kiểm chứng S3/IAM, rollout và phục hồi trên AWS.
 
 ## Chạy local
 

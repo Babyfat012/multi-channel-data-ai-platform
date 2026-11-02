@@ -26,8 +26,9 @@ print(v.version)
 PY
 )
 cp -r ml "$ctx/ml"
+cp -r feature_repo "$ctx/feature_repo"
 # Tag gồm version model + băm code/model: dùng lại tag cũ thì kind/kubelet giữ bản cũ theo tag.
-digest=$(cat "$ctx/model.lgb" ml/*.py docker/Dockerfile.serve | sha256sum | cut -c1-8)
+digest=$(cat "$ctx/model.lgb" ml/*.py feature_repo/*.py feature_repo/feature_store.yaml feature_repo/.feastignore docker/Dockerfile.serve | sha256sum | cut -c1-8)
 code_tag=${TAG:-$(git rev-parse HEAD)}
 [[ "$code_tag" != latest ]] || { echo "Không dùng TAG=latest" >&2; exit 1; }
 REGISTRY="${REGISTRY:-localhost:5001}"

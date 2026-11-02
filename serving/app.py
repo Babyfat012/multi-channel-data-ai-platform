@@ -20,6 +20,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, ValidationError
 
+from feature_repo.publication import load_published_store
+
 # Tra từng view riêng: một view lỗi/chưa đăng ký thì feature của nó là None, không hỏng cả request.
 VIEWS = {
     "sku_return_daily": ["labeled_count_90d", "positive_count_90d", "return_or_refund_rate_90d"],
@@ -73,6 +75,10 @@ class SkuFeatures(BaseModel):
     positive_count_90d: int | None
     return_or_refund_rate_90d: Rounded | None
     approved_returns_24h: int | None
+    batch_status: Literal["ready", "insufficient_history", "not_available", "unavailable"]
+    stream_status: Literal["ready", "not_available", "unavailable"]
+    batch_release: str | None = None
+    batch_cutoff: str | None = None
 
 
 class FeatureResponse(BaseModel):
@@ -107,6 +113,8 @@ class Prediction(BaseModel):
     abstain: bool
     reason: str | None
     model_version: str | None
+    batch_release: str | None = None
+    batch_cutoff: str | None = None
 
 
 ChunkId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
@@ -138,7 +146,10 @@ def load_store():
     """Nạp Feast chỉ khi chạy thật, để test không cần cài feast."""
     from feast import FeatureStore
 
-    return FeatureStore(os.environ.get("FEAST_REPO_PATH", "feature_repo"))
+    repo = os.environ.get("FEAST_REPO_PATH", "feature_repo")
+    if os.environ.get("FEAST_PUBLICATION_ROOT"):
+        return load_published_store(repo)
+    return FeatureStore(repo)
 
 
 def load_rag():
@@ -202,10 +213,42 @@ async def fetch_features(store, requested_skus):
         values = {} if isinstance(result, Exception) else result.to_dict()
         for name in names:
             columns[name] = values.get(name, [None] * len(skus))
-    rows = [
-        SkuFeatures(**{name: values[i] for name, values in columns.items()})
-        for i in range(len(skus))
-    ]
+    rows = []
+    for i, sku in enumerate(skus):
+        daily, stream = results
+        release = None if isinstance(daily, Exception) else getattr(daily, "release", None)
+        # Legacy/mock OnlineResponse không có release metadata thực.
+        release_id = getattr(release, "release_id", None)
+        release = release if isinstance(release_id, str) else None
+        count, positive, rate = (columns[name][i] for name in VIEWS["sku_return_daily"])
+        if isinstance(daily, Exception):
+            batch_status = "unavailable"
+        elif count is None:
+            batch_status = (
+                "unavailable" if release and sku in release.expected_skus else "not_available"
+            )
+        elif positive is None or (count > 0 and rate is None):
+            batch_status = "unavailable"
+        elif count == 0:
+            batch_status = "insufficient_history"
+        else:
+            batch_status = "ready"
+        stream_status = (
+            "unavailable"
+            if isinstance(stream, Exception)
+            else "not_available"
+            if columns["approved_returns_24h"][i] is None
+            else "ready"
+        )
+        rows.append(
+            SkuFeatures(
+                **{name: values[i] for name, values in columns.items()},
+                batch_status=batch_status,
+                stream_status=stream_status,
+                batch_release=release.release_id if release else None,
+                batch_cutoff=release.cutoff if release else None,
+            )
+        )
     return FeatureResponse(features=rows)
 
 
@@ -228,7 +271,11 @@ def create_app(store_factory=load_store, rag_factory=load_rag, http_factory=http
     @counted
     async def get_sku_features(seller_skus: list[str]) -> FeatureResponse:
         # Docstring = mô tả tool LLM thấy ⇒ tiếng Anh: mô tả tiếng Việt làm Qwen 1,5B không gọi tool (0/3 so với 3/3).
-        """Return features of 1-100 SKUs (e.g. `sku-00001`, `APP-00042`); missing features are null."""
+        """Return features and per-group availability for 1-100 SKUs (e.g. APP-00042).
+
+        Use only ready data. Missing values are null, never assumed zero; unavailable groups
+        must be reported as unavailable. insufficient_history means confirmed zero labeled samples.
+        """
         # ToolError giữ nguyên lời nhắn cho LLM; lỗi khác MCP chỉ báo chung chung.
         try:
             body = FeatureRequest(seller_skus=seller_skus)

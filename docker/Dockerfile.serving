@@ -11,6 +11,7 @@ RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-smal
 COPY rag/__init__.py rag/chunking.py rag/pipeline.py /opt/rag/
 COPY rag/feature_repo /opt/rag/feature_repo
 COPY serving/app.py /opt/serving/app.py
+COPY feature_repo /opt/feature_repo
 WORKDIR /opt
 ENV FEAST_REPO_PATH=/opt/feature_repo
 USER 65534
