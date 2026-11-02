@@ -8,8 +8,8 @@
   html, body { margin: 0; height: 100%; background: #f1f3f5; font: 14px system-ui, sans-serif; color: #1e1e1e; }
   #stage { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
   #stage.drag { cursor: grabbing; }
-  #map { position: absolute; left: 0; top: 0; user-select: none; -webkit-user-drag: none; background: #fff;
-         box-shadow: 0 2px 12px rgba(0,0,0,.15); }
+  #map { position: absolute; left: 0; top: 0; user-select: none; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.15); }
+  #map > * { display: block; width: 100%; height: auto; -webkit-user-drag: none; }
   #bar { position: fixed; top: 12px; right: 12px; display: flex; gap: 6px; align-items: center; z-index: 1;
          background: #fff; padding: 6px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
   #bar button, #bar a { border: 1px solid #ced4da; background: #fff; border-radius: 6px; padding: 4px 10px;
@@ -20,7 +20,7 @@
 </style>
 </head>
 <body>
-<div id="stage"><img id="map" alt="Data Platform system architecture"></div>
+<div id="stage"><div id="map" role="img" aria-label="Data Platform system architecture"></div></div>
 <div id="bar">
   <button id="out" title="Thu nhỏ (−)">−</button>
   <span id="pct">100%</span>
@@ -30,13 +30,13 @@
   <button id="mode" title="Chuyển ảnh động / ảnh tĩnh (s)">Ảnh tĩnh</button>
   <a href="data-platform-system-architecture-excalidraw.png" download title="Tải PNG 7676 × 3722">Tải PNG</a>
 </div>
-<div id="hint">Cuộn chuột để zoom · kéo để di chuyển · nhấp đúp để phóng to</div>
+<div id="hint">Bấm ô chú giải ở đáy hình để xem riêng từng luồng · cuộn chuột để zoom · kéo để di chuyển · nhấp đúp để phóng to</div>
 <script>
 const stage = document.getElementById('stage'), img = document.getElementById('map'), pct = document.getElementById('pct');
 let s = 1, x = 0, y = 0, W = 0, H = 0;
 const MIN = 0.1, MAX = 4;
 
-// Đổi kích thước thật của <img> (không dùng transform) để trình duyệt vẽ lại SVG cho nét ở mọi mức zoom.
+// Đổi kích thước thật (không dùng transform) để trình duyệt vẽ lại SVG cho nét ở mọi mức zoom.
 function draw() {
   img.style.width = W * s + 'px';
   img.style.left = x + 'px';
@@ -58,23 +58,41 @@ function fit() {
 }
 const centre = k => zoomAt(k, innerWidth / 2, innerHeight / 2);
 
-// SVG động và PNG tĩnh (gấp đôi độ phân giải) cùng một hình. W/H lấy theo SVG nên đổi ảnh giữ nguyên zoom.
+// SVG động được nhúng thẳng vào trang để bấm được ô chú giải; PNG tĩnh là cùng hình, độ phân giải gấp đôi.
 const SRC = { anim: 'data-platform-system-architecture.svg', still: 'data-platform-system-architecture-excalidraw.png' };
 const mode = document.getElementById('mode');
-let still = new URLSearchParams(location.search).has('static');
+let still = new URLSearchParams(location.search).has('static'), svg = null;
+async function loadSvg() {
+  try {
+    const r = await fetch(SRC.anim);
+    if (!r.ok) throw new Error(r.status);
+    const doc = new DOMParser().parseFromString(await r.text(), 'image/svg+xml');
+    svg = document.importNode(doc.documentElement, true);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+  } catch {
+    svg = Object.assign(new Image(), { src: SRC.anim });   // file:// chặn fetch: vẫn xem được, chỉ không bấm lọc
+  }
+}
 function setMode() {
-  img.src = still ? SRC.still : SRC.anim;
+  img.replaceChildren(still ? Object.assign(new Image(), { src: SRC.still, alt: '' }) : svg);
   mode.textContent = still ? 'Ảnh động' : 'Ảnh tĩnh';
   history.replaceState(null, '', still ? '?static' : location.pathname);
 }
-img.addEventListener('load', () => {
-  if (W) return;
-  W = img.naturalWidth / (still ? 2 : 1);
-  H = img.naturalHeight / (still ? 2 : 1);
+// Bấm một ô chú giải: chỉ nhóm đó sáng; bấm lại ô đó hoặc "Tất cả luồng" để về như cũ.
+function pick(target) {
+  const chip = svg && svg.contains && target.closest && target.closest('.chip');
+  if (!chip) return;
+  const key = [...chip.classList].find(c => /^c[A-Z]$/.test(c))?.slice(1);
+  if (!key || svg.dataset.show === key) delete svg.dataset.show;
+  else svg.dataset.show = key;
+}
+mode.onclick = () => { still = !still; setMode(); };
+loadSvg().then(() => {
+  [, , W, H] = (svg.getAttribute?.('viewBox') || '0 0 3838.69 1861.09').split(/[\s,]+/).map(Number);
+  setMode();
   fit();
 });
-mode.onclick = () => { still = !still; setMode(); };
-setMode();
 
 stage.addEventListener('wheel', e => { e.preventDefault(); zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
 stage.addEventListener('dblclick', e => zoomAt(2, e.clientX, e.clientY));
@@ -82,7 +100,11 @@ stage.addEventListener('dblclick', e => zoomAt(2, e.clientX, e.clientY));
 // Kéo bằng chuột, chụm hai ngón để zoom trên màn hình cảm ứng.
 const pts = new Map();
 let last = null;
-stage.addEventListener('pointerdown', e => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, e); stage.classList.add('drag'); });
+let down = null;
+stage.addEventListener('pointerdown', e => {
+  down = pts.size ? null : e;
+  stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, e); stage.classList.add('drag');
+});
 stage.addEventListener('pointermove', e => {
   if (!pts.has(e.pointerId)) return;
   const prev = pts.get(e.pointerId);
@@ -98,7 +120,14 @@ stage.addEventListener('pointermove', e => {
     last = d;
   }
 });
-const up = e => { pts.delete(e.pointerId); last = null; if (!pts.size) stage.classList.remove('drag'); };
+const up = e => {
+  pts.delete(e.pointerId); last = null;
+  if (!pts.size) stage.classList.remove('drag');
+  // Nhả chuột gần chỗ nhấn = bấm (không phải kéo).
+  if (e.type === 'pointerup' && down && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < 5)
+    pick(document.elementFromPoint(e.clientX, e.clientY));
+  down = null;
+};
 stage.addEventListener('pointerup', up);
 stage.addEventListener('pointercancel', up);
 
