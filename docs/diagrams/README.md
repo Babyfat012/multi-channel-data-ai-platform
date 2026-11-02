@@ -2,7 +2,7 @@
 
 Hai sơ đồ chính của dự án:
 
-- **Data Platform**: [PNG](data-platform-system-architecture-excalidraw.png) · [Excalidraw](data-platform-system-architecture.excalidraw).
+- **Data Platform**: [SVG động](data-platform-system-architecture.svg) · [PNG tĩnh](data-platform-system-architecture-excalidraw.png) · [Excalidraw](data-platform-system-architecture.excalidraw).
 - **ML + LLM Platform**: [PNG](ml-llm-platform-system-architecture-excalidraw.png) · [Excalidraw](ml-llm-platform-system-architecture.excalidraw).
 
 Mỗi khối trắng là một đơn vị triển khai (Compose container, Deployment / Pod, Job hoặc managed service); khung màu là nhóm chức năng. Mũi tên đi theo chiều dữ liệu, có mô tả, đánh số và tô màu riêng cho từng luồng; nét đứt chỉ dùng cho luồng phụ (điều phối, CI/CD, observability, provisioning). Chú giải luồng nằm cuối mỗi hình.
