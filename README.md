@@ -41,9 +41,9 @@ Triển khai tham chiếu AWS ap-southeast-2: EC2 Data Platform + EKS `platform-
 
 ### Data Platform
 
-![Data Platform — system architecture](docs/diagrams/data-platform-system-architecture.svg)
+[![Data Platform — system architecture](docs/diagrams/data-platform-system-architecture.svg)](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)
 
-Mũi tên tự chiếu lần lượt từng luồng (B → S → C → Q → O → G → I). [Ảnh tĩnh PNG](docs/diagrams/data-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/data-platform-system-architecture.excalidraw)
+Mũi tên tự chiếu lần lượt từng luồng (B → S → C → Q → O → G → I). **[Mở bản phóng to được](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)** · [Ảnh tĩnh PNG](docs/diagrams/data-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/data-platform-system-architecture.excalidraw)
 
 ### ML + LLM Platform
 
