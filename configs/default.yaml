@@ -1,4 +1,4 @@
-# Cấu hình đầy đủ theo docs/generator-design.md, mục 10.
+# Cấu hình đầy đủ theo docs/edai-1/reference/generator_design.md, mục 10.
 seed: 42
 scale:
   n_skus: 2000

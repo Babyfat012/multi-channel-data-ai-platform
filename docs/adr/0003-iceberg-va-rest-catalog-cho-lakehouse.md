@@ -22,4 +22,4 @@ Các lựa chọn đã cân nhắc gồm Delta Lake, Parquet rời, JDBC catalog
 
 ## Evidence
 
-[Storage](../storage.md) ghi compaction và EXPLAIN trước/sau index. [Trino](../trino.md) ghi phép đối chiếu cùng SKU giữa Gold và warehouse. [Kiến trúc hiện hành](../architecture-decisions.md) nêu phạm vi bảng đã chạy; [Data Platform evidence](../data-platform-evidence.md) tổng hợp receipt và giới hạn local/cloud.
+[Storage](../edai-1/data_storage.md) ghi compaction và EXPLAIN trước/sau index. [Trino](../edai-1/reference/trino.md) ghi phép đối chiếu cùng SKU giữa Gold và warehouse. [Kiến trúc hiện hành](../shared/architecture_decisions.md) nêu phạm vi bảng đã chạy; [Data Platform evidence](../edai-1/evidence.md) tổng hợp receipt và giới hạn local/cloud.

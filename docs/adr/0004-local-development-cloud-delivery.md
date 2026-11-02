@@ -8,4 +8,4 @@ Local dùng cho phát triển, kiểm thử và phép đo trong phạm vi tài n
 
 Thiết kế cần cấu hình môi trường rõ ràng, lưu dữ liệu/metadata bền vững và khả năng tái tạo runtime. Kiểm tích hợp với input nhỏ trước khi mở rộng, và đo lại trên môi trường đích.
 
-Các lựa chọn GCE/GCP ban đầu là lịch sử. Đích hiện hành là [AWS EC2 + S3](../aws-deploy.md); ML Platform/LLM Platform trên EKS chưa có evidence triển khai.
+Các lựa chọn GCE/GCP ban đầu là lịch sử. Đích hiện hành là [AWS EC2 + S3](../shared/aws_deploy.md); ML Platform/LLM Platform trên EKS chưa có evidence triển khai.

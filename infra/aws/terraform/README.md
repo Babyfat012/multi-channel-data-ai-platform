@@ -9,7 +9,7 @@ Dựng: VPC `10.42.0.0/16` + 1 public subnet + Internet Gateway, security group
 IAM role (instance profile, không access key), 2 bucket S3 (`raw`, `lakehouse`),
 budget tùy chọn. Sơ đồ: [`docs/diagrams/data-platform-system-architecture-excalidraw.png`](../../../docs/diagrams/data-platform-system-architecture-excalidraw.png).
 
-Trước khi chạy, kiểm quyền của AWS profile, quota và cấu hình instance/region của tài khoản triển khai theo [runbook](../../../docs/aws-deploy.md). Repo chưa có bằng chứng launch EC2 trên AWS.
+Trước khi chạy, kiểm quyền của AWS profile, quota và cấu hình instance/region của tài khoản triển khai theo [runbook](../../../docs/shared/aws_deploy.md). Repo chưa có bằng chứng launch EC2 trên AWS.
 
 ## Chạy
 
@@ -50,4 +50,4 @@ Resource address hiện hành dùng `data_platform` và `operator`; tên AWS dù
 
 ## Registry và mạng cho ML/LLM
 
-Bật `enable_ecr` để tạo repository ECR; bật `enable_kubernetes_network` và điền `secondary_availability_zone` để có hai subnet cho root [EKS](../kubernetes/README.md). Hai flag mặc định tắt. Xem [cloud setup](../../../docs/cloud-setup.md) để kiểm tài khoản, review plan và triển khai theo thứ tự.
+Bật `enable_ecr` để tạo repository ECR; bật `enable_kubernetes_network` và điền `secondary_availability_zone` để có hai subnet cho root [EKS](../kubernetes/README.md). Hai flag mặc định tắt. Xem [cloud setup](../../../docs/shared/cloud_setup.md) để kiểm tài khoản, review plan và triển khai theo thứ tự.

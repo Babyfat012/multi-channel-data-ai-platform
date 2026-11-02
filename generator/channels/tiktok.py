@@ -4,7 +4,7 @@ Mỗi lần Order đổi Order Status sau `cutoff`, TikTok Shop gửi một mess
 Renderer này chỉ vẽ message đó. Việc gửi trùng và burst là của lớp giao hàng
 Stream, không phải của renderer.
 
-Envelope và `data` theo docs/channel-sources.md, mục 5 (mức Cao):
+Envelope và `data` theo docs/edai-1/reference/channel_sources.md, mục 5 (mức Cao):
 `type`, `tts_notification_id`, `shop_id`, `timestamp` (giây), `data` gồm
 `order_id`, `order_status`, `is_on_hold_order`, `update_time`.
 

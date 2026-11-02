@@ -8,7 +8,7 @@ quy tên khoá về một dạng thì không nhận ra là trùng. Bản trùng 
 nhau nên dedup cần window toàn cục (một lần shuffle).
 
 Amazon không báo "đã giao", nên `order_status` không bao giờ là `delivered`/`completed`.
-Thiết kế: `docs/silver.md`.
+Thiết kế: `docs/edai-1/reference/silver.md`.
 
 Chạy:
     spark-submit ... silver/build_amazon_order_snapshots.py

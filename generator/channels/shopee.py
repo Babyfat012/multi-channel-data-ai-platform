@@ -4,7 +4,7 @@ Mỗi dòng JSONL là response `response.order_list` có một Order. `COMPLETED
 Shopee là proxy trạng thái sau giao; nguồn không có thời điểm giao thật trong
 các field đã xác minh, nên renderer không thêm `delivered_at`.
 
-Field dựa trên `docs/channel-sources.md` mục 6. Những ID và carrier được sinh
+Field dựa trên `docs/edai-1/reference/channel_sources.md` mục 6. Những ID và carrier được sinh
 ổn định từ seed; chúng không chứa thông tin lõi ngoài mã nối ground truth.
 """
 

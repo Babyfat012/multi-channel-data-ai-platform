@@ -28,6 +28,6 @@ Q58 chốt pool Seller dùng chung và pool Channel riêng, movement authority,
 snapshot đối soát, return chờ kiểm trước sellable. Q59 chốt ba nhóm hàng
 đợi độc lập return-risk, inventory/Listing availability và biến động sales;
 không có một điểm thiệt hại tổng hợp xuyên currency. Chi tiết vận hành và
-counterexample ở [contract nhãn](../return-label-contract.md) và
+counterexample ở [contract nhãn](../edai-1/reference/return_label_contract.md) và
 thiết kế scope. Đây là quyết định thiết kế,
 chưa là evidence implementation hoặc POC đạt.

@@ -1,6 +1,6 @@
 """Offline local[1] Gold v2 integration checks; fresh fixture, no catalog or truth inputs.
 
-Run with the Docker command in docs/gold-order-lifecycle.md. Positive PIT tests add one observed
+Run with the Docker command in docs/edai-1/reference/gold_order_lifecycle.md. Positive PIT tests add one observed
 Order after fixture follow-up, without generating further Orders in the simulator.
 """
 

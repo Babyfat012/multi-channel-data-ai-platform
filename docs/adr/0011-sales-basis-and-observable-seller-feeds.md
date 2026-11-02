@@ -24,6 +24,6 @@ vẫn unknown/unsupported; không nâng mọi pool Channel thành quan sát đ�
 Trade-off: thêm feed/schema/reconciliation và tail làm tăng dữ liệu/POC,
 đổi lại có nguồn quan sát kiểm chứng được cho quantity/money/label v2.
 Không chọn suy delivery/refund từ trạng thái Order cuối vì không chứng minh
-được lịch sử và linkage. [Source contract](../source-contract-order-lifecycle.md),
-[publication contract](../run-publication-contract.md) và
+được lịch sử và linkage. [Source contract](../edai-1/reference/source_contract_order_lifecycle.md),
+[publication contract](../edai-1/reference/run_publication_contract.md) và
 readiness quy định phần còn phải thực hiện.

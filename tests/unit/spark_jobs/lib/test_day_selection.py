@@ -67,7 +67,7 @@ class TestPickWindowDays:
 
     Bản trùng của generator nằm trong khoảng `overlap_days = 3`, nên hai ngày cách nhau
     9-10 ngày không bao giờ chứa cùng một Order. Đã đo: 20 ngày rải đều cho dedup bắt được
-    đúng 0 bản trùng (`docs/silver.md` mục 10.3). Vì vậy phải có cách chọn ngày liền nhau.
+    đúng 0 bản trùng (`docs/edai-1/reference/silver.md` mục 10.3). Vì vậy phải có cách chọn ngày liền nhau.
     """
 
     DAYS = [f"2026-01-{d:02d}" for d in range(1, 21)]

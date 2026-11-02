@@ -4,4 +4,4 @@
 Nơi quản lý chính là **Langfuse** (prompt `platform-<agent>`, label `production`). Các file `.txt` ở đây chỉ để nạp lần đầu
 (`scripts/setup/deploy_kind_langfuse.sh`, chỉ tạo prompt khi Langfuse chưa có). Sửa prompt trên Langfuse rồi chạy
 `scripts/setup/sync_agent_prompts.sh` (hoặc job Jenkins) để đẩy bản `production` vào ConfigMap `agent-prompts` mà
-Agent đọc qua `systemMessageFrom`. Xem [`docs/llm-platform-agents.md`](../../../../docs/llm-platform-agents.md).
+Agent đọc qua `systemMessageFrom`. Xem [`docs/llm-platform-agents.md`](../../../../docs/edai-2/reference/llm_platform_agents.md).

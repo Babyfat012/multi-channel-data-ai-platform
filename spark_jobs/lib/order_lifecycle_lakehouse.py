@@ -3,7 +3,7 @@
 Hai job `bronze/ingest_order_lifecycle.py` và `silver/build_order_lifecycle.py` gọi các hàm ở đây để
 ghi Iceberg; test `tests/spark/check_order_lifecycle_silver.py` gọi thẳng trên fixture nhỏ.
 
-Thiết kế (xem `docs/source-contract-order-lifecycle.md`):
+Thiết kế (xem `docs/edai-1/reference/source_contract_order_lifecycle.md`):
   * Bronze là MỘT bảng chung cho mọi feed: mỗi dòng JSONL thành một dòng, giữ nguyên
     `raw_json`. Thêm feed hay đổi schema không phải sửa bảng.
   * Silver tách theo thực thể. Định danh sự kiện là
@@ -723,7 +723,7 @@ def coverage_validity(evidence: DataFrame) -> DataFrame:
         & (F.coalesce("received_sha256", F.sha2(F.lit("[]"), 256)) == F.col("declared_sha256"))
         & (F.coalesce("received_rows", F.lit(0)) == F.col("declared_rows"))
         # collect_set loại trùng bằng hash lúc gom; array_distinct trên mảng struct là bậc hai
-        # (1.816 s / 87% Silver ở e2e medium, xem docs/silver-order-lifecycle-performance.md).
+        # (1.816 s / 87% Silver ở e2e medium, xem docs/edai-1/reference/silver_order_lifecycle_performance.md).
         & (F.coalesce("declared_seq", empty_seq) == F.coalesce("actual_seq", empty_seq))
         & (F.array_sort("expected_partitions") == F.array_sort("completed_partitions"))
         & (F.coalesce(F.length("capability"), F.lit(0)) > 0)

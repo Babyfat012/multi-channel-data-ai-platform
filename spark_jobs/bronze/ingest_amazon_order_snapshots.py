@@ -94,7 +94,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 # Giới hạn: trùng phần lớn `lib/iceberg_session.build_spark`, giữ riêng vì cần cờ AQE và event log
-# (phải đặt trước khi tạo session) và vì số đo trong docs/spark.md gắn với cấu hình này.
+# (phải đặt trước khi tạo session) và vì số đo trong docs/edai-1/reference/spark.md gắn với cấu hình này.
 # Gộp khi đo lại Bronze v1.
 def build_spark(aqe: str, shuffle_partitions: int, app_name: str) -> SparkSession:
     """SparkSession nối catalog Iceberg trên Lakekeeper, dữ liệu nằm trên MinIO hoặc S3 thật."""

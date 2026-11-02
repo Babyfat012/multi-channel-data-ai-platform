@@ -4,7 +4,7 @@ status: superseded
 
 # GCS và Feast Spark/Redis cho thử nghiệm Cloud đầu tiên
 
-> **Lịch sử.** Phần GCS đã được thay bằng AWS S3 (2026-10-22); Feast + Redis vẫn dùng. Hiện hành: [AWS runbook](../aws-deploy.md), [Feature store](../ml-platform-feature-store.md).
+> **Lịch sử.** Phần GCS đã được thay bằng AWS S3 (2026-10-22); Feast + Redis vẫn dùng. Hiện hành: [AWS runbook](../shared/aws_deploy.md), [Feature store](../edai-2/feature_store.md).
 
 Q26 đã xác nhận chuyển online store từ đề xuất PostgreSQL sang Redis.
 PostgreSQL tiếp tục phục vụ warehouse; GCS và tiêu chí POC vẫn được giữ.

@@ -22,4 +22,4 @@ chính line vẫn có chi phí riêng; giới hạn driver keyless 10.000 giữ 
 
 Kiểm Python thuần seed7/60 ngày/4 đơn mỗi ngày/3 SKU: 131/367 target thật có
 `labeled_count_90d > 0`, tối đa 30 coverage/line. Spark do người vận hành kiểm riêng;
-xem [Gold](../gold-order-lifecycle.md) và [contract nhãn](../return-label-contract.md).
+xem [Gold](../edai-1/reference/gold_order_lifecycle.md) và [contract nhãn](../edai-1/reference/return_label_contract.md).

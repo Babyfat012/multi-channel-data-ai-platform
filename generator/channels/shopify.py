@@ -1,7 +1,7 @@
 """Renderer Batch cho Shopify REST Admin Order.
 
 Một dòng JSONL mô phỏng response `GET /orders/{id}.json`, gồm `order` và mảng
-`line_items`. REST Admin API hiện là legacy; chọn dạng này vì `docs/channel-sources.md`
+`line_items`. REST Admin API hiện là legacy; chọn dạng này vì `docs/edai-1/reference/channel_sources.md`
 đã ghi schema và cả hai cách lưu Order đều dùng cùng dữ liệu lõi. Không gắn
 `delivered_at`: Order resource chỉ cho biết fulfillment, không cho ngày giao thật.
 """

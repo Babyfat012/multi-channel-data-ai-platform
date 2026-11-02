@@ -5,7 +5,7 @@ Khác Amazon: một dạng schema, thời gian là epoch mili-giây, và có tr�
 `Delivered` gộp cả delivered lẫn completed nên cột thời điểm là `status_changed_at`.
 
 Khoá dedup cần `customer_order_id`: `purchase_order_id` từng va chạm giữa hai đơn khác nhau.
-Thiết kế: `docs/silver.md`.
+Thiết kế: `docs/edai-1/reference/silver.md`.
 
 Chạy:
     spark-submit ... silver/build_walmart_order_snapshots.py

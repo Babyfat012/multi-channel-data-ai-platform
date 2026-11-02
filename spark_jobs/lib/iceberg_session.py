@@ -2,7 +2,7 @@
 
 Ghim UTC là bắt buộc: hàm ngày của Spark theo múi giờ phiên, mà nhãn Return dùng cửa sổ
 30 ngày, nên lệch múi giờ là lệch nhãn. Hai job Bronze v1 giữ bản `build_spark` riêng vì
-đã có số đo đi kèm trong `docs/spark.md`.
+đã có số đo đi kèm trong `docs/edai-1/reference/spark.md`.
 """
 
 from __future__ import annotations

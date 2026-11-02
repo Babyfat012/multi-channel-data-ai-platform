@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# Order Status chuẩn, theo thứ tự tiến triển (xem docs/Domain.md, mục 4).
+# Order Status chuẩn, theo thứ tự tiến triển (xem docs/shared/domain.md, mục 4).
 PENDING_PAYMENT = "pending_payment"
 AWAITING_SHIPMENT = "awaiting_shipment"
 SHIPPED = "shipped"

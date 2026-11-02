@@ -1,79 +1,28 @@
 # Tài liệu Data & AI Platform
 
-Điểm bắt đầu: [README dự án](../README.md). Chọn platform cần chạy hoặc tìm hiểu; mỗi trang thành phần dẫn tới code, cấu hình và bằng chứng liên quan.
+Tài liệu chia theo hai phần rubric, tập trung hệ thống đã triển khai trên AWS tại Sydney (`ap-southeast-2`). Các kết quả gắn với ngày/lần chạy, không xác nhận dịch vụ đang hoạt động.
 
-Các tài liệu v1 ghi pipeline DP1/DP2/DP3 và phép đo đã chạy. Tài liệu `order-lifecycle` ghi pipeline v2, có phạm vi nguồn và nghiệm thu riêng; hai nhóm vẫn được dùng, không lấy bằng chứng của nhóm này để kết luận cho nhóm kia. Các con số trong báo cáo có giá trị tại ngày/lần chạy được ghi, không xác nhận service đang hoạt động.
+| Phần | Phạm vi | Điểm bắt đầu |
+|---|---|---|
+| EDAI-1 | Generator, Spark/Flink, lakehouse/warehouse, Airflow, DataHub và schema | [EDAI-1](edai-1/README.md) |
+| EDAI-2 | LLM/Agent, RAG, feature store, training/serving, CI/CD và vận hành | [EDAI-2](edai-2/README.md) |
 
-## Data Platform
+Data Platform chạy Compose trên EC2, raw/lakehouse ở S3. ML/LLM chạy EKS `platform-apps`; MLflow, Jenkins và Vault chạy EC2.
 
-Bắt đầu: [phạm vi và code](data-platform.md) · [system architecture](diagrams/data-platform-system-architecture-excalidraw.png) · [trạng thái](data-platform-order-lifecycle-status.md).
+## Domain và triển khai
 
-| Chủ đề | Tài liệu |
-|---|---|
-| Business domain | [Domain](Domain.md), [thuật ngữ](terminology.md), [nguồn tham chiếu từng Channel](channel-sources.md) |
-| Generator | [Thiết kế](generator-design.md), chất lượng [batch](data-quality-report-batch.md) / [stream](data-quality-report-stream.md) |
-| Nguồn order lifecycle | [Contract](source-contract-order-lifecycle.md), [fixture](source-order-lifecycle-fixtures.md), [scale](source-order-lifecycle-scale.md) |
-| Spark | [Pipeline và phép đo v1](spark.md), [order lifecycle v2](spark-order-lifecycle.md) |
-| Silver | [Xử lý v1](silver.md), [năm Channel](silver-five-channels.md), [order lifecycle v2](silver-order-lifecycle.md), [hiệu năng v2](silver-order-lifecycle-performance.md) |
-| Gold | [Kết quả v1](gold.md), [thiết kế](gold-design.md), [order lifecycle v2](gold-order-lifecycle.md), [contract nhãn](return-label-contract.md) |
-| Schema | [Các zone](schema.md), [sơ đồ zone](diagrams/schema-zones.html), [ERD order lifecycle](diagrams/schema-order-lifecycle.md) |
-| Storage và truy vấn | [Storage](storage.md), [Trino](trino.md), [warehouse order lifecycle](warehouse-order-lifecycle.md) |
-| Streaming và CDC | [Flink v1](flink.md), [stream order lifecycle](stream-order-lifecycle.md), [CDC v1](cdc.md), [CDC order lifecycle](cdc-order-lifecycle.md) |
-| Điều phối và governance | [Airflow v1](airflow.md), [Airflow order lifecycle](airflow-order-lifecycle.md), [DataHub v1](datahub.md), [DataHub order lifecycle](datahub-order-lifecycle.md) |
-| Kiểm chứng đầu-cuối | [E2E order lifecycle local](e2e-order-lifecycle-local.md), [evidence](data-platform-evidence.md), [kiểm kê rubric × cloud](rubric-cloud-audit.md) |
-| Các cơ chế mở rộng | [Tổng quan](data-integration.md), [data contract](data-contracts.md), [Iceberg maintenance](iceberg-maintenance.md) |
+[Business domain](shared/domain.md) · [Thuật ngữ](shared/terminology.md) · [Cloud setup](shared/cloud_setup.md) · [AWS runbook](shared/aws_deploy.md) · [IaC](edai-2/iac.md).
 
-## ML Platform
+## Rubric và bằng chứng
 
-Bắt đầu: [phạm vi và code](ml-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture-excalidraw.png).
+[Đối chiếu rubric](shared/rubric_guide.md) · [Kiểm kê AWS và phần còn thiếu](shared/rubric_cloud_audit.md) · [Data Platform evidence](edai-1/evidence.md).
 
-| Chủ đề | Tài liệu |
-|---|---|
-| Feature store | [Feast offline / online](ml-platform-feature-store.md), [stream feature](ml-platform-stream-feature.md) |
-| Vòng đời mô hình | [Training](ml-platform-training.md), [serving](ml-platform-serving.md), [drift](ml-platform-drift.md) |
-| API công cụ | [Feature API, REST và MCP](ml-llm-platform-web-api.md) |
-| Kiểm chứng | [Evidence ML Platform / LLM Platform](ml-llm-platform-evidence.md) |
+Ảnh nhúng trong trang thành phần và giải thích mục đích. `evidence/` giữ receipt/log/metric; `images/` giữ ảnh gốc. Giữ nguyên định danh và số liệu từng lần chạy. Hướng dẫn local và ghi nhận trước triển khai ở phần tham khảo, ghi môi trường riêng.
 
-## LLM Platform
+## Tài liệu dùng chung
 
-Bắt đầu: [phạm vi và code](llm-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture-excalidraw.png).
+[Mục lục dùng chung](shared/README.md) · [ADR](adr/README.md) · [Sơ đồ](diagrams/README.md) · [GLOSSARY](../GLOSSARY.md).
 
-| Chủ đề | Tài liệu |
-|---|---|
-| Agent và inference | [LLM, agent và điều phối](llm-platform-agents.md) |
-| Truy xuất tài liệu | [RAG](llm-platform-rag.md) |
-| Truy cập | [Gateway](llm-platform-gateway.md), [API công cụ](ml-llm-platform-web-api.md) |
-| Đánh giá | [Agent eval](llm-platform-agent-eval.md), [A/B](llm-platform-ab-test.md) |
-| Kiểm chứng | [Evidence ML Platform / LLM Platform](ml-llm-platform-evidence.md) |
+Khi cập nhật: sửa trang thành phần, ghi ngày/môi trường/giới hạn số đo, giữ evidence gốc và kiểm tra link bằng `uv run pytest -q tests/unit/test_docstrings.py`.
 
-Hạ tầng vận hành dùng chung giữa các platform: [CI/CD](ml-llm-platform-cicd.md), [observability](ml-llm-platform-observability.md), [Vault](ml-llm-platform-vault.md).
-
-## Triển khai và phát triển
-
-[Cấu hình demo và ngân sách](cloud-capacity.md): lựa chọn tài nguyên, chi phí và lịch bật/tắt.
-
-[Cloud setup](cloud-setup.md) là điểm bắt đầu cho triển khai AWS cả ba platform: preflight tài khoản, EC2/S3/ECR, EKS, storage và các gate kiểm runtime.
-
-- [Docker Compose](Docker.md): môi trường nguồn, profile và image.
-- [AWS runbook](aws-deploy.md), [IaC](IaC.md): đích EC2 + S3, thao tác triển khai và dọn tài nguyên.
-- Sơ đồ: [Data Platform](diagrams/data-platform-system-architecture-excalidraw.png), [ML + LLM Platform](diagrams/ml-llm-platform-system-architecture-excalidraw.png).
-- [Kiến trúc đã triển khai](architecture-decisions.md), [ADR](adr/README.md), [code style](code-style.md), [GLOSSARY](../GLOSSARY.md).
-
-## Hợp đồng thiết kế và nghiệm thu
-
-[Publication contract](run-publication-contract.md) mô tả thiết kế công bố dữ liệu; các gate và POC còn mở được ghi ngay trong tài liệu. Thiết kế và ADR ghi quyết định, không tự chứng minh tính năng đã triển khai. Đích AWS và trạng thái runtime xem runbook, trạng thái và ma trận bằng chứng phía trên.
-
-## Bằng chứng và tài liệu lịch sử
-
-[Đối chiếu tài liệu theo rubric](rubric-guide.md) dành cho coursework; hướng dẫn sử dụng platform nằm ở các mục trên.
-
-`evidence/` giữ receipt, log và metric; `images/` giữ ảnh chụp. Tìm bằng chứng qua tài liệu thành phần hoặc evidence để biết ngữ cảnh và giới hạn của từng run.
-
-Artifact lịch sử giữ tên và nội dung gốc để có thể truy vết. Báo cáo evidence nêu rõ môi trường, ngày chạy và các phần chưa kiểm chứng.
-
-## Cập nhật tài liệu
-
-- Sửa trang thành phần đang có khi thay đổi cách chạy hoặc cấu hình; thêm trang mới khi có chủ đề riêng và dẫn nó từ mục lục này hoặc trang platform.
-- Ghi ngày, phạm vi và giới hạn khi đưa số đo vào tài liệu; liên kết đến receipt hoặc ảnh gốc.
-- Giữ evidence gốc bất biến; cập nhật bản tổng hợp khi có run mới, không sửa số đo lịch sử.
-- Kế hoạch cá nhân và ghi chú bàn giao nằm ngoài tài liệu công khai. Kiểm tra link và khả năng tìm tài liệu bằng `uv run pytest -q tests/unit/test_docstrings.py`.
+[README dự án](../README.md)

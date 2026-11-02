@@ -502,7 +502,7 @@ def _scale_identity(config, parameters):
         "configuration": parameters,
         "world_sha256": physical_sha,
         "contract_sha256": hashlib.sha256(
-            (Path(__file__).parents[1] / "docs/source-contract-order-lifecycle.md").read_bytes()
+            (Path(__file__).parents[1] / "docs/edai-1/reference/source_contract_order_lifecycle.md").read_bytes()
         ).hexdigest(),
         "source_profiles": PROFILES,
         "fact_hash_policy": "canonical envelope excluding recorded_at; coverage full rows",

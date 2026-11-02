@@ -23,7 +23,7 @@ Biến môi trường:
   DATAHUB_GMS_TOKEN  token tùy chọn, chỉ truyền qua environment
   DATAHUB_QUICKSTART_DIR  mặc định $HOME/.datahub/quickstart
 Receipt: out/receipts-v2-run/<run_id>/; run gần nhất: out/receipts-v2-run/latest-run-id
-Cần Docker Compose, curl, Chrome, aiohttp, quickstart/DataHub SDK đã cài (docs/datahub.md).
+Cần Docker Compose, curl, Chrome, aiohttp, quickstart/DataHub SDK đã cài (docs/edai-1/data_governance.md).
 HELP
 }
 phase=all
@@ -83,7 +83,7 @@ cleanup_hint() {
   else
   echo 'Dọn pha A: docker compose --profile airflow --profile spark stop airflow spark-worker-1 spark-worker-2 spark-master lakekeeper postgres minio' >&2
   fi
-  echo 'Dọn pha B: chạy lại lệnh Compose DataHub trong docs/datahub.md, thay up -d bằng stop.' >&2
+  echo 'Dọn pha B: chạy lại lệnh Compose DataHub trong docs/edai-1/data_governance.md, thay up -d bằng stop.' >&2
   echo 'Không dùng down -v; không xóa volume. Xem log rồi dùng run_id mới nếu cần chạy lại Gold.' >&2
   exit "$code"
 }
@@ -148,7 +148,7 @@ PY
 airflow_phase() {
   [[ "$storage" = s3 || -f "$PLATFORM_ORDER_LIFECYCLE_DIR/manifest.json" ]] || { echo 'Chạy --phase source trước' >&2; return 1; }
   if [[ -n "$(docker ps -q --filter label=com.docker.compose.project=datahub)" ]]; then
-    echo 'Dừng Compose DataHub trước pha A để đủ RAM (docs/datahub.md).' >&2; return 1
+    echo 'Dừng Compose DataHub trước pha A để đủ RAM (docs/edai-1/data_governance.md).' >&2; return 1
   fi
   mkdir -p out/receipts out/receipts-v2-run
   # User Airflow phải ghi được bind mount vừa tạo. Không đụng quyền file receipt cũ.

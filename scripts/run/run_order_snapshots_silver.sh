@@ -2,7 +2,7 @@
 # Chạy hai job Silver trên cụm Spark standalone.
 #
 # Vì sao script RIÊNG chứ không thêm đích vào `evidence/measure_order_snapshots_bronze.sh`: script kia là
-# bằng chứng đo hiệu năng của tầng Bronze (`docs/spark.md` mục 5 và 6) — mỗi đích trong đó
+# bằng chứng đo hiệu năng của tầng Bronze (`docs/edai-1/reference/spark.md` mục 5 và 6) — mỗi đích trong đó
 # gắn với một con số đã ghi vào tài liệu. Silver là tầng khác, chạy vì mục đích khác (ra
 # bảng dùng được, không phải ra số so sánh), nên để riêng cho khỏi lẫn.
 #
@@ -23,7 +23,7 @@
 #              Cửa sổ này cố ý trùm lên 04-07..04-12, nơi hai dạng schema chồng nhau, nên
 #              một lần chạy chứng minh được cả dedup lẫn schema evolution.
 #              Số đã đo: 134.990 bản trùng (1,5976%), 34.080 vắt qua hai dạng.
-#              Xem `docs/silver.md` mục 10.6. Tốn ~400 MB đĩa, nhớ DROP sau khi đo.
+#              Xem `docs/edai-1/reference/silver.md` mục 10.6. Tốn ~400 MB đĩa, nhớ DROP sau khi đo.
 #   walmart  — bảng Walmart thật  -> silver.stg_walmart_order_lines
 #   amazon   — bảng Amazon thật   -> silver.stg_amazon_order_lines  (NẶNG: 108 triệu dòng)
 #   tatca    — walmart rồi amazon

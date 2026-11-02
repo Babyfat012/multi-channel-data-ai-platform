@@ -19,9 +19,9 @@ Nền tảng dữ liệu và AI cho một Seller bán hàng trên Amazon, TikTok
 
 | Phần | Chức năng | Công nghệ chính | Hướng dẫn |
 |---|---|---|---|
-| **Data Platform** | Nguồn → Bronze / Silver / Gold → warehouse; batch, streaming, điều phối và quản trị | Spark, Kafka, Flink, Debezium, Iceberg, Lakekeeper, PostgreSQL, Trino, Airflow, DataHub | [Data Platform](docs/data-platform.md) |
-| **ML Platform** | Feature store, training, model registry, serving và giám sát drift | Feast, Redis, LightGBM, Kubeflow Pipelines, MLflow, KServe, Evidently | [ML Platform](docs/ml-platform.md) |
-| **LLM Platform** | LLM inference, RAG, agent, gateway và đánh giá câu trả lời | llama.cpp, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/llm-platform.md) |
+| **Data Platform** | Nguồn → Bronze / Silver / Gold → warehouse; batch, streaming, điều phối và quản trị | Spark, Kafka, Flink, Debezium, Iceberg, Lakekeeper, PostgreSQL, Trino, Airflow, DataHub | [Data Platform](docs/edai-1/README.md) |
+| **ML Platform** | Feature store, training, model registry, serving và giám sát drift | Feast, Redis, LightGBM, Kubeflow Pipelines, MLflow, KServe, Evidently | [ML Platform](docs/edai-2/README.md) |
+| **LLM Platform** | LLM inference, RAG, agent, gateway và đánh giá câu trả lời | llama.cpp, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/edai-2/README.md) |
 
 Trên AWS: Data Platform chạy trên một EC2 (Docker Compose) với dữ liệu ở S3; ML Platform và LLM Platform chạy trên EKS. Hạ tầng dựng bằng Terraform, cấu hình EC2 bằng Ansible.
 
@@ -31,7 +31,7 @@ Một Seller bán trên bảy Storefront: Amazon US/UK/DE, TikTok Shop US, Shopi
 
 > Dòng đơn hàng này có bị Return hoặc Refund trong 30 ngày sau giao hàng không?
 
-Agent truy xuất feature, gọi model dự đoán và tìm chính sách trả hàng qua MCP. Chi tiết: [business domain](docs/Domain.md), [thuật ngữ](docs/terminology.md), [contract nhãn](docs/return-label-contract.md).
+Agent truy xuất feature, gọi model dự đoán và tìm chính sách trả hàng qua MCP. Chi tiết: [business domain](docs/shared/domain.md), [thuật ngữ](docs/shared/terminology.md), [contract nhãn](docs/edai-1/reference/return_label_contract.md).
 
 ## Kiến trúc
 
@@ -57,9 +57,14 @@ Hai ảnh nối nhau qua Gold / feature / training data, replay Return qua Kafka
 ## Bắt đầu
 
 Yêu cầu: Python 3.12+, `uv`, Docker Engine và Docker Compose v2. Chạy các lệnh từ thư mục gốc repo.
-Kubernetes dùng cho ML/LLM; môi trường phát triển dùng kind, triển khai AWS dùng EKS.
+Kubernetes dùng cho ML/LLM; triển khai AWS dùng EKS `platform-apps`.
 
-### Dựng nguồn dữ liệu local
+Bắt đầu triển khai từ [Cloud setup](docs/shared/cloud_setup.md), sau đó theo [AWS runbook](docs/shared/aws_deploy.md) và [IaC](docs/edai-2/iac.md). Kết quả đã chạy và các phần còn thiếu nằm trong [kiểm kê AWS](docs/shared/rubric_cloud_audit.md).
+
+<details>
+<summary>Dựng nguồn dữ liệu local để phát triển</summary>
+
+Môi trường phát triển dùng Docker Compose và kind cho Kubernetes.
 
 ```bash
 cp .env.example .env          # đặt mật khẩu và cổng cho môi trường của bạn
@@ -69,32 +74,31 @@ docker compose wait generator-load
 ```
 
 Bước này dựng nguồn dữ liệu giả lập với MinIO và PostgreSQL. Các dịch vụ xử lý, ML và Agent được bật theo
-profile và hướng dẫn riêng; xem [Docker Compose](docs/Docker.md).
+profile và hướng dẫn riêng; xem [Docker Compose](docs/edai-1/docker.md).
+
+</details>
 
 ### Chọn phần cần triển khai
 
 | Mục tiêu | Hướng dẫn |
 |---|---|
-| Xử lý batch/stream, lakehouse và warehouse | [Data Platform](docs/data-platform.md) |
-| Feature store, training và model serving | [ML Platform](docs/ml-platform.md) |
-| LLM inference, RAG và Agent | [LLM Platform](docs/llm-platform.md) |
-| Hạ tầng AWS và cấu hình dịch vụ | [Cloud setup](docs/cloud-setup.md), [AWS runbook](docs/aws-deploy.md), [IaC](docs/IaC.md) |
+| Xử lý batch/stream, lakehouse và warehouse | [Data Platform](docs/edai-1/README.md) |
+| Feature store, training và model serving | [ML Platform](docs/edai-2/README.md) |
+| LLM inference, RAG và Agent | [LLM Platform](docs/edai-2/README.md) |
+| Hạ tầng AWS và cấu hình dịch vụ | [Cloud setup](docs/shared/cloud_setup.md), [AWS runbook](docs/shared/aws_deploy.md), [IaC](docs/edai-2/iac.md) |
 
 ## Tài liệu
 
-[Mục lục tài liệu](docs/README.md) tập hợp hướng dẫn theo từng platform, code liên quan và kết quả kiểm chứng.
+Tài liệu bám theo rubric và các lần triển khai AWS; mỗi trang có code/config, kết quả và ảnh bằng chứng.
 
-| Chủ đề | Tài liệu |
-|---|---|
-| Nguồn dữ liệu và chất lượng | [Generator](docs/generator-design.md), chất lượng [batch](docs/data-quality-report-batch.md) / [stream](docs/data-quality-report-stream.md) |
-| Batch và mô hình dữ liệu | [Spark](docs/spark.md), [Silver](docs/silver.md), [Gold](docs/gold.md), [Schema](docs/schema.md) |
-| Streaming và CDC | [Flink](docs/flink.md), [Debezium CDC](docs/cdc.md) |
-| Storage, điều phối và governance | [Storage](docs/storage.md), [Trino](docs/trino.md), [Airflow](docs/airflow.md), [DataHub](docs/datahub.md) |
-| Feature và vòng đời model | [Feature store](docs/ml-platform-feature-store.md), [stream feature](docs/ml-platform-stream-feature.md), [training](docs/ml-platform-training.md), [serving](docs/ml-platform-serving.md) |
-| Agent và công cụ | [LLM/Agent](docs/llm-platform-agents.md), [RAG](docs/llm-platform-rag.md), [Web API và MCP](docs/ml-llm-platform-web-api.md) |
-| Vận hành và bảo mật | [CI/CD](docs/ml-llm-platform-cicd.md), [gateway](docs/llm-platform-gateway.md), [observability](docs/ml-llm-platform-observability.md), [Vault](docs/ml-llm-platform-vault.md) |
-| Đánh giá | [Agent eval](docs/llm-platform-agent-eval.md), [drift](docs/ml-platform-drift.md), [A/B testing](docs/llm-platform-ab-test.md) |
-| Thiết kế | [Thuật ngữ](GLOSSARY.md), [ADR](docs/adr/README.md), [quy ước code](docs/code-style.md) |
+| Phần | Nội dung | Tài liệu |
+|---|---|---|
+| EDAI-1 | Generator, Spark/Flink, storage, orchestration, governance, schema và novel ideas | [EDAI-1 — Data Platform](docs/edai-1/README.md) |
+| EDAI-2 | LLM/Agent, RAG, Feature Store, training/serving, CI/CD, IaC và observability | [EDAI-2 — ML / LLM Platform](docs/edai-2/README.md) |
+| Dùng chung | Domain, AWS setup/runbook, quyết định kiến trúc và quy ước code | [Dùng chung](docs/shared/README.md) |
+| Đối chiếu | Dòng rubric, bằng chứng AWS và phần còn thiếu | [Rubric](docs/shared/rubric_guide.md), [kiểm kê AWS](docs/shared/rubric_cloud_audit.md) |
+
+[Mục lục toàn bộ tài liệu](docs/README.md).
 
 ## Cấu trúc repo
 
@@ -118,12 +122,18 @@ profile và hướng dẫn riêng; xem [Docker Compose](docs/Docker.md).
 ├── ci/               # Jenkinsfile và cấu hình Jenkins
 ├── scripts/          # setup/ dựng dịch vụ · run/ chạy pipeline · evidence/ thu bằng chứng
 ├── tests/            # Unit, Spark, harness kiểm thử
-└── docs/             # Tài liệu; evidence/ và images/ giữ bằng chứng chạy thật
+└── docs/             # Tài liệu theo rubric, ưu tiên kết quả AWS
+    ├── README.md     # Mục lục chung
+    ├── edai-1/       # Data Platform
+    ├── edai-2/       # ML / LLM Platform
+    ├── shared/       # Domain, AWS runbook và kiểm kê rubric
+    ├── diagrams/    # Sơ đồ triển khai
+    └── evidence/, images/ # Receipt, log và ảnh chạy thật
 ```
 
 ## Phát triển và đóng góp
 
-Đọc [quy ước code](docs/code-style.md), [thuật ngữ](GLOSSARY.md) và tài liệu của thành phần cần thay đổi.
+Đọc [quy ước code](docs/shared/code_style.md), [thuật ngữ](GLOSSARY.md) và tài liệu của thành phần cần thay đổi.
 Khi gửi thay đổi, mô tả vấn đề, hành vi sau sửa và cách kiểm chứng; cập nhật tài liệu liên quan nếu đổi cách dùng.
 
 ```bash
@@ -141,20 +151,20 @@ nằm trong tài liệu thành phần.
 Dự án dùng dữ liệu giả lập; các số đo gắn với môi trường, cấu hình và phạm vi dữ liệu của từng lần chạy.
 Ngày chạy, run ID và artifact được giữ trong tài liệu kiểm chứng để phân biệt kết quả local với AWS.
 
-- [Data Platform — bằng chứng và giới hạn](docs/data-platform-evidence.md).
-- [ML/LLM Platform — bằng chứng và liên kết kết quả AWS](docs/ml-llm-platform-evidence.md).
-- [Trạng thái kiểm chứng theo rubric](docs/rubric-cloud-audit.md), gồm các phần còn mở và ảnh chi tiết còn thiếu.
-- [Tài liệu theo rubric](docs/rubric-guide.md) dành cho việc đối chiếu coursework.
+- [Data Platform — bằng chứng và giới hạn](docs/edai-1/evidence.md).
+- [ML/LLM Platform — bằng chứng và liên kết kết quả AWS](docs/shared/rubric_cloud_audit.md).
+- [Trạng thái kiểm chứng theo rubric](docs/shared/rubric_cloud_audit.md), gồm các phần còn mở và ảnh chi tiết còn thiếu.
+- [Tài liệu theo rubric](docs/shared/rubric_guide.md) dành cho việc đối chiếu coursework.
 
 ## Giới hạn đã biết
 
-- [Agent eval](docs/llm-platform-agent-eval.md): 12/12 trên AWS dùng SKU có `labeled_count_90d` dưới 7 chữ số; response mask `phoneNumber` che số đếm 7 chữ số, khiến lượt top seller chỉ đạt 9/12. Hướng sửa là bỏ `phoneNumber` khỏi response mask; đang chờ duyệt vì giảm một lớp guardrail.
-- [Sandbox Agent](docs/rubric-cloud-audit.md): gọi tool đúng nhưng model 1,5B đọc `830847` thành `83,084`; đã chứng minh đường gọi tool, chưa bảo đảm chất lượng câu trả lời của model CPU nhỏ.
-- [Coordinator CI](docs/ml-llm-platform-cicd.md): deploy xanh, eval gate timeout (>180 s/câu); một LLM chạy CPU phục vụ chung mọi Agent.
-- [Ảnh chi tiết](docs/rubric-cloud-audit.md) Spark schema evolution/dedup, Flink watermark, ERD dim–fact, Helm rollback và Coordinator scaling được chụp ở local; các job đã chạy trên AWS với receipt validate, nhưng chưa có đủ ảnh chi tiết AWS cho từng hành vi trên.
-- [MLflow](docs/ml-platform-training.md): có model version/tag trên AWS; chưa chụp data hash và artifacts train/test của cùng run.
-- [Stream feature](docs/ml-platform-stream-feature.md): `approved_returns_24h` trên AWS được replay từ nhãn Gold; `return-risk` v1 train trước khi feature có lịch sử nên chưa dùng feature này.
-- [Partition Shopee](docs/storage.md): chia tháng được áp dụng bằng maintenance rewrite; DP1 `createOrReplace` sẽ ghi lại partition ngày, chưa phải hành vi của pipeline.
+- [Agent eval](docs/edai-2/agent_evaluation.md): 12/12 trên AWS dùng SKU có `labeled_count_90d` dưới 7 chữ số; response mask `phoneNumber` che số đếm 7 chữ số, khiến lượt top seller chỉ đạt 9/12. Hướng sửa là bỏ `phoneNumber` khỏi response mask; đang chờ duyệt vì giảm một lớp guardrail.
+- [Sandbox Agent](docs/shared/rubric_cloud_audit.md): gọi tool đúng nhưng model 1,5B đọc `830847` thành `83,084`; đã chứng minh đường gọi tool, chưa bảo đảm chất lượng câu trả lời của model CPU nhỏ.
+- [Coordinator CI](docs/edai-2/cicd.md): deploy xanh, eval gate timeout (>180 s/câu); một LLM chạy CPU phục vụ chung mọi Agent.
+- [Ảnh chi tiết](docs/shared/rubric_cloud_audit.md) Spark schema evolution/dedup, Flink watermark, ERD dim–fact, Helm rollback và Coordinator scaling được chụp ở local; các job đã chạy trên AWS với receipt validate, nhưng chưa có đủ ảnh chi tiết AWS cho từng hành vi trên.
+- [MLflow](docs/edai-2/training_pipeline.md): có model version/tag trên AWS; chưa chụp data hash và artifacts train/test của cùng run.
+- [Stream feature](docs/edai-2/stream_features.md): `approved_returns_24h` trên AWS được replay từ nhãn Gold; model `return-risk` trên AWS train trước khi feature có lịch sử nên chưa dùng feature này.
+- [Partition Shopee](docs/edai-1/data_storage.md): chia tháng được áp dụng bằng maintenance rewrite; DP1 `createOrReplace` sẽ ghi lại partition ngày, chưa phải hành vi của pipeline.
 
 ## Giấy phép
 

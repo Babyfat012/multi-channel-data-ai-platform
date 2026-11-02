@@ -8,7 +8,7 @@ nguồn, `order_status` là trạng thái chuẩn. Cột chỉ có một bản (
 
 from __future__ import annotations
 
-# Trạng thái chuẩn (docs/terminology.md).
+# Trạng thái chuẩn (docs/shared/terminology.md).
 PENDING_PAYMENT = "pending_payment"
 AWAITING_SHIPMENT = "awaiting_shipment"
 SHIPPED = "shipped"
