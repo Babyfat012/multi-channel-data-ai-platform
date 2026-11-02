@@ -2,18 +2,10 @@
 
 Hai sơ đồ chính của dự án:
 
-- **Data Platform**: [PNG](data-platform-system-architecture.png) · [SVG](data-platform-system-architecture.svg) · [HTML](data-platform-system-architecture.html).
-- **ML + LLM Platform**: [PNG](ml-llm-platform-system-architecture.png) · [SVG](ml-llm-platform-system-architecture.svg) · [HTML](ml-llm-platform-system-architecture.html).
+- **Data Platform**: [PNG](data-platform-system-architecture-excalidraw.png) · [Excalidraw](data-platform-system-architecture.excalidraw).
+- **ML + LLM Platform**: [PNG](ml-llm-platform-system-architecture-excalidraw.png) · [Excalidraw](ml-llm-platform-system-architecture.excalidraw).
 
-Hai hình là **deployment topology**, với ranh giới lồng nhau và đối tượng triển khai:
-
-- Data: AWS → VPC → host EC2 → Docker bridge network → Compose service / container → Spark executor / task process. Spark có 1 master + 2 worker container; Flink có JobManager + TaskManager. DataHub có project / network riêng trên cùng host.
-- ML + LLM: AWS → VPC / managed EKS data plane → node group 2 worker → các namespace logic → Service → workload controller / ReplicaSet → từng Pod và container. AWS-managed control plane nằm ngoài VPC khách hàng và nối qua cluster API endpoint.
-- Mỗi Service ghi type, port → targetPort; Redis / pgvector có NodePort 30379 / 30432. Feature API trên AWS dùng ClusterIP, 2 Pod sau Service. Mũi tên selector chỉ các Pod được Service chọn qua EndpointSlice.
-- Deployment chứa các Pod replica minh họa; InferenceService tạo predictor Deployment / Service; Agent CR được kagent controller reconcile thành workload; KFP run tạo task Pods riêng. Số replica theo manifest, không phải ảnh chụp trạng thái live.
-- PVC / gp3 / EBS CSI / PV, Secret, ConfigMap, Ingress, ServiceAccount và Pod Identity được ghi trong hoặc cạnh namespace tương ứng. Các namespace phụ trợ có khung riêng.
-
-Node A/B là ký hiệu của hai worker trong sizing bằng chứng AWS, không phải hostname thật. Namespace không thuộc riêng một node; Pod của cùng namespace được scheduler phân bổ lên pool. Manifest có preferred anti-affinity cho Feature API / coordinator / data-agent nên không khẳng định mỗi replica ở một node. Các Pod(s) của chart/upstream chỉ được vẽ đại diện khi repo không pin số replica.
+Mỗi khối trắng là một đơn vị triển khai (Compose container, Deployment / Pod, Job hoặc managed service); khung màu là nhóm chức năng. Mũi tên đi theo chiều dữ liệu, có mô tả, đánh số và tô màu riêng cho từng luồng; nét đứt chỉ dùng cho luồng phụ (điều phối, CI/CD, observability, provisioning). Chú giải luồng nằm cuối mỗi hình.
 
 Nguồn đối chiếu rubric là [rubric guide](../rubric-guide.md) và [rubric × cloud audit](../rubric-cloud-audit.md). Các hình mô tả kiến trúc cấu hình trong repo; trạng thái triển khai và bằng chứng nằm trong tài liệu audit.
 
@@ -56,10 +48,4 @@ Nguồn cấu hình: `infra/k8s/`, `infra/helm/feature-api/`, `ci/jenkins/`, `sc
 
 Các giới hạn được ghi ngay dưới ảnh ML + LLM: model-agent chưa có KEDA; Coordinator CI eval còn timeout; drift là Job theo yêu cầu và không tự retrain. A/B, sandbox và DataHub bật theo pha. Chi tiết proof từng mục xem audit.
 
-## Sinh lại
-
-```bash
-python3 scripts/diagrams/system_architecture.py
-```
-
-Entry point gọi `scripts/diagrams/deployment_architecture.py`, có kiểm tra resource con nằm đúng khung cha. Script dùng thư viện chuẩn Python và librsvg / Cairo đã có trên máy để xuất PNG; SVG và HTML tự chứa, không tải font hoặc ảnh từ mạng. Hai hình có thể phóng lớn bằng SVG / HTML mà không mất nét.
+Mở và chỉnh file `.excalidraw` bằng excalidraw.com (File → Open) hoặc extension Excalidraw trong VS Code; xuất lại PNG khi đổi hình.

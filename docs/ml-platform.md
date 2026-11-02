@@ -10,7 +10,7 @@ ML Platform quản lý feature và vòng đời mô hình dự đoán rủi ro R
 | API phục vụ feature và dự đoán | `serving/`, `infra/helm/feature-api/` | [Web API](ml-llm-platform-web-api.md) |
 | Vận hành dùng chung | `infra/k8s/observability/`, `ci/jenkins/` | [Quan sát](ml-llm-platform-observability.md), [Vault](ml-llm-platform-vault.md), [CI/CD](ml-llm-platform-cicd.md) |
 
-[Kiến trúc ML + LLM Platform](diagrams/ml-llm-platform-system-architecture.html) · [Evidence ML Platform / LLM Platform](ml-llm-platform-evidence.md).
+[Kiến trúc ML + LLM Platform](diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Evidence ML Platform / LLM Platform](ml-llm-platform-evidence.md).
 
 Feature lấy từ [Data Platform](data-platform.md); dự đoán và feature được cung cấp cho [LLM Platform](llm-platform.md) qua API công cụ. Hạ tầng vận hành phục vụ cả hai platform.
 

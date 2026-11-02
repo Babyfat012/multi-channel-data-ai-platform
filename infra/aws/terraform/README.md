@@ -7,7 +7,7 @@ Terraform ≥1.6, provider `hashicorp/aws` `~> 6.0` (bản cụ thể ghim trong
 Dựng: VPC `10.42.0.0/16` + 1 public subnet + Internet Gateway, security group
 **không mở cổng vào**, một EC2 `t3.xlarge` Ubuntu 24.04, một EBS gp3 dữ liệu,
 IAM role (instance profile, không access key), 2 bucket S3 (`raw`, `lakehouse`),
-budget tùy chọn. Sơ đồ: [`docs/diagrams/aws-infra.html`](../../../docs/diagrams/aws-infra.html).
+budget tùy chọn. Sơ đồ: [`docs/diagrams/data-platform-system-architecture-excalidraw.png`](../../../docs/diagrams/data-platform-system-architecture-excalidraw.png).
 
 Trước khi chạy, kiểm quyền của AWS profile, quota và cấu hình instance/region của tài khoản triển khai theo [runbook](../../../docs/aws-deploy.md). Repo chưa có bằng chứng launch EC2 trên AWS.
 

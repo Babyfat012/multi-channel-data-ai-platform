@@ -36,28 +36,23 @@ Agent truy xuất feature, gọi model dự đoán và tìm chính sách trả h
 ## Kiến trúc
 
 System architecture được chia theo đúng hai phạm vi: **Data Platform** và **ML + LLM Platform**.
-Ảnh Data thể hiện AWS → VPC → EC2 → Docker network → container / process. Ảnh ML + LLM thể hiện EKS cluster, managed control plane, 2 worker node, namespace, Service → Deployment / ReplicaSet → Pod / container, PVC và identity.
+Mỗi khối là một đơn vị triển khai; mũi tên đi theo chiều dữ liệu, đánh số và tô màu theo từng luồng.
 Triển khai tham chiếu AWS ap-southeast-2: EC2 Data Platform + EKS `platform-apps`, S3 và ECR ngoài VPC.
 
 ### Data Platform
 
-![Data Platform — system architecture theo rubric](docs/diagrams/data-platform-system-architecture.svg)
+![Data Platform — system architecture](docs/diagrams/data-platform-system-architecture-excalidraw.png)
 
-[Ảnh PNG](docs/diagrams/data-platform-system-architecture.png) · [Phóng lớn SVG](docs/diagrams/data-platform-system-architecture.svg) · [Mở HTML](docs/diagrams/data-platform-system-architecture.html)
+[Bản Excalidraw](docs/diagrams/data-platform-system-architecture.excalidraw)
 
 ### ML + LLM Platform
 
-![ML + LLM Platform — system architecture theo rubric và namespace](docs/diagrams/ml-llm-platform-system-architecture.svg)
+![ML + LLM Platform — system architecture](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png)
 
-[Ảnh PNG](docs/diagrams/ml-llm-platform-system-architecture.png) · [Phóng lớn SVG](docs/diagrams/ml-llm-platform-system-architecture.svg) · [Mở HTML](docs/diagrams/ml-llm-platform-system-architecture.html)
+[Bản Excalidraw](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
 
 Hai ảnh nối nhau qua Gold / feature / training data, replay Return qua Kafka và DataHub governance.
 [Đối chiếu khối kiến trúc với rubric và cấu hình](docs/diagrams/README.md).
-Sinh lại SVG, HTML và PNG: `python3 scripts/diagrams/system_architecture.py`.
-
-Sơ đồ triển khai bổ sung: [AWS Data / ML](docs/diagrams/aws-architecture-layer12.html) · [AWS LLM / Agents](docs/diagrams/aws-architecture-layer3.html) · [hạ tầng AWS](docs/diagrams/aws-infra.html).
-Bản Excalidraw chi tiết: [AWS Data / ML](docs/diagrams/aws-architecture-layer12-excalidraw.excalidraw) · [AWS LLM / Agents](docs/diagrams/aws-architecture-layer3-excalidraw.excalidraw).
-Bản chạy local: [Data / ML Platform](docs/diagrams/data-ml-platform.png) · [LLM Platform](docs/diagrams/llm-platform.png).
 
 ## Bắt đầu
 

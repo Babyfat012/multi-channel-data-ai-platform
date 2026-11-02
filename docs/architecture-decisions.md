@@ -1,7 +1,7 @@
 # Kiến trúc Data & AI Platform Data Platform đã triển khai
 
 Nền tảng gom dữ liệu năm Channel của một Seller theo ba tầng Bronze, Silver,
-Gold. [Sơ đồ triển khai](diagrams/data-ml-platform.html) mô tả container và luồng
+Gold. [Sơ đồ triển khai](diagrams/data-platform-system-architecture-excalidraw.png) mô tả container và luồng
 dữ liệu; [thuật ngữ](terminology.md) định nghĩa các tầng và đối tượng nghiệp vụ.
 
 ## Iceberg, MinIO và REST catalog

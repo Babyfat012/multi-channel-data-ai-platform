@@ -4,7 +4,7 @@
 Đích: `ap-southeast-1`, một EC2 Data Platform batch + hai bucket S3. **Chưa chạy AWS**;
 kiểm offline tại readiness không thay proof apply.
 Các bước lệnh đầy đủ: [runbook AWS](aws-deploy.md).
-Sơ đồ [hạ tầng AWS](diagrams/aws-infra.html) có cả hướng mở rộng EKS; gói hiện
+Sơ đồ [Data Platform](diagrams/data-platform-system-architecture-excalidraw.png) có khối Terraform / Ansible; gói hiện
 tại không tạo cluster. Terraform quản lý EC2/VPC/S3/IAM; Ansible cấu hình runtime trên EC2. ML Platform / LLM Platform tiếp tục chạy local, chưa có bằng chứng triển khai lên EKS.
 
 ## Terraform tạo gì và vì sao

@@ -6,7 +6,7 @@ Các tài liệu v1 ghi pipeline DP1/DP2/DP3 và phép đo đã chạy. Tài li�
 
 ## Data Platform
 
-Bắt đầu: [phạm vi và code](data-platform.md) · [system architecture](diagrams/data-platform-system-architecture.html) · [trạng thái](data-platform-order-lifecycle-status.md).
+Bắt đầu: [phạm vi và code](data-platform.md) · [system architecture](diagrams/data-platform-system-architecture-excalidraw.png) · [trạng thái](data-platform-order-lifecycle-status.md).
 
 | Chủ đề | Tài liệu |
 |---|---|
@@ -25,7 +25,7 @@ Bắt đầu: [phạm vi và code](data-platform.md) · [system architecture](di
 
 ## ML Platform
 
-Bắt đầu: [phạm vi và code](ml-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture.html).
+Bắt đầu: [phạm vi và code](ml-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture-excalidraw.png).
 
 | Chủ đề | Tài liệu |
 |---|---|
@@ -36,7 +36,7 @@ Bắt đầu: [phạm vi và code](ml-platform.md) · [kiến trúc tổng thể
 
 ## LLM Platform
 
-Bắt đầu: [phạm vi và code](llm-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture.html).
+Bắt đầu: [phạm vi và code](llm-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture-excalidraw.png).
 
 | Chủ đề | Tài liệu |
 |---|---|
@@ -56,7 +56,7 @@ Hạ tầng vận hành dùng chung giữa các platform: [CI/CD](ml-llm-platfor
 
 - [Docker Compose](Docker.md): môi trường nguồn, profile và image.
 - [AWS runbook](aws-deploy.md), [IaC](IaC.md): đích EC2 + S3, thao tác triển khai và dọn tài nguyên.
-- Sơ đồ AWS: [hạ tầng](diagrams/aws-infra.html), [Data/ML Platform](diagrams/aws-architecture-layer12.html), [LLM Platform và Agent](diagrams/aws-architecture-layer3.html).
+- Sơ đồ: [Data Platform](diagrams/data-platform-system-architecture-excalidraw.png), [ML + LLM Platform](diagrams/ml-llm-platform-system-architecture-excalidraw.png).
 - [Kiến trúc đã triển khai](architecture-decisions.md), [ADR](adr/README.md), [code style](code-style.md), [GLOSSARY](../GLOSSARY.md).
 
 ## Hợp đồng thiết kế và nghiệm thu
