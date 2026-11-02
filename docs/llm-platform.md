@@ -10,7 +10,7 @@ LLM Platform cung cấp hội thoại cho Seller bằng LLM, RAG và agent sử 
 | Đánh giá và A/B | `ml/`, `infra/k8s/agents/` | [Eval](llm-platform-agent-eval.md), [A/B](llm-platform-ab-test.md) |
 | Vận hành dùng chung | `infra/k8s/observability/`, `ci/jenkins/` | [Quan sát](ml-llm-platform-observability.md), [Vault](ml-llm-platform-vault.md), [CI/CD](ml-llm-platform-cicd.md) |
 
-[Kiến trúc LLM Platform](diagrams/llm-platform.html) · [Evidence ML Platform / LLM Platform](ml-llm-platform-evidence.md).
+[Kiến trúc ML + LLM Platform](diagrams/ml-llm-platform-system-architecture.html) · [Evidence ML Platform / LLM Platform](ml-llm-platform-evidence.md).
 
 Agent truy vấn số liệu từ [Data Platform](data-platform.md), feature và dự đoán từ [ML Platform](ml-platform.md). API và hạ tầng vận hành dùng chung được dẫn chiếu từ cả hai platform.
 

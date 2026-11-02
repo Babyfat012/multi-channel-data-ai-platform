@@ -6,7 +6,7 @@ Các tài liệu v1 ghi pipeline DP1/DP2/DP3 và phép đo đã chạy. Tài li�
 
 ## Data Platform
 
-Bắt đầu: [phạm vi và code](data-platform.md) · [kiến trúc](diagrams/data-ml-platform.html) · [trạng thái](data-platform-order-lifecycle-status.md).
+Bắt đầu: [phạm vi và code](data-platform.md) · [system architecture](diagrams/data-platform-system-architecture.html) · [trạng thái](data-platform-order-lifecycle-status.md).
 
 | Chủ đề | Tài liệu |
 |---|---|
@@ -25,7 +25,7 @@ Bắt đầu: [phạm vi và code](data-platform.md) · [kiến trúc](diagrams/
 
 ## ML Platform
 
-Bắt đầu: [phạm vi và code](ml-platform.md) · [kiến trúc](diagrams/data-ml-platform.html).
+Bắt đầu: [phạm vi và code](ml-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture.html).
 
 | Chủ đề | Tài liệu |
 |---|---|
@@ -36,7 +36,7 @@ Bắt đầu: [phạm vi và code](ml-platform.md) · [kiến trúc](diagrams/da
 
 ## LLM Platform
 
-Bắt đầu: [phạm vi và code](llm-platform.md) · [kiến trúc](diagrams/llm-platform.html).
+Bắt đầu: [phạm vi và code](llm-platform.md) · [kiến trúc tổng thể](diagrams/ml-llm-platform-system-architecture.html).
 
 | Chủ đề | Tài liệu |
 |---|---|
