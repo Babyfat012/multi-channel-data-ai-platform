@@ -20,14 +20,15 @@
 </style>
 </head>
 <body>
-<div id="stage"><img id="map" src="data-platform-system-architecture.svg" alt="Data Platform system architecture"></div>
+<div id="stage"><img id="map" alt="Data Platform system architecture"></div>
 <div id="bar">
   <button id="out" title="Thu nhỏ (−)">−</button>
   <span id="pct">100%</span>
   <button id="in" title="Phóng to (+)">+</button>
   <button id="fit" title="Vừa màn hình (0)">Vừa màn hình</button>
   <button id="one" title="Kích thước gốc (1)">100%</button>
-  <a href="data-platform-system-architecture-excalidraw.png" title="Ảnh tĩnh">PNG</a>
+  <button id="mode" title="Chuyển ảnh động / ảnh tĩnh (s)">Ảnh tĩnh</button>
+  <a href="data-platform-system-architecture-excalidraw.png" download title="Tải PNG 7676 × 3722">Tải PNG</a>
 </div>
 <div id="hint">Cuộn chuột để zoom · kéo để di chuyển · nhấp đúp để phóng to</div>
 <script>
@@ -57,8 +58,23 @@ function fit() {
 }
 const centre = k => zoomAt(k, innerWidth / 2, innerHeight / 2);
 
-img.addEventListener('load', () => { W = img.naturalWidth; H = img.naturalHeight; fit(); });
-if (img.complete && img.naturalWidth) img.dispatchEvent(new Event('load'));
+// SVG động và PNG tĩnh (gấp đôi độ phân giải) cùng một hình. W/H lấy theo SVG nên đổi ảnh giữ nguyên zoom.
+const SRC = { anim: 'data-platform-system-architecture.svg', still: 'data-platform-system-architecture-excalidraw.png' };
+const mode = document.getElementById('mode');
+let still = new URLSearchParams(location.search).has('static');
+function setMode() {
+  img.src = still ? SRC.still : SRC.anim;
+  mode.textContent = still ? 'Ảnh động' : 'Ảnh tĩnh';
+  history.replaceState(null, '', still ? '?static' : location.pathname);
+}
+img.addEventListener('load', () => {
+  if (W) return;
+  W = img.naturalWidth / (still ? 2 : 1);
+  H = img.naturalHeight / (still ? 2 : 1);
+  fit();
+});
+mode.onclick = () => { still = !still; setMode(); };
+setMode();
 
 stage.addEventListener('wheel', e => { e.preventDefault(); zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
 stage.addEventListener('dblclick', e => zoomAt(2, e.clientX, e.clientY));
@@ -95,6 +111,7 @@ addEventListener('keydown', e => {
   else if (e.key === '-') centre(0.8);
   else if (e.key === '0') fit();
   else if (e.key === '1') centre(1 / s);
+  else if (e.key === 's') mode.click();
 });
 addEventListener('resize', fit);
 </script>
