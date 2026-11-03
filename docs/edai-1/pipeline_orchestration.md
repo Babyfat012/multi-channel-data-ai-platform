@@ -12,6 +12,40 @@ Airflow và Spark chạy bằng Compose trên EC2 Sydney, đọc raw S3 và Post
 [Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) và
 [manifest validation](../evidence/aws/datahub-validation-aws-20261029.json) giữ run_id và số đo.
 
+### Connection và Variable trên AWS
+
+Connection giữ thông tin kết nối dịch vụ; Variable giữ tham số của pipeline để đổi nguồn, phạm vi ngày
+và bảng đích mà không sửa DAG. Các mục dưới đây mô tả cấu hình repo hiện hành và cách DAG sử dụng;
+chưa phải ảnh chụp cấu hình của các lần chạy AWS bên dưới.
+
+| Cấu hình | Vai trò trong DP1–DP3 |
+|---|---|
+| Connection `spark_default` | Các task submit Spark dùng `conn_id="spark_default"`; [script setup](../../scripts/setup/setup_airflow.sh) đặt master `spark://spark-master:7077`, deploy mode `client` |
+| Connection `platform_postgres` | DP1 lấy host, port, database, user và password cho nguồn Walmart qua JDBC; [operator](../../dags/platform_spark_operator.py) đọc Connection lúc thực thi rồi chuyển thành biến môi trường cho job |
+| Variable `platform_spark_packages` | Chọn các package Spark cần nạp; Compose AWS cấp giá trị qua `AIRFLOW_VAR_PLATFORM_SPARK_PACKAGES` |
+| Variable `platform_dp1_amazon_source`, `platform_dp1_extra_source_root` | Trỏ đến export trên S3; [Compose AWS](../../docker-compose.aws.yml) đặt lần lượt `s3a://${RAW_BUCKET}/order_snapshots/source-exports/channel=amazon/dataset=orders` và `s3a://${RAW_BUCKET}/order_snapshots/source-exports` |
+| Variable `platform_dp1_amazon_window_days`, `platform_dp1_amazon_window_start` | Điều khiển cửa sổ ngày của Amazon; Compose AWS đặt `window_days=0` để đọc toàn bộ phạm vi, thay cho cửa sổ thử 10 ngày của script setup local |
+| Variable tên bảng `platform_dp1_*_table`, `platform_dp2_*_table`, `platform_dp3_gold_source_table`, `platform_dp3_feature_table` | Xác định bảng Bronze, Silver, Gold, SCD2 và feature cho các task ingest/build/validate tương ứng |
+| Variable `platform_warehouse_name`, `platform_lakekeeper_catalog_uri` | Operator đọc lúc thực thi, chuyển thành `WAREHOUSE_NAME` và `LAKEKEEPER_CATALOG_URI` để Spark truy cập catalog Iceberg |
+
+Trên AWS, `PLATFORM_STORAGE=s3`: operator bỏ qua Connection `platform_minio` và Variable
+`platform_minio_internal_endpoint`. Spark/Iceberg dùng credential tạm từ IAM role EC2 qua IMDSv2,
+theo [Compose AWS](../../docker-compose.aws.yml); không cần đặt access key MinIO cho đường S3 này.
+Connection `platform_kafka` phục vụ nhóm task Kafka/CDC, không phải nguồn của DP1–DP3 batch mô tả ở đây.
+
+Airflow đọc Variable từ `AIRFLOW_VAR_<TÊN_VIẾT_HOA>` trước giá trị cùng tên trong metadata DB.
+Ví dụ, `AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS=0` của container AWS có thể ghi đè giá trị `10`
+đã lưu bằng script setup. Variable cấp qua môi trường không xuất hiện trong danh sách Admin → Variables;
+sửa giá trị trong UI cũng không thay giá trị môi trường đang được ưu tiên. Vì vậy cần đối chiếu cả
+Compose và giá trị được Airflow resolve khi kiểm tra cấu hình thực tế.
+
+**Bằng chứng và phần còn thiếu:** kiểm chứng lookup Connection/Variable ngày 15/10 trong mục tham khảo
+là **local**. Chưa có ảnh Admin → Connections/Variables trên AWS trong tài liệu này.
+Khi Airflow AWS được bật, bổ sung ảnh danh sách Connections (`spark_default`, `platform_postgres`)
+và Variables liên quan DP1–DP3, kèm ngày/môi trường; giữ mật khẩu ở trạng thái che.
+Với Variable cấp qua môi trường, ghi thêm giá trị không nhạy cảm mà `Variable.get(...)` resolve
+trong container Airflow và đối chiếu với Compose; ảnh danh sách UI riêng lẻ không chứng minh được các giá trị đó.
+
 ### DP1: nguồn → Bronze
 
 Run `manual__2026-10-27T14:58:12+00:00`, 10/10 task success.
