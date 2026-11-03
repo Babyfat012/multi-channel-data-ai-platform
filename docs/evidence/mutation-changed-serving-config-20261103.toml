@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.mutmut]
+paths_to_mutate = ["serving/app.py"]
+tests_dir = ["serving/tests"]
+also_copy = ["serving/tests", "rag", "feature_repo"]

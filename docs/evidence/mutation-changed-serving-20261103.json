@@ -1,0 +1,60 @@
+{
+  "started_at": "2026-11-03T10:25:01.882267+00:00",
+  "base": "3cd3fcde78b736b86cab578983ea19a1f5e96b98",
+  "head": "89cd44e5d3b2405b58ea71bd4c8400b354f5908f",
+  "comparison": "base tree to head tree; added/modified files; renames treated as delete/add",
+  "scope": [
+    "serving/app.py"
+  ],
+  "changed_python_files": [
+    "dags/ml_feature_materialize.py",
+    "feature_repo/publication.py",
+    "feature_repo/publish_batch.py",
+    "ml/serve.py",
+    "serving/app.py",
+    "serving/tests/test_app.py",
+    "tests/integration/test_publication_redis.py",
+    "tests/unit/dags/test_ml_feature_materialize.py",
+    "tests/unit/test_feature_publication.py",
+    "tests/unit/test_redis_persistence.py",
+    "tests/unit/test_serve.py"
+  ],
+  "selected_files": [
+    "serving/app.py"
+  ],
+  "excluded_files": [
+    "dags/ml_feature_materialize.py",
+    "feature_repo/publication.py",
+    "feature_repo/publish_batch.py",
+    "ml/serve.py",
+    "serving/tests/test_app.py",
+    "tests/integration/test_publication_redis.py",
+    "tests/unit/dags/test_ml_feature_materialize.py",
+    "tests/unit/test_feature_publication.py",
+    "tests/unit/test_redis_persistence.py",
+    "tests/unit/test_serve.py"
+  ],
+  "granularity": "whole changed files, not changed lines",
+  "runner_config_sha256": "6fb2622273d300693c07dd98a9ea3f55af32312f7c7b371e358c355a5f132698",
+  "source_sha256": {
+    "serving/app.py": "b298775e1d3e65df50759b17200fde45600bca7abfc2b15356c19bd7d40e9706"
+  },
+  "status": "passed",
+  "mutmut_version": "3.3.1",
+  "run_exit_code": 0,
+  "results_exit_code": 0,
+  "summary": {
+    "counts": {
+      "no tests": 14,
+      "killed": 219,
+      "survived": 12
+    },
+    "total": 245,
+    "complete": true,
+    "killed_percent_all": 89.38775510204081,
+    "killed_percent_tested": 94.8051948051948,
+    "detected_percent_tested": 94.8051948051948,
+    "passed": true
+  },
+  "finished_at": "2026-11-03T10:28:32.505774+00:00"
+}

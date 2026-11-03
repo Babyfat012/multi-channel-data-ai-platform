@@ -10,6 +10,8 @@ PR testing chạy trên máy phát triển, không gắn nhãn test chạy AWS. 
 
 ## Mutation testing (mutmut)
 
+### Kết quả lịch sử 31/10: toàn bộ file
+
 Cấu hình [`[tool.mutmut]`](../../pyproject.toml) chọn `serving/app.py`, dùng bộ test
 [`serving/tests/test_app.py`](../../serving/tests/test_app.py) và sao chép `rag` để test các nhánh RAG.
 Chạy offline với dependency đã cache (mutmut 3.3.1):
@@ -43,13 +45,70 @@ Lần chạy 2026-10-31 (laptop, 4 tiến trình, ~2,5 phút): **171 mutant** tr
 timeout/no tests trong ảnh cho gọn. Lần chạy đầu trong sandbox của công cụ AI bị treo vì sandbox chặn socket nội bộ
 (`TestClient` cần), không phải lỗi test.
 
-Mutmut 3.3.1 có bộ chọn tên mutant ở `mutmut run [MUTANT_NAMES]...`, không có tùy chọn chọn dòng
-theo Git diff trong `mutmut run --help`. Lần này mutate **toàn bộ `serving/app.py`**, file thay đổi nhiều
-của Web API, theo cấu hình trên; không khẳng định chỉ mutate các dòng đổi. Để giới hạn theo file ở lần
-sau, dùng `git diff --name-only <base> -- '*.py'` lấy danh sách file đổi, đối chiếu và cập nhật
-`paths_to_mutate` tương ứng trước khi chạy; cách này vẫn không giới hạn từng dòng trong file.
+Lần 31/10 mutate toàn bộ `serving/app.py`; chưa có bước chọn file từ Git diff. Kết quả đó giữ nguyên
+là bằng chứng lịch sử, không dùng để chứng minh chỉ mutate code thay đổi.
 
+### Chọn file thay đổi theo Git
 
+[`run_changed_mutation.py`](../../scripts/evidence/run_changed_mutation.py) nhận hai mốc Git `--base` và
+`--head`, resolve thành commit SHA đầy đủ rồi lấy file Python thêm/sửa bằng `git diff --no-renames
+--diff-filter=AM --name-only`. Đổi tên được xét như xóa file cũ và thêm file mới; file bị xóa không mutate.
+Script loại test, lấy giao với `paths_to_mutate` của cấu hình Web API (hiện là `serving/app.py`), rồi ghi
+toàn bộ danh sách đã chọn và bị loại vào manifest. Các module DAG, ML và feature publication ngoài scope
+Web API không được tính là đã kiểm chứng bằng lần chạy này.
+
+Script xuất code và test **đúng tại head** sang thư mục tạm, tạo cấu hình mutmut riêng chỉ chứa các file
+được chọn. Working tree và cấu hình gốc không bị sửa; thay đổi chưa commit không nằm trong snapshot.
+`also_copy` gồm `rag` và `feature_repo` để import dependency nội bộ của API, các module này không bị mutate.
+Đây là chọn theo **file thay đổi**, vẫn mutate toàn bộ file; không giới hạn từng dòng đổi.
+
+Chạy từ gốc repo với Python 3.12 và dependency trong `serving/requirements-dev.txt`:
+
+```bash
+# Xem trước phạm vi, chưa chạy mutation.
+uv run --no-project --python 3.12 --with-requirements serving/requirements-dev.txt \
+  python scripts/evidence/run_changed_mutation.py \
+  --base '89cd44e^' --head 89cd44e --dry-run --output out/mutation-plan
+
+# Chạy thật trên cùng hai mốc; output phải là thư mục mới.
+uv run --no-project --python 3.12 --with-requirements serving/requirements-dev.txt \
+  python scripts/evidence/run_changed_mutation.py \
+  --base '89cd44e^' --head 89cd44e --max-children 2 --output out/mutation-changed
+```
+
+Khi kiểm thay đổi khác, thay hai ref bằng base/head cần đánh giá; script so trực tiếp hai cây commit,
+không tự tìm merge-base. Không có file phù hợp thì manifest ghi `skipped`, không ghi `passed`.
+`--dry-run` có file phù hợp ghi `planned`. Log `run.txt`, kết quả từng mutant `results.txt`, cấu hình
+`mutation-config.toml` và `manifest.json` được giữ ở output; manifest có SHA code, SHA cấu hình và phiên bản mutmut.
+
+Ngưỡng pass của script là **killed / tổng mutant >80%**, tính cả `no tests` trong mẫu số và không gộp timeout
+vào killed. Manifest ghi thêm hai cách tính có loại `no tests` để đối chiếu với báo cáo lịch sử.
+Mutant chưa kiểm, lỗi chạy, kết quả rỗng hoặc score không đạt làm script trả lỗi; skip không phải kết quả đạt rubric.
+
+### Kết quả local 03/11/2026: file được chọn từ Git diff
+
+So base `3cd3fcd` (`89cd44e^`) với head `89cd44e`: có 11 file Python thêm/sửa trong toàn commit,
+nhưng giao với scope Web API chỉ chọn **`serving/app.py`**. Test API và các module ngoài scope được liệt kê
+ở `excluded_files`, không được tính là đã mutation-test trong lần này.
+Mutmut 3.3.1 chạy 2 tiến trình, hoàn tất trong khoảng 3 phút 31 giây, exit code 0.
+
+| Kết quả | Số mutant |
+|---|---:|
+| Killed | 219 |
+| Survived | 12 |
+| No tests | 14 |
+| Timeout | 0 |
+| Tổng | 245 |
+
+**Score bảo thủ = 219/245 = 89,4% >80%**, tính cả `no tests` trong mẫu số.
+Nếu loại `no tests`, score = 219/231 = **94,8%**. Chưa kết luận 12 mutant sống là tương đương;
+14 mutant không có test vẫn là giới hạn của bộ test. Các trạng thái còn lại bằng 0, không có mutant chưa kiểm.
+
+Bằng chứng: [manifest và SHA code](../evidence/mutation-changed-serving-20261103.json),
+[log chạy](../evidence/mutation-changed-serving-20261103.txt),
+[kết quả từng mutant](../evidence/mutation-changed-serving-results-20261103.txt),
+[cấu hình thực chạy](../evidence/mutation-changed-serving-config-20261103.toml).
+Đây là kiểm chứng local, giới hạn theo file thay đổi trong scope Web API, không phải theo dòng và không phải run Jenkins/AWS.
 
 #### Load test trên EKS
 
