@@ -12,6 +12,17 @@ Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày,
 [Airflow AWS](pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28) nhúng Graph/Gantt của các pipeline đã chạy.
 Cấu hình triển khai: [Compose AWS](../../docker-compose.aws.yml).
 
+Các kỹ thuật tối ưu trong [`Dockerfile`](../../Dockerfile), đối chiếu với bản
+[`Dockerfile.naive`](../../docker/Dockerfile.naive):
+
+| Kỹ thuật | Cách áp dụng và tác dụng |
+|---|---|
+| Base image slim | Dùng `python:3.12-slim`, giảm thành phần hệ điều hành không cần khi chạy |
+| Multi-stage | Stage cuối chỉ copy `.venv` và `configs/`, không mang theo công cụ cài đặt và cache của stage build |
+| Cache ngoài image | Dùng BuildKit `--mount=type=cache` cho `uv`, tái sử dụng cache khi build mà không lưu cache đó trong image |
+| Tách lớp thư viện và code | Copy `pyproject.toml` và `uv.lock`, cài thư viện trước khi copy generator; sửa code vẫn tận dụng cache lớp thư viện |
+| Giảm build context | [`.dockerignore`](../../.dockerignore) loại dữ liệu sinh, môi trường ảo, Git và tài liệu; áp dụng cho cả hai image |
+
 Đo lại trên chính EC2 (2026-10-31) bằng [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh):
 build [`docker/Dockerfile.naive`](../../docker/Dockerfile.naive) và [`Dockerfile`](../../Dockerfile) từ cùng code, liệt kê
 thư viện trong từng image bằng `importlib.metadata` rồi `diff` ⇒ **cùng 27 package** (cùng `requirements.lock`), nên phần
