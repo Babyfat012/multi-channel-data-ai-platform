@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 400" width="1300" height="400" font-family="Helvetica, Arial, sans-serif">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#444"/></marker></defs>
+  <rect width="1300" height="400" fill="#fff"/>
+  <text x="10" y="22" font-size="15" font-weight="700" fill="#222">Luồng xử lý stream: Generator → Kafka → Flink SQL → file CSV (EC2, Flink 1.20.3)</text>
+  <g stroke="#444" stroke-width="1.6" fill="none" marker-end="url(#a)">
+    <polyline points="150,185 200,185 200,100 250,100"/>
+    <polyline points="150,215 200,215 200,300 250,300"/>
+    <line x1="440" y1="70" x2="700" y2="70"/><line x1="440" y1="130" x2="700" y2="130"/>
+    <line x1="440" y1="270" x2="700" y2="270"/><line x1="440" y1="330" x2="700" y2="330"/>
+    <line x1="890" y1="70" x2="1010" y2="70"/><line x1="890" y1="130" x2="1010" y2="130"/>
+    <line x1="890" y1="270" x2="1010" y2="270"/><line x1="890" y1="330" x2="1010" y2="330"/>
+  </g>
+  <g font-size="11.5" fill="#333">
+    <text x="195" y="150" text-anchor="end">① Amazon JSON</text>
+    <text x="195" y="262" text-anchor="end">① TikTok JSON</text>
+    <text x="570" y="63" text-anchor="middle">② đọc nguyên văn</text>
+    <text x="570" y="123" text-anchor="middle">② watermark event_ts − 1 giờ</text>
+    <text x="570" y="263" text-anchor="middle">② ROW_NUMBER theo ID, state theo khóa</text>
+    <text x="570" y="323" text-anchor="middle">② watermark 30 s; TUMBLE 5 ph, HOP 5/1 ph</text>
+    <text x="950" y="63" text-anchor="middle">③ CSV</text><text x="950" y="123" text-anchor="middle">③ tin trễ</text>
+    <text x="950" y="263" text-anchor="middle">③ bản đầu</text><text x="950" y="323" text-anchor="middle">③ đếm cửa sổ</text>
+  </g>
+  <g stroke-width="1.6" font-size="13" text-anchor="middle" fill="#222">
+    <rect x="10" y="160" width="140" height="80" rx="8" fill="#f3e8ff" stroke="#8a4fd0"/>
+    <text x="80" y="196" font-weight="700">Generator</text><text x="80" y="214" font-size="11.5">stream producer</text>
+    <rect x="250" y="50" width="190" height="100" rx="8" fill="#fff4e5" stroke="#d9822b"/>
+    <text x="345" y="94" font-weight="700">Kafka</text><text x="345" y="112" font-size="11.5">amazon.order-notifications</text>
+    <rect x="250" y="250" width="190" height="100" rx="8" fill="#fff4e5" stroke="#d9822b"/>
+    <text x="345" y="294" font-weight="700">Kafka</text><text x="345" y="312" font-size="11.5">tiktok_shop.order-webhooks</text>
+    <g fill="#e8f0fe" stroke="#3b6fd4">
+      <rect x="700" y="45" width="190" height="50" rx="8"/><rect x="700" y="105" width="190" height="50" rx="8"/>
+      <rect x="700" y="245" width="190" height="50" rx="8"/><rect x="700" y="305" width="190" height="50" rx="8"/>
+    </g>
+    <text x="795" y="75" font-weight="700">baseline.sql</text><text x="795" y="135" font-weight="700">late_arrival.sql</text>
+    <text x="795" y="275" font-weight="700">dedup_webhooks.sql</text><text x="795" y="335" font-weight="700">windows.sql</text>
+    <g fill="#eef7ee" stroke="#3a8a3a">
+      <rect x="1010" y="45" width="280" height="50" rx="8"/><rect x="1010" y="105" width="280" height="50" rx="8"/>
+      <rect x="1010" y="245" width="280" height="50" rx="8"/><rect x="1010" y="305" width="280" height="50" rx="8"/>
+    </g>
+    <text x="1150" y="75">baseline-amazon</text><text x="1150" y="135">late-amazon-1ms</text>
+    <text x="1150" y="275">unique-tiktok</text><text x="1150" y="335">tiktok-tumble / tiktok-hop</text>
+  </g>
+  <text x="10" y="385" font-size="11.5" fill="#555">Mỗi job SQL là một consumer group riêng, tự giữ watermark/state. Đích là CSV trên EBS /mnt/platform-data/flink.</text>
+</svg>

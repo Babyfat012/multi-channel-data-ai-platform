@@ -90,19 +90,7 @@ Flink 1.20.3 và Kafka chạy Compose trên EC2; đầu ra bounded ở EBS `/mnt
 
 ### Luồng xử lý stream tổng thể
 
-```mermaid
-flowchart LR
-  G["Generator (stream producer)"] -->|"① Amazon notification JSON"| KA[("Kafka<br/>amazon.order-notifications")]
-  G -->|"① TikTok webhook JSON"| KT[("Kafka<br/>tiktok_shop.order-webhooks")]
-  KA -->|"② đọc nguyên văn"| B["baseline.sql"]
-  KA -->|"② watermark event_ts − 1 giờ"| L["late_arrival.sql"]
-  KT -->|"② ROW_NUMBER theo ID, state theo khóa"| D["dedup_webhooks.sql"]
-  KT -->|"② watermark 30 giây, TUMBLE 5 phút + HOP 5/1 phút"| W["windows.sql"]
-  B -->|"③ CSV"| O1["baseline-amazon"]
-  L -->|"③ tin có event_ts ≤ watermark"| O2["late-amazon-1ms"]
-  D -->|"③ webhook duy nhất"| O3["unique-tiktok"]
-  W -->|"③ số Order mỗi cửa sổ"| O4["tiktok-tumble / tiktok-hop"]
-```
+![Luồng xử lý stream: Generator phát vào hai topic Kafka; bốn job Flink SQL (baseline, late arrival, dedup, window) ghi CSV](../images/flink/stream-flow.svg)
 
 ① Generator phát Amazon (có trễ và đảo thứ tự) và TikTok (có trùng ID) vào hai topic Kafka. ② Mỗi job SQL là một
 consumer group riêng trên Flink 1.20.3 (JobManager + TaskManager, Compose EC2), tự giữ watermark/state của mình.
