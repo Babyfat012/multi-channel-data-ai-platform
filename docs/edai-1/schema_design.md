@@ -43,9 +43,46 @@ feature = Gold, 0 thiếu/thừa). Bản dbdiagram: [`gold-erd.dbml`](../diagram
 
 Ảnh vẽ từ [`gold-erd.dbml`](../diagrams/gold-erd.dbml) bằng dbdiagram.io (schema Gold đã chạy trên AWS, không phải ảnh chụp DBeaver).
 
+#### Chuẩn bị ảnh DBeaver có đường nối
 
-Ảnh DBeaver ER Diagram có đường nối chưa chụp. DBeaver chỉ vẽ đường nối khi bảng có khóa ngoại; với Trino/Iceberg
-cần khai khóa ngoại ảo (virtual foreign key) rồi mở lại ER Diagram của schema `gold`, rồi chụp bản có đường nối.
+**Trạng thái:** đã có DBML và ảnh dbdiagram; còn thiếu ảnh DBeaver có đường nối trên AWS.
+Các bước dưới đây là hướng dẫn cho đợt bật AWS tiếp theo, chưa phải bằng chứng đã thực hiện.
+
+1. Bật EC2 Data Platform và các dịch vụ Trino, Lakekeeper, PostgreSQL phục vụ catalog; giữ quyền đọc S3
+   qua IAM role EC2. T07 không cần EKS, cũng không cần chạy lại DP1–DP3 nếu các bảng Gold còn đầy đủ.
+2. Mở tunnel từ máy dùng DBeaver tới cổng Trino loopback trên EC2 (mặc định `8083`, xem
+   [Compose AWS](../../docker-compose.aws.yml) và [AWS runbook](../shared/aws_deploy.md)).
+   Kiểm tra tunnel có forward cổng này; nếu máy local đang dùng `8083`, chọn cổng local khác.
+3. Trong DBeaver, tạo kết nối driver Trino tới `localhost`, cổng local của tunnel, user `platform`,
+   catalog `lakehouse`, schema `gold`. Đặt tên kết nối rõ `AWS Trino` để phân biệt với local.
+   Kiểm tra metadata bằng các câu SQL sau:
+
+   ```sql
+   SHOW TABLES FROM lakehouse.gold;
+   DESCRIBE lakehouse.gold.dim_amazon_order_dp2;
+   DESCRIBE lakehouse.gold.fact_order_lines_dp2;
+   ```
+
+4. Tạo custom ER Diagram trong DBeaver (File → New → DBeaver → ER Diagram), thêm hai bảng
+   `dim_amazon_order_dp2` và `fact_order_lines_dp2` từ kết nối AWS.
+   Tạo quan hệ ảo bằng cách kéo cột nguồn sang cột đích hoặc dùng Connection trong Palette,
+   rồi xác nhận đúng cặp cột dưới đây. Quan hệ trong custom diagram là virtual foreign key,
+   chỉ lưu trong DBeaver, không thêm constraint vào Iceberg.
+
+| Bảng nguồn | Cột nguồn | Bảng được tham chiếu | Cột đích |
+|---|---|---|---|
+| `fact_order_lines_dp2` | `amazon_order_version_key` | `dim_amazon_order_dp2` | `order_version_key` |
+
+Đây là quan hệ nhiều Order Line tới một phiên bản Order Amazon; bốn Channel khác có
+`amazon_order_version_key = NULL`. Có thể thêm các quan hệ theo `order_line_key` từ feature và bảng nhãn
+về fact theo [DBML](../diagrams/gold-erd.dbml), sau khi xác nhận bảng/cột thực tế tồn tại.
+Hướng dẫn thao tác: [DBeaver custom diagrams](https://github.com/dbeaver/dbeaver/wiki/Custom-Diagrams),
+[virtual keys](https://github.com/dbeaver/dbeaver/wiki/Virtual-Keys).
+
+Khi chụp, hiển thị rõ tên kết nối AWS, hai tên bảng, cột khóa và đường nối; ghi ngày chụp cùng môi trường.
+Lưu ảnh tại `docs/images/schema/dbeaver-erd-dim-fact-aws-YYYYMMDD.png`, rồi nhúng ngay tại mục này và
+ghi chú đường nối là quan hệ logic được khai trong DBeaver. Chỉ hoàn tất phần bằng chứng khi có ảnh đó;
+ảnh local trong mục tham khảo bên dưới vẫn giữ nhãn local.
 
 SCD2: `valid_from_ts` / `valid_to_ts` / `is_current` cho từng phiên bản trạng thái của một `order_id`, khoá phiên
 bản `order_version_key` là khoá fact dùng để nối (quan hệ dim–fact xem [ERD bên dưới](#erd-quan-hệ-dimfact-gold)).
