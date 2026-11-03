@@ -45,7 +45,9 @@ apply thành công không chứng minh stream pusher đã ghi dữ liệu. Lần
 
 Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
 
-### Công bố batch A/B (code ngày 02/11, chưa triển khai AWS)
+### Công bố batch A/B (thiết kế đã code ngày 02/11, chưa chạy trên AWS)
+
+Mục này mô tả code và test đã có trong repo; chưa có lần chạy AWS nào, nên không dùng làm bằng chứng cloud.
 
 Redis standalone dùng DB0 cho stream, DB1/DB2 luân phiên cho batch. A/B là hai bộ feature
 của cùng các SKU. Các DB dùng chung RAM/CPU/AOF; đây không phải hai Redis có khả năng
@@ -93,7 +95,7 @@ release cũ giữ trên S3 để truy vết; chính sách dọn S3 và ngưỡng
 ## Kho feature (Feast) — ML Platform bước 2
 
 Pipeline Airflow tạo feature OFFLINE, nạp một bản batch ONLINE riêng, đối soát rồi công bố.
-Phần bằng chứng tháng 10 bên dưới ghi lại luồng incremental cũ trước khi bổ sung publication A/B ngày 02/11.
+Phần bằng chứng tháng 10 bên dưới ghi lại luồng incremental cũ, có trước publication A/B (code ngày 02/11, chưa chạy trên AWS).
 
 ## Đường đi của dữ liệu
 
@@ -101,7 +103,7 @@ Phần bằng chứng tháng 10 bên dưới ghi lại luồng incremental cũ t
 Iceberg Gold (lifecycle_fact_order_lines + lifecycle_label_segments)
    │ ① Spark: export_sku_daily_features.py — ảnh chụp mỗi SKU lúc 00:00 UTC mỗi ngày
    ▼
-Parquet  s3://platform/feature-store/sku_daily/          ← kho OFFLINE (MinIO; GCP: gs://)
+Parquet  s3://platform/feature-store/sku_daily/          ← kho OFFLINE (MinIO local; AWS: S3)
    │ ② feast apply — ghi định nghĩa vào registry s3://platform/feature-store/registry.db
    │ ③ feast materialize-incremental <end> — chỉ nạp ảnh chụp trong (lần trước, end]
    ▼

@@ -146,12 +146,10 @@ Run `rag_local_202610211739`:
 | embed | success | 13 s (model nằm trong volume Airflow sau lần đầu) |
 | load | success | 26 s (`feast apply` + `write_to_online_store`) |
 | validate | success | 11 s — 6/6 check = 0, 3 câu hỏi mẫu ra đúng tài liệu |
-| publish | skipped | chưa đặt Variable `platform_datahub_gms_url` (DataHub để lên GCP) |
+| publish | skipped | chưa đặt Variable `platform_datahub_gms_url` (lần chạy local này chưa dựng DataHub; bước publish đã chạy trên AWS ở mục trên) |
 
 Receipt: [`evidence/rag-validate-airflow-20261021.json`](../evidence/rag-validate-airflow-20261021.json). CI/CD:
 [`ci/jenkins/rag-pipeline.Jenkinsfile`](../../ci/jenkins/rag-pipeline.Jenkinsfile).
-
-Còn lại cho GCP: chạy DataHub, đặt `platform_datahub_gms_url`, chạy lại DAG để `publish` đẩy dataset/job/lineage/assertion; ảnh Graph/Grid Airflow và Lineage DataHub.
 
 </details>
 
