@@ -21,7 +21,7 @@ Data Platform chạy Compose trên EC2, raw/lakehouse ở S3. ML/LLM chạy EKS 
 
 ## Tài liệu dùng chung
 
-[Mục lục dùng chung](shared/README.md) · [ADR](adr/README.md) · [Sơ đồ](diagrams/README.md) · [GLOSSARY](../GLOSSARY.md).
+[Mục lục dùng chung](shared/README.md) · [Sơ đồ](diagrams/README.md) · [GLOSSARY](../GLOSSARY.md).
 
 Khi cập nhật: sửa trang thành phần, ghi ngày/môi trường/giới hạn số đo, giữ evidence gốc và kiểm tra link bằng `uv run pytest -q tests/unit/test_docstrings.py`.
 

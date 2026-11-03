@@ -62,7 +62,7 @@ không gán run_id của benchmark cho run DAG.
 
 DP2 AWS đã validate Silver/Gold không lỗi ([schema evolution và dedup](#trên-aws-2026-10-28)).
 Chưa có ảnh Spark UI AWS thể hiện Union parse schema cũ/mới và Window dedup như yêu cầu chi tiết của rubric;
-log PASS không thay thế capture đó cho DE13–14.
+log PASS không thay thế capture đó cho DE13–14. Ảnh **local** cùng job: [Union và Window dedup, schema details](reference/spark.md#10-proof-silver-schema-evolution-và-dedup-trong-execution-3) (Spark UI, nguồn Amazon).
 
 <a id="trên-aws-2026-10-28"></a>
 ## Spark: schema evolution và dedup, 28/10/2026
@@ -88,6 +88,50 @@ Flink 1.20.3 và Kafka chạy Compose trên EC2; đầu ra bounded ở EBS `/mnt
 [Manifest AWS](../evidence/aws/stream-manifest-20261028.json) ghi job_id, số đầu vào/đầu ra và cấu hình generator.
 Ảnh Completed Jobs có baseline, late, dedup, state proof và windows đều FINISHED.
 
+### Luồng xử lý stream tổng thể
+
+```mermaid
+flowchart LR
+  G["Generator (stream producer)"] -->|"① Amazon notification JSON"| KA[("Kafka<br/>amazon.order-notifications")]
+  G -->|"① TikTok webhook JSON"| KT[("Kafka<br/>tiktok_shop.order-webhooks")]
+  KA -->|"② đọc nguyên văn"| B["baseline.sql"]
+  KA -->|"② watermark event_ts − 1 giờ"| L["late_arrival.sql"]
+  KT -->|"② ROW_NUMBER theo ID, state theo khóa"| D["dedup_webhooks.sql"]
+  KT -->|"② watermark 30 giây, TUMBLE 5 phút + HOP 5/1 phút"| W["windows.sql"]
+  B -->|"③ CSV"| O1["baseline-amazon"]
+  L -->|"③ tin có event_ts ≤ watermark"| O2["late-amazon-1ms"]
+  D -->|"③ webhook duy nhất"| O3["unique-tiktok"]
+  W -->|"③ số Order mỗi cửa sổ"| O4["tiktok-tumble / tiktok-hop"]
+```
+
+① Generator phát Amazon (có trễ và đảo thứ tự) và TikTok (có trùng ID) vào hai topic Kafka. ② Mỗi job SQL là một
+consumer group riêng trên Flink 1.20.3 (JobManager + TaskManager, Compose EC2), tự giữ watermark/state của mình.
+③ Đích là CSV trên EBS `/mnt/platform-data/flink`, đối chiếu với [manifest](../evidence/aws/stream-manifest-20261028.json).
+Pipeline stream phục vụ feature store (Kafka → Flink HOP 24h → Redis/S3) là job riêng, xem [Streaming Feature](../edai-2/stream_features.md).
+
+### Late arrival: tin muộn được xử lý thế nào
+
+Amazon gửi notification không theo thứ tự thời gian. [`late_arrival.sql`](../../flink_jobs/order_snapshots/late_arrival.sql)
+khai `WATERMARK FOR event_ts AS event_ts - INTERVAL '1' HOUR`: watermark của partition luôn đứng sau event time mới nhất đã thấy
+đúng một giờ. Một tin có `event_ts <= CURRENT_WATERMARK(event_ts)` là tin đã bị watermark vượt qua nên được ghi riêng vào
+`late-amazon-1ms`, kèm cột `watermark_time` để tự chứng minh. Ví dụ dòng thật trong đầu ra (lần chạy 2026-10-14, local, cùng SQL):
+
+| notification_id | event_time (xảy ra) | publish_time (đến) | watermark_time lúc xử lý | partition | Vì sao là late |
+|---|---|---|---|---:|---|
+| `qb8vznf1-5f5n-…` | 2026-06-30 01:24:05 | 2026-06-30 02:45:52 | 01:32:34 | 1 | event_time < watermark: tin mới nhất đã tới ≈ 02:32, tin này cũ hơn hơn một giờ |
+| `jpf2a4lb-5p3l-…` | 2026-06-30 01:22:09 | 2026-06-30 03:07:25 | 01:48:31 | 1 | event_time < watermark, đến trễ 1 giờ 45 phút |
+| `icu0oal9-bifb-…` | 2026-06-30 00:28:23 | 2026-06-30 03:09:07 | 01:48:31 | 1 | event_time < watermark, đến trễ 2 giờ 41 phút |
+
+Cả 9.143 dòng của lần chạy đó đều có `event_time <= watermark_time` (trễ từ vài giây đến khoảng 4,9 giờ so với watermark).
+Tin không muộn quá ngưỡng một giờ không vào file này, nên số dòng nhỏ hơn số tin out-of-order của generator (19.729).
+Ảnh Completed Jobs/graph bên dưới chỉ chứng minh job chạy; **bằng chứng xử lý là cột `watermark_time` ở trên**.
+Lần AWS 28/10 chưa chụp lại các dòng này từ `/mnt/platform-data/flink/late-amazon-1ms`; xem Giới hạn.
+
+**Giới hạn trạng thái job.** Cả bốn job SQL trên đặt `scan.bounded.mode = latest-offset` nên chạy xong rồi `FINISHED`; đây là
+cách để đối chiếu số đầu vào/đầu ra, chưa phải job streaming chạy liên tục. Job ở trạng thái `RUNNING` trên AWS hiện là
+[`ml-sku-return-24h`](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30) (có ảnh checkpoint). Để bốn job trên cũng `RUNNING`
+cần bỏ `scan.bounded.mode`, bật checkpoint cho sink file và chạy lại trên AWS.
+
 | Bước / code | Vấn đề và cách xử lý | Số AWS từ manifest |
 |---|---|---|
 | [Baseline](../../flink_jobs/order_snapshots/baseline.sql) | Đọc Amazon bounded, chưa tách muộn | 399.410 dòng, job `ffd9de8a94c5bf67179482bfe03d3b59` |
@@ -101,7 +145,7 @@ Flink 1.20.3 và Kafka chạy Compose trên EC2; đầu ra bounded ở EBS `/mnt
 
 UI dedup thấy HASH → Deduplicate và 93.554 record nhận, chứng minh keyed operator đã chạy.
 Số 92.157 dòng đầu ra lấy từ manifest, không đọc nhầm cột Records Sent của file sink bằng 0 thành mất dữ liệu.
-Ảnh Completed Jobs chỉ xác nhận job late FINISHED; chưa có UI AWS mở operator/watermark và ví dụ event muộn.
+Ảnh Completed Jobs chỉ xác nhận job late FINISHED; chưa có UI AWS mở operator/watermark và ví dụ event muộn. Ảnh **local** cùng job late: [watermark và tin muộn](reference/flink.md#bắt-tin-đến-muộn-bằng-watermark) (UI Flink local, 13–14/10).
 10.166 không phải số tất định: watermark phát theo chu kỳ, khác phép đếm out-of-order toàn cục 19.729 của generator.
 Window AWS dài hạn 24h trượt 1h có [ảnh operator/checkpoint riêng](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30).
 

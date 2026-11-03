@@ -124,10 +124,22 @@ Tài liệu bám theo rubric và các lần triển khai AWS; mỗi trang có co
 ├── tests/            # Unit, Spark, harness kiểm thử
 └── docs/             # Tài liệu theo rubric, ưu tiên kết quả AWS
     ├── README.md     # Mục lục chung
-    ├── edai-1/       # Data Platform
-    ├── edai-2/       # ML / LLM Platform
+    ├── edai-1/       # Data Platform: mỗi mục rubric một file
+    │   ├── README.md
+    │   ├── docker.md
+    │   ├── data_generator.md
+    │   ├── processing_jobs.md
+    │   ├── ...
+    │   └── reference/    # Các trang kỹ thuật nhỏ, gom một chỗ
+    ├── edai-2/       # ML / LLM Platform: mỗi mục rubric một file
+    │   ├── README.md
+    │   ├── llm_inference_platform.md
+    │   ├── global_model_config.md
+    │   ├── observability.md
+    │   ├── ...
+    │   └── reference/
     ├── shared/       # Domain, AWS runbook và kiểm kê rubric
-    ├── diagrams/    # Sơ đồ triển khai
+    ├── diagrams/     # Sơ đồ triển khai
     └── evidence/, images/ # Receipt, log và ảnh chạy thật
 ```
 

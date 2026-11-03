@@ -91,7 +91,7 @@ Kết quả 2026-10-21: 84 pass, coverage `serving/app.py` 98% (chỉ thiếu `l
 
 ## Mutation testing (mutmut)
 
-Cấu hình [`[tool.mutmut]`](../pyproject.toml) chọn `serving/app.py`, dùng bộ test
+Cấu hình [`[tool.mutmut]`](../../pyproject.toml) chọn `serving/app.py`, dùng bộ test
 [`serving/tests/test_app.py`](../../serving/tests/test_app.py) và sao chép `rag` để test các nhánh RAG.
 Chạy offline với dependency đã cache (mutmut 3.3.1):
 

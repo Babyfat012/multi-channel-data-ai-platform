@@ -3,7 +3,7 @@
 
 EDAI-2, dòng 52–53: A/B cho Agent và các bản LLM.
 
-Code / cấu hình: Kết quả traffic split và dashboard AWS được ghi dưới đây.
+Code / cấu hình: bảng thiết kế bên dưới. Kết quả AWS ngày 31/10 ở mục riêng; số local ngày 21/10 giữ để đối chiếu, không thay bằng chứng AWS.
 
 không thay model cũ trực tiếp; chạy song song, chia traffic, theo dõi rồi mới
 quyết định. 52 = A/B giữa Agent khác model config; 53 = A/B giữa hai bản LLM trên inference platform.
@@ -25,7 +25,32 @@ Chia traffic ở **agentgateway** ([`agentgateway.yaml`](../../infra/k8s/agents/
 Theo dõi: dashboard Grafana **Data & AI Platform — A/B LLM + Agent** ([`platform-ab-llm.json`](../../infra/k8s/observability/dashboards/platform-ab-llm.json)):
 tỷ lệ chia, request/giây, p95 độ trễ, token output/giây, token/request theo nhánh, request theo backend agent.
 
-## Kết quả (2026-10-21, local kind)
+## Kết quả trên AWS (2026-10-31, EKS `platform-apps`)
+
+Cùng thiết kế ở trên, chạy trên EKS: nhánh A `qwen` (1,5B), nhánh B `qwen-small` (0,5B), chia ở agentgateway.
+
+**LLM (53)** — `bench_llm.py --model platform-chat --concurrency 2`, cắt ở 900 s vì LLM chạy CPU. Grafana
+**Data & AI Platform — A/B LLM + Agent** ghi 9,13 request (1,5B) so 8,07 request (0,5B): đúng tỷ lệ 1:1 ở mẫu nhỏ;
+p95 khoảng 10 s (1,5B) so 80 s (0,5B) trong khung thời gian của ảnh.
+
+![Grafana AWS: A/B LLM, request và p95 theo gen_ai_response_model của hai nhánh 1,5B và 0,5B](../evidence/aws/grafana-ab-llm-20261031.png)
+
+Số đếm Prometheus: [`ab-llm-prometheus-20261031.json`](../evidence/aws/ab-llm-prometheus-20261031.json). Tổng tích luỹ
+642 (A) so 30 (B) **không phải tỷ lệ chia**: B mới tạo trong ngày nên chỉ nhận tải bench, còn A phục vụ thêm
+data-agent, coordinator và sandbox.
+
+**Agent (52)** — 12 SKU, cùng prompt/tool, chấm bằng harness ML-N1 ([agent_evaluation.md](agent_evaluation.md)):
+
+| Nhánh | Đạt | Giây/câu (TB) | Kết quả từng câu |
+|---|---:|---:|---|
+| A `data-agent` (1,5B) | **12/12** | 10,2 | [JSONL](../evidence/aws/agent-eval-data-agent-20261031.jsonl) |
+| B `data-agent-b` (0,5B) | **4/12** | 6,0 | [JSONL](../evidence/aws/agent-eval-data-agent-b-20261031.jsonl) |
+| Route chia `/a2a/data-agent-ab/` | 2/6 | — | [JSONL](../evidence/aws/agent-eval-data-agent-ab-20261031.jsonl) |
+
+Giới hạn: bench LLM ngắn (cắt ở 900 s, chỉ khoảng 9 và 8 request theo Grafana), không tính khoảng tin cậy; 12 SKU là tập nhỏ; kết quả route chia
+phản ánh trộn hai nhánh, không phải thước đo riêng của B.
+
+## Kết quả local (2026-10-21, kind) — ghi nhận trước AWS
 
 **LLM** — 40 request, 2 đồng thời, `max_tokens` 48 ([`ab-llm-20261021.jsonl`](../evidence/ab-llm-20261021.jsonl)):
 
@@ -43,8 +68,8 @@ thử trước). Lượt gọi LLM trong lúc test: 1.5B = 28, 0.5B = 12 — age
 
 ## Kết luận và quyết định
 
-B nhanh hơn ~25–45%, nhưng eval harness ML-N1 ([`llm-platform-agent-eval.md`](agent_evaluation.md)) cho thấy B kém
-chính xác hơn: **A 12/12, B 11/12** câu có đủ số đúng; câu B trượt là bịa số. (Giả thuyết ban đầu "B bỏ
+B nhanh hơn (local ~25–45%, AWS ~40% thời gian mỗi câu agent), nhưng eval harness ML-N1 ([`agent_evaluation.md`](agent_evaluation.md)) cho thấy B kém
+chính xác hơn: trên AWS **A 12/12, B 4/12** (local: A 12/12, B 11/12); câu B trượt là bịa hoặc chép sai số. (Giả thuyết ban đầu "B bỏ
 qua gọi tool" chỉ đúng một phần — B vẫn gọi tool nhưng có lúc đọc sai/trộn số.) **Giữ A làm mặc định**;
 B chỉ hợp cho câu không cần con số chính xác. Cổng CI đặt `--min-accuracy 0.95` sẽ chặn B.
 

@@ -10,11 +10,11 @@ Tài liệu bám theo rubric, tập trung các lần triển khai AWS ngày 27�
 |---|---|---|
 | 3–4 | [Docker / Compose](docker.md) | Đo image EC2: 2,4 GB → 698 MB, cùng 27 package. |
 | 5–10 | [Data Generator](data_generator.md) | Có volume, profile batch và manifest stream AWS. |
-| 11–19 | [Processing Jobs](processing_jobs.md) | Thiếu UI AWS chi tiết schema evolution/dedup và watermark. |
+| 11–19 | [Processing Jobs](processing_jobs.md) | Có luồng stream, ví dụ late arrival thật; job Flink còn FINISHED (bounded); thiếu UI AWS schema evolution/dedup. |
 | 20–21 | [Data Storage](data_storage.md) | Có số đo partition rewrite và EXPLAIN; DP1 có thể ghi lại spec ngày. |
 | 22–27 | [Pipeline Orchestration](pipeline_orchestration.md) | Có graph, log ingest/validate và run ID AWS. |
 | 28–33 | [Data Governance](data_governance.md) | Có lineage/assertion AWS; lineage được publish từ metadata pipeline. |
-| 34–38 | [Schema Design](schema_design.md) | Có zone và DESCRIBE; thiếu ảnh ERD dim–fact trên AWS. |
+| 34–38 | [Schema Design](schema_design.md) | Có zone, DESCRIBE và ERD dim–fact (dbdiagram + mermaid); chưa có ảnh DBeaver có đường nối. |
 | 39–40 | [Novel Ideas](novel_ideas.md) | Có federation và probe CDC c/u/d; chưa đo CDC dưới tải. |
 
 Mỗi trang có code/config, kết quả và ảnh có giải thích. Trạng thái và phần thiếu proof AWS: [kiểm kê rubric](../shared/rubric_cloud_audit.md).

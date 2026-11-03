@@ -10,7 +10,7 @@ PR testing chạy trên máy phát triển, không gắn nhãn test chạy AWS. 
 
 ## Mutation testing (mutmut)
 
-Cấu hình [`[tool.mutmut]`](../pyproject.toml) chọn `serving/app.py`, dùng bộ test
+Cấu hình [`[tool.mutmut]`](../../pyproject.toml) chọn `serving/app.py`, dùng bộ test
 [`serving/tests/test_app.py`](../../serving/tests/test_app.py) và sao chép `rag` để test các nhánh RAG.
 Chạy offline với dependency đã cache (mutmut 3.3.1):
 

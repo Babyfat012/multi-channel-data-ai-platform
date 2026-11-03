@@ -28,4 +28,4 @@ Quy trình đầy đủ và gate: [cloud setup](../../../docs/shared/cloud_setup
 
 ## Preset với quota cố định 16 vCPU
 
-`demo.tfvars.example` (preset đã chốt) đặt hai worker c6i.xlarge để có dự phòng mức máy; `demo-peak.tfvars.example` đặt một worker m6i.2xlarge. Cả hai cho phép desired/min về 0 khi nghỉ, update strategy MINIMAL (đã dùng hết quota 16 vCPU) và worker tại subnet đầu để giữ AZ của EBS. Workload có thể gián đoạn khi update hoặc scale-to-zero; Kubernetes control plane vẫn chạy và tính phí. Không tự stop EC2 của managed node group. Xem [capacity và ngân sách](../../../docs/shared/cloud_capacity.md) trước khi áp preset.
+`demo.tfvars.example` (preset đã chốt) đặt hai worker c6i.xlarge để có dự phòng mức máy; `demo-peak.tfvars.example` đặt một worker m6i.2xlarge. Cả hai cho phép desired/min về 0 khi nghỉ, update strategy MINIMAL (đã dùng hết quota 16 vCPU) và worker tại subnet đầu để giữ AZ của EBS. Workload có thể gián đoạn khi update hoặc scale-to-zero; Kubernetes control plane vẫn chạy và tính phí. Không tự stop EC2 của managed node group. Kiểm tra quota vCPU và ngân sách trước khi áp preset.

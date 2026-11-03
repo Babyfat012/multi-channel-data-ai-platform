@@ -1,0 +1,71 @@
+// Quan hệ dim–fact của zone Gold (catalog lakehouse, schema gold).
+// Dán vào https://dbdiagram.io để vẽ. Iceberg không có foreign key cưỡng chế:
+// các Ref dưới đây là quan hệ logic, được kiểm trong validate_amazon_order_dim,
+// validate_return_features và build_return_labels của DP2/DP3.
+
+Table dim_amazon_order_dp2 {
+  order_version_key varchar [pk, note: 'hash(order_id, valid_from_ts)']
+  order_id varchar
+  valid_from_ts timestamp
+  valid_to_ts timestamp
+  is_current boolean
+  order_status varchar
+  channel_status varchar
+  first_observed_export_date date
+  source_bronze_table varchar
+  dim_created_at timestamp
+  run_id varchar
+}
+
+Table fact_order_lines_dp2 {
+  order_line_key varchar [pk]
+  amazon_order_version_key varchar [note: 'chỉ Amazon có giá trị; 4 Channel khác NULL']
+  channel varchar
+  channel_order_id varchar
+  channel_line_id varchar
+  seller_sku varchar
+  order_status varchar
+  quantity int
+  line_net_amount decimal
+  created_at timestamp
+  source_silver_table varchar
+  gold_created_at timestamp
+  run_id varchar
+}
+
+Table feat_order_line_return_dp3 {
+  order_line_key varchar [pk]
+  event_timestamp timestamp [note: 'thời điểm đặt Order, mốc point-in-time']
+  created timestamp [note: 'lúc job ghi']
+  channel varchar
+  seller_sku varchar
+  quantity int
+  run_id varchar
+}
+
+Table fact_return_labels_dp3 {
+  order_line_key varchar [pk]
+  channel varchar
+  order_line_id varchar
+  label int
+  delivered_at timestamp
+  label_available_at timestamp
+  created_at timestamp
+  run_id varchar
+}
+
+Table fact_walmart_return_labels_dp3 {
+  order_line_key varchar [pk]
+  channel varchar
+  order_line_id varchar
+  label int
+  delivered_at timestamp
+  label_available_at timestamp
+  created_at timestamp
+  run_id varchar
+}
+
+Ref: fact_order_lines_dp2.amazon_order_version_key > dim_amazon_order_dp2.order_version_key
+Ref: feat_order_line_return_dp3.order_line_key - fact_order_lines_dp2.order_line_key
+Ref: fact_return_labels_dp3.order_line_key - fact_order_lines_dp2.order_line_key
+Ref: fact_walmart_return_labels_dp3.order_line_key - fact_order_lines_dp2.order_line_key

@@ -23,7 +23,7 @@ Không dùng trạng thái job xanh thay ảnh chi tiết mà cột "Document" y
 | Warehouse indexing | 3 | ✅ | 29/10: `dp4_warehouse` 37 tr dòng, EXPLAIN 42,6 s → 1,5 s ([storage.md](../edai-1/data_storage.md)) |
 | DP1 / DP2 / DP3 ingest + validate | 2×6 | ✅ | Airflow AWS |
 | DataHub lineage + validation DP1/DP2/DP3 | 2×6 | ✅ | DataHub EC2, 6 DAG: 22 dataset, 30 job, 16 assertion |
-| Schema: zones, SCD2, feat_, dim–fact, naming | 2×5 | ⚠️ | Chạy trên AWS; ảnh chi tiết ERD dim–fact là local. AWS có ảnh danh sách zone/bảng và DESCRIBE SCD2/feature trong [Schema](../edai-1/schema_design.md#trên-aws-2026-10-28). |
+| Schema: zones, SCD2, feat_, dim–fact, naming | 2×5 | ⚠️ | Chạy trên AWS; ERD dim–fact có dbdiagram (từ schema Gold AWS), chưa có ảnh DBeaver có đường nối. AWS có ảnh danh sách zone/bảng và DESCRIBE SCD2/feature trong [Schema](../edai-1/schema_design.md#trên-aws-2026-10-28). |
 | Novel idea 1: Trino federation | 10 | ✅ | 29/10: Trino EC2, Iceberg S3 = Postgres 4.517 dòng ([trino.md](../edai-1/novel_ideas.md)) |
 | Novel idea 2: CDC Debezium | 10 | ✅ | Debezium EC2, probe c/u/d |
 
@@ -70,8 +70,13 @@ Cập nhật 31/10 sau buổi AWS. Bằng chứng: [LLM và agent](../edai-2/age
 
 ## Ước lượng (2026-10-31)
 
-- Tự đánh giá theo phần đã chạy: `de` **100đ**, `mle` **~98đ** nếu tính đủ các dòng ⚠️. Các dòng ⚠️ thiếu ảnh chi tiết trên AWS nên điểm thực có thể thấp hơn.
-- Phần còn mở của MLE: **CI eval Coordinator 2đ** (deploy xanh, eval timeout). A/B Agent + LLM và lineage DataHub RAG xong tối 31/10; Sandbox/Warm Up có ảnh EKS; ML-N1/ML-N2 có kết quả 31/10. Xem README "Giới hạn đã biết".
+- Tự đánh giá theo phần đã chạy trên AWS, chưa tính ảnh local: các dòng ⚠️ thiếu ảnh chi tiết AWS nên không thể chốt đủ điểm.
+  `de`: ⚠️ ở Spark schema evolution/dedup (3+3), Flink late arrival (3) và ERD dim–fact (2), tổng 11đ; reviewer có thể không nhận 3 dòng
+  đầu nếu chỉ có ảnh local ([Spark UI](../edai-1/reference/spark.md#10-proof-silver-schema-evolution-và-dedup-trong-execution-3),
+  [Flink](../edai-1/reference/flink.md#bắt-tin-đến-muộn-bằng-watermark)). ERD dim–fact có [dbdiagram](../edai-1/schema_design.md#erd-quan-hệ-dimfact-gold), chưa có ảnh DBeaver có đường nối.
+  Bốn job Flink của `de` chạy bounded nên ở trạng thái FINISHED, reviewer yêu cầu Running.
+  `mle`: ⚠️ ở MLflow hash/artifacts (2), Helm fallback (2), Model Agent KEDA (một phần của 8), Coordinator scale (2); ❌ CI eval Coordinator (2).
+- Phần còn mở của MLE: **CI eval Coordinator 2đ** (deploy xanh, eval timeout) và các dòng ⚠️ ở trên. A/B Agent + LLM và lineage DataHub RAG xong tối 31/10; Sandbox/Warm Up có ảnh EKS; ML-N1/ML-N2 có kết quả 31/10. Xem README "Giới hạn đã biết".
 - EKS context `platform-apps`: **2 node r6i.xlarge** (mỗi node 4 vCPU/32 GB). Cùng EC2 Data Platform `r6i.xlarge`: tổng 12/16 vCPU quota.
 
 ## Cấu hình AWS (31/10)
