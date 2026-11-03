@@ -54,3 +54,6 @@ infra/aws/ansible/group_vars/all.yml
 # Ẩn khỏi bản nộp: ADR và cấu hình ngân sách cloud (chỉ lưu local)
 docs/adr/
 docs/shared/cloud_capacity.md
+
+# Bản nháp và các phần riêng của sơ đồ ML + LLM ở thư mục gốc: bản cuối nằm ở docs/diagrams/
+/ml-llm-platform*.excalidraw
