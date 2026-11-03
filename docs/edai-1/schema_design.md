@@ -41,44 +41,8 @@ feature = Gold, 0 thiếu/thừa). Bản dbdiagram: [`gold-erd.dbml`](../diagram
 
 ![dbdiagram.io: dim_amazon_order_dp2 nối fact_order_lines_dp2 theo order_version_key; feat_order_line_return_dp3, fact_return_labels_dp3 và fact_walmart_return_labels_dp3 nối fact theo order_line_key](../images/schema/gold-erd-dbdiagram.png)
 
-Ảnh vẽ từ [`gold-erd.dbml`](../diagrams/gold-erd.dbml) bằng dbdiagram.io (schema Gold đã chạy trên AWS, không phải ảnh chụp DBeaver). Bản mermaid cùng nội dung:
+Ảnh vẽ từ [`gold-erd.dbml`](../diagrams/gold-erd.dbml) bằng dbdiagram.io (schema Gold đã chạy trên AWS, không phải ảnh chụp DBeaver).
 
-```mermaid
-erDiagram
-  dim_amazon_order_dp2 ||--o{ fact_order_lines_dp2 : "order_version_key = amazon_order_version_key"
-  fact_order_lines_dp2 ||--o| feat_order_line_return_dp3 : "order_line_key"
-  fact_order_lines_dp2 ||--o| fact_return_labels_dp3 : "order_line_key"
-  fact_order_lines_dp2 ||--o| fact_walmart_return_labels_dp3 : "order_line_key"
-  dim_amazon_order_dp2 {
-    varchar order_version_key PK
-    varchar order_id
-    timestamp valid_from_ts
-    timestamp valid_to_ts
-    boolean is_current
-  }
-  fact_order_lines_dp2 {
-    varchar order_line_key PK
-    varchar amazon_order_version_key FK "NULL với 4 Channel khác"
-    varchar channel
-    varchar seller_sku
-    decimal line_net_amount
-  }
-  feat_order_line_return_dp3 {
-    varchar order_line_key PK
-    timestamp event_timestamp
-    timestamp created
-  }
-  fact_return_labels_dp3 {
-    varchar order_line_key PK
-    int label
-    timestamp label_available_at
-  }
-  fact_walmart_return_labels_dp3 {
-    varchar order_line_key PK
-    int label
-    timestamp label_available_at
-  }
-```
 
 Ảnh DBeaver ER Diagram có đường nối chưa chụp. DBeaver chỉ vẽ đường nối khi bảng có khóa ngoại; với Trino/Iceberg
 cần khai khóa ngoại ảo (virtual foreign key) rồi mở lại ER Diagram của schema `gold`, rồi chụp bản có đường nối.
