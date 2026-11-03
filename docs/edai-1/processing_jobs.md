@@ -115,6 +115,12 @@ Tin không muộn quá ngưỡng một giờ không vào file này, nên số d�
 Ảnh Completed Jobs/graph bên dưới chỉ chứng minh job chạy; **bằng chứng xử lý là cột `watermark_time` ở trên**.
 Lần AWS 28/10 chưa chụp lại các dòng này từ `/mnt/platform-data/flink/late-amazon-1ms`; xem Trạng thái job.
 
+Sau khi chạy bản liên tục trên EC2, lấy 3 dòng ví dụ và kiểm tra điều kiện late từ đầu ra (lệnh đã thử trên dữ liệu mẫu local):
+
+```bash
+cat /mnt/platform-data/flink/late-amazon-live/part-* | tr -d '"' | awk -F, '{e=$2;sub("T"," ",e);sub("Z","",e);p=$3;sub("T"," ",p);sub("Z","",p);w=substr($4,1,19);t++;if(e<=w)ok++; if(t%80==1&&n<3){n++;printf "| `%s` | %s | %s | %s | %s |\n",$1,e,p,substr($4,12,8),$5}} END{printf "TONG %d dong, event_time<=watermark: %d\n",t,ok}'
+```
+
 **Trạng thái job.** Lần chạy 28/10 dùng `scan.bounded.mode = latest-offset` nên cả bốn job SQL trên chạy xong rồi `FINISHED`; các số
 trong bảng dưới và ảnh Completed Jobs đều từ bản bounded đó. Sau đó bốn file SQL đã được sửa để chạy liên tục: bỏ `scan.bounded.mode`,
 bật checkpoint ra EBS, file CSV đóng mỗi 30 s, đầu ra sang thư mục `*-live`, và TaskManager nâng lên 6 slot
