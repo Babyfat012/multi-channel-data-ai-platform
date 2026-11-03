@@ -2,6 +2,11 @@
 -- TUMBLE 5 phút cập nhật mỗi 5 phút; HOP 5 phút cập nhật mỗi 1 phút.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
+SET 'pipeline.name' = 'flink-window-tiktok';
+SET 'execution.checkpointing.interval' = '10s';
+-- Checkpoint ra đĩa EBS (mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB).
+SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
+SET 'table.exec.source.idle-timeout' = '10s';
 
 CREATE TABLE tiktok_webhooks (
   tts_notification_id STRING,
@@ -15,7 +20,6 @@ CREATE TABLE tiktok_webhooks (
   'properties.bootstrap.servers' = 'kafka:9092',
   'properties.group.id' = 'platform-flink-window-tiktok',
   'scan.startup.mode' = 'earliest-offset',
-  'scan.bounded.mode' = 'latest-offset',
   'format' = 'json'
 );
 
@@ -30,8 +34,10 @@ CREATE TABLE tiktok_tumble_5m (
   orders BIGINT
 ) WITH (
   'connector' = 'filesystem',
-  'path' = 'file:///opt/flink/output/tiktok-tumble-5m',
-  'format' = 'csv'
+  'path' = 'file:///opt/flink/output/tiktok-tumble-5m-live',
+  'format' = 'csv',
+  'sink.rolling-policy.rollover-interval' = '30 s',
+  'sink.rolling-policy.check-interval' = '10 s'
 );
 
 CREATE TABLE tiktok_hop_5m_1m (
@@ -40,8 +46,10 @@ CREATE TABLE tiktok_hop_5m_1m (
   orders BIGINT
 ) WITH (
   'connector' = 'filesystem',
-  'path' = 'file:///opt/flink/output/tiktok-hop-5m-1m',
-  'format' = 'csv'
+  'path' = 'file:///opt/flink/output/tiktok-hop-5m-1m-live',
+  'format' = 'csv',
+  'sink.rolling-policy.rollover-interval' = '30 s',
+  'sink.rolling-policy.check-interval' = '10 s'
 );
 
 EXECUTE STATEMENT SET

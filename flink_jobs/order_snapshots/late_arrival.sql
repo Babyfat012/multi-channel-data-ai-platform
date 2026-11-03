@@ -1,8 +1,12 @@
 -- Amazon: watermark trễ 1 giờ. Ghi riêng tin mà event time đã ở sau watermark.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
--- Dữ liệu bounded được đọc trong vài giây; phát watermark mỗi 1 ms để không
--- chỉ có vài chu kỳ watermark trong toàn bộ lần chạy.
+SET 'pipeline.name' = 'flink-late-amazon';
+SET 'execution.checkpointing.interval' = '10s';
+-- Checkpoint ra đĩa EBS (mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB).
+SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
+SET 'table.exec.source.idle-timeout' = '10s';
+-- Phát watermark mỗi 1 ms để bắt tin muộn chính xác khi backlog được đọc nhanh.
 SET 'pipeline.auto-watermark-interval' = '1ms';
 
 CREATE TABLE amazon_notifications (
@@ -17,7 +21,6 @@ CREATE TABLE amazon_notifications (
   'properties.bootstrap.servers' = 'kafka:9092',
   'properties.group.id' = 'platform-flink-late-amazon',
   'scan.startup.mode' = 'earliest-offset',
-  'scan.bounded.mode' = 'latest-offset',
   'format' = 'json'
 );
 
@@ -29,8 +32,10 @@ CREATE TABLE late_amazon (
   kafka_partition BIGINT
 ) WITH (
   'connector' = 'filesystem',
-  'path' = 'file:///opt/flink/output/late-amazon-1ms',
-  'format' = 'csv'
+  'path' = 'file:///opt/flink/output/late-amazon-live',
+  'format' = 'csv',
+  'sink.rolling-policy.rollover-interval' = '30 s',
+  'sink.rolling-policy.check-interval' = '10 s'
 );
 
 INSERT INTO late_amazon

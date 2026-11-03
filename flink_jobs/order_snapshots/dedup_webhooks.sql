@@ -2,6 +2,10 @@
 -- ROW_NUMBER ... ORDER BY proc ASC là pattern dedup append-only của Flink SQL.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
+SET 'pipeline.name' = 'flink-dedup-tiktok';
+SET 'execution.checkpointing.interval' = '10s';
+-- Checkpoint ra đĩa EBS (mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB).
+SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
 
 CREATE TABLE tiktok_webhooks (
   tts_notification_id STRING,
@@ -14,7 +18,6 @@ CREATE TABLE tiktok_webhooks (
   'properties.bootstrap.servers' = 'kafka:9092',
   'properties.group.id' = 'platform-flink-dedup-tiktok',
   'scan.startup.mode' = 'earliest-offset',
-  'scan.bounded.mode' = 'latest-offset',
   'format' = 'json'
 );
 
@@ -25,8 +28,10 @@ CREATE TABLE unique_tiktok_webhooks (
   event_time BIGINT
 ) WITH (
   'connector' = 'filesystem',
-  'path' = 'file:///opt/flink/output/unique-tiktok',
-  'format' = 'csv'
+  'path' = 'file:///opt/flink/output/unique-tiktok-live',
+  'format' = 'csv',
+  'sink.rolling-policy.rollover-interval' = '30 s',
+  'sink.rolling-policy.check-interval' = '10 s'
 );
 
 INSERT INTO unique_tiktok_webhooks

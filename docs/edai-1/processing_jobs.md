@@ -113,12 +113,15 @@ khai `WATERMARK FOR event_ts AS event_ts - INTERVAL '1' HOUR`: watermark của p
 Cả 9.143 dòng của lần chạy đó đều có `event_time <= watermark_time` (trễ từ vài giây đến khoảng 4,9 giờ so với watermark).
 Tin không muộn quá ngưỡng một giờ không vào file này, nên số dòng nhỏ hơn số tin out-of-order của generator (19.729).
 Ảnh Completed Jobs/graph bên dưới chỉ chứng minh job chạy; **bằng chứng xử lý là cột `watermark_time` ở trên**.
-Lần AWS 28/10 chưa chụp lại các dòng này từ `/mnt/platform-data/flink/late-amazon-1ms`; xem Giới hạn.
+Lần AWS 28/10 chưa chụp lại các dòng này từ `/mnt/platform-data/flink/late-amazon-1ms`; xem Trạng thái job.
 
-**Giới hạn trạng thái job.** Cả bốn job SQL trên đặt `scan.bounded.mode = latest-offset` nên chạy xong rồi `FINISHED`; đây là
-cách để đối chiếu số đầu vào/đầu ra, chưa phải job streaming chạy liên tục. Job ở trạng thái `RUNNING` trên AWS hiện là
-[`ml-sku-return-24h`](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30) (có ảnh checkpoint). Để bốn job trên cũng `RUNNING`
-cần bỏ `scan.bounded.mode`, bật checkpoint cho sink file và chạy lại trên AWS.
+**Trạng thái job.** Lần chạy 28/10 dùng `scan.bounded.mode = latest-offset` nên cả bốn job SQL trên chạy xong rồi `FINISHED`; các số
+trong bảng dưới và ảnh Completed Jobs đều từ bản bounded đó. Sau đó bốn file SQL đã được sửa để chạy liên tục: bỏ `scan.bounded.mode`,
+bật checkpoint ra EBS, file CSV đóng mỗi 30 s, đầu ra sang thư mục `*-live`, và TaskManager nâng lên 6 slot
+([`docker-compose.aws-stream.yml`](../../docker-compose.aws-stream.yml)). **Bản này chưa chạy lại trên AWS**, chưa có ảnh Running;
+số dòng lần chạy mới có thể lệch nhẹ (cửa sổ cuối không đóng vì không còn watermark kết thúc). `dedup_state_proof.sql` giữ bounded
+vì chỉ dùng để chụp execution plan. Job `RUNNING` đã có ảnh trên AWS là
+[`ml-sku-return-24h`](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30).
 
 | Bước / code | Vấn đề và cách xử lý | Số AWS từ manifest |
 |---|---|---|
