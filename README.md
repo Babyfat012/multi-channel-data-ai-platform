@@ -47,9 +47,9 @@ Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyf
 
 ### ML + LLM Platform
 
-![ML + LLM Platform — system architecture](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png)
+[![ML + LLM Platform — system architecture](docs/diagrams/ml-llm-platform-system-architecture.svg)](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)
 
-[Bản Excalidraw](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
+Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)** (bấm ô chú giải để xem riêng từng luồng) · [Ảnh tĩnh phóng to được](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html?static) · [PNG](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
 
 Hai ảnh nối nhau qua Gold / feature / training data, replay Return qua Kafka và DataHub governance.
 [Đối chiếu khối kiến trúc với rubric và cấu hình](docs/diagrams/README.md).
