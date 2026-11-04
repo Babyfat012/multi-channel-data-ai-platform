@@ -1,0 +1,19 @@
+# Autoscale Model Agent bằng KEDA theo tải A2A thật: tốc độ request vào route a2a-model-agent (+ -path cho client ngoài) của agentgateway
+# (Prometheus). Tối thiểu 2 replica (multi-replica), tối đa 3; mỗi replica gánh ~0,5 request/giây.
+# Agent không khai `replicas` nên kagent không giành quyền với HPA do KEDA tạo.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: model-agent
+  namespace: kagent
+spec:
+  scaleTargetRef:
+    name: model-agent
+  minReplicaCount: 2
+  maxReplicaCount: 3
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-server.observability.svc.cluster.local
+        query: sum(rate(agentgateway_requests_total{route=~"default/a2a-model-agent(-path)?"}[1m]))
+        threshold: "0.5"

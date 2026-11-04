@@ -4,7 +4,7 @@ EDAI-2, dòng 19–22: MCP, multi-replica, autoscale, Sandbox và publish.
 
 Data Agent lấy feature SKU qua MCP. Model Agent dùng online feature, gọi KServe để dự đoán và RAG để tìm chính sách trả hàng. Các lời gọi đi qua [Agent Gateways](agent_gateways.md), cùng [Model Config](global_model_config.md).
 
-Code: [Data Agent](../../infra/k8s/agents/data-agent.yaml), [Model Agent](../../infra/k8s/agents/model-agent.yaml), [KEDA Data Agent](../../infra/k8s/agents/data-agent-keda.yaml).
+Code: [Data Agent](../../infra/k8s/agents/data-agent.yaml), [Model Agent](../../infra/k8s/agents/model-agent.yaml), [KEDA Data Agent](../../infra/k8s/agents/data-agent-keda.yaml), [KEDA Model Agent](../../infra/k8s/agents/model-agent-keda.yaml).
 
 ## Bằng chứng EKS, 30–31/10/2026
 
@@ -26,6 +26,6 @@ Code Sandbox: [deploy_substrate.sh](../../scripts/setup/deploy_substrate.sh), [m
 
 ## Giới hạn
 
-Model Agent chưa có ScaledObject và proof KEDA riêng trên AWS. Khi câu hỏi thiếu giá/số lượng, model nhỏ có thể tự điền tham số sai. [Registry](agent_registry.md) có proof publish; [Agent Evaluation](agent_evaluation.md) ghi giới hạn PII và kết quả chấm.
+Model Agent đã có [ScaledObject](../../infra/k8s/agents/model-agent-keda.yaml) (min 2, max 3, theo tải route `a2a-model-agent`) nhưng chưa áp dụng trên EKS, nên chưa có capture scale 2 → 3 → 2 riêng cho Model Agent. Khi câu hỏi thiếu giá/số lượng, model nhỏ có thể tự điền tham số sai. [Registry](agent_registry.md) có proof publish; [Agent Evaluation](agent_evaluation.md) ghi giới hạn PII và kết quả chấm.
 
 [Mục lục phần này](README.md) · [Mục lục chung](../README.md)

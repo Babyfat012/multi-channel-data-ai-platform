@@ -23,7 +23,15 @@ spec:
           name: feature-tools
           toolNames: [get_sku_features, predict_return_risk, search_policy_chunks]
     deployment:
-      # Chưa có KEDA ScaledObject cho model-agent trong repo; không khai replicas nên dùng mặc định của kagent.
+      # Không khai `replicas`: số replica do KEDA quyết định (model-agent-keda.yaml).
       resources:
         requests: {cpu: 50m, memory: 192Mi}
         limits: {memory: 512Mi}
+      # Ưu tiên rải replica sang worker khác: một node chết vẫn còn bản chạy. 'preferred' để kind 1 node vẫn chạy được.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector: {matchLabels: {kagent: model-agent}}
