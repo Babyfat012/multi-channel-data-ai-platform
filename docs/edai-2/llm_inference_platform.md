@@ -101,6 +101,19 @@ unset agw_key
 
 Các bước trên là hướng dẫn tái lập từ cấu hình repo. Số liệu đã đo trên AWS nằm ở phần dưới.
 
+## Kiểm tra triển khai trên EKS, 04/11/2026
+
+Namespace `llm` trên cluster `platform-apps`: Deployment `qwen` (1,5B) và `qwen-small` (0,5B, nhánh B của A/B), mỗi pod `1/1 Running`,
+PVC `models` 3 GiB và `models-small` 1 GiB `Bound` (gp3, model nằm trên PVC nên pod khởi động lại không phải tải lại), Service `ClusterIP` cổng 8080.
+
+![kubectl get pods,pvc,svc -n llm: qwen và qwen-small Running, PVC models và models-small Bound, Service qwen và qwen-small cổng 8080](../evidence/aws/llm-deploy-pods-pvc-svc.png)
+
+Log khởi động của llama.cpp: tải `Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M`, `n_threads = 3`, `n_slots = 4`, rồi `model loaded` và `listening on 0.0.0.0:8080`.
+Dòng cảnh báo `no API key is set` là của llama.cpp: server này không tự kiểm khóa, chỉ truy cập được trong cụm qua Service `ClusterIP`; khóa API do
+[agentgateway](agent_gateways.md) kiểm.
+
+![Log qwen: nạp model Q4_K_M, 3 luồng, 4 slot, model loaded, listening 0.0.0.0:8080](../evidence/aws/llm-qwen-startup-log.png)
+
 ## Benchmark bằng llm-d-benchmark
 
 [llm-d-benchmark](https://github.com/llm-d/llm-d-benchmark) có chế độ `run` (run-only): benchmark một endpoint **đã chạy sẵn**,
