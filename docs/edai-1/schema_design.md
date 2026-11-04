@@ -45,8 +45,13 @@ feature = Gold, 0 thiếu/thừa). Bản dbdiagram: [`gold-erd.dbml`](../diagram
 
 #### Chuẩn bị ảnh DBeaver có đường nối
 
-**Trạng thái:** đã có DBML và ảnh dbdiagram; còn thiếu ảnh DBeaver có đường nối trên AWS.
-Các bước dưới đây là hướng dẫn cho đợt bật AWS tiếp theo, chưa phải bằng chứng đã thực hiện.
+**Trạng thái:** đã có ảnh DBeaver ER Diagram có đường nối trên AWS (04/11/2026), cùng DBML và ảnh dbdiagram. Ảnh chụp từ Trino 483 trên EC2 qua tunnel `localhost:8083`,
+catalog `lakehouse`, schema `gold`; năm bảng được đưa vào sơ đồ, bốn quan hệ vẽ nối vào `fact_order_lines_dp2`:
+
+![DBeaver ER Diagram schema gold trên AWS: fact_order_lines_dp2 ở giữa, nối tới dim_amazon_order_dp2, fact_return_labels_dp3, fact_walmart_return_labels_dp3 và feat_order_line_return_dp3](../images/schema/gold-erd-dbeaver-aws.png)
+
+Các đường nối là quan hệ logic (virtual foreign key) khai trong DBeaver, không phải ràng buộc trong Iceberg. Tên kết nối trong DBeaver lúc chụp là `gold` (kết nối Trino AWS).
+Các bước thực hiện ở dưới giữ lại để tái lập.
 
 1. Bật EC2 Data Platform và các dịch vụ Trino, Lakekeeper, PostgreSQL phục vụ catalog; giữ quyền đọc S3
    qua IAM role EC2. T07 không cần EKS, cũng không cần chạy lại DP1–DP3 nếu các bảng Gold còn đầy đủ.
