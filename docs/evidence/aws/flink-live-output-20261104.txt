@@ -1,0 +1,13 @@
+# Đầu ra thật trên EC2, 2026-11-04 (Flink 1.20.3, bản chạy liên tục)
+# Lệnh 1: sudo cat /mnt/platform-data/flink/late-amazon-live/part-* | tr -d '"' | awk ... (xem docs/edai-1/processing_jobs.md)
+| `qb8vznf1-5f5n-caaa-aaaa-aaaaaaaaaaaa` | 2026-06-30 01:24:05 | 2026-06-30 02:45:52 | 01:28:13 | 1 |
+| `5i4wg38o-v0ee-aaaa-aaaa-aaaaaaaaaaaa` | 2026-06-30 08:04:34 | 2026-06-30 12:42:02 | 11:34:14 | 1 |
+| `b98ozk0b-uiw7-baaa-aaaa-aaaaaaaaaaaa` | 2026-06-30 17:25:59 | 2026-06-30 22:26:34 | 21:08:20 | 1 |
+TONG 6674 dong, event_time<=watermark: 6674
+
+# Lệnh 2: for d in /mnt/platform-data/flink/*-live; do echo "$d: $(sudo cat $d/part-* 2>/dev/null | wc -l)"; done
+/mnt/platform-data/flink/baseline-amazon-live: 399410
+/mnt/platform-data/flink/late-amazon-live: 6674
+/mnt/platform-data/flink/tiktok-hop-5m-1m-live: 37863
+/mnt/platform-data/flink/tiktok-tumble-5m-live: 7553
+/mnt/platform-data/flink/unique-tiktok-live: 92157

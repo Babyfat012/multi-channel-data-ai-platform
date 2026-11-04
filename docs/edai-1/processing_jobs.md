@@ -61,8 +61,8 @@ không gán run_id của benchmark cho run DAG.
 ![Airflow DP1: danh sách 10 task màu xanh và cạnh ingest nối validate trong Graph](../evidence/aws/dp1-bronze-graph-20261027.png)
 
 DP2 AWS đã validate Silver/Gold không lỗi ([schema evolution và dedup](#trên-aws-2026-10-28)).
-Chưa có ảnh Spark UI AWS thể hiện Union parse schema cũ/mới và Window dedup như yêu cầu chi tiết của rubric;
-log PASS không thay thế capture đó cho DE13–14. Ảnh **local** cùng job: [Union và Window dedup, schema details](reference/spark.md#10-proof-silver-schema-evolution-và-dedup-trong-execution-3) (Spark UI, nguồn Amazon).
+Spark UI AWS của job Silver Amazon (Union parse schema cũ/mới và Window dedup) nằm ở [mục Spark: schema evolution và dedup](#trên-aws-2026-10-28).
+Ảnh **local** cùng job: [Union và Window dedup, schema details](reference/spark.md#10-proof-silver-schema-evolution-và-dedup-trong-execution-3) (Spark UI, nguồn Amazon).
 
 <a id="trên-aws-2026-10-28"></a>
 ## Spark: schema evolution và dedup, 28/10/2026
@@ -78,8 +78,31 @@ Window theo khóa giữ revision mới nhất; [DAG](../../dags/dp2_silver.py) �
 
 Receipt ghi Silver Amazon 153.849.901, Walmart 15.562.675, TikTok Shop 33.338.110,
 Shopify 17.782.786, Shopee 6.666.831 dòng; Gold khớp từng kênh, lỗi và khóa Order Line trùng 0.
-Ảnh chứng minh trạng thái DAG và kết quả validator. Chưa có Spark UI AWS mở execution plan Union/schema và Window dedup,
-nên chưa thay được proof xử lý chi tiết DE13–14. [Airflow AWS](pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28).
+Ảnh trên chứng minh trạng thái DAG và kết quả validator. [Airflow AWS](pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28).
+
+### Spark UI AWS: Union schema cũ/mới và Window dedup (Silver Amazon)
+
+Event log của task Amazon Silver trong DP2 run `manual__2026-10-27T16:05:58+00:00` (xem [receipt](../evidence/aws/data-platform-aws-20261027.json)): application
+`app-20261027160606-0024`, tên `silver-amazon-stg_amazon_order_lines_dp2`, chạy 27/10/2026 16:06–16:58 UTC (khoảng 52 phút), đã hoàn tất. Mở lại bằng Spark History Server
+trên EC2 (04/11/2026, không chạy lại job) và chụp bằng [`capture_spark_silver_evidence.py`](../../scripts/evidence/capture_spark_silver_evidence.py);
+execution 3 là phần xử lý dữ liệu, [REST](../evidence/aws/silver-amazon-execution-3-aws.json) lưu `status=COMPLETED`, plan và metrics.
+
+![Spark UI AWS, Query 3: hai nhánh BatchScan raw_amazon_orders_dp1 → Filter → Generate → Union → Sort → WindowGroupLimit → Window → Filter](../evidence/aws/12-silver-amazon-dedup-plan-aws.png)
+
+Hai nhánh cùng đọc bảng Bronze, lọc và parse riêng từng schema rồi `Generate` nổ mảng Order Line, `Union`, sắp xếp và chia theo khóa, `WindowGroupLimit`/`Window` giữ bản `row_number = 1`.
+Details của plan: nhánh schema cũ lọc `get_json_object(payload, $.AmazonOrderId)` và `from_json` với `AmazonOrderId`/`OrderItems`; nhánh schema 2026 lọc `$.orderId` và `from_json` với `orderId`/`orderItems`; hai nhánh cùng ánh xạ về một bộ cột Silver.
+
+![Details của execution 3 trên AWS: Filter theo AmazonOrderId và orderId, from_json hai schema, ánh xạ về cột Silver](../evidence/aws/13-silver-amazon-schema-details-aws.png)
+
+| Số đo execution 3 (AWS) | Số dòng |
+|---|---:|
+| Order Line từ nhánh schema cũ (`Generate`, node 18) | 76.365.986 |
+| Order Line từ nhánh schema 2026 (`Generate`, node 26) | 80.584.967 |
+| Trước dedup (`WindowGroupLimit`, node 12) | 156.948.256 |
+| Sau dedup (`Filter`, node 6) | 153.849.901 |
+| **Bản trùng đã bỏ** | **3.098.355 (1,974%)** |
+
+Số sau dedup 153.849.901 khớp số Silver Amazon trong receipt. Tỷ lệ 1,974% khớp mức trùng offline của generator (1,98%).
 
 <a id="flink-trên-aws-2026-10-28"></a>
 ## Flink: baseline, late arrival, dedup và window, 28/10/2026
@@ -102,32 +125,52 @@ Pipeline stream phục vụ feature store (Kafka → Flink HOP 24h → Redis/S3)
 Amazon gửi notification không theo thứ tự thời gian. [`late_arrival.sql`](../../flink_jobs/order_snapshots/late_arrival.sql)
 khai `WATERMARK FOR event_ts AS event_ts - INTERVAL '1' HOUR`: watermark của partition luôn đứng sau event time mới nhất đã thấy
 đúng một giờ. Một tin có `event_ts <= CURRENT_WATERMARK(event_ts)` là tin đã bị watermark vượt qua nên được ghi riêng vào
-`late-amazon-1ms`, kèm cột `watermark_time` để tự chứng minh. Ví dụ dòng thật trong đầu ra (lần chạy 2026-10-14, local, cùng SQL):
+`late-amazon-1ms`, kèm cột `watermark_time` để tự chứng minh. Ví dụ dòng thật trong đầu ra `late-amazon-live` (lần chạy 2026-11-04, AWS EC2, bản chạy liên tục):
 
 | notification_id | event_time (xảy ra) | publish_time (đến) | watermark_time lúc xử lý | partition | Vì sao là late |
 |---|---|---|---|---:|---|
-| `qb8vznf1-5f5n-…` | 2026-06-30 01:24:05 | 2026-06-30 02:45:52 | 01:32:34 | 1 | event_time < watermark: tin mới nhất đã tới ≈ 02:32, tin này cũ hơn hơn một giờ |
-| `jpf2a4lb-5p3l-…` | 2026-06-30 01:22:09 | 2026-06-30 03:07:25 | 01:48:31 | 1 | event_time < watermark, đến trễ 1 giờ 45 phút |
-| `icu0oal9-bifb-…` | 2026-06-30 00:28:23 | 2026-06-30 03:09:07 | 01:48:31 | 1 | event_time < watermark, đến trễ 2 giờ 41 phút |
+| `qb8vznf1-5f5n-…` | 2026-06-30 01:24:05 | 2026-06-30 02:45:52 | 01:28:13 | 1 | event_time < watermark: tin này nằm sau watermark của partition 1 |
+| `5i4wg38o-v0ee-…` | 2026-06-30 08:04:34 | 2026-06-30 12:42:02 | 11:34:14 | 1 | event_time < watermark, đến trễ hơn 3 giờ so với watermark |
+| `b98ozk0b-uiw7-…` | 2026-06-30 17:25:59 | 2026-06-30 22:26:34 | 21:08:20 | 1 | event_time < watermark, đến trễ hơn 4 giờ so với watermark |
 
-Cả 9.143 dòng của lần chạy đó đều có `event_time <= watermark_time` (trễ từ vài giây đến khoảng 4,9 giờ so với watermark).
+Cả **6.674** dòng của lần chạy này đều có `event_time <= watermark_time` (lệnh kiểm in `TONG 6674 dong, event_time<=watermark: 6674`).
 Tin không muộn quá ngưỡng một giờ không vào file này, nên số dòng nhỏ hơn số tin out-of-order của generator (19.729).
 Ảnh Completed Jobs/graph bên dưới chỉ chứng minh job chạy; **bằng chứng xử lý là cột `watermark_time` ở trên**.
-Lần AWS 28/10 chưa chụp lại các dòng này từ `/mnt/platform-data/flink/late-amazon-1ms`; xem Trạng thái job.
+Các dòng trên lấy từ `/mnt/platform-data/flink/late-amazon-live/part-*` trên EC2; xem [output nguyên văn](../evidence/aws/flink-live-output-20261104.txt) và mục Trạng thái job.
 
-Sau khi chạy bản liên tục trên EC2, lấy 3 dòng ví dụ và kiểm tra điều kiện late từ đầu ra (lệnh đã thử trên dữ liệu mẫu local):
+![Terminal EC2: ba dòng late arrival từ late-amazon-live, TONG 6674 dòng đều có event_time <= watermark, và số dòng các thư mục *-live](../evidence/aws/flink-late-arrival-live.png)
+
+Lệnh lấy 3 dòng ví dụ và kiểm tra điều kiện late từ đầu ra (đã chạy trên EC2 ngày 04/11, kết quả ở bảng trên):
 
 ```bash
 cat /mnt/platform-data/flink/late-amazon-live/part-* | tr -d '"' | awk -F, '{e=$2;sub("T"," ",e);sub("Z","",e);p=$3;sub("T"," ",p);sub("Z","",p);w=substr($4,1,19);t++;if(e<=w)ok++; if(t%80==1&&n<3){n++;printf "| `%s` | %s | %s | %s | %s |\n",$1,e,p,substr($4,12,8),$5}} END{printf "TONG %d dong, event_time<=watermark: %d\n",t,ok}'
 ```
 
 **Trạng thái job.** Lần chạy 28/10 dùng `scan.bounded.mode = latest-offset` nên cả bốn job SQL trên chạy xong rồi `FINISHED`; các số
-trong bảng dưới và ảnh Completed Jobs đều từ bản bounded đó. Sau đó bốn file SQL đã được sửa để chạy liên tục: bỏ `scan.bounded.mode`,
+trong bảng dưới và ảnh Completed Jobs đều từ bản bounded đó. Sau đó bốn file SQL được sửa để chạy liên tục: bỏ `scan.bounded.mode`,
 bật checkpoint ra EBS, file CSV đóng mỗi 30 s, đầu ra sang thư mục `*-live`, và TaskManager nâng lên 6 slot
-([`docker-compose.aws-stream.yml`](../../docker-compose.aws-stream.yml)). **Bản này chưa chạy lại trên AWS**, chưa có ảnh Running;
-số dòng lần chạy mới có thể lệch nhẹ (cửa sổ cuối không đóng vì không còn watermark kết thúc). `dedup_state_proof.sql` giữ bounded
-vì chỉ dùng để chụp execution plan. Job `RUNNING` đã có ảnh trên AWS là
-[`ml-sku-return-24h`](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30).
+([`docker-compose.aws-stream.yml`](../../docker-compose.aws-stream.yml)). `dedup_state_proof.sql` giữ bounded vì chỉ dùng để chụp execution plan.
+
+**Chạy lại bản liên tục trên AWS, 04/11/2026.** Kafka trên EC2 đã mất hai topic của 28/10 (còn lại `ml.sku_return_24h` và `order_snapshots.return_events`), nên phát lại bằng generator
+(`platform-generator:opt`, seed 42, `--speed 0`): **399.410** tin Amazon (132.222 + 133.332 + 133.856 qua 3 partition) và **93.554** tin TikTok (31.375 + 30.918 + 31.261), khớp từng tin với
+[manifest 28/10](../evidence/aws/stream-manifest-20261028.json), nên các số trong bảng dưới vẫn so sánh được. Rồi submit bốn SQL bằng `sql-client.sh`; cả bốn job ở trạng thái **RUNNING**
+(sau khoảng 5 phút: dedup-tiktok 2 task, baseline-amazon 1, window-tiktok 3, late-amazon 1), TaskManager 1 với 6 slot (2 slot còn trống), 0 job Finished/Canceled/Failed.
+
+![Flink 1.20.3 Running Jobs trên AWS: flink-dedup-tiktok, flink-baseline-amazon, flink-window-tiktok, flink-late-amazon đều RUNNING](../evidence/aws/flink-running-jobs.png)
+
+![Flink Overview trên AWS: 4 Running Jobs, Total Task Slots 6, Available 2, Finished 0, Canceled 0, Failed 0](../evidence/aws/flink-overview-4-running.png)
+
+Số dòng đầu ra các thư mục `*-live` của lần chạy liên tục (đếm bằng `wc -l` trên EC2, [output nguyên văn](../evidence/aws/flink-live-output-20261104.txt)), so với manifest 28/10 (bản bounded):
+
+| Thư mục | Dòng 04/11 (liên tục) | Manifest 28/10 (bounded) | Ghi chú |
+|---|---:|---:|---|
+| `baseline-amazon-live` | **399.410** | 399.410 | khớp |
+| `unique-tiktok-live` | **92.157** | 92.157 | khớp (93.554 vào, bỏ 1.397 trùng) |
+| `tiktok-tumble-5m-live` | 7.553 | 7.555 | thiếu 2 cửa sổ cuối: không còn watermark kết thúc nên cửa sổ cuối chưa đóng |
+| `tiktok-hop-5m-1m-live` | 37.863 | 37.870 | thiếu 7 cửa sổ cuối, cùng lý do |
+| `late-amazon-live` | 6.674 | 10.166 | không tất định: phụ thuộc thời điểm phát watermark theo partition |
+
+Job ML `ml-sku-return-24h` chưa được submit lại trong buổi này (Running đã có ảnh ở [Streaming Feature](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30)).
 
 | Bước / code | Vấn đề và cách xử lý | Số AWS từ manifest |
 |---|---|---|

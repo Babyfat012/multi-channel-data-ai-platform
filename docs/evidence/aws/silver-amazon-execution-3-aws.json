@@ -1,0 +1,669 @@
+{
+  "id": 3,
+  "status": "COMPLETED",
+  "description": "createOrReplace at NativeMethodAccessorImpl.java:0",
+  "planDescription": "== Physical Plan ==\nAppendData (45)\n+- AdaptiveSparkPlan (44)\n   +- == Final Plan ==\n      AQEShuffleRead (25)\n      +- ShuffleQueryStage (24), Statistics(sizeInBytes=86.3 GiB, rowCount=1.54E+8)\n         +- Exchange (23)\n            +- * Project (22)\n               +- * Filter (21)\n                  +- Window (20)\n                     +- WindowGroupLimit (19)\n                        +- * Sort (18)\n                           +- ShuffleQueryStage (17), Statistics(sizeInBytes=81.0 GiB, rowCount=1.57E+8)\n                              +- Exchange (16)\n                                 +- WindowGroupLimit (15)\n                                    +- * Sort (14)\n                                       +- Union (13)\n                                          :- * Project (6)\n                                          :  +- * Generate (5)\n                                          :     +- Project (4)\n                                          :        +- Filter (3)\n                                          :           +- * ColumnarToRow (2)\n                                          :              +- BatchScan lakehouse.bronze.raw_amazon_orders_dp1 (1)\n                                          +- * Project (12)\n                                             +- * Generate (11)\n                                                +- Project (10)\n                                                   +- Filter (9)\n                                                      +- * ColumnarToRow (8)\n                                                         +- BatchScan lakehouse.bronze.raw_amazon_orders_dp1 (7)\n   +- == Initial Plan ==\n      Exchange (43)\n      +- Project (42)\n         +- Filter (41)\n            +- Window (40)\n               +- WindowGroupLimit (39)\n                  +- Sort (38)\n                     +- Exchange (37)\n                        +- WindowGroupLimit (36)\n                           +- Sort (35)\n                              +- Union (34)\n                                 :- Project (29)\n                                 :  +- Generate (28)\n                                 :     +- Project (27)\n                                 :        +- Filter (26)\n                                 :           +- BatchScan lakehouse.bronze.raw_amazon_orders_dp1 (1)\n                                 +- Project (33)\n                                    +- Generate (32)\n                                       +- Project (31)\n                                          +- Filter (30)\n                                             +- BatchScan lakehouse.bronze.raw_amazon_orders_dp1 (7)\n\n\n(1) BatchScan lakehouse.bronze.raw_amazon_orders_dp1\nOutput [3]: [payload#0, source_file#1, export_date#2]\nlakehouse.bronze.raw_amazon_orders_dp1 (branch=null) [filters=, groupedBy=]\n\n(2) ColumnarToRow [codegen id : 1]\nInput [3]: [payload#0, source_file#1, export_date#2]\n\n(3) Filter\nInput [3]: [payload#0, source_file#1, export_date#2]\nCondition : isnotnull(get_json_object(payload#0, $.AmazonOrderId))\n\n(4) Project\nOutput [3]: [source_file#1, export_date#2, from_json(StructField(AmazonOrderId,StringType,true), StructField(PurchaseDate,StringType,true), StructField(LastUpdateDate,StringType,true), StructField(OrderStatus,StringType,true), StructField(FulfillmentChannel,StringType,true), StructField(SalesChannel,StringType,true), StructField(MarketplaceId,StringType,true), StructField(OrderTotal,StructType(StructField(CurrencyCode,StringType,true),StructField(Amount,StringType,true)),true), StructField(NumberOfItemsShipped,IntegerType,true), StructField(NumberOfItemsUnshipped,IntegerType,true), StructField(IsPrime,BooleanType,true), StructField(EarliestDeliveryDate,StringType,true), StructField(LatestDeliveryDate,StringType,true), StructField(ShippingAddress,StructType(StructField(City,StringType,true),StructField(PostalCode,StringType,true),StructField(CountryCode,StringType,true)),true), StructField(OrderItems,ArrayType(StructType(StructField(OrderItemId,StringType,true),StructField(ASIN,StringType,true),StructField(SellerSKU,StringType,true),StructField(QuantityOrdered,IntegerType,true),StructField(QuantityShipped,IntegerType,true),StructField(ItemPrice,StructType(StructField(CurrencyCode,StringType,true),StructField(Amount,StringType,true)),true),StructField(PromotionDiscount,StructType(StructField(CurrencyCode,StringType,true),StructField(Amount,StringType,true)),true)),true),true), payload#0, Some(UTC)) AS d#17]\nInput [3]: [payload#0, source_file#1, export_date#2]\n\n(5) Generate [codegen id : 2]\nInput [3]: [source_file#1, export_date#2, d#17]\nArguments: explode(d#17.OrderItems), [source_file#1, export_date#2, d#17], false, [item#24]\n\n(6) Project [codegen id : 2]\nOutput [30]: [d#17.AmazonOrderId AS order_id#29, item#24.OrderItemId AS order_item_id#30, cast(d#17.PurchaseDate as timestamp) AS created_at#31, cast(d#17.LastUpdateDate as timestamp) AS last_updated_time#32, map(keys: [Pending,Unshipped,Shipped,Canceled], values: [pending_payment,awaiting_shipment,shipped,cancelled])[d#17.OrderStatus] AS order_status#33, d#17.OrderStatus AS channel_status#34, map(keys: [AFN,AMAZON,MFN,MERCHANT], values: [channel,channel,seller,seller])[d#17.FulfillmentChannel] AS fulfillment_method#35, d#17.SalesChannel AS sales_channel#36, d#17.MarketplaceId AS marketplace_id#37, d#17.IsPrime AS is_prime#38, cast(d#17.OrderTotal.Amount as decimal(14,2)) AS order_total_amount#39, d#17.OrderTotal.CurrencyCode AS currency#40, d#17.NumberOfItemsShipped AS number_of_items_shipped#41, d#17.NumberOfItemsUnshipped AS number_of_items_unshipped#42, cast(d#17.EarliestDeliveryDate as timestamp) AS earliest_delivery_date#43, cast(d#17.LatestDeliveryDate as timestamp) AS latest_delivery_date#44, d#17.ShippingAddress.City AS city#45, d#17.ShippingAddress.PostalCode AS postal_code#46, coalesce(map(keys: [USA], values: [US])[d#17.ShippingAddress.CountryCode], d#17.ShippingAddress.CountryCode) AS country#47, item#24.ASIN AS asin#48, item#24.SellerSKU AS seller_sku#49, item#24.QuantityOrdered AS quantity_ordered#50, item#24.QuantityShipped AS quantity_shipped#51, cast(item#24.ItemPrice.Amount as decimal(14,2)) AS line_gross_amount#52, cast(item#24.PromotionDiscount.Amount as decimal(14,2)) AS line_discount_amount#53, cast((cast(item#24.ItemPrice.Amount as decimal(14,2)) - cast(item#24.PromotionDiscount.Amount as decimal(14,2))) as decimal(14,2)) AS line_net_amount#54, export_date#2, source_file#1, v0 AS schema_form#55, 2026-10-27 16:22:43.766701 AS processed_at#230]\nInput [4]: [source_file#1, export_date#2, d#17, item#24]\n\n(7) BatchScan lakehouse.bronze.raw_amazon_orders_dp1\nOutput [3]: [payload#189, source_file#190, export_date#191]\nlakehouse.bronze.raw_amazon_orders_dp1 (branch=null) [filters=, groupedBy=]\n\n(8) ColumnarToRow [codegen id : 3]\nInput [3]: [payload#189, source_file#190, export_date#191]\n\n(9) Filter\nInput [3]: [payload#189, source_file#190, export_date#191]\nCondition : isnotnull(get_json_object(payload#189, $.orderId))\n\n(10) Project\nOutput [3]: [source_file#190, export_date#191, from_json(StructField(orderId,StringType,true), StructField(createdTime,StringType,true), StructField(lastUpdatedTime,StringType,true), StructField(programs,ArrayType(StringType,true),true), StructField(fulfillment,StructType(StructField(status,StringType,true),StructField(fulfilledBy,StringType,true),StructField(deliverByWindow,StructType(StructField(startTime,StringType,true),StructField(endTime,StringType,true)),true)),true), StructField(salesChannel,StructType(StructField(marketplaceId,StringType,true),StructField(channelName,StringType,true)),true), StructField(proceeds,StructType(StructField(grandTotal,StructType(StructField(currencyCode,StringType,true),StructField(amount,StringType,true)),true)),true), StructField(shippingAddress,StructType(StructField(city,StringType,true),StructField(postalCode,StringType,true),StructField(countryCode,StringType,true)),true), StructField(orderItems,ArrayType(StructType(StructField(orderItemId,StringType,true),StructField(product,StructType(StructField(asin,StringType,true),StructField(sellerSku,StringType,true)),true),StructField(quantityOrdered,IntegerType,true),StructField(price,StructType(StructField(currencyCode,StringType,true),StructField(amount,StringType,true)),true),StructField(promotion,StructType(StructField(currencyCode,StringType,true),StructField(amount,StringType,true)),true)),true),true), payload#189, Some(UTC)) AS d#104]\nInput [3]: [payload#189, source_file#190, export_date#191]\n\n(11) Generate [codegen id : 4]\nInput [3]: [source_file#190, export_date#191, d#104]\nArguments: explode(d#104.orderItems), [source_file#190, export_date#191, d#104], false, [item#111]\n\n(12) Project [codegen id : 4]\nOutput [30]: [d#104.orderId AS order_id#116, item#111.orderItemId AS order_item_id#117, cast(d#104.createdTime as timestamp) AS created_at#118, cast(d#104.lastUpdatedTime as timestamp) AS last_updated_time#119, map(keys: [PENDING,UNSHIPPED,SHIPPED,CANCELLED], values: [pending_payment,awaiting_shipment,shipped,cancelled])[d#104.fulfillment.status] AS order_status#120, d#104.fulfillment.status AS channel_status#121, map(keys: [AFN,AMAZON,MFN,MERCHANT], values: [channel,channel,seller,seller])[d#104.fulfillment.fulfilledBy] AS fulfillment_method#122, d#104.salesChannel.channelName AS sales_channel#123, d#104.salesChannel.marketplaceId AS marketplace_id#124, array_contains(d#104.programs, PRIME) AS is_prime#125, cast(d#104.proceeds.grandTotal.amount as decimal(14,2)) AS order_total_amount#126, d#104.proceeds.grandTotal.currencyCode AS currency#127, null AS number_of_items_shipped#128, null AS number_of_items_unshipped#129, cast(d#104.fulfillment.deliverByWindow.startTime as timestamp) AS earliest_delivery_date#130, cast(d#104.fulfillment.deliverByWindow.endTime as timestamp) AS latest_delivery_date#131, d#104.shippingAddress.city AS city#132, d#104.shippingAddress.postalCode AS postal_code#133, coalesce(map(keys: [USA], values: [US])[d#104.shippingAddress.countryCode], d#104.shippingAddress.countryCode) AS country#134, item#111.product.asin AS asin#135, item#111.product.sellerSku AS seller_sku#136, item#111.quantityOrdered AS quantity_ordered#137, null AS quantity_shipped#138, cast(item#111.price.amount as decimal(14,2)) AS line_gross_amount#139, cast(item#111.promotion.amount as decimal(14,2)) AS line_discount_amount#140, cast((cast(item#111.price.amount as decimal(14,2)) - cast(item#111.promotion.amount as decimal(14,2))) as decimal(14,2)) AS line_net_amount#141, export_date#191, source_file#190, 2026 AS schema_form#142, 2026-10-27 16:22:43.766701 AS processed_at#496]\nInput [4]: [source_file#190, export_date#191, d#104, item#111]\n\n(13) Union\n\n(14) Sort [codegen id : 5]\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29 ASC NULLS FIRST, order_item_id#30 ASC NULLS FIRST, last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], false, 0\n\n(15) WindowGroupLimit\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29, order_item_id#30], [last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], row_number(), 1, Partial\n\n(16) Exchange\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: hashpartitioning(order_id#29, order_item_id#30, 200), ENSURE_REQUIREMENTS, [plan_id=285]\n\n(17) ShuffleQueryStage\nOutput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: 0\n\n(18) Sort [codegen id : 6]\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29 ASC NULLS FIRST, order_item_id#30 ASC NULLS FIRST, last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], false, 0\n\n(19) WindowGroupLimit\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29, order_item_id#30], [last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], row_number(), 1, Final\n\n(20) Window\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [row_number() windowspecdefinition(order_id#29, order_item_id#30, last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) AS _rn#370], [order_id#29, order_item_id#30], [last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST]\n\n(21) Filter [codegen id : 7]\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, _rn#370]\nCondition : (_rn#370 = 1)\n\n(22) Project [codegen id : 7]\nOutput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, manual__2026-10-27T16:05:58+00:00 AS run_id#261]\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, _rn#370]\n\n(23) Exchange\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, run_id#261]\nArguments: hashpartitioning(staticinvoke(class org.apache.iceberg.spark.functions.DaysFunction$TimestampToDaysFunction, DateType, invoke, created_at#31, TimestampType, false, true, true), 200), REBALANCE_PARTITIONS_BY_COL, 402653184, [plan_id=360]\n\n(24) ShuffleQueryStage\nOutput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, run_id#261]\nArguments: 1\n\n(25) AQEShuffleRead\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, run_id#261]\nArguments: coalesced and skewed\n\n(26) Filter\nInput [3]: [payload#0, source_file#1, export_date#2]\nCondition : isnotnull(get_json_object(payload#0, $.AmazonOrderId))\n\n(27) Project\nOutput [3]: [source_file#1, export_date#2, from_json(StructField(AmazonOrderId,StringType,true), StructField(PurchaseDate,StringType,true), StructField(LastUpdateDate,StringType,true), StructField(OrderStatus,StringType,true), StructField(FulfillmentChannel,StringType,true), StructField(SalesChannel,StringType,true), StructField(MarketplaceId,StringType,true), StructField(OrderTotal,StructType(StructField(CurrencyCode,StringType,true),StructField(Amount,StringType,true)),true), StructField(NumberOfItemsShipped,IntegerType,true), StructField(NumberOfItemsUnshipped,IntegerType,true), StructField(IsPrime,BooleanType,true), StructField(EarliestDeliveryDate,StringType,true), StructField(LatestDeliveryDate,StringType,true), StructField(ShippingAddress,StructType(StructField(City,StringType,true),StructField(PostalCode,StringType,true),StructField(CountryCode,StringType,true)),true), StructField(OrderItems,ArrayType(StructType(StructField(OrderItemId,StringType,true),StructField(ASIN,StringType,true),StructField(SellerSKU,StringType,true),StructField(QuantityOrdered,IntegerType,true),StructField(QuantityShipped,IntegerType,true),StructField(ItemPrice,StructType(StructField(CurrencyCode,StringType,true),StructField(Amount,StringType,true)),true),StructField(PromotionDiscount,StructType(StructField(CurrencyCode,StringType,true),StructField(Amount,StringType,true)),true)),true),true), payload#0, Some(UTC)) AS d#17]\nInput [3]: [payload#0, source_file#1, export_date#2]\n\n(28) Generate\nInput [3]: [source_file#1, export_date#2, d#17]\nArguments: explode(d#17.OrderItems), [source_file#1, export_date#2, d#17], false, [item#24]\n\n(29) Project\nOutput [30]: [d#17.AmazonOrderId AS order_id#29, item#24.OrderItemId AS order_item_id#30, cast(d#17.PurchaseDate as timestamp) AS created_at#31, cast(d#17.LastUpdateDate as timestamp) AS last_updated_time#32, map(keys: [Pending,Unshipped,Shipped,Canceled], values: [pending_payment,awaiting_shipment,shipped,cancelled])[d#17.OrderStatus] AS order_status#33, d#17.OrderStatus AS channel_status#34, map(keys: [AFN,AMAZON,MFN,MERCHANT], values: [channel,channel,seller,seller])[d#17.FulfillmentChannel] AS fulfillment_method#35, d#17.SalesChannel AS sales_channel#36, d#17.MarketplaceId AS marketplace_id#37, d#17.IsPrime AS is_prime#38, cast(d#17.OrderTotal.Amount as decimal(14,2)) AS order_total_amount#39, d#17.OrderTotal.CurrencyCode AS currency#40, d#17.NumberOfItemsShipped AS number_of_items_shipped#41, d#17.NumberOfItemsUnshipped AS number_of_items_unshipped#42, cast(d#17.EarliestDeliveryDate as timestamp) AS earliest_delivery_date#43, cast(d#17.LatestDeliveryDate as timestamp) AS latest_delivery_date#44, d#17.ShippingAddress.City AS city#45, d#17.ShippingAddress.PostalCode AS postal_code#46, coalesce(map(keys: [USA], values: [US])[d#17.ShippingAddress.CountryCode], d#17.ShippingAddress.CountryCode) AS country#47, item#24.ASIN AS asin#48, item#24.SellerSKU AS seller_sku#49, item#24.QuantityOrdered AS quantity_ordered#50, item#24.QuantityShipped AS quantity_shipped#51, cast(item#24.ItemPrice.Amount as decimal(14,2)) AS line_gross_amount#52, cast(item#24.PromotionDiscount.Amount as decimal(14,2)) AS line_discount_amount#53, cast((cast(item#24.ItemPrice.Amount as decimal(14,2)) - cast(item#24.PromotionDiscount.Amount as decimal(14,2))) as decimal(14,2)) AS line_net_amount#54, export_date#2, source_file#1, v0 AS schema_form#55, 2026-10-27 16:22:43.766701 AS processed_at#230]\nInput [4]: [source_file#1, export_date#2, d#17, item#24]\n\n(30) Filter\nInput [3]: [payload#189, source_file#190, export_date#191]\nCondition : isnotnull(get_json_object(payload#189, $.orderId))\n\n(31) Project\nOutput [3]: [source_file#190, export_date#191, from_json(StructField(orderId,StringType,true), StructField(createdTime,StringType,true), StructField(lastUpdatedTime,StringType,true), StructField(programs,ArrayType(StringType,true),true), StructField(fulfillment,StructType(StructField(status,StringType,true),StructField(fulfilledBy,StringType,true),StructField(deliverByWindow,StructType(StructField(startTime,StringType,true),StructField(endTime,StringType,true)),true)),true), StructField(salesChannel,StructType(StructField(marketplaceId,StringType,true),StructField(channelName,StringType,true)),true), StructField(proceeds,StructType(StructField(grandTotal,StructType(StructField(currencyCode,StringType,true),StructField(amount,StringType,true)),true)),true), StructField(shippingAddress,StructType(StructField(city,StringType,true),StructField(postalCode,StringType,true),StructField(countryCode,StringType,true)),true), StructField(orderItems,ArrayType(StructType(StructField(orderItemId,StringType,true),StructField(product,StructType(StructField(asin,StringType,true),StructField(sellerSku,StringType,true)),true),StructField(quantityOrdered,IntegerType,true),StructField(price,StructType(StructField(currencyCode,StringType,true),StructField(amount,StringType,true)),true),StructField(promotion,StructType(StructField(currencyCode,StringType,true),StructField(amount,StringType,true)),true)),true),true), payload#189, Some(UTC)) AS d#104]\nInput [3]: [payload#189, source_file#190, export_date#191]\n\n(32) Generate\nInput [3]: [source_file#190, export_date#191, d#104]\nArguments: explode(d#104.orderItems), [source_file#190, export_date#191, d#104], false, [item#111]\n\n(33) Project\nOutput [30]: [d#104.orderId AS order_id#116, item#111.orderItemId AS order_item_id#117, cast(d#104.createdTime as timestamp) AS created_at#118, cast(d#104.lastUpdatedTime as timestamp) AS last_updated_time#119, map(keys: [PENDING,UNSHIPPED,SHIPPED,CANCELLED], values: [pending_payment,awaiting_shipment,shipped,cancelled])[d#104.fulfillment.status] AS order_status#120, d#104.fulfillment.status AS channel_status#121, map(keys: [AFN,AMAZON,MFN,MERCHANT], values: [channel,channel,seller,seller])[d#104.fulfillment.fulfilledBy] AS fulfillment_method#122, d#104.salesChannel.channelName AS sales_channel#123, d#104.salesChannel.marketplaceId AS marketplace_id#124, array_contains(d#104.programs, PRIME) AS is_prime#125, cast(d#104.proceeds.grandTotal.amount as decimal(14,2)) AS order_total_amount#126, d#104.proceeds.grandTotal.currencyCode AS currency#127, null AS number_of_items_shipped#128, null AS number_of_items_unshipped#129, cast(d#104.fulfillment.deliverByWindow.startTime as timestamp) AS earliest_delivery_date#130, cast(d#104.fulfillment.deliverByWindow.endTime as timestamp) AS latest_delivery_date#131, d#104.shippingAddress.city AS city#132, d#104.shippingAddress.postalCode AS postal_code#133, coalesce(map(keys: [USA], values: [US])[d#104.shippingAddress.countryCode], d#104.shippingAddress.countryCode) AS country#134, item#111.product.asin AS asin#135, item#111.product.sellerSku AS seller_sku#136, item#111.quantityOrdered AS quantity_ordered#137, null AS quantity_shipped#138, cast(item#111.price.amount as decimal(14,2)) AS line_gross_amount#139, cast(item#111.promotion.amount as decimal(14,2)) AS line_discount_amount#140, cast((cast(item#111.price.amount as decimal(14,2)) - cast(item#111.promotion.amount as decimal(14,2))) as decimal(14,2)) AS line_net_amount#141, export_date#191, source_file#190, 2026 AS schema_form#142, 2026-10-27 16:22:43.766701 AS processed_at#496]\nInput [4]: [source_file#190, export_date#191, d#104, item#111]\n\n(34) Union\n\n(35) Sort\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29 ASC NULLS FIRST, order_item_id#30 ASC NULLS FIRST, last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], false, 0\n\n(36) WindowGroupLimit\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29, order_item_id#30], [last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], row_number(), 1, Partial\n\n(37) Exchange\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: hashpartitioning(order_id#29, order_item_id#30, 200), ENSURE_REQUIREMENTS, [plan_id=205]\n\n(38) Sort\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29 ASC NULLS FIRST, order_item_id#30 ASC NULLS FIRST, last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], false, 0\n\n(39) WindowGroupLimit\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [order_id#29, order_item_id#30], [last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST], row_number(), 1, Final\n\n(40) Window\nInput [30]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230]\nArguments: [row_number() windowspecdefinition(order_id#29, order_item_id#30, last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) AS _rn#370], [order_id#29, order_item_id#30], [last_updated_time#32 DESC NULLS LAST, export_date#2 DESC NULLS LAST]\n\n(41) Filter\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, _rn#370]\nCondition : (_rn#370 = 1)\n\n(42) Project\nOutput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, manual__2026-10-27T16:05:58+00:00 AS run_id#261]\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, _rn#370]\n\n(43) Exchange\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, run_id#261]\nArguments: hashpartitioning(staticinvoke(class org.apache.iceberg.spark.functions.DaysFunction$TimestampToDaysFunction, DateType, invoke, created_at#31, TimestampType, false, true, true), 200), REBALANCE_PARTITIONS_BY_COL, 402653184, [plan_id=211]\n\n(44) AdaptiveSparkPlan\nOutput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, run_id#261]\nArguments: isFinalPlan=true\n\n(45) AppendData\nInput [31]: [order_id#29, order_item_id#30, created_at#31, last_updated_time#32, order_status#33, channel_status#34, fulfillment_method#35, sales_channel#36, marketplace_id#37, is_prime#38, order_total_amount#39, currency#40, number_of_items_shipped#41, number_of_items_unshipped#42, earliest_delivery_date#43, latest_delivery_date#44, city#45, postal_code#46, country#47, asin#48, seller_sku#49, quantity_ordered#50, quantity_shipped#51, line_gross_amount#52, line_discount_amount#53, line_net_amount#54, export_date#2, source_file#1, schema_form#55, processed_at#230, run_id#261]\nArguments: org.apache.spark.sql.execution.datasources.v2.DataSourceV2Strategy$$Lambda$4563/0x00007648e2283978@2b83e7a, IcebergWrite(table=lakehouse.silver.stg_amazon_order_lines_dp2, format=PARQUET)\n\n",
+  "submissionTime": "2026-10-27T16:22:44.447GMT",
+  "duration": 2139509,
+  "runningJobIds": [],
+  "successJobIds": [
+    2,
+    3,
+    4
+  ],
+  "failedJobIds": [],
+  "nodes": [
+    {
+      "nodeId": 31,
+      "nodeName": "BatchScan lakehouse.bronze.raw_amazon_orders_dp1",
+      "metrics": [
+        {
+          "name": "number of skipped delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of skipped data files",
+          "value": "N/A"
+        },
+        {
+          "name": "total data manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "total planning duration (ms)",
+          "value": "N/A"
+        },
+        {
+          "name": "total data file size (bytes)",
+          "value": "N/A"
+        },
+        {
+          "name": "number of indexed delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of scanned delete manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "number of positional delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of result delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of file splits read",
+          "value": "N/A"
+        },
+        {
+          "name": "number of output rows",
+          "value": "108,248,563"
+        },
+        {
+          "name": "total delete file size (bytes)",
+          "value": "N/A"
+        },
+        {
+          "name": "number of scanned data manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "number of skipped delete manifest",
+          "value": "N/A"
+        },
+        {
+          "name": "total delete manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "number of equality delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of result data files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of skipped data manifests",
+          "value": "N/A"
+        }
+      ]
+    },
+    {
+      "nodeId": 30,
+      "nodeName": "ColumnarToRow",
+      "wholeStageCodegenId": 3,
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "108,248,563"
+        },
+        {
+          "name": "number of input batches",
+          "value": "21,752"
+        }
+      ]
+    },
+    {
+      "nodeId": 29,
+      "nodeName": "WholeStageCodegen (3)",
+      "metrics": [
+        {
+          "name": "duration",
+          "value": "total (min, med, max (stageId: taskId))\n38.9 m (0 ms, 1.9 s, 1.3 m (stage 3.0: task 682))"
+        }
+      ]
+    },
+    {
+      "nodeId": 28,
+      "nodeName": "Filter",
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "55,578,484"
+        }
+      ]
+    },
+    {
+      "nodeId": 27,
+      "nodeName": "Project",
+      "metrics": []
+    },
+    {
+      "nodeId": 26,
+      "nodeName": "Generate",
+      "wholeStageCodegenId": 4,
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "80,584,967"
+        }
+      ]
+    },
+    {
+      "nodeId": 25,
+      "nodeName": "Project",
+      "wholeStageCodegenId": 4,
+      "metrics": []
+    },
+    {
+      "nodeId": 24,
+      "nodeName": "WholeStageCodegen (4)",
+      "metrics": [
+        {
+          "name": "duration",
+          "value": "total (min, med, max (stageId: taskId))\n38.9 m (0 ms, 1.9 s, 1.3 m (stage 3.0: task 682))"
+        }
+      ]
+    },
+    {
+      "nodeId": 23,
+      "nodeName": "BatchScan lakehouse.bronze.raw_amazon_orders_dp1",
+      "metrics": [
+        {
+          "name": "number of skipped delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of skipped data files",
+          "value": "N/A"
+        },
+        {
+          "name": "total data manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "total planning duration (ms)",
+          "value": "N/A"
+        },
+        {
+          "name": "total data file size (bytes)",
+          "value": "N/A"
+        },
+        {
+          "name": "number of indexed delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of scanned delete manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "number of positional delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of result delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of file splits read",
+          "value": "N/A"
+        },
+        {
+          "name": "number of output rows",
+          "value": "108,248,563"
+        },
+        {
+          "name": "total delete file size (bytes)",
+          "value": "N/A"
+        },
+        {
+          "name": "number of scanned data manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "number of skipped delete manifest",
+          "value": "N/A"
+        },
+        {
+          "name": "total delete manifests",
+          "value": "N/A"
+        },
+        {
+          "name": "number of equality delete files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of result data files",
+          "value": "N/A"
+        },
+        {
+          "name": "number of skipped data manifests",
+          "value": "N/A"
+        }
+      ]
+    },
+    {
+      "nodeId": 22,
+      "nodeName": "ColumnarToRow",
+      "wholeStageCodegenId": 1,
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "108,248,563"
+        },
+        {
+          "name": "number of input batches",
+          "value": "21,752"
+        }
+      ]
+    },
+    {
+      "nodeId": 21,
+      "nodeName": "WholeStageCodegen (1)",
+      "metrics": [
+        {
+          "name": "duration",
+          "value": "total (min, med, max (stageId: taskId))\n37.2 m (0 ms, 1.8 s, 27.2 s (stage 3.0: task 359))"
+        }
+      ]
+    },
+    {
+      "nodeId": 20,
+      "nodeName": "Filter",
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "52,670,079"
+        }
+      ]
+    },
+    {
+      "nodeId": 19,
+      "nodeName": "Project",
+      "metrics": []
+    },
+    {
+      "nodeId": 18,
+      "nodeName": "Generate",
+      "wholeStageCodegenId": 2,
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "76,365,986"
+        }
+      ]
+    },
+    {
+      "nodeId": 17,
+      "nodeName": "Project",
+      "wholeStageCodegenId": 2,
+      "metrics": []
+    },
+    {
+      "nodeId": 16,
+      "nodeName": "WholeStageCodegen (2)",
+      "metrics": [
+        {
+          "name": "duration",
+          "value": "total (min, med, max (stageId: taskId))\n37.2 m (0 ms, 1.8 s, 27.1 s (stage 3.0: task 359))"
+        }
+      ]
+    },
+    {
+      "nodeId": 15,
+      "nodeName": "Union",
+      "metrics": []
+    },
+    {
+      "nodeId": 14,
+      "nodeName": "Sort",
+      "wholeStageCodegenId": 5,
+      "metrics": [
+        {
+          "name": "sort time",
+          "value": "total (min, med, max (stageId: taskId))\n2.7 m (0 ms, 233 ms, 3.0 s (stage 3.0: task 682))"
+        },
+        {
+          "name": "peak memory",
+          "value": "total (min, med, max (stageId: taskId))\n86.2 GiB (64.0 KiB, 240.0 MiB, 512.0 MiB (stage 3.0: task 358))"
+        },
+        {
+          "name": "spill size",
+          "value": "total (min, med, max (stageId: taskId))\n9.4 GiB (0.0 B, 0.0 B, 960.0 MiB (stage 3.0: task 535))"
+        }
+      ]
+    },
+    {
+      "nodeId": 13,
+      "nodeName": "WholeStageCodegen (5)",
+      "metrics": [
+        {
+          "name": "duration",
+          "value": "total (min, med, max (stageId: taskId))\n1.40 h (1.8 s, 11.2 s, 1.4 m (stage 3.0: task 682))"
+        }
+      ]
+    },
+    {
+      "nodeId": 12,
+      "nodeName": "WindowGroupLimit",
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "156,948,256"
+        }
+      ]
+    },
+    {
+      "nodeId": 11,
+      "nodeName": "Exchange",
+      "metrics": [
+        {
+          "name": "shuffle records written",
+          "value": "156,948,256"
+        },
+        {
+          "name": "shuffle write time",
+          "value": "total (min, med, max (stageId: taskId))\n50.6 s (0 ms, 75 ms, 4.0 s (stage 3.0: task 682))"
+        },
+        {
+          "name": "records read",
+          "value": "156,948,256"
+        },
+        {
+          "name": "local bytes read",
+          "value": "total (min, med, max (stageId: taskId))\n10.6 GiB (52.4 MiB, 52.9 MiB, 55.6 MiB (stage 5.0: task 786))"
+        },
+        {
+          "name": "fetch wait time",
+          "value": "total (min, med, max (stageId: taskId))\n1.8 m (0 ms, 341 ms, 2.3 s (stage 5.0: task 825))"
+        },
+        {
+          "name": "remote bytes read",
+          "value": "total (min, med, max (stageId: taskId))\n10.6 GiB (52.4 MiB, 55.3 MiB, 55.7 MiB (stage 5.0: task 877))"
+        },
+        {
+          "name": "local blocks read",
+          "value": "17,996"
+        },
+        {
+          "name": "remote blocks read",
+          "value": "18,004"
+        },
+        {
+          "name": "data size",
+          "value": "total (min, med, max (stageId: taskId))\n81.0 GiB (0.0 B, 205.6 MiB, 1343.5 MiB (stage 3.0: task 682))"
+        },
+        {
+          "name": "number of partitions",
+          "value": "200"
+        },
+        {
+          "name": "remote reqs duration",
+          "value": "total (min, med, max (stageId: taskId))\n27.4 m (1.8 s, 7.5 s, 23.0 s (stage 5.0: task 732))"
+        },
+        {
+          "name": "shuffle bytes written",
+          "value": "total (min, med, max (stageId: taskId))\n21.1 GiB (0.0 B, 55.0 MiB, 364.4 MiB (stage 3.0: task 682))"
+        }
+      ]
+    },
+    {
+      "nodeId": 10,
+      "nodeName": "Sort",
+      "wholeStageCodegenId": 6,
+      "metrics": [
+        {
+          "name": "sort time",
+          "value": "total (min, med, max (stageId: taskId))\n1.5 m (425 ms, 452 ms, 869 ms (stage 5.0: task 714))"
+        },
+        {
+          "name": "peak memory",
+          "value": "total (min, med, max (stageId: taskId))\n93.7 GiB (480.0 MiB, 480.0 MiB, 480.0 MiB (stage 5.0: task 715))"
+        },
+        {
+          "name": "spill size",
+          "value": "total (min, med, max (stageId: taskId))\n0.0 B (0.0 B, 0.0 B, 0.0 B (stage 5.0: task 715))"
+        }
+      ]
+    },
+    {
+      "nodeId": 9,
+      "nodeName": "WholeStageCodegen (6)",
+      "metrics": [
+        {
+          "name": "duration",
+          "value": "total (min, med, max (stageId: taskId))\n26.8 m (4.2 s, 8.1 s, 13.8 s (stage 5.0: task 816))"
+        }
+      ]
+    },
+    {
+      "nodeId": 8,
+      "nodeName": "WindowGroupLimit",
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "153,849,901"
+        }
+      ]
+    },
+    {
+      "nodeId": 7,
+      "nodeName": "Window",
+      "metrics": [
+        {
+          "name": "spill size",
+          "value": "total (min, med, max (stageId: taskId))\n0.0 B (0.0 B, 0.0 B, 0.0 B (stage 5.0: task 715))"
+        }
+      ]
+    },
+    {
+      "nodeId": 6,
+      "nodeName": "Filter",
+      "wholeStageCodegenId": 7,
+      "metrics": [
+        {
+          "name": "number of output rows",
+          "value": "153,849,901"
+        }
+      ]
+    },
+    {
+      "nodeId": 5,
+      "nodeName": "Project",
+      "wholeStageCodegenId": 7,
+      "metrics": []
+    },
+    {
+      "nodeId": 4,
+      "nodeName": "WholeStageCodegen (7)",
+      "metrics": [
+        {
+          "name": "duration",
+          "value": "total (min, med, max (stageId: taskId))\n11.5 m (2.2 s, 2.8 s, 10.2 s (stage 5.0: task 816))"
+        }
+      ]
+    },
+    {
+      "nodeId": 3,
+      "nodeName": "Exchange",
+      "metrics": [
+        {
+          "name": "shuffle records written",
+          "value": "153,849,901"
+        },
+        {
+          "name": "shuffle write time",
+          "value": "total (min, med, max (stageId: taskId))\n17.7 m (154 ms, 5.6 s, 10.9 s (stage 5.0: task 897))"
+        },
+        {
+          "name": "records read",
+          "value": "153,849,901"
+        },
+        {
+          "name": "local bytes read",
+          "value": "total (min, med, max (stageId: taskId))\n10.8 GiB (53.5 MiB, 174.8 MiB, 192.2 MiB (stage 8.0: task 929))"
+        },
+        {
+          "name": "fetch wait time",
+          "value": "total (min, med, max (stageId: taskId))\n0 ms (0 ms, 0 ms, 0 ms (stage 8.0: task 913))"
+        },
+        {
+          "name": "remote bytes read",
+          "value": "total (min, med, max (stageId: taskId))\n10.8 GiB (53.7 MiB, 175.0 MiB, 192.0 MiB (stage 8.0: task 929))"
+        },
+        {
+          "name": "local blocks read",
+          "value": "7,000"
+        },
+        {
+          "name": "remote blocks read",
+          "value": "7,349"
+        },
+        {
+          "name": "data size",
+          "value": "total (min, med, max (stageId: taskId))\n86.3 GiB (440.1 MiB, 441.7 MiB, 443.2 MiB (stage 5.0: task 801))"
+        },
+        {
+          "name": "number of partitions",
+          "value": "200"
+        },
+        {
+          "name": "remote reqs duration",
+          "value": "total (min, med, max (stageId: taskId))\n1.9 m (636 ms, 1.2 s, 12.7 s (stage 8.0: task 913))"
+        },
+        {
+          "name": "shuffle bytes written",
+          "value": "total (min, med, max (stageId: taskId))\n21.6 GiB (110.1 MiB, 110.5 MiB, 110.8 MiB (stage 5.0: task 801))"
+        }
+      ]
+    },
+    {
+      "nodeId": 2,
+      "nodeName": "AQEShuffleRead",
+      "metrics": [
+        {
+          "name": "partition data size",
+          "value": "total (min, med, max (stageId: taskId))\n22.5 GiB (114.3 MiB, 367.4 MiB, 416.2 MiB (driver))"
+        },
+        {
+          "name": "number of coalesced partitions",
+          "value": "53"
+        },
+        {
+          "name": "number of skewed partitions",
+          "value": "3"
+        },
+        {
+          "name": "number of skewed partition splits",
+          "value": "6"
+        },
+        {
+          "name": "number of partitions",
+          "value": "73"
+        }
+      ]
+    },
+    {
+      "nodeId": 1,
+      "nodeName": "AdaptiveSparkPlan",
+      "metrics": []
+    },
+    {
+      "nodeId": 0,
+      "nodeName": "AppendData",
+      "metrics": []
+    }
+  ],
+  "edges": [
+    {
+      "fromId": 1,
+      "toId": 0
+    },
+    {
+      "fromId": 2,
+      "toId": 1
+    },
+    {
+      "fromId": 3,
+      "toId": 2
+    },
+    {
+      "fromId": 5,
+      "toId": 3
+    },
+    {
+      "fromId": 6,
+      "toId": 5
+    },
+    {
+      "fromId": 7,
+      "toId": 6
+    },
+    {
+      "fromId": 8,
+      "toId": 7
+    },
+    {
+      "fromId": 10,
+      "toId": 8
+    },
+    {
+      "fromId": 11,
+      "toId": 10
+    },
+    {
+      "fromId": 12,
+      "toId": 11
+    },
+    {
+      "fromId": 14,
+      "toId": 12
+    },
+    {
+      "fromId": 15,
+      "toId": 14
+    },
+    {
+      "fromId": 17,
+      "toId": 15
+    },
+    {
+      "fromId": 18,
+      "toId": 17
+    },
+    {
+      "fromId": 19,
+      "toId": 18
+    },
+    {
+      "fromId": 20,
+      "toId": 19
+    },
+    {
+      "fromId": 22,
+      "toId": 20
+    },
+    {
+      "fromId": 23,
+      "toId": 22
+    },
+    {
+      "fromId": 25,
+      "toId": 15
+    },
+    {
+      "fromId": 26,
+      "toId": 25
+    },
+    {
+      "fromId": 27,
+      "toId": 26
+    },
+    {
+      "fromId": 28,
+      "toId": 27
+    },
+    {
+      "fromId": 30,
+      "toId": 28
+    },
+    {
+      "fromId": 31,
+      "toId": 30
+    }
+  ]
+}
