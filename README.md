@@ -121,6 +121,7 @@ Tài liệu bám theo rubric và các lần triển khai AWS; mỗi trang có co
 │   └── helm/         #   Helm chart Feature API
 ├── ci/               # Jenkinsfile và cấu hình Jenkins
 ├── scripts/          # setup/ dựng dịch vụ · run/ chạy pipeline · evidence/ thu bằng chứng
+├── notebooks/        # Notebook phân tích: model + bootstrap, drift, benchmark LLM/A/B, EDA nhãn (đã chạy, có output)
 ├── tests/            # Unit, Spark, harness kiểm thử
 └── docs/             # Tài liệu theo rubric, ưu tiên kết quả AWS
     ├── README.md     # Mục lục chung

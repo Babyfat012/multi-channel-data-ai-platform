@@ -52,6 +52,19 @@ Tag của run: `data.dataset_version = order_snapshots`, `data.entity_path = s3:
 `test_rows = 16411`, `pr_auc_model = 0,2520` so với `pr_auc_baseline = 0,2472`, `lift_model = 2,247`, `beats_baseline = 1`.
 Giao diện MLflow của chính run này: Tags (`data.dataset_version`, `data.generation_id`, `data.train_sha256`, `data.test_sha256`, `data.entity_path`), dataset input `train (a1f3e3b9)`, và model đã đăng ký `return-risk v1`.
 
+### Kiểm tra thống kê của kết quả (notebook, 04/11/2026)
+
+Notebook [`05_retrain_and_bootstrap`](../../notebooks/05_retrain_and_bootstrap.ipynb) huấn luyện lại bằng đúng `ml/train_lib.py` trên tập train/test của run (SHA-256 khớp tag MLflow):
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Tái lập số MLflow | PR-AUC model 0,2520 và baseline 0,2472 khớp tuyệt đối (chênh 0) |
+| Chênh model − baseline | +0,0048; bootstrap 1.000 lần, CI 95% `[-0,0003; +0,0099]`; model > baseline ở ~96% mẫu |
+| 5 seed (7–11) | model 0,2512–0,2532 (độ lệch chuẩn 0,0008), cả 5 đều hơn baseline |
+| Tầm quan trọng | ~85% ở `return_or_refund_rate_90d`, cột mà baseline cũng dùng |
+
+Kết luận: kết quả tái lập được và model có xu hướng hơn baseline, nhưng khoảng tin cậy chạm 0 nên **chưa khẳng định** model tốt hơn rule đơn giản. Bootstrap coi các dòng độc lập, khoảng thật có thể rộng hơn.
+
 ![MLflow 3.17.0: run mysterious-flea-253, 6 metric, 3 tham số, dataset train, Tags data.*, Registered models return-risk v1](../evidence/aws/mlflow-run-overview-tags.png)
 
 Tab Artifacts có hai thư mục `data/train` và `data/test` (`train_set` 30,63 MiB = 32.117.362 byte, đúng kích thước script đo).
