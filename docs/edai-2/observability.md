@@ -77,8 +77,14 @@ Số lượt gọi mỗi Agent (A2A theo route) và mỗi tool qua gateway: ản
 **Thành công / thất bại theo từng Agent.** Dashboard [`platform-agents.json`](../../infra/k8s/observability/dashboards/platform-agents.json)
 có thêm ba panel theo `route` của từng Agent (`a2a-data-agent`, `a2a-model-agent`, `a2a-coordinator`): số request thành công (2xx),
 số request thất bại theo `status`, và tỷ lệ thành công. Số liệu là mã HTTP qua gateway (401 thiếu key, 429, 5xx…), không phải
-trạng thái task A2A bên trong Agent. Tải sinh bằng `gateway_smoke.py` (mỗi Agent một cặp có key / không key). Panel này
-**chưa có ảnh EKS**: dashboard cần áp dụng lại ConfigMap `grafana-dashboards-platform` rồi chụp sau khi chạy smoke.
+trạng thái task A2A bên trong Agent. Tải sinh bằng `gateway_smoke.py` (mỗi Agent một cặp có key / không key) và bài tải KEDA. Dashboard đã áp dụng vào ConfigMap `grafana-dashboards-platform` trên EKS; ảnh dưới
+chụp ngày 04/11/2026, khoảng **Last 6 hours**, múi giờ của trình duyệt (UTC+7):
+
+![Grafana EKS: hàng Agent thành công/thất bại theo từng Agent — 2xx mỗi route, non-2xx theo status (401 trên route -path), tỷ lệ thành công](../evidence/aws/grafana-agent-success-fail.png)
+
+- **Thành công (2xx):** đỉnh khoảng 500 request trong cửa sổ 5 phút lúc ~14:30 (bài tải KEDA 3 request/giây, 150 giây) cho `a2a-coordinator`, `a2a-data-agent`, `a2a-model-agent`, mỗi route một đường màu riêng.
+- **Thất bại (non-2xx):** các mã `401` trên `a2a-coordinator-path`, `a2a-data-agent-path`, `a2a-model-agent-path` lúc ~16:00 (đợt `gateway_smoke.py`: request không kèm khóa tới từng Agent), tách theo route và theo status.
+- **Tỷ lệ thành công:** gần 100% cho từng Agent, tụt xuống mức thấp tại đúng thời điểm có 401 của đợt smoke.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
