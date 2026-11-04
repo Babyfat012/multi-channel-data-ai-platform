@@ -1,0 +1,6 @@
+mutmut 3.3.1; chọn file từ Git diff 3cd3fcd..89cd44e
+selected_files: serving/app.py
+245/245  killed 219  no tests 14  timeout 0  suspicious 0  survived 12  skipped 0
+killed / tổng = 89.4%  (loại no tests: 94.8%)
+status: passed  run_exit_code: 0  results_exit_code: 0
+2026-11-04T15:10:35.315424+00:00 → 2026-11-04T15:12:55.057978+00:00

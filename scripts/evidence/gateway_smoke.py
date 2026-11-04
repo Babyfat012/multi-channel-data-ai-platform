@@ -184,6 +184,50 @@ async def mcp_calls(client, key, sku):
     return init_status, names, has_values
 
 
+async def mcp_agent2_tools(client, key, sku):
+    """Hai tool của Agent 2 qua gateway: predict_return_risk có score; search_policy_chunks có chunk.
+
+    Trả (predict có score và model_version?, số chunk chính sách tìm được). Tool lỗi tính là không có kết quả.
+    """
+    head, _ = await mcp_head(client, key)
+
+    async def call(call_id, name, arguments):
+        """tools/call một tool; trả body có cấu trúc, hoặc {} khi tool báo isError."""
+        reply = sse_json(
+            (
+                await client.post(
+                    "/mcp",
+                    headers=head,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": call_id,
+                        "method": "tools/call",
+                        "params": {"name": name, "arguments": arguments},
+                    },
+                )
+            ).text
+        )
+        result = reply.get("result", {})
+        if result.get("isError") or "error" in reply:
+            return {}
+        return result.get("structuredContent") or json.loads(result["content"][0]["text"])
+
+    predicted = await call(
+        4,
+        "predict_return_risk",
+        {
+            "seller_sku": sku,
+            "channel": "amazon",
+            "country": "US",
+            "ordered_basis_qty": 1,
+            "ordered_product_net_minor": 2500,
+        },
+    )
+    found = await call(5, "search_policy_chunks", {"query": "Amazon return window", "top_k": 2})
+    scored = predicted.get("score") is not None and predicted.get("model_version") is not None
+    return scored, len(found.get("chunks", []))
+
+
 async def run(gateway, prometheus, key, sku, burst):
     """Gọi đủ bảng kiểm qua gateway, chờ scrape rồi hỏi Prometheus; trả list dòng chưa chấm."""
     auth = {"Authorization": f"Bearer {key}"}
@@ -247,6 +291,19 @@ async def run(gateway, prometheus, key, sku, burst):
             {
                 "check": f"MCP get_sku_features {sku} có giá trị khác null",
                 "got": has_values,
+                "want": True,
+            },
+        ]
+        scored, chunks = await mcp_agent2_tools(c, key, sku)
+        rows += [
+            {
+                "check": f"MCP predict_return_risk {sku} trả score và model_version",
+                "got": scored,
+                "want": True,
+            },
+            {
+                "check": "MCP search_policy_chunks trả ít nhất 1 chunk",
+                "got": chunks >= 1,
                 "want": True,
             },
         ]

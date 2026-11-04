@@ -1,0 +1,24 @@
+# Model Agent (Agent 2) chạy trong sandbox gVisor (Agent Substrate): cùng model (qua agentgateway), cùng system prompt
+# và cùng ba tool MCP với model-agent (feature, dự đoán qua KServe, RAG), nhưng mã Agent không chạm kernel node.
+# Substrate chỉ hỗ trợ runtime Go (ADK Python chưa), giống data-agent-sandbox.
+apiVersion: kagent.dev/v1alpha2
+kind: SandboxAgent
+metadata:
+  name: model-agent-sandbox
+  namespace: kagent
+spec:
+  type: Declarative
+  description: Model Agent in a gVisor sandbox; scores return risk and answers policy questions through the gateway MCP tools.
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessageFrom: {type: ConfigMap, name: agent-prompts, key: model-agent}
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: feature-tools
+          toolNames: [get_sku_features, predict_return_risk, search_policy_chunks]
+  substrate:
+    workerPoolRef: {name: kagent-default}

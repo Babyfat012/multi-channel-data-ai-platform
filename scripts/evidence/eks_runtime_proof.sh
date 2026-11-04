@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# In một lần bằng chứng runtime trên EKS để chụp màn hình: probe/health Web API, replica và autoscale TỪNG pod, Sandbox/Substrate.
+# In một lần bằng chứng runtime trên EKS để chụp màn hình: probe/health Web API và pod Agent, replica và autoscale TỪNG pod, Sandbox/Substrate.
 # Chạy: KCTX=<kube-context> scripts/evidence/eks_runtime_proof.sh   (ghi docs/evidence/aws/eks-runtime-proof.txt)
 # MCP tools/list + deny nằm ở scripts/evidence/gateway_smoke.py. Lệnh lỗi không dừng script (mục nào thiếu thì ghi rõ).
 set -uo pipefail
@@ -21,6 +21,11 @@ section() { printf '\n## %s\n' "$*"; }
   section "Agent: số replica và autoscale (KEDA → HPA), từng pod chạy ở node nào"
   "${K[@]}" -n kagent get scaledobject,hpa
   "${K[@]}" -n kagent get pods -l kagent -o wide
+  section "Agent: probe và replica của từng Deployment (Data Agent, Model Agent, Coordinator)"
+  for agent in data-agent model-agent coordinator; do
+    echo "--- $agent"
+    "${K[@]}" -n kagent describe deploy "$agent" | grep -E "Replicas:|Liveness|Readiness|Startup" || echo "(Deployment không khai probe hoặc không có)"
+  done
   section "Sandbox / Agent Substrate (gVisor)"
   "${K[@]}" -n kagent get workerpool,sandboxagent
   # Substrate không dùng RuntimeClass của Kubernetes: gVisor nằm ở image ateom và sandboxClass của WorkerPool.

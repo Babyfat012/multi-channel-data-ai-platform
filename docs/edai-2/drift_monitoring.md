@@ -32,6 +32,8 @@ Quy trình có bốn bước; ảnh dưới đây chạy **local trên dữ li�
 để chứng minh quy trình chạy được trước khi chạy EKS. Số JS ở đây **không phải** số đo AWS ở bảng trên.
 
 1. **Dữ liệu tham chiếu và hiện tại:** `training_lines`, 30 ngày đầu làm tham chiếu; `stable` là phần sau, `channel_shift` là phần sau chỉ của Shopee.
+
+   ![Bước 1 (local, mô phỏng): hai cửa sổ tham chiếu và hiện tại của stable và channel_shift, ngày, số dòng, nhãn dương, SKU, kênh](../evidence/drift-data-local-20261104.png)
 2. **Báo cáo `stable`:** Evidently so từng cột bằng Jensen-Shannon; lô cùng phân phối không vượt ngưỡng.
 
    ![Evidently stable (local, mô phỏng): seller_sku không drift](../evidence/drift-stable-local-20261104.png)
@@ -48,6 +50,12 @@ Quy trình có bốn bước; ảnh dưới đây chạy **local trên dữ li�
 Pod giữ 15 phút sau khi chạy xong để lấy HTML bằng `kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks`, rồi chụp bằng
 [`capture_drift_evidence.py`](../../scripts/evidence/capture_drift_evidence.py) (`--html-dir drift-eks --summary drift-eks/summary.json`). Kết quả lần chạy lại **trùng đến chữ số thập phân
 với lần 31/10** ([drift-summary-eks.json](../evidence/aws/drift-summary-eks.json)): phép đo ổn định, tái lập được.
+
+**Bước 1 trên EKS: dữ liệu tham chiếu và hiện tại.** Ảnh dưới dựng từ chính tập `training_lines` trên S3 (đầu vào của Job, 359.457 dòng) bằng `ml.drift.comparisons` với `--reference-days 30`.
+Số dòng ra **đúng bằng** `reference_rows`/`current_rows` trong summary của Job (stable 72.109 / 287.348; channel_shift 72.109 / 8.320), nên ảnh mô tả đúng hai cửa sổ mà Evidently đã so:
+tham chiếu 01/01–30/01, hiện tại từ 31/01; ở `channel_shift` hiện tại chỉ còn Shopee (8.320 dòng, 1.678 SKU, nhãn dương 8,75% so với 11,28% của tham chiếu).
+
+![Bước 1 trên EKS: hai cửa sổ dữ liệu của stable và channel_shift từ training_lines trên S3, số dòng khớp summary của Job](../evidence/aws/drift-data-aws.png)
 
 ![Evidently trên EKS, phép so stable: seller_sku và label không drift](../evidence/aws/drift-stable-aws.png)
 

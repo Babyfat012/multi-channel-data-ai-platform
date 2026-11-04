@@ -6,7 +6,14 @@ import json
 import httpx
 import pytest
 
-from scripts.evidence.gateway_smoke import grade, mcp_calls, mcp_denied, policy_table, sse_json
+from scripts.evidence.gateway_smoke import (
+    grade,
+    mcp_agent2_tools,
+    mcp_calls,
+    mcp_denied,
+    policy_table,
+    sse_json,
+)
 
 
 def test_sse_json_takes_last_data_line_or_plain_json():
@@ -126,3 +133,47 @@ def test_policy_table_labels_allow_and_deny_per_policy():
     )
     assert "| API key | A2A card không key (model-agent) | DENY | 401 | PASS |" in table
     assert "Prometheus" not in table
+
+
+def _agent2_gateway(bodies):
+    """MCP giả: tools/call trả structuredContent theo tên tool (None = tool báo isError)."""
+
+    def handle(request):
+        body = json.loads(request.content)
+        if body["method"] == "initialize":
+            return httpx.Response(200, headers={"mcp-session-id": "s1"}, json={"result": {}})
+        if body["method"] == "tools/call":
+            payload = bodies[body["params"]["name"]]
+            result = (
+                {"isError": True, "content": []}
+                if payload is None
+                else {"structuredContent": payload}
+            )
+            return httpx.Response(200, text=f"data: {json.dumps({'result': result})}\n")
+        return httpx.Response(202)
+
+    return httpx.AsyncClient(base_url="http://gw", transport=httpx.MockTransport(handle))
+
+
+@pytest.mark.parametrize(
+    ("predicted", "chunks", "want"),
+    [
+        ({"score": 0.17, "model_version": "1", "abstain": False}, [{"chunk_id": "a"}], (True, 1)),
+        # Abstain (không có score) hoặc thiếu model_version không được tính là dự đoán thành công.
+        ({"score": None, "model_version": "1", "abstain": True}, [], (False, 0)),
+        ({"score": 0.17, "model_version": None, "abstain": False}, [{"chunk_id": "a"}], (False, 1)),
+        (None, None, (False, 0)),
+    ],
+)
+def test_mcp_agent2_tools_scores_prediction_and_counts_chunks(predicted, chunks, want):
+    """Dự đoán chỉ đạt khi có score và model_version; tool lỗi cho kết quả rỗng, không làm smoke sập."""
+    bodies = {
+        "predict_return_risk": predicted,
+        "search_policy_chunks": None if chunks is None else {"chunks": chunks},
+    }
+
+    async def go():
+        async with _agent2_gateway(bodies) as client:
+            return await mcp_agent2_tools(client, "k", "APP-00042")
+
+    assert asyncio.run(go()) == want

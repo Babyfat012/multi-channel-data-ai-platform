@@ -1,7 +1,12 @@
 """Phần không cần Chrome/Evidently của capture_drift_evidence: dữ liệu mô phỏng và bảng tóm tắt."""
 
 from ml.drift import comparisons
-from scripts.evidence.capture_drift_evidence import summary_page, synthetic_lines
+from scripts.evidence.capture_drift_evidence import (
+    data_page,
+    summary_page,
+    synthetic_lines,
+    window_rows,
+)
 
 
 def test_synthetic_lines_shift_only_shopee_after_reference_window():
@@ -29,3 +34,22 @@ def test_summary_page_lists_each_column_with_alert():
     page = summary_page(summary)
     assert page.count("<tr><td>channel_shift") == 2
     assert "DRIFT" in page and "ổn định" in page and "<td>CÓ</td>" in page
+
+
+def test_window_rows_describe_both_windows_of_each_pair():
+    """Bước 1: số dòng, ngày và kênh của cửa sổ tham chiếu/hiện tại khớp với `comparisons`."""
+    pairs = comparisons(synthetic_lines(per_day=100), 30, "shopee")
+    rows = {row["pair"]: row for row in window_rows(pairs)}
+    for name, (reference, current) in pairs.items():
+        assert rows[name]["reference"]["rows"] == len(reference)
+        assert rows[name]["current"]["rows"] == len(current)
+    assert rows["channel_shift"]["current"]["channels"] == {
+        "shopee": rows["channel_shift"]["current"]["rows"]
+    }
+    assert rows["stable"]["reference"]["to"] < rows["stable"]["current"]["from"]
+    page = data_page(list(rows.values()), "<nguồn & thử>")
+    assert (
+        page.count("<td>tham chiếu</td>") == 2
+        and page.count("<td>hiện tại</td>") == 2
+        and "&lt;nguồn &amp; thử&gt;" in page
+    )

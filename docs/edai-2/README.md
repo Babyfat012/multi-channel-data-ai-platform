@@ -17,7 +17,7 @@ Tài liệu bám theo rubric, tập trung các lần triển khai AWS ngày 27�
 | 13–14 | [Training Pipeline / MLflow](training_pipeline.md) | KFP 5/5; có ảnh Tags/Artifacts của run và đối chiếu SHA-256 train/test với tag. |
 | 15 | [ML Inference Service](ml_inference_service.md) | Có pod READY và prediction EKS. |
 | 16–18 | [Web API / MCP](web_api_mcp.md) | Có deployment/API/probe; Helm rolling update và tự rollback khi bản hỏng trên EKS (763/763 request 200). |
-| 19–22 | [Data Agent / Model Agent / Sandbox](agents.md) | Data Agent và Model Agent scale 2→3→2 trên EKS (04/11); Sandbox gọi tool qua gateway. |
+| 19–22 | [Data Agent / Model Agent / Sandbox](agents.md) | Data Agent và Model Agent scale 2→3→2 trên EKS (04/11); Data Agent chạy trong Sandbox gọi tool qua gateway; **Model Agent chưa có bản Sandbox trên EKS** (manifest đã viết). |
 | 23–24 | [MCP / A2A Gateway](agent_gateways.md) | Smoke 22/22 (04/11) kèm bảng allow/deny và ảnh cấu hình ConfigMap; chưa có rate limit riêng cho MCP. |
 | 25–26 | [Coordinator](coordinator.md) | Có chat/publish và scale 2 → 3 → 2 trên EKS (04/11); cổng CI eval chưa đạt. |
 | 27 | [Warm Up](warm_up.md) | 6 Agent/1 worker; chưa đo cold start. |

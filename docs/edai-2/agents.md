@@ -50,6 +50,12 @@ Code Sandbox: [deploy_substrate.sh](../../scripts/setup/deploy_substrate.sh), [m
 
 ## Giới hạn
 
+Rubric yêu cầu Agent 2 có bằng chứng "tương tự" Agent 1 (registry, multi-replica, Sandbox, UI chat, YAML). Hiện **thiếu hai mục** của Model Agent trên EKS:
+(1) **Sandbox:** chỉ `data-agent-sandbox` và năm Agent `fleet-*` chạy trong gVisor; bản Sandbox của Model Agent
+([`model-agent-sandbox.yaml`](../../infra/k8s/agents/sandbox/model-agent-sandbox.yaml), cùng ba tool, cùng prompt) đã viết và qua kiểm tra schema của cụm (`--dry-run=server`) nhưng **chưa được áp dụng**, nên chưa có ảnh;
+(2) **MCP trực tiếp:** [`gateway_smoke.py`](../../scripts/evidence/gateway_smoke.py) đã thêm hai kiểm tra gọi `predict_return_risk` và `search_policy_chunks` qua gateway,
+nhưng chưa chạy trên EKS (kết quả smoke 22/22 chưa gồm hai dòng này). Probe của pod Agent cũng được thêm vào [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh) và chưa chạy.
+
 Khi câu hỏi thiếu giá/số lượng, model nhỏ có thể tự điền tham số sai. [Registry](agent_registry.md) có proof publish; [Agent Evaluation](agent_evaluation.md) ghi giới hạn PII và kết quả chấm.
 
 [Mục lục phần này](README.md) · [Mục lục chung](../README.md)

@@ -132,6 +132,16 @@ Bằng chứng: [manifest và SHA code](../evidence/mutation-changed-serving-202
 [cấu hình thực chạy](../evidence/mutation-changed-serving-config-20261103.toml).
 Đây là kiểm chứng local, giới hạn theo file thay đổi trong scope Web API, không phải theo dòng và không phải run Jenkins/AWS.
 
+**Chạy lại 04/11/2026, có ảnh.** Cùng lệnh và cùng hai mốc (`89cd44e^` .. `89cd44e`), hoàn tất trong 2 phút 20 giây, exit code 0. Kết quả **trùng hệt lần 03/11**:
+245 mutant, 219 killed, 14 no tests, 12 survived, 0 timeout (score 89,4%; loại no tests 94,8%), cùng SHA code
+([manifest](../evidence/mutation-changed-serving-20261104.json), [log](../evidence/mutation-changed-serving-20261104.txt), [từng mutant](../evidence/mutation-changed-serving-results-20261104.txt)).
+Chạy lại ra cùng kết quả nghĩa là phép kiểm tái lập được. Ghi chú: SHA cấu hình runner trong manifest khác giữa hai lần dù file cấu hình lưu lại giống hệt; chưa xác định nguyên nhân.
+
+![Mutation theo Git diff: lệnh run_changed_mutation, chọn serving/app.py, 245 mutant, 219 killed, 14 no tests, 12 survived, status passed, exit 0](../evidence/testing-mutation-changed-20261104.png)
+
+Ảnh là output terminal đã lọc ký tự spinner, dựng từ `run.txt` và `manifest.json` của đúng lần chạy này bằng
+[`capture_testing_evidence.py --mutation-dir`](../../scripts/evidence/capture_testing_evidence.py) (không chạy lại mutation để chụp).
+
 #### Load test trên EKS
 
 Locust chạy trên laptop (Việt Nam), đi qua `kubectl port-forward svc/feature-api` tới cụm ở Sydney
