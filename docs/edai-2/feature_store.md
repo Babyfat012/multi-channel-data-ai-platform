@@ -140,7 +140,25 @@ số của ảnh chụp ngày đó (train và serve cùng định nghĩa). Trễ
 Manifest Redis dùng một PVC `redis-data` 2 GiB, gắn tại `/data`; Redis ghi AOF vào
 chính thư mục đó với `appendonly yes`, `appendfsync everysec`. PVC dùng StorageClass
 mặc định của cụm (AWS hiện dùng gp3). Pod thay thế dùng lại PVC, đọc AOF để phục hồi RAM.
-Đây là cấu hình đã chuẩn bị trong repo; chưa xác nhận triển khai/khôi phục trên AWS.
+### Kiểm chứng trên EKS, 04/11/2026
+
+Redis trên EKS từng chạy bản manifest cũ (`--save "" --appendonly no`, không PVC, chỉ lưu trong RAM). Khi node EKS được đưa về 0 rồi bật lại, pod Redis mất sạch dữ liệu
+(`dbsize = 0`) và smoke của gateway báo `FAIL` đúng một dòng: `get_sku_features APP-00042` trả toàn `null`. Cách xử lý:
+
+1. Áp dụng manifest hiện hành (PVC `redis-data` 2 GiB gp3, AOF `appendonly yes`, `Recreate`): PVC `Bound`, pod `Running`, `appendonly yes`.
+
+   ![kubectl apply redis.yaml: PVC redis-data Bound 2Gi gp3, pod Running, appendonly yes](../evidence/aws/redis-persistence-apply.png)
+
+2. Nạp lại batch bằng DAG `ml_feature_materialize` với `full_reload=true` (sau khi sửa `PLATFORM_FEAST_REDIS` sang IP node EKS hiện tại): bốn task đều xanh, Redis có **2.000 key** (số SKU), AOF ghi bình thường.
+
+   ![Airflow AWS ml_feature_materialize full_reload: export_sku_daily, export_training_lines, feast_apply, materialize_incremental đều success](../evidence/aws/airflow-ml-feature-materialize-reload-success.png)
+
+3. Thay pod Redis (`kubectl delete pod -l app=redis`): pod mới `Ready`, `dbsize` **2000 trước và 2000 sau**, `loading 0`, `aof_enabled 1`, `aof_last_write_status ok`, PVC `redis-data` vẫn `Bound`.
+
+   ![Xóa pod Redis: dbsize 2000 trước và sau, aof_enabled 1, PVC redis-data Bound](../evidence/aws/redis-persistence-pod-replace.png)
+
+Giới hạn: phép thử này chứng minh dữ liệu sống sót khi **thay pod** (PVC giữ nguyên); chưa thử đưa node về 0 rồi bật lại sau khi có PVC. Lần nạp lại chỉ phục hồi feature batch; các feature stream
+(ví dụ `approved_returns_24h`) cần job Flink và pusher chạy lại để có giá trị. PVC và AOF không thay thế backup.
 
 Deployment dùng `Recreate`: dừng Pod cũ trước khi tạo Pod mới, chấp nhận gián đoạn
 trong lúc cập nhật và khôi phục. Xóa PVC hoặc xóa cả cụm local vẫn có thể mất dữ liệu;
