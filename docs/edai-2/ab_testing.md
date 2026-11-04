@@ -35,6 +35,32 @@ p95 khoảng 10 s (1,5B) so 80 s (0,5B) trong khung thời gian của ảnh.
 
 ![Grafana AWS: A/B LLM, request và p95 theo gen_ai_response_model của hai nhánh 1,5B và 0,5B](../evidence/aws/grafana-ab-llm-20261031.png)
 
+**Dashboard A/B trên EKS, 04/11/2026.** Tải sinh bằng `bench_llm.py --model platform-chat --concurrency 2 --requests 40 --max-tokens 48` (model ảo `platform-chat`, gateway chia giữa hai nhánh).
+Dashboard **A/B LLM + Agent**, khoảng **Last 30 minutes**, biến `model = All`:
+
+![Grafana EKS A/B LLM: tỷ lệ chia 26,0 (0,5B) so 14,1 (1,5B); request/giây, p95, token output/giây và token trung bình mỗi request theo từng nhánh](../evidence/aws/grafana-ab-llm-5-panels.png)
+
+| Panel | Nhánh A `qwen2.5-1.5b-instruct` | Nhánh B `qwen2.5-0.5b-instruct` |
+|---|---:|---:|
+| Số request trong khoảng chọn | ~14 | ~26 |
+| Độ trễ p95 | ~7–9 s | ~4 s |
+| Token output/giây | ~2 | ~3 |
+| Token output trung bình mỗi request | ~43–45 | ~36 |
+
+Số đo phía client của chính lần chạy này (`bench_llm.py`, 40 request, đồng thời 2, gộp hai nhánh): `p50 = 3,0 s`, `p95 = 6,19 s`, `0,471 request/giây`,
+`18,6 token sinh/giây`, prompt trung bình 508 token. Số này là trung bình của cả hai nhánh nên nằm giữa p95 ~4 s của 0,5B và ~7–9 s của 1,5B trên dashboard;
+token/giây ở panel Grafana là tốc độ theo từng nhánh trên cửa sổ `rate [5m]`, không so trực tiếp được với 18,6 token/giây tổng đo trong lúc chạy.
+
+Đọc kết quả: nhánh 0,5B nhanh hơn rõ (p95 chỉ bằng khoảng một nửa), sinh ngắn hơn mỗi request. Mẫu rất nhỏ (40 request, cắt theo thời gian), nên tỷ lệ chia **26 so 14 (65/35)** không phải 50/50 chính xác;
+với trọng số 1:1 và 40 mẫu thì lệch cỡ này vẫn có thể xảy ra, không khẳng định được gateway chia sai. Các giá trị trong bảng đọc bằng mắt từ đồ thị, không phải số xuất từ Prometheus.
+
+Panel thứ sáu, **A/B agent (backend0 = data-agent 1,5B, backend1 = data-agent-b 0,5B)**, chỉ có dữ liệu khi có lưu lượng qua route `/a2a/data-agent-ab/`.
+Lần đầu chụp panel trống (No data) vì chưa có request nào đi qua route này; sau đó gửi 60 request lấy agent card (không gọi LLM) qua route A/B thì panel hiện hai đường, mỗi backend một đường, đều `status 200`:
+
+![Grafana EKS A/B: panel A/B agent có hai đường backend0 (data-agent 1,5B) và backend1 (data-agent-b 0,5B), đều status 200](../evidence/aws/grafana-ab-agent-panel.png)
+
+Đây là lưu lượng lấy agent card (không phải câu hỏi cho Agent), chỉ chứng minh gateway chia route A/B giữa hai backend và Grafana tách được theo backend; độ chính xác của hai Agent so ở bảng bên dưới (12/12 và 4/12).
+
 Số đếm Prometheus: [`ab-llm-prometheus-20261031.json`](../evidence/aws/ab-llm-prometheus-20261031.json). Tổng tích luỹ
 642 (A) so 30 (B) **không phải tỷ lệ chia**: B mới tạo trong ngày nên chỉ nhận tải bench, còn A phục vụ thêm
 data-agent, coordinator và sandbox.
