@@ -88,6 +88,12 @@ Kết quả trên AWS (04/11/2026, [mlflow-model-lineage.json](../evidence/aws/m
 
 Vậy từ model `return-risk` v1 đi ngược tới đúng run đã train ra nó và đúng hai tập dữ liệu (theo mã băm) mà run đó dùng. Mã run KFP không có trong MLflow
 nên liên kết run MLflow ↔ run KFP vẫn dựa vào ảnh KFP và thời điểm run.
+![Chuỗi truy ngược: model return-risk v1 → run mysterious-flea-253 → tag dữ liệu → artifact train/test với SHA-256 khớp tag](../evidence/aws/model-lineage-chain.png)
+
+Ảnh trên **dựng lại từ receipt** [mlflow-model-lineage.json](../evidence/aws/mlflow-model-lineage.json) bằng [`render_model_lineage.py`](../../scripts/evidence/render_model_lineage.py), không phải ảnh chụp giao diện MLflow;
+các ảnh giao diện của cùng run (Tags, Artifacts, Registry) nằm ở các mục trên. Mốc 04:53 UTC (11:53 giờ Việt Nam) của run khớp thời điểm đăng ký version 1 trong ảnh Registry (11:53:47). Giới hạn: chưa có ảnh chụp trang
+**Model Version 1** hiển thị liên kết *Source run*; trang đó nên được chụp ở lần bật MLflow tiếp theo.
+
 Receipt ghi các lần chạy lỗi trước do OOM/đọc file store và port-forward; cache KFP tắt ở lần này.
 
 <details>
