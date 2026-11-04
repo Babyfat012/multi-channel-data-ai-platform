@@ -139,9 +139,25 @@ llm-d-benchmark triển khai) với workload của repo, một mức 0,5 request
 Kết quả đầy đủ: [`llmd-inference-perf-llamacpp-local-20261104.json`](../evidence/llmd-inference-perf-llamacpp-local-20261104.json).
 Số này đo trên model 0,5B ở máy local, **không phải số EKS** và không dùng để so với bảng đo bên dưới.
 
-Chưa kiểm được: phần điều phối của llm-d-benchmark trong cluster (pod harness, PVC, bước verify model qua pod `curl`); mới chỉ
-chạy `--dry-run` (đủ 12 bước, không chạm cluster). Chạy thật trên EKS là bước còn lại. Số trong bảng đo bên dưới do
-[`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, không phải llm-d-benchmark.
+**Chạy thật trên EKS bằng llm-d-benchmark, 04/11/2026.** Chế độ run-only trỏ vào Service `qwen.llm:8080` (llama.cpp, Qwen2.5-1.5B), harness `inference-perf`, workload
+[`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), chạy từ máy quản trị bằng
+[`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh). Công cụ tạo pod kiểm tra model (`smoketest`, đọc `/v1/models` thành công) rồi pod harness; pod tải tokenizer từ Hugging Face,
+chạy ba mức tải và kết thúc với `harness_rc: 0` (3 phút 52 giây). Kết quả đầy đủ trong [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
+(`run_metadata.yaml`, báo cáo từng mức, `stdout.log`).
+
+| Mức tải (yêu cầu/giây, 60 s) | Thành công / lỗi | TTFT trung vị / p90 | TPOT trung vị | Request p50 / p90 | Đạt được (yêu cầu/giây) | Token sinh/giây |
+|---|---:|---:|---:|---:|---:|---:|
+| 0,1 | 6 / 0 | 1,88 s / 2,86 s | 85 ms | 5,49 s / 6,30 s | 0,092 | 2,95 |
+| 0,2 | 12 / 0 | 1,96 s / 4,23 s | 135 ms | 7,22 s / 9,97 s | 0,232 | 7,08 |
+| 0,4 | 24 / 0 | 5,62 s / 15,0 s | 255 ms | 13,6 s / 20,6 s | 0,340 | 10,2 |
+
+Đọc kết quả: 42 request, không lỗi. Mức 0,1 và 0,2 request/giây được phục vụ ổn; ở mức 0,4 hệ **bão hòa**: TTFT trung vị tăng gần ba lần (1,96 → 5,62 s), p90 chạm 15 s, và
+chỉ đạt 0,34 request/giây so với yêu cầu 0,4. Với CPU 3 luồng và prompt ~128 token, giới hạn thực tế nằm quanh 0,3 request/giây mỗi pod LLM, khớp với việc chuỗi Agent nhiều lượt LLM bị chậm
+khi tải chồng ([Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026)). Số này là một lần chạy ngắn trên EKS, không có khoảng tin cậy.
+
+Hai điều chỉnh bắt buộc để llm-d-benchmark chạy trên EKS này (đã đưa vào script): (1) dùng `--no-pvc`, vì công cụ tạo PVC `ReadWriteMany` 20 GiB còn EBS `gp3` chỉ hỗ trợ `ReadWriteOnce`
+(`Volume capabilities not supported`); (2) hạ tài nguyên pod harness từ mặc định 16 CPU / 32 GiB xuống 1 CPU / 2 GiB, nếu không pod kẹt `Pending` (`Insufficient cpu/memory`) trên node 4 vCPU.
+Số trong bảng đo ở mục dưới do [`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, đo trên cấu hình khác (số luồng, mức đồng thời), không so trực tiếp.
 
 ## Đo lại trên EKS, 2026-10-30
 
