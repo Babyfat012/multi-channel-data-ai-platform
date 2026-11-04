@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # In một lần bằng chứng runtime trên EKS để chụp màn hình: probe/health Web API, replica và autoscale TỪNG pod, Sandbox/Substrate.
-# Chạy: KCTX=<kube-context> scripts/evidence/eks_runtime_proof.sh   (ghi docs/evidence/aws/eks-runtime-proof-<ngày UTC>.txt)
+# Chạy: KCTX=<kube-context> scripts/evidence/eks_runtime_proof.sh   (ghi docs/evidence/aws/eks-runtime-proof.txt)
 # MCP tools/list + deny nằm ở scripts/evidence/gateway_smoke.py. Lệnh lỗi không dừng script (mục nào thiếu thì ghi rõ).
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 K=(kubectl --context "${KCTX:?đặt KCTX=<kube-context>}")
-out=${OUT:-docs/evidence/aws/eks-runtime-proof-$(date -u +%Y%m%d).txt}
+out=${OUT:-docs/evidence/aws/eks-runtime-proof.txt}
 section() { printf '\n## %s\n' "$*"; }
 {
   echo "# Bằng chứng runtime EKS ($KCTX, $(date -u +%Y-%m-%dT%H:%M:%SZ))"
@@ -23,6 +23,7 @@ section() { printf '\n## %s\n' "$*"; }
   "${K[@]}" -n kagent get pods -l kagent -o wide
   section "Sandbox / Agent Substrate (gVisor)"
   "${K[@]}" -n kagent get workerpool,sandboxagent
-  "${K[@]}" -n ate-system get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,RUNTIME:.spec.runtimeClassName
-  "${K[@]}" get runtimeclass
+  # Substrate không dùng RuntimeClass của Kubernetes: gVisor nằm ở image ateom và sandboxClass của WorkerPool.
+  "${K[@]}" -n kagent get workerpool kagent-default -o yaml | grep -E "ateomImage|sandboxClass|replicas"
+  "${K[@]}" -n ate-system get pods
 } 2>&1 | tee "$out"

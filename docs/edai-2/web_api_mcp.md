@@ -16,11 +16,22 @@ rolling không gián đoạn.
 
 ![Swagger /predict APP-00042 amazon US 1 cái 25 USD: score 0.1661, abstain false, model_version 1](../evidence/aws/feature-api-swagger-predict-20261030.png)
 
-Ảnh Swagger chỉ thấy `/features` và `/predict`; probe và health nằm ở script
-[`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh): in từng pod của Feature API, cấu hình
-`startupProbe`/`livenessProbe`/`readinessProbe` trong Deployment, và mã trả về của `/healthz` và `/readyz` gọi trong **từng pod**.
-MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh sách tool `tools/list` và kết quả `tools/call`.
-Script chạy với context EKS; **chưa chạy trên EKS**, nên chưa có ảnh probe/health.
+Ảnh Swagger ở trên chỉ thấy `/features` và `/predict`; probe và health có bằng chứng riêng (04/11/2026, cluster `platform-apps`).
+
+**Probe cấu hình trong Deployment** (output [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh), file [eks-runtime-proof.txt](../evidence/aws/eks-runtime-proof.txt)):
+Deployment `feature-api` 2/2 pod chạy ở hai node khác nhau, `RollingUpdate` với `0 max unavailable, 1 max surge`;
+`Liveness` gọi `/healthz` (chu kỳ 10 s, ngưỡng lỗi 3), `Readiness` gọi `/readyz` (5 s, ngưỡng lỗi 3), `Startup` gọi `/healthz` (2 s, tối đa 30 lần).
+Lệnh gọi `/healthz` và `/readyz` **trong từng pod** đều trả `200`.
+
+![Output eks_runtime_proof.sh phần 1: Deployment feature-api, probe Liveness/Readiness/Startup, /healthz và /readyz 200 trong từng pod, KEDA/HPA](../evidence/aws/eks-runtime-proof-part1.png)
+
+**Gọi qua Swagger** (port-forward `svc/feature-api`, `http://127.0.0.1:8000/docs`): `GET /healthz` trả `200 {"status": "ok"}` và `GET /readyz` trả `200 {"status": "ready"}`.
+
+![Swagger GET /healthz: 200, status ok](../evidence/aws/feature-api-healthz-swagger.png)
+
+![Swagger GET /readyz: 200, status ready](../evidence/aws/feature-api-readyz-swagger.png)
+
+MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh sách tool `tools/list` và kết quả `tools/call`; bản có bảng này chưa chạy lại trên EKS.
 
 Tại ảnh API ngày 30/10, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
 

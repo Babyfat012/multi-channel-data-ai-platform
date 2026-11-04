@@ -1,0 +1,65 @@
+# Bằng chứng runtime EKS (platform-apps, 2026-11-04T07:49:25Z)
+
+## Feature API: Deployment, từng pod, cấu hình probe
+NAME                          READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                                                                                                                     SELECTOR
+deployment.apps/feature-api   2/2     2            2           4d23h   api          665116832975.dkr.ecr.ap-southeast-2.amazonaws.com/platform/platform-feature-api:ce668d5bb304e2f95c28a4f8bc48358eac177d41   app=feature-api
+
+NAME                               READY   STATUS    RESTARTS   AGE     IP            NODE                                             NOMINATED NODE   READINESS GATES
+pod/feature-api-57db4d9cff-fmz57   1/1     Running   0          3d14h   10.42.0.187   ip-10-42-0-95.ap-southeast-2.compute.internal    <none>           <none>
+pod/feature-api-57db4d9cff-h4q6c   1/1     Running   0          3d14h   10.42.0.45    ip-10-42-0-208.ap-southeast-2.compute.internal   <none>           <none>
+Replicas:               2 desired | 2 updated | 2 total | 2 available | 0 unavailable
+StrategyType:           RollingUpdate
+RollingUpdateStrategy:  0 max unavailable, 1 max surge
+    Liveness:   http-get http://:http/healthz delay=0s timeout=1s period=10s #success=1 #failure=3
+    Readiness:  http-get http://:http/readyz delay=0s timeout=1s period=5s #success=1 #failure=3
+    Startup:    http-get http://:http/healthz delay=0s timeout=1s period=2s #success=1 #failure=30
+
+## Feature API: /healthz (liveness) và /readyz (readiness) gọi trong từng pod
+pod/feature-api-57db4d9cff-fmz57: {'/healthz': 200, '/readyz': 200}
+pod/feature-api-57db4d9cff-h4q6c: {'/healthz': 200, '/readyz': 200}
+
+## Agent: số replica và autoscale (KEDA → HPA), từng pod chạy ở node nào
+NAME                               SCALETARGETKIND      SCALETARGETNAME   MIN   MAX   READY   ACTIVE   FALLBACK   PAUSED   TRIGGERS     AUTHENTICATIONS   AGE
+scaledobject.keda.sh/coordinator   apps/v1.Deployment   coordinator       2     3     True    False    False      False    prometheus                     4d23h
+scaledobject.keda.sh/data-agent    apps/v1.Deployment   data-agent        2     3     True    False    False      False    prometheus                     4d23h
+scaledobject.keda.sh/model-agent   apps/v1.Deployment   model-agent       2     3     True    False    False      False    prometheus                     27m
+
+NAME                                                       REFERENCE                TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/keda-hpa-coordinator   Deployment/coordinator   0/500m (avg)   2         3         2          4d23h
+horizontalpodautoscaler.autoscaling/keda-hpa-data-agent    Deployment/data-agent    0/500m (avg)   2         3         2          4d23h
+horizontalpodautoscaler.autoscaling/keda-hpa-model-agent   Deployment/model-agent   0/500m (avg)   2         3         2          27m
+NAME                            READY   STATUS    RESTARTS   AGE     IP            NODE                                             NOMINATED NODE   READINESS GATES
+coordinator-c5f8668b6-5qjdz     1/1     Running   0          3d14h   10.42.0.137   ip-10-42-0-208.ap-southeast-2.compute.internal   <none>           <none>
+coordinator-c5f8668b6-ckbwj     1/1     Running   0          3d14h   10.42.0.156   ip-10-42-0-208.ap-southeast-2.compute.internal   <none>           <none>
+data-agent-765cc9f556-fdv9w     1/1     Running   0          3d14h   10.42.0.146   ip-10-42-0-208.ap-southeast-2.compute.internal   <none>           <none>
+data-agent-765cc9f556-jxzwd     1/1     Running   0          3d14h   10.42.0.129   ip-10-42-0-95.ap-southeast-2.compute.internal    <none>           <none>
+data-agent-b-7bb5d97bb8-j7jwq   1/1     Running   0          3d14h   10.42.0.206   ip-10-42-0-95.ap-southeast-2.compute.internal    <none>           <none>
+model-agent-79dcfd99f-m99ss     1/1     Running   0          27m     10.42.0.78    ip-10-42-0-208.ap-southeast-2.compute.internal   <none>           <none>
+model-agent-79dcfd99f-npfqd     1/1     Running   0          19m     10.42.0.35    ip-10-42-0-95.ap-southeast-2.compute.internal    <none>           <none>
+
+## Sandbox / Agent Substrate (gVisor)
+NAME                                DESIRED   REPLICAS   AGE
+workerpool.ate.dev/kagent-default   1         1          3d18h
+
+NAME                                             READY   ACCEPTED
+sandboxagent.kagent.dev/data-agent-sandbox       True    True
+sandboxagent.kagent.dev/fleet-channel-guide      True    True
+sandboxagent.kagent.dev/fleet-currency-helper    True    True
+sandboxagent.kagent.dev/fleet-returns-glossary   True    True
+sandboxagent.kagent.dev/fleet-risk-explainer     True    True
+sandboxagent.kagent.dev/fleet-triage-helper      True    True
+NAME                                         STATUS    RUNTIME
+ate-api-server-deployment-5c6d678c5b-d7s95   Running   <none>
+ate-controller-84cb9ff5b6-2xn89              Running   <none>
+atelet-6jrbc                                 Running   <none>
+atelet-lj8tz                                 Running   <none>
+atenet-router-67d8c899c8-4knzm               Running   <none>
+dns-764b48fb86-d2cbb                         Running   <none>
+rustfs-6c4c677cb6-lbx7q                      Running   <none>
+valkey-cluster-0                             Running   <none>
+valkey-cluster-1                             Running   <none>
+valkey-cluster-2                             Running   <none>
+valkey-cluster-3                             Running   <none>
+valkey-cluster-4                             Running   <none>
+valkey-cluster-5                             Running   <none>
+No resources found
