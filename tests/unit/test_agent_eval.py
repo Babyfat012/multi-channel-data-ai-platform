@@ -141,3 +141,22 @@ def test_ci_http_truth_and_accuracy_gate(monkeypatch, tmp_path, capsys, answer, 
     )
     assert json.loads(output.read_text())["pass"] is (exit_code == 0)
     assert json.loads(capsys.readouterr().out)["accuracy"] == (1 if exit_code == 0 else 0)
+
+
+def test_timeout_flag_reaches_agent_call_only(monkeypatch, tmp_path):
+    """--timeout chỉ áp cho câu hỏi agent, không đổi lời gọi lấy đáp án chuẩn."""
+    from ml import agent_eval
+
+    seen = {}
+
+    def fake_post(url, body, headers, context=None, timeout=180):
+        seen[url.rsplit("/", 2)[-1] or "a2a"] = timeout
+        if url.endswith("/features"):
+            return {"features": [{"seller_sku": "sku-00001", **FEATURES}]}
+        return {"result": {"parts": [{"text": "x"}]}}
+
+    monkeypatch.setattr(agent_eval, "post", fake_post)
+    monkeypatch.setenv("AGW_AGENT_KEY", "k")
+    args = ["--agent", "coordinator", "--skus", "sku-00001", "--feature-api", "http://f"]
+    agent_eval.main([*args, "--timeout", "600", "--out", str(tmp_path / "o.jsonl")])
+    assert seen == {"features": 180, "a2a": 600}

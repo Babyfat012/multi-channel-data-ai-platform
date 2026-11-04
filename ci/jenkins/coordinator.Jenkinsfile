@@ -6,10 +6,12 @@ pipeline {
   parameters {
     string(name: 'TARGET_CONTEXT', defaultValue: 'kind-platform', description: 'Kubecontext from the deployment kubeconfig')
     string(name: 'KUBE_CREDENTIAL', defaultValue: 'kind-kubeconfig', description: 'Jenkins file credential containing the target kubeconfig')
+    string(name: 'EVAL_TIMEOUT', defaultValue: '180', description: 'Giây chờ mỗi câu hỏi eval; Coordinator gọi LLM CPU nhiều vòng, AWS thử 600')
     string(name: 'EVAL_SKUS', defaultValue: '', description: 'SKU chấm agent; trống = bộ local sku-0000x, AWS (pipeline A) điền APP-…')
   }
   environment {
     EVAL_SKUS = "${params.EVAL_SKUS}"
+    EVAL_TIMEOUT = "${params.EVAL_TIMEOUT}"
     KCTX = "${params.TARGET_CONTEXT}"
     VAULT_ADDR = 'http://localhost:8200'
   }

@@ -160,6 +160,9 @@ def main(argv=None) -> int:
     parser.add_argument("--ca", default="out/ingress/platform-local-ca.crt")
     parser.add_argument("--min-accuracy", type=float, default=0.6)
     parser.add_argument("--out", default="out/agent-eval.jsonl")
+    parser.add_argument(
+        "--timeout", type=int, default=180, help="giây chờ mỗi câu hỏi agent (CPU chậm: tăng)"
+    )
     args = parser.parse_args(argv)
     skus = args.skus.split(",")
     truth = post(
@@ -193,6 +196,7 @@ def main(argv=None) -> int:
                     },
                 },
                 key,
+                timeout=args.timeout,
             )
             answer = " ".join(texts(reply.get("result", {})))
         except (

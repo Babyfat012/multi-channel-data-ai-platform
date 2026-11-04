@@ -32,4 +32,4 @@ done
 python3 -m ml.agent_eval --agent "$EVAL_AGENT" \
   --skus "${EVAL_SKUS:-sku-00001,sku-00002,sku-00003,sku-00004,sku-00005,sku-00006,sku-00007,sku-00008,sku-00009,sku-00010,sku-00011,sku-00012}" \
   --gateway "http://localhost:$gateway_port" --feature-api "http://localhost:$feature_port" \
-  --min-accuracy 0.95 --out out/agent-eval.jsonl | tee out/agent-eval-summary.json
+  --min-accuracy 0.95 --timeout "${EVAL_TIMEOUT:-180}" --out out/agent-eval.jsonl | tee out/agent-eval-summary.json
