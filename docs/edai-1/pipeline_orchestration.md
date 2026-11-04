@@ -39,12 +39,25 @@ Ví dụ, `AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS=0` của container AWS c�
 sửa giá trị trong UI cũng không thay giá trị môi trường đang được ưu tiên. Vì vậy cần đối chiếu cả
 Compose và giá trị được Airflow resolve khi kiểm tra cấu hình thực tế.
 
-**Bằng chứng và phần còn thiếu:** kiểm chứng lookup Connection/Variable ngày 15/10 trong mục tham khảo
-là **local**. Chưa có ảnh Admin → Connections/Variables trên AWS trong tài liệu này.
-Khi Airflow AWS được bật, bổ sung ảnh danh sách Connections (`spark_default`, `platform_postgres`)
-và Variables liên quan DP1–DP3, kèm ngày/môi trường; giữ mật khẩu ở trạng thái che.
-Với Variable cấp qua môi trường, ghi thêm giá trị không nhạy cảm mà `Variable.get(...)` resolve
-trong container Airflow và đối chiếu với Compose; ảnh danh sách UI riêng lẻ không chứng minh được các giá trị đó.
+**Bằng chứng trên AWS (04/11/2026, Airflow trên EC2, qua tunnel `127.0.0.1:8081`).**
+
+Admin → Connections có `spark_default` (loại `spark`, `spark://spark-master`, cổng 7077) và `platform_postgres` (loại `postgres`, host `postgres`, cổng 5432);
+danh sách không hiện mật khẩu.
+
+![Airflow AWS Admin → Connections: spark_default, platform_postgres và các connection khác](../evidence/aws/airflow-admin-connections.png)
+
+Admin → Variables có các biến của DP1–DP3 (`platform_dp1_*_table`, `platform_dp2_*_table`, `platform_dp3_*`, `platform_spark_packages_aws`, `platform_warehouse_name = platform-aws`, `platform_ml_cutoff`...).
+
+![Airflow AWS Admin → Variables (phần 1): platform_dp1_*, platform_dp2_*](../evidence/aws/airflow-admin-variables-1.png)
+
+![Airflow AWS Admin → Variables (phần 2): platform_dp3_*, platform_feast_*, platform_ml_cutoff, platform_warehouse_name](../evidence/aws/airflow-admin-variables-2.png)
+
+Ví dụ biến môi trường ưu tiên hơn giá trị lưu trong DB: UI hiện `platform_feast_redis = platform-control-plane:30379` (giá trị cũ lưu từ script setup),
+nhưng container được cấp `AIRFLOW_VAR_PLATFORM_FEAST_REDIS=10.42.0.208:30379` (IP node EKS sau khi bật lại) từ `.env`/Compose, và `airflow variables get` trả giá trị này:
+
+![Terminal EC2: airflow variables get platform_feast_redis = 10.42.0.208:30379, các container Airflow/Spark Healthy](../evidence/aws/airflow-variable-feast-redis-resolved.png)
+
+Kiểm chứng lookup Connection/Variable ngày 15/10 trong mục tham khảo là **local**.
 
 ### DP1: nguồn → Bronze
 
