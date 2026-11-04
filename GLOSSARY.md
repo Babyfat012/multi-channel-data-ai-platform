@@ -1,7 +1,7 @@
 # Data & AI Platform
 
 Các định nghĩa nền về Seller, SKU, Listing, Storefront, Order Line và Return
-Label tiếp tục dùng [thuật ngữ Data & AI Platform](docs/terminology.md). Các mục dưới đây bổ
+Label tiếp tục dùng [thuật ngữ Data & AI Platform](docs/shared/terminology.md). Các mục dưới đây bổ
 sung ngôn ngữ cho phần mở rộng phân tích phía Seller.
 
 ## Language

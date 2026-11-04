@@ -30,7 +30,7 @@ RESOURCES.md
 assets/
 lessons/
 learning-records/
-reference/
+/reference/
 
 # mutmut / hypothesis / coverage
 mutants/
