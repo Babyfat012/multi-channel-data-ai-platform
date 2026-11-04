@@ -28,7 +28,7 @@ nên số khác ảnh coverage 31/10 ở trên: **90 test pass, `serving/app.py`
 
 ![hypothesis model: 5 test, 100–200 ví dụ mỗi test, 0 lỗi](../evidence/testing-hypothesis-model-20261104.png)
 
-Mutation (mutmut) có ảnh ở mục dưới; **Locust** chạy trên EKS nên ảnh Locust lấy từ lần chạy EKS (chưa chụp thêm ảnh terminal/Locust UI cho lần đó).
+Mutation (mutmut) có ảnh ở mục dưới; **Locust** chạy trên EKS, ảnh báo cáo ở mục [Load test trên EKS](#load-test-trên-eks).
 
 ## Mutation testing (mutmut)
 
@@ -146,6 +146,21 @@ Locust chạy trên laptop (Việt Nam), đi qua `kubectl port-forward svc/featu
 | **Tổng** | **3.004** | **0** | 250 ms | 270 ms | 290 ms | **50,5** |
 
 Báo cáo HTML: [`evidence/aws/load-test-feature-api-20261030.html`](../evidence/aws/load-test-feature-api-20261030.html).
+
+**Chạy lại ngày 04/11/2026** (cùng cấu hình, sau khi node EKS được bật lại): 59 giây, 20 user, đi qua `kubectl port-forward svc/feature-api` (host `127.0.0.1:8000`),
+báo cáo HTML [locust-feature-api-eks.html](../evidence/aws/locust-feature-api-eks.html), số liệu [locust-feature-api-eks_stats.csv](../evidence/aws/locust-feature-api-eks_stats.csv).
+
+| Request | Số | Lỗi | p50 | p95 | p99 | req/s |
+|---|---:|---:|---:|---:|---:|---:|
+| `POST /features` | 2.052 | 0 | 250 ms | 260 ms | 290 ms | 34,6 |
+| `POST /features [batch]` | 525 | 0 | 250 ms | 260 ms | 280 ms | 8,9 |
+| `GET /healthz` | 488 | 0 | 240 ms | 260 ms | 310 ms | 8,2 |
+| **Tổng** | **3.065** | **0** | 250 ms | 260 ms | 290 ms | **51,7** |
+
+![Báo cáo Locust trên EKS ngày 04/11: 3.065 request, 0 lỗi, p50 250 ms, RPS ổn định khoảng 53, 20 user](../evidence/aws/locust-feature-api-eks.png)
+
+Hai lần chạy (30/10 và 04/11) cho kết quả gần như trùng nhau (3.004 và 3.065 request, đều 0 lỗi, p50 250 ms): hiệu năng ổn định giữa hai lần bật cụm.
+Dòng đầu của biểu đồ thời gian phản hồi có p95 khoảng 800 ms ở giây đầu tiên (làm nóng kết nối) rồi về mức ổn định khoảng 260 ms.
 
 Đọc số: `/healthz` không làm gì cũng mất ~250 ms ⇒ gần hết là đường mạng laptop → Sydney, không phải API.
 Phía server (`http_request_duration_seconds` của pod nhận tải): `/features` trung bình **1,8 ms**
