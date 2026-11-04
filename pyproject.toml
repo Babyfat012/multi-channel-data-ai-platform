@@ -45,6 +45,8 @@ ignore = ["E501", "B905", "SIM117"]
 [tool.ruff.lint.per-file-ignores]
 # Script Spark đặt sys.path/biến môi trường trước khi import code dự án.
 "tests/spark/*" = ["E402"]
+# Notebook chèn gốc repo vào sys.path rồi mới import `ml.train_lib`.
+"notebooks/*" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["generator", "spark_jobs", "scripts", "dags"]
