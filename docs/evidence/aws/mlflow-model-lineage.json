@@ -1,0 +1,53 @@
+{
+  "model": {
+    "name": "return-risk",
+    "version": "1",
+    "source": "models:/m-840617bddfaa4170a023f9d7887246d2",
+    "run_id": "adba2b9f197e4e60a141acaf19682a61"
+  },
+  "run_name": "mysterious-flea-253",
+  "run_id": "adba2b9f197e4e60a141acaf19682a61",
+  "started": 1793249613108,
+  "params": {
+    "features": "channel,country,ordered_basis_qty,ordered_product_net_minor,unit_price_minor,labeled_count_90d,return_or_refund_rate_90d,approved_returns_24h",
+    "algo": "lightgbm",
+    "seed": "7"
+  },
+  "metrics": {
+    "test_rows": 16411.0,
+    "prevalence": 0.11211991956614466,
+    "pr_auc_model": 0.25198550695480576,
+    "pr_auc_baseline": 0.24721399085500362,
+    "lift_model": 2.2474642144757158,
+    "beats_baseline": 1.0
+  },
+  "tags": {
+    "data.dataset_version": "order_snapshots",
+    "data.entity_path": "s3://platform-665116832975-lakehouse/feature-store/training_lines",
+    "data.generation_id": "manual__2026-10-28T16:18:15.667507+00:00",
+    "data.test_sha256": "963a7b8bfd52fa50ac15aa1b95b772a06cfb2204a419fad1870d6512ff67b280",
+    "data.train_sha256": "eb155450ca577fca53e9a6a86c21e284763f4dbc9c68b458e13b4af7922c6f27"
+  },
+  "train": {
+    "tag": "eb155450ca577fca53e9a6a86c21e284763f4dbc9c68b458e13b4af7922c6f27",
+    "artifacts": [
+      {
+        "path": "data/train/train_set",
+        "bytes": 32117362,
+        "sha256": "eb155450ca577fca53e9a6a86c21e284763f4dbc9c68b458e13b4af7922c6f27"
+      }
+    ],
+    "sha256_match": true
+  },
+  "test": {
+    "tag": "963a7b8bfd52fa50ac15aa1b95b772a06cfb2204a419fad1870d6512ff67b280",
+    "artifacts": [
+      {
+        "path": "data/test/test_set",
+        "bytes": 1662111,
+        "sha256": "963a7b8bfd52fa50ac15aa1b95b772a06cfb2204a419fad1870d6512ff67b280"
+      }
+    ],
+    "sha256_match": true
+  }
+}

@@ -38,17 +38,43 @@ Registry có tags `latest=true`, `production=true` và alias `production` cho v1
 
 Version dữ liệu trong code `register`: tags `data.dataset_version`, `data.generation_id`,
 `data.train_sha256`, `data.test_sha256`, `data.entity_path`; artifacts `data/train`, `data/test` và dataset input train.
-Ảnh AWS hiện tại chỉ thấy liên kết dataset train, chưa mở các tag/hash và hai artifact của cùng run.
-MLE14 còn cần capture đó; graph KFP có train_set/test_set không thay proof chúng đã được lưu ở MLflow.
-Để lấy bằng chứng, chạy [`mlflow_run_data_proof.py`](../../scripts/evidence/mlflow_run_data_proof.py)
-(`--run-name mysterious-flea-253`): script tải hai artifact, tính SHA-256 và so với tag; chưa chạy trên AWS.
+Bằng chứng trên AWS (04/11/2026, MLflow 3.17.0 trên EC2, [`mlflow_run_data_proof.py`](../../scripts/evidence/mlflow_run_data_proof.py), mã thoát 0):
+script gọi REST của MLflow, tìm run `mysterious-flea-253` (`run_id adba2b9f197e4e60a141acaf19682a61`), tải hai artifact, tính SHA-256 rồi so với tag của chính run đó.
+Kết quả đầy đủ: [mlflow-run-data-proof.json](../evidence/aws/mlflow-run-data-proof.json).
+
+| Tập | Artifact | Kích thước | SHA-256 tính lại = tag |
+|---|---|---:|---|
+| train | `data/train/train_set` | 32.117.362 byte | `eb155450…922c6f27`, **khớp** |
+| test | `data/test/test_set` | 1.662.111 byte | `963a7b8b…ff67b280`, **khớp** |
+
+Tag của run: `data.dataset_version = order_snapshots`, `data.entity_path = s3://platform-665116832975-lakehouse/feature-store/training_lines`,
+`data.generation_id = manual__2026-10-28T16:18:15.667507+00:00`, cùng `data.train_sha256` và `data.test_sha256`. Tham số: `algo = lightgbm`, `seed = 7`; metric:
+`test_rows = 16411`, `pr_auc_model = 0,2520` so với `pr_auc_baseline = 0,2472`, `lift_model = 2,247`, `beats_baseline = 1`.
+Giao diện MLflow của chính run này: Tags (`data.dataset_version`, `data.generation_id`, `data.train_sha256`, `data.test_sha256`, `data.entity_path`), dataset input `train (a1f3e3b9)`, và model đã đăng ký `return-risk v1`.
+
+![MLflow 3.17.0: run mysterious-flea-253, 6 metric, 3 tham số, dataset train, Tags data.*, Registered models return-risk v1](../evidence/aws/mlflow-run-overview-tags.png)
+
+Tab Artifacts có hai thư mục `data/train` và `data/test` (`train_set` 30,63 MiB = 32.117.362 byte, đúng kích thước script đo).
+
+![MLflow Artifacts của run: data/test/test_set và data/train/train_set](../evidence/aws/mlflow-run-artifacts.png)
 
 **Truy ngược từ model về dữ liệu và lần train.** Cùng script, đi từ model đang phục vụ:
 `python3 scripts/evidence/mlflow_run_data_proof.py --model return-risk --version 1`. Nó lấy model version `return-risk` v1 từ
 registry, đi tới run đã đăng ký nó (`run_id`, tên run, thời điểm, tham số, metric), rồi so tag SHA-256 với artifact
 `data/train`, `data/test` của chính run đó. Kết quả là một chuỗi: model v1 → run → hash dữ liệu → file dữ liệu. Phần liên kết
 run MLflow với run KFP dựa vào ảnh KFP cùng ngày ([`kfp-runs-20261029.png`](../evidence/aws/kfp-runs-20261029.png)) và thời điểm run, vì code
-`register` chưa ghi mã run KFP thành tag MLflow. Lệnh này **chưa chạy trên AWS**.
+`register` chưa ghi mã run KFP thành tag MLflow.
+
+Kết quả trên AWS (04/11/2026, [mlflow-model-lineage.json](../evidence/aws/mlflow-model-lineage.json)):
+
+| Bước truy ngược | Giá trị |
+|---|---|
+| Model trong registry | `return-risk` **v1**, `source = models:/m-840617bddfaa4170a023f9d7887246d2` |
+| Run đã đăng ký model | `mysterious-flea-253`, `run_id adba2b9f197e4e60a141acaf19682a61` (khớp run đã chụp ở trên) |
+| Dữ liệu train/test của run | `data/train/train_set`, `data/test/test_set`, SHA-256 tính lại **khớp** hai tag `data.train_sha256`, `data.test_sha256` |
+
+Vậy từ model `return-risk` v1 đi ngược tới đúng run đã train ra nó và đúng hai tập dữ liệu (theo mã băm) mà run đó dùng. Mã run KFP không có trong MLflow
+nên liên kết run MLflow ↔ run KFP vẫn dựa vào ảnh KFP và thời điểm run.
 Receipt ghi các lần chạy lỗi trước do OOM/đọc file store và port-forward; cache KFP tắt ở lần này.
 
 <details>
