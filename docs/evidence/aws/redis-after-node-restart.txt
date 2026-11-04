@@ -1,0 +1,8 @@
+# Redis trên EKS sau khi TOÀN BỘ node bị tắt (desiredSize 0, 17:43) rồi bật lại (desiredSize 2, 19:49), 2026-11-04 19:53 (UTC+7)
+# Node cũ ip-10-42-0-208 / ip-10-42-0-95 đã bị xóa; node mới ip-10-42-0-104 / ip-10-42-0-203. Pod redis được tạo lại trên node mới, gắn lại PVC redis-data.
+persistentvolumeclaim/redis-data Bound pvc-7069083e-372d-460a-88a4-170ea1701671   # cùng volume với trước khi tắt
+pod/redis-5bf6787b6c-bmjpd 1/1 Running
+dbsize: 2000
+loading:0
+aof_enabled:1
+aof_last_write_status:ok

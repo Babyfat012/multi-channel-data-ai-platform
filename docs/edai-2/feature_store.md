@@ -157,7 +157,11 @@ Redis trên EKS từng chạy bản manifest cũ (`--save "" --appendonly no`, k
 
    ![Xóa pod Redis: dbsize 2000 trước và sau, aof_enabled 1, PVC redis-data Bound](../evidence/aws/redis-persistence-pod-replace.png)
 
-Giới hạn: phép thử này chứng minh dữ liệu sống sót khi **thay pod** (PVC giữ nguyên); chưa thử đưa node về 0 rồi bật lại sau khi có PVC. Lần nạp lại chỉ phục hồi feature batch; các feature stream
+**Thử thêm: tắt cả node rồi bật lại (04/11/2026, 19:53).** Node group EKS được đưa về 0 (17:43) rồi bật lại 2 node mới (19:49; IP node khác hẳn lần trước). Sau khi cụm khởi động lại, pod Redis được tạo lại trên node mới,
+gắn lại **cùng PVC** `redis-data` (`pvc-7069083e…`, `Bound`), và `dbsize` vẫn là **2000**, `aof_enabled 1`, `loading 0`, `aof_last_write_status ok`
+([output](../evidence/aws/redis-after-node-restart.txt)). Không phải nạp lại từ Airflow như lần đầu.
+
+Giới hạn: phép thử chứng minh dữ liệu sống sót khi thay pod và khi tắt cả node (PVC giữ nguyên); không phải backup nếu PVC bị xóa. Lần nạp lại chỉ phục hồi feature batch; các feature stream
 (ví dụ `approved_returns_24h`) cần job Flink và pusher chạy lại để có giá trị. PVC và AOF không thay thế backup.
 
 Deployment dùng `Recreate`: dừng Pod cũ trước khi tạo Pod mới, chấp nhận gián đoạn
