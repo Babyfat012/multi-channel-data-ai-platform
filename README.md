@@ -59,7 +59,7 @@ Hai ảnh nối nhau qua Gold / feature / training data, replay Return qua Kafka
 Yêu cầu: Python 3.12+, `uv`, Docker Engine và Docker Compose v2. Chạy các lệnh từ thư mục gốc repo.
 Kubernetes dùng cho ML/LLM; triển khai AWS dùng EKS `platform-apps`.
 
-Bắt đầu triển khai từ [Cloud setup](docs/shared/cloud_setup.md), sau đó theo [AWS runbook](docs/shared/aws_deploy.md) và [IaC](docs/edai-2/iac.md). Kết quả đã chạy và các phần còn thiếu nằm trong [kiểm kê AWS](docs/shared/rubric_cloud_audit.md).
+Bắt đầu triển khai từ [Cloud setup](docs/shared/cloud_setup.md), sau đó theo [AWS runbook](docs/shared/aws_deploy.md) và [IaC](docs/edai-2/iac.md). Kết quả đã chạy và phần còn mở nằm trong [kiểm kê AWS](docs/shared/rubric_cloud_audit.md).
 
 <details>
 <summary>Dựng nguồn dữ liệu local để phát triển</summary>
@@ -165,16 +165,16 @@ Ngày chạy, run ID và artifact được giữ trong tài liệu kiểm chứn
 
 - [Data Platform — bằng chứng và giới hạn](docs/edai-1/evidence.md).
 - [ML/LLM Platform — bằng chứng và liên kết kết quả AWS](docs/shared/rubric_cloud_audit.md).
-- [Trạng thái kiểm chứng theo rubric](docs/shared/rubric_cloud_audit.md), gồm các phần còn mở và ảnh chi tiết còn thiếu.
+- [Trạng thái kiểm chứng theo rubric](docs/shared/rubric_cloud_audit.md), gồm phần còn mở và các điểm yếu của bằng chứng.
 - [Tài liệu theo rubric](docs/shared/rubric_guide.md) dành cho việc đối chiếu coursework.
 
 ## Giới hạn đã biết
 
 - [Agent eval](docs/edai-2/agent_evaluation.md): 12/12 trên AWS dùng SKU có `labeled_count_90d` dưới 7 chữ số; response mask `phoneNumber` che số đếm 7 chữ số, khiến lượt top seller chỉ đạt 9/12. Hướng sửa là bỏ `phoneNumber` khỏi response mask; đang chờ duyệt vì giảm một lớp guardrail.
 - [Sandbox Agent](docs/shared/rubric_cloud_audit.md): gọi tool đúng nhưng model 1,5B đọc `830847` thành `83,084`; đã chứng minh đường gọi tool, chưa bảo đảm chất lượng câu trả lời của model CPU nhỏ.
-- [Coordinator CI](docs/edai-2/cicd.md): deploy xanh, eval gate timeout (>180 s/câu); một LLM chạy CPU phục vụ chung mọi Agent.
-- [Ảnh chi tiết](docs/shared/rubric_cloud_audit.md) Spark schema evolution/dedup, Flink watermark, ERD dim–fact, Helm rollback và Coordinator scaling được chụp ở local; các job đã chạy trên AWS với receipt validate, nhưng chưa có đủ ảnh chi tiết AWS cho từng hành vi trên.
-- [MLflow](docs/edai-2/training_pipeline.md): có model version/tag trên AWS; chưa chụp data hash và artifacts train/test của cùng run.
+- [Coordinator CI](docs/edai-2/cicd.md): deploy xanh nhưng cổng eval chưa đạt (31/10 đỏ sau 15 phút; 04/11 chạy hơn 20 phút chưa xong); một LLM chạy CPU phục vụ chung mọi Agent, chậm khi tải chồng ([số đo](docs/edai-2/agent_evaluation.md#coordinator-trên-aws-04112026)).
+- [Ảnh chi tiết](docs/shared/rubric_cloud_audit.md): Spark UI Union/Window dedup, Flink RUNNING và late arrival, ERD DBeaver, Helm rollback, KEDA Model Agent/Coordinator đều có ảnh hoặc log trên AWS (04/11/2026); phần còn mở duy nhất là cổng eval Coordinator ở trên.
+- [MLflow](docs/edai-2/training_pipeline.md): có ảnh Tags/Artifacts và đối chiếu SHA-256 của train/test với tag trên AWS; liên kết run MLflow với run KFP dựa vào thời điểm vì mã run KFP không được ghi vào MLflow.
 - [Stream feature](docs/edai-2/stream_features.md): `approved_returns_24h` trên AWS được replay từ nhãn Gold; model `return-risk` trên AWS train trước khi feature có lịch sử nên chưa dùng feature này.
 - [Partition Shopee](docs/edai-1/data_storage.md): chia tháng được áp dụng bằng maintenance rewrite; DP1 `createOrReplace` sẽ ghi lại partition ngày, chưa phải hành vi của pipeline.
 
