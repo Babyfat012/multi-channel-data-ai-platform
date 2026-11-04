@@ -40,6 +40,8 @@ Version dữ liệu trong code `register`: tags `data.dataset_version`, `data.ge
 `data.train_sha256`, `data.test_sha256`, `data.entity_path`; artifacts `data/train`, `data/test` và dataset input train.
 Ảnh AWS hiện tại chỉ thấy liên kết dataset train, chưa mở các tag/hash và hai artifact của cùng run.
 MLE14 còn cần capture đó; graph KFP có train_set/test_set không thay proof chúng đã được lưu ở MLflow.
+Để lấy bằng chứng, chạy [`mlflow_run_data_proof.py`](../../scripts/evidence/mlflow_run_data_proof.py)
+(`--run-name mysterious-flea-253`): script tải hai artifact, tính SHA-256 và so với tag; chưa chạy trên AWS.
 Receipt ghi các lần chạy lỗi trước do OOM/đọc file store và port-forward; cache KFP tắt ở lần này.
 
 <details>
