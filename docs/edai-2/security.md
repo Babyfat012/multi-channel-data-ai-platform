@@ -65,7 +65,7 @@ Secret nằm ở **một chỗ** (Vault) để cả tổ chức dùng chung, kh�
 ## Sau khi máy restart
 
 `scripts/setup/up_ml_base.sh` dựng lại phần nền dùng chung một lệnh: MinIO + PostgreSQL + Lakekeeper,
-unseal Vault, Jenkins, và materialize lại Redis nếu trống (Redis trong kind không lưu đĩa). Không bật
+unseal Vault, Jenkins, và materialize lại Redis nếu trống (Redis trong kind không lưu đĩa; trên EKS Redis có PVC và AOF từ 04/11, xem [Feature Store](feature_store.md#kiểm-chứng-trên-eks-04112026)). Không bật
 LLM/agent. Dừng service Compose thì **luôn ghi tên service** — `docker compose --profile X stop` không
 tên sẽ dừng cả MinIO/PostgreSQL mà Feast, MLflow, Vault phụ thuộc.
 

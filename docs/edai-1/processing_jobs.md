@@ -185,7 +185,7 @@ Job ML `ml-sku-return-24h` chưa được submit lại trong buổi này (Runnin
 
 UI dedup thấy HASH → Deduplicate và 93.554 record nhận, chứng minh keyed operator đã chạy.
 Số 92.157 dòng đầu ra lấy từ manifest, không đọc nhầm cột Records Sent của file sink bằng 0 thành mất dữ liệu.
-Ảnh Completed Jobs chỉ xác nhận job late FINISHED; chưa có UI AWS mở operator/watermark và ví dụ event muộn. Ảnh **local** cùng job late: [watermark và tin muộn](reference/flink.md#bắt-tin-đến-muộn-bằng-watermark) (UI Flink local, 13–14/10).
+Ảnh Completed Jobs (28/10) chỉ xác nhận job late FINISHED. Lần chạy liên tục 04/11 bổ sung ảnh terminal AWS lấy ba tin muộn và kiểm `event_time <= watermark` đúng 6.674/6.674 dòng ([ảnh](../evidence/aws/flink-late-arrival-live.png)); vẫn chưa có UI Flink AWS mở operator watermark. Ảnh **local** cùng job late: [watermark và tin muộn](reference/flink.md#bắt-tin-đến-muộn-bằng-watermark) (UI Flink local, 13–14/10).
 10.166 không phải số tất định: watermark phát theo chu kỳ, khác phép đếm out-of-order toàn cục 19.729 của generator.
 Window AWS dài hạn 24h trượt 1h có [ảnh operator/checkpoint riêng](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30).
 

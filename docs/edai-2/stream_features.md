@@ -161,7 +161,7 @@ Feast) → **Deploy** (Kafka + Flink, `feast apply`, recreate pusher, huỷ job 
 
 Secret không nằm trong repo: Jenkins credential `platform-postgres` và `platform-minio` (username/password),
 truyền vào bằng `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh)
-chỉ đọc `.env` khi chạy tay. Jenkins server chưa dựng (việc chung của nhóm CI/CD) — file này chưa chạy.
+chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 ngày 31/10 (`stream-features` #2 xanh), xem [CI/CD](cicd.md#trên-aws-2026-10-31).
 
 ## Bằng chứng
 

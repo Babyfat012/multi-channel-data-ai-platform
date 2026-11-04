@@ -8,18 +8,18 @@ Tài liệu bám theo rubric, tập trung các lần triển khai AWS ngày 27�
 
 | Dòng rubric | Tài liệu / bằng chứng | Kết quả và giới hạn |
 |---|---|---|
-| 3–6 | [LLM Inference Platform](llm_inference_platform.md) | CPU self-host, có benchmark; chưa fine-tune riêng. |
+| 3–6 | [LLM Inference Platform](llm_inference_platform.md) | CPU self-host trên EKS, có ảnh triển khai (pod, PVC, log) và llm-d-benchmark (3 mức tải, 42 request, 0 lỗi); chưa fine-tune riêng. |
 | 7 | [Global Model Config](global_model_config.md) | Có config và ảnh ba Agent dùng chung model EKS. |
 | 8, 21, 26 | [Agent Registry](agent_registry.md) | Có UI EKS: 3 Agent, 1 MCP server. |
 | 9–10 | [RAG Pipeline](rag_pipeline.md) | 31/10: 6/6 task, có publish và lineage DataHub AWS. |
 | 11 | [Feature Store](feature_store.md) | Có DAG materialize AWS và dữ liệu Redis. |
 | 12 | [Streaming Feature](stream_features.md) | Có replay/đối soát AWS; model đã train chưa dùng feature này. |
-| 13–14 | [Training Pipeline / MLflow](training_pipeline.md) | KFP 5/5; thiếu ảnh hash/artifacts train-test cùng MLflow run. |
+| 13–14 | [Training Pipeline / MLflow](training_pipeline.md) | KFP 5/5; có ảnh Tags/Artifacts của run và đối chiếu SHA-256 train/test với tag. |
 | 15 | [ML Inference Service](ml_inference_service.md) | Có pod READY và prediction EKS. |
-| 16–18 | [Web API / MCP](web_api_mcp.md) | Có deployment/API; thiếu capture fallback AWS khi bản hỏng. |
-| 19–22 | [Data Agent / Model Agent / Sandbox](agents.md) | Data Agent scale 2→3→2; Model Agent thiếu KEDA AWS. |
-| 23–24 | [MCP / A2A Gateway](agent_gateways.md) | Smoke 17/17; chưa có rate limit riêng cho MCP. |
-| 25–26 | [Coordinator](coordinator.md) | Có chat/publish; thiếu capture scale AWS, CI eval timeout. |
+| 16–18 | [Web API / MCP](web_api_mcp.md) | Có deployment/API/probe; Helm rolling update và tự rollback khi bản hỏng trên EKS (763/763 request 200). |
+| 19–22 | [Data Agent / Model Agent / Sandbox](agents.md) | Data Agent và Model Agent scale 2→3→2 trên EKS (04/11); Sandbox gọi tool qua gateway. |
+| 23–24 | [MCP / A2A Gateway](agent_gateways.md) | Smoke 22/22 (04/11) kèm bảng allow/deny và ảnh cấu hình ConfigMap; chưa có rate limit riêng cho MCP. |
+| 25–26 | [Coordinator](coordinator.md) | Có chat/publish và scale 2 → 3 → 2 trên EKS (04/11); cổng CI eval chưa đạt. |
 | 27 | [Warm Up](warm_up.md) | 6 Agent/1 worker; chưa đo cold start. |
 | 28–32 | [Validation & Verification](validation_verification.md) | PR tests ở máy phát triển; Locust gọi EKS, 3.004 request/0 lỗi. |
 | 33–36 | [CI/CD](cicd.md) | 3 pipeline xanh; Coordinator deploy xanh, eval chưa đạt. |

@@ -68,6 +68,6 @@ Burst livestream: 148,5 Order/giờ so 25,2 giờ thường, tỷ số 5,89 theo
 
 Ảnh cho thấy consumer Flink hoàn tất và dedup nhận 93.554 record; đặc tính trễ/trùng ở bảng lấy từ manifest.
 Flink tách 10.166 tin muộn, thấp hơn phép đếm generator vì watermark theo chu kỳ/partition;
-[xử lý và job_id](reference/flink.md#trên-aws-2026-10-28). Chưa có capture UI AWS chi tiết watermark/late event.
+[xử lý và job_id](reference/flink.md#trên-aws-2026-10-28). Ngày 04/11 có thêm đầu ra AWS của job late chạy liên tục (6.674/6.674 dòng thỏa `event_time <= watermark`, kèm ví dụ tin muộn, xem [Processing Jobs](processing_jobs.md#flink-baseline-late-arrival-dedup-và-window-28102026)); chưa có UI Flink AWS mở operator watermark.
 
 [Mục lục phần này](README.md) · [Mục lục chung](../README.md)

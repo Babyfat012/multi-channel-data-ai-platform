@@ -31,7 +31,7 @@ Lệnh gọi `/healthz` và `/readyz` **trong từng pod** đều trả `200`.
 
 ![Swagger GET /readyz: 200, status ready](../evidence/aws/feature-api-readyz-swagger.png)
 
-MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh sách tool `tools/list` và kết quả `tools/call`; bản có bảng này chưa chạy lại trên EKS.
+MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh sách tool `tools/list` và kết quả `tools/call`; bản có bảng này đã chạy lại trên EKS ngày 04/11 (smoke 22/22, có allow/deny theo từng policy).
 
 Tại ảnh API ngày 30/10, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
 

@@ -42,16 +42,16 @@ receipt/giới hạn; không tự chuyển thành kết luận đủ rubric.
 | DE3–4 Docker | [Docker: runtime và đo kích thước image EC2](docker.md#trên-aws-2026-10-27) |
 | DE5–8 batch generator | [Thiết kế](data_generator.md#trên-aws-2026-10-27-đến-2026-10-28), [batch: volume và đặc tính đo trên AWS](data_generator.md#trên-aws-2026-10-27) |
 | DE9–10 stream generator | [Stream: late, duplicate và manifest](data_generator.md#trên-aws-2026-10-28) |
-| DE11–15 Spark | [Spark UI và tích hợp DAG](processing_jobs.md#trên-aws-2026-10-29), [Silver: thiếu UI schema/dedup](processing_jobs.md#trên-aws-2026-10-28) |
-| DE16–19 Flink | [Baseline, dedup, window; thiếu UI late chi tiết](processing_jobs.md#trên-aws-2026-10-28) |
+| DE11–15 Spark | [Spark UI và tích hợp DAG](processing_jobs.md#trên-aws-2026-10-29), [Silver: Spark UI AWS Union schema cũ/mới và Window dedup (04/11)](processing_jobs.md#spark-ui-aws-union-schema-cũmới-và-window-dedup-silver-amazon) |
+| DE16–19 Flink | [Baseline, dedup, window, late arrival; 04/11 bốn job chạy liên tục RUNNING](processing_jobs.md#flink-baseline-late-arrival-dedup-và-window-28102026); chưa có UI Flink AWS mở operator watermark |
 | DE20–21 Storage | [Compaction receipt và EXPLAIN nhúng](data_storage.md#trên-aws-2026-10-29), [maintenance no-op](reference/iceberg_maintenance.md#trên-aws-2026-10-27-đến-2026-10-29) |
 | DE22–27 orchestration | [Airflow DP1/DP2/DP3 và từng component](pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28) |
 | DE28–33 governance | [DataHub bảng, lineage, assertion và run_id](data_governance.md#trên-aws-2026-10-28-đến-2026-10-29) |
-| DE34–38 schema | [Schema: zones, DESCRIBE SCD2/feature; thiếu ERD AWS](schema_design.md#trên-aws-2026-10-28), [Gold validation](reference/gold.md#trên-aws-2026-10-28), [quan hệ thiết kế](reference/gold_design.md#trên-aws-2026-10-28) |
+| DE34–38 schema | [Schema: zones, DESCRIBE SCD2/feature](schema_design.md#trên-aws-2026-10-28), [ảnh DBeaver ER có đường nối trên Trino AWS (04/11)](schema_design.md#ảnh-dbeaver-nối-trino-runtime), [Gold validation](reference/gold.md#trên-aws-2026-10-28), [quan hệ thiết kế](reference/gold_design.md#trên-aws-2026-10-28) |
 | DE39 Trino | [SQL hai catalog và UI FINISHED](novel_ideas.md#trên-aws-2026-10-29) |
 | DE40 CDC | [Probe c/u/d, validator và lineage](novel_ideas.md#trên-aws-2026-10-28) |
 | MLE11 Feast | [DAG materialize và IAM role](../edai-2/feature_store.md#trên-aws-2026-10-29) |
-| MLE13–14 training/versioning | [KFP 5 bước, MLflow model v1; thiếu capture hash/artifacts dữ liệu](../edai-2/training_pipeline.md#trên-aws-2026-10-29) |
+| MLE13–14 training/versioning | [KFP 5 bước, MLflow model v1, ảnh Tags/Artifacts và đối chiếu SHA-256 train/test (04/11)](../edai-2/training_pipeline.md#trên-aws-2026-10-29) |
 
 ### Hạ tầng và quan sát AWS (2026-10-27 đến 2026-10-30)
 
