@@ -42,6 +42,13 @@ Version dữ liệu trong code `register`: tags `data.dataset_version`, `data.ge
 MLE14 còn cần capture đó; graph KFP có train_set/test_set không thay proof chúng đã được lưu ở MLflow.
 Để lấy bằng chứng, chạy [`mlflow_run_data_proof.py`](../../scripts/evidence/mlflow_run_data_proof.py)
 (`--run-name mysterious-flea-253`): script tải hai artifact, tính SHA-256 và so với tag; chưa chạy trên AWS.
+
+**Truy ngược từ model về dữ liệu và lần train.** Cùng script, đi từ model đang phục vụ:
+`python3 scripts/evidence/mlflow_run_data_proof.py --model return-risk --version 1`. Nó lấy model version `return-risk` v1 từ
+registry, đi tới run đã đăng ký nó (`run_id`, tên run, thời điểm, tham số, metric), rồi so tag SHA-256 với artifact
+`data/train`, `data/test` của chính run đó. Kết quả là một chuỗi: model v1 → run → hash dữ liệu → file dữ liệu. Phần liên kết
+run MLflow với run KFP dựa vào ảnh KFP cùng ngày ([`kfp-runs-20261029.png`](../evidence/aws/kfp-runs-20261029.png)) và thời điểm run, vì code
+`register` chưa ghi mã run KFP thành tag MLflow. Lệnh này **chưa chạy trên AWS**.
 Receipt ghi các lần chạy lỗi trước do OOM/đọc file store và port-forward; cache KFP tắt ở lần này.
 
 <details>

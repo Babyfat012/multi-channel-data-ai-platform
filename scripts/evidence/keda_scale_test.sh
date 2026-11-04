@@ -30,7 +30,8 @@ card || { echo "Gateway chưa trả agent card của $agent" >&2; exit 1; }
 hpa_get() { "${K[@]}" -n "$ns" get hpa "$hpa" -o "jsonpath=$1"; }
 min=$(hpa_get '{.spec.minReplicas}')
 thr=$(hpa_get '{.spec.metrics[0].external.target.averageValue}')
-pods() { "${K[@]}" -n "$ns" get pods -l "kagent=$agent" --no-headers | awk '$3=="Running"' | wc -l; }
+running() { "${K[@]}" -n "$ns" get pods -l "kagent=$agent" --no-headers | awk '$3=="Running"{print $1}'; }
+pods() { running | wc -l; }
 
 {
   echo "# KEDA autoscale $agent ($KCTX, $(date -u +%Y-%m-%dT%H:%M:%SZ))"
@@ -53,7 +54,9 @@ while :; do
   t=$((SECONDS - t0))
   p=$(pods)
   cur=$(hpa_get '{.status.currentMetrics[0].external.current.averageValue}' || true)
-  echo "t=${t}s target=${cur:-0}/$thr pods=$p" | tee -a "$out"
+  # Tên đuôi từng pod ⇒ thấy pod nào mới sinh / pod nào bị bỏ khi scale.
+  names=$(running | sed 's/.*-//' | paste -sd, -)
+  echo "t=${t}s target=${cur:-0}/$thr pods=$p [$names]" | tee -a "$out"
   ((p > peak)) && peak=$p
   if ! kill -0 "$load_pid" 2>/dev/null; then
     ((peak > min && p <= min)) && break

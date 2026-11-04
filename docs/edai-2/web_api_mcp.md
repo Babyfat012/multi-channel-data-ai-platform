@@ -16,6 +16,12 @@ rolling không gián đoạn.
 
 ![Swagger /predict APP-00042 amazon US 1 cái 25 USD: score 0.1661, abstain false, model_version 1](../evidence/aws/feature-api-swagger-predict-20261030.png)
 
+Ảnh Swagger chỉ thấy `/features` và `/predict`; probe và health nằm ở script
+[`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh): in từng pod của Feature API, cấu hình
+`startupProbe`/`livenessProbe`/`readinessProbe` trong Deployment, và mã trả về của `/healthz` và `/readyz` gọi trong **từng pod**.
+MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh sách tool `tools/list` và kết quả `tools/call`.
+Script chạy với context EKS; **chưa chạy trên EKS**, nên chưa có ảnh probe/health.
+
 Tại ảnh API ngày 30/10, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
 
 #### Load test trên EKS

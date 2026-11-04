@@ -20,6 +20,20 @@ def fake_server(tag_test):
     blobs = {files["data/train"]: TRAIN, files["data/test"]: TEST}
 
     def request(base, path, params=None, body=None):
+        if path.endswith("model-versions/get"):
+            return json.dumps(
+                {"model_version": {"run_id": "abc", "source": "models:/m-1"}}
+            ).encode()
+        if path.endswith("runs/get"):
+            run = {
+                "info": {"run_id": "abc", "start_time": 1},
+                "data": {
+                    "tags": tags,
+                    "params": [{"key": "seed", "value": "7"}],
+                    "metrics": [{"key": "pr_auc", "value": 0.3}],
+                },
+            }
+            return json.dumps({"run": run}).encode()
         if path.endswith("get-by-name"):
             return json.dumps({"experiment": {"experiment_id": "1"}}).encode()
         if path.endswith("runs/search"):
@@ -46,3 +60,18 @@ def test_hash_mismatch_fails(monkeypatch, capsys):
     monkeypatch.setattr(proof, "request", fake_server("0" * 64))
     assert proof.main(["--run-name", "r1"]) == 1
     assert json.loads(capsys.readouterr().out)["test"]["sha256_match"] is False
+
+
+def test_model_version_traces_back_to_run_and_data(monkeypatch, capsys):
+    """--model/--version đi từ registry tới run train ra nó: có tham số, metric, hash dữ liệu khớp."""
+    monkeypatch.setattr(proof, "request", fake_server(hashlib.sha256(TEST).hexdigest()))
+    assert proof.main(["--model", "return-risk", "--version", "1"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["model"] == {
+        "name": "return-risk",
+        "version": "1",
+        "source": "models:/m-1",
+        "run_id": "abc",
+    }
+    assert out["params"] == {"seed": "7"} and out["metrics"] == {"pr_auc": 0.3}
+    assert out["run_name"] == "r1" and out["train"]["sha256_match"]

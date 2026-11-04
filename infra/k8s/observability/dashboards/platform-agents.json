@@ -736,6 +736,97 @@
      "legendFormat": "{{tool}}"
     }
    ]
+  },
+  {
+   "type": "row",
+   "title": "Agent: thành công / thất bại theo từng Agent (HTTP qua gateway)",
+   "gridPos": {
+    "x": 0,
+    "y": 82,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Thành công (2xx) mỗi Agent",
+   "gridPos": {
+    "x": 0,
+    "y": 83,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (route) (increase(agentgateway_requests_total{route=~\"default/a2a-[a-z-]+\",status=~\"2..\"}[5m]))",
+     "legendFormat": "{{route}}"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Thất bại (non-2xx) mỗi Agent, theo status",
+   "gridPos": {
+    "x": 8,
+    "y": 83,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (route, status) (increase(agentgateway_requests_total{route=~\"default/a2a-[a-z-]+\",status!~\"2..\"}[5m]))",
+     "legendFormat": "{{route}} {{status}}"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Tỷ lệ thành công mỗi Agent",
+   "gridPos": {
+    "x": 16,
+    "y": 83,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (route) (rate(agentgateway_requests_total{route=~\"default/a2a-[a-z-]+\",status=~\"2..\"}[5m])) / sum by (route) (rate(agentgateway_requests_total{route=~\"default/a2a-[a-z-]+\"}[5m]))",
+     "legendFormat": "{{route}}"
+    }
+   ]
   }
  ],
  "tags": [

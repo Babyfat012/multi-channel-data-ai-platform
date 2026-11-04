@@ -21,6 +21,10 @@ import httpx
 
 MODEL = "qwen2.5-1.5b-instruct"
 MCP_ACCEPT = {"Accept": "application/json, text/event-stream"}
+# Tool không nằm trong danh sách `mcpAuthorization` của agentgateway.yaml.
+DENIED_TOOL = "delete_all_features"
+# Mỗi Agent một cặp có key / không key ⇒ dashboard tách thành công và thất bại theo từng route Agent.
+AGENTS = ("data-agent", "model-agent", "coordinator")
 # Prometheus scrape 15 s ⇒ chờ hơn một chu kỳ trước khi hỏi.
 SCRAPE_WAIT_S = 20
 QUERIES = {
@@ -48,6 +52,45 @@ def grade(rows):
     return all(row["ok"] for row in rows)
 
 
+POLICY = {
+    "LLM không key": "API key",
+    "LLM có key": "API key",
+    "LLM stream có key (TTFT)": "API key",
+    "PII (email) bị chặn": "PII request reject",
+    "MCP không key": "API key",
+    "MCP initialize có key": "API key",
+}
+
+
+def policy_table(rows):
+    """Bảng Markdown policy → request → ALLOW/DENY kỳ vọng và thực tế, để chụp màn hình làm bằng chứng."""
+    lines = ["| Policy | Request | Kỳ vọng | Thực tế | Kết quả |", "|---|---|---|---|---|"]
+    for row in rows:
+        if row["check"].startswith("Prometheus"):
+            continue
+        policy = POLICY.get(
+            row["check"],
+            "mcpAuthorization"
+            if "ngoài danh sách" in row["check"]
+            else "rate limit"
+            if "429" in row["check"]
+            else "API key + a2a"
+            if row["check"].startswith("A2A card có key")
+            else "API key"
+            if row["check"].startswith("A2A card không key")
+            else "MCP tools",
+        )
+        denied = (
+            row["want"] in (401, 403, 429) or "bị chặn" in row["check"] or "429" in row["check"]
+        )
+        lines.append(
+            f"| {policy} | {row['check']} | {'DENY' if denied else 'ALLOW'} "
+            f"| {row['got']}{' ' + str(row['tools']) if 'tools' in row else ''} "
+            f"| {'PASS' if row['ok'] else 'FAIL'} |"
+        )
+    return "\n".join(lines)
+
+
 def chat(model=MODEL, content="Say OK.", **extra):
     """Body chat ngắn kiểu OpenAI; `extra` ghi đè (stream, max_tokens…)."""
     return {
@@ -59,8 +102,8 @@ def chat(model=MODEL, content="Say OK.", **extra):
     }
 
 
-async def mcp_calls(client, key, sku):
-    """initialize → tools/list → tools/call get_sku_features; trả (mã initialize, tên tool, feature có giá trị?)."""
+async def mcp_head(client, key):
+    """initialize + notifications/initialized; trả (header mang session, mã initialize)."""
     head = {**MCP_ACCEPT, "Authorization": f"Bearer {key}"}
     init = await client.post(
         "/mcp",
@@ -82,6 +125,35 @@ async def mcp_calls(client, key, sku):
     await client.post(
         "/mcp", headers=head, json={"jsonrpc": "2.0", "method": "notifications/initialized"}
     )
+    return head, init.status_code
+
+
+async def mcp_denied(client, key, tool=DENIED_TOOL):
+    """Gọi tool ngoài danh sách `mcpAuthorization`; trả (bị chặn?, đoạn phản hồi để người đọc tự xét)."""
+    head, _ = await mcp_head(client, key)
+    response = await client.post(
+        "/mcp",
+        headers=head,
+        json={
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": {}},
+        },
+    )
+    text = response.text
+    try:
+        body = sse_json(text)
+    except ValueError:
+        body = {}
+    result = body.get("result") or {}
+    blocked = response.status_code in (401, 403) or "error" in body or bool(result.get("isError"))
+    return blocked, f"HTTP {response.status_code}: {text[:160]}"
+
+
+async def mcp_calls(client, key, sku):
+    """initialize → tools/list → tools/call get_sku_features; trả (mã initialize, tên tool, feature có giá trị?)."""
+    head, init_status = await mcp_head(client, key)
     tools = sse_json(
         (
             await client.post(
@@ -109,7 +181,7 @@ async def mcp_calls(client, key, sku):
     body = result.get("structuredContent") or json.loads(result["content"][0]["text"])
     features = body.get("features", [{}])[0]
     has_values = any(v is not None for k, v in features.items() if k != "seller_sku")
-    return init.status_code, names, has_values
+    return init_status, names, has_values
 
 
 async def run(gateway, prometheus, key, sku, burst):
@@ -177,19 +249,30 @@ async def run(gateway, prometheus, key, sku, burst):
                 "got": has_values,
                 "want": True,
             },
-            {
-                "check": "A2A card có key",
-                "got": (
-                    await c.get("/a2a/data-agent/.well-known/agent-card.json", headers=auth)
-                ).status_code,
-                "want": 200,
-            },
-            {
-                "check": "A2A card không key",
-                "got": (await c.get("/a2a/data-agent/.well-known/agent-card.json")).status_code,
-                "want": 401,
-            },
         ]
+        for agent in AGENTS:
+            card = f"/a2a/{agent}/.well-known/agent-card.json"
+            rows += [
+                {
+                    "check": f"A2A card có key ({agent})",
+                    "got": (await c.get(card, headers=auth)).status_code,
+                    "want": 200,
+                },
+                {
+                    "check": f"A2A card không key ({agent})",
+                    "got": (await c.get(card)).status_code,
+                    "want": 401,
+                },
+            ]
+        blocked, detail = await mcp_denied(c, key)
+        rows.append(
+            {
+                "check": f"MCP tool ngoài danh sách ({DENIED_TOOL}) bị chặn",
+                "got": blocked,
+                "want": True,
+                "detail": detail,
+            }
+        )
         start = time.perf_counter()
         codes = [
             r.status_code
@@ -250,8 +333,7 @@ def main():
             ensure_ascii=False,
             indent=2,
         )
-    for row in rows:
-        print(("PASS" if row["ok"] else "FAIL"), row["check"], row["got"])
+    print(policy_table(rows))
     sys.exit(0 if ok else 1)
 
 

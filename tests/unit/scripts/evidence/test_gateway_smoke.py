@@ -6,7 +6,7 @@ import json
 import httpx
 import pytest
 
-from scripts.evidence.gateway_smoke import grade, mcp_calls, sse_json
+from scripts.evidence.gateway_smoke import grade, mcp_calls, mcp_denied, policy_table, sse_json
 
 
 def test_sse_json_takes_last_data_line_or_plain_json():
@@ -74,3 +74,55 @@ def test_mcp_calls_reports_null_features_as_missing(structured):
     )
     # Redis rỗng: feature toàn null ⇒ phải báo KHÔNG có giá trị (lỗi im lặng).
     assert asyncio.run(go({"seller_sku": "APP-00042", "returns_30d": None}))[2] is False
+
+
+def _denying_gateway(call_result):
+    """MCP giả: initialize có session, tools/call trả `call_result` (JSON-RPC)."""
+
+    def handle(request):
+        body = json.loads(request.content)
+        if body["method"] == "initialize":
+            return httpx.Response(200, headers={"mcp-session-id": "s1"}, json={"result": {}})
+        if body["method"] == "tools/call":
+            return httpx.Response(200, text=f"data: {json.dumps(call_result)}\n")
+        return httpx.Response(202)
+
+    return httpx.AsyncClient(base_url="http://gw", transport=httpx.MockTransport(handle))
+
+
+@pytest.mark.parametrize(
+    ("reply", "blocked"),
+    [
+        ({"error": {"code": -32602, "message": "tool not allowed"}}, True),
+        ({"result": {"isError": True, "content": []}}, True),
+        ({"result": {"content": [{"type": "text", "text": "ok"}]}}, False),
+    ],
+)
+def test_mcp_denied_detects_blocked_tool(reply, blocked):
+    """Tool ngoài danh sách: lỗi JSON-RPC hoặc isError là bị chặn; trả kết quả thường là KHÔNG chặn."""
+
+    async def go():
+        async with _denying_gateway(reply) as client:
+            return await mcp_denied(client, "k")
+
+    got, detail = asyncio.run(go())
+    assert got is blocked and detail.startswith("HTTP 200")
+
+
+def test_policy_table_labels_allow_and_deny_per_policy():
+    """Mỗi dòng có policy, ALLOW/DENY kỳ vọng và PASS/FAIL; dòng Prometheus bị bỏ."""
+    rows = [
+        {"check": "LLM không key", "got": 401, "want": 401, "ok": True},
+        {"check": "LLM có key", "got": 200, "want": 200, "ok": True},
+        {"check": "MCP tool ngoài danh sách (x) bị chặn", "got": False, "want": True, "ok": False},
+        {"check": "A2A card không key (model-agent)", "got": 401, "want": 401, "ok": True},
+        {"check": "Prometheus llm_tokens > 0", "got": True, "want": True, "ok": True},
+    ]
+    table = policy_table(rows)
+    assert "| API key | LLM không key | DENY | 401 | PASS |" in table
+    assert "| API key | LLM có key | ALLOW | 200 | PASS |" in table
+    assert (
+        "| mcpAuthorization | MCP tool ngoài danh sách (x) bị chặn | DENY | False | FAIL |" in table
+    )
+    assert "| API key | A2A card không key (model-agent) | DENY | 401 | PASS |" in table
+    assert "Prometheus" not in table

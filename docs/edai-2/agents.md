@@ -16,7 +16,7 @@ APP-00042 có 15.306 dòng gắn nhãn, 2.599 Return, tỉ lệ 0,1698. Model Ag
 
 ![Model Agent trả lời theo chính sách RAG](../evidence/aws/rag-model-agent-answer-20261030.png)
 
-KEDA Data Agent: 3 request/giây vào agent card trong 150 giây, pod **2 → 3 → 2**. Đây là tải route A2A, không phải tải inference LLM. [Log EKS](../evidence/aws/keda-data-agent-20261030.txt).
+KEDA Data Agent: 3 request/giây vào agent card trong 150 giây, pod **2 → 3 → 2**. Script [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh) ghi thêm tên từng pod ở mỗi mốc, và [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh) in ScaledObject/HPA, pod từng Agent, WorkerPool và SandboxAgent (chạy được cho cả Data, Model, Coordinator; chưa chạy trên EKS). Đây là tải route A2A, không phải tải inference LLM. [Log EKS](../evidence/aws/keda-data-agent-20261030.txt).
 
 Sandbox dùng Agent Substrate/gVisor; Agent gọi được `get-sku-features`. Model CPU 1,5B chép `830847` thành `83,084`; ảnh chứng minh đường gọi tool trong Sandbox.
 

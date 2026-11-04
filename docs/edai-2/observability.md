@@ -74,6 +74,12 @@ rỗng, SKU sai định dạng, `top_k=50` (> 10), channel `ebay`, `chunk_id` sa
 
 Số lượt gọi mỗi Agent (A2A theo route) và mỗi tool qua gateway: ảnh dashboard ở mục trên.
 
+**Thành công / thất bại theo từng Agent.** Dashboard [`platform-agents.json`](../../infra/k8s/observability/dashboards/platform-agents.json)
+có thêm ba panel theo `route` của từng Agent (`a2a-data-agent`, `a2a-model-agent`, `a2a-coordinator`): số request thành công (2xx),
+số request thất bại theo `status`, và tỷ lệ thành công. Số liệu là mã HTTP qua gateway (401 thiếu key, 429, 5xx…), không phải
+trạng thái task A2A bên trong Agent. Tải sinh bằng `gateway_smoke.py` (mỗi Agent một cặp có key / không key). Panel này
+**chưa có ảnh EKS**: dashboard cần áp dụng lại ConfigMap `grafana-dashboards-platform` rồi chụp sau khi chạy smoke.
+
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 

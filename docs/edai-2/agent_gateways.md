@@ -35,6 +35,14 @@ Các giới hạn của cấu hình hiện hành:
 
 ![Grafana AWS: Agent, MCP và gateway](../evidence/aws/grafana-agents-mcp-gateway-20261030.png)
 
+### Allow / deny theo từng policy
+
+[`gateway_smoke.py`](../../scripts/evidence/gateway_smoke.py) in bảng policy → request → ALLOW/DENY kỳ vọng và thực tế
+(API key, PII request, rate limit, `mcpAuthorization`, A2A của từng Agent: `data-agent`, `model-agent`, `coordinator`).
+Có thêm một ca deny cho `mcpAuthorization`: gọi tool `delete_all_features` ngoài danh sách, kèm đoạn phản hồi thô để
+phân biệt gateway chặn với backend báo "tool không tồn tại". Bản có bảng này **chưa chạy trên EKS**; receipt 30/10 ở trên
+là bản trước khi thêm ca deny `mcpAuthorization` và hai Agent còn lại.
+
 Truy cập bên ngoài: [NGINX/HTTPS](routing_gateway.md).
 
 [Mục lục phần này](README.md) · [Mục lục chung](../README.md)
