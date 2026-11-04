@@ -1,0 +1,27 @@
+# KEDA autoscale model-agent (platform-apps, 2026-11-04T07:29:45Z)
+# Tải: 3 request/giây vào route a2a-model-agent (header x-kagent-host) lấy agent card, 150 s; ngưỡng 500m/pod; pods = Running thật.
+t=0s target=0/500m pods=2 [m99ss,pmb4d]
+t=27s target=576m/500m pods=3 [m99ss,npfqd,pmb4d]
+t=55s target=884m/500m pods=3 [m99ss,npfqd,pmb4d]
+t=82s target=1/500m pods=3 [m99ss,npfqd,pmb4d]
+t=110s target=1/500m pods=3 [m99ss,npfqd,pmb4d]
+t=137s target=1/500m pods=3 [m99ss,npfqd,pmb4d]
+t=164s target=978m/500m pods=3 [m99ss,npfqd,pmb4d]
+t=192s target=311m/500m pods=3 [m99ss,npfqd,pmb4d]
+t=219s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=248s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=275s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=303s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=330s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=358s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=386s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=413s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=441s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
+t=469s target=0/500m pods=3 [m99ss,npfqd]
+t=497s target=0/500m pods=2 [m99ss,npfqd]
+Events:
+  Type    Reason             Age   From                       Message
+  ----    ------             ----  ----                       -------
+  Normal  SuccessfulRescale  16m   horizontal-pod-autoscaler  New size: 2; reason: Current number of replicas below Spec.MinReplicas
+  Normal  SuccessfulRescale  8m4s  horizontal-pod-autoscaler  New size: 3; reason: external metric s0-prometheus(&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: model-agent,},MatchExpressions:[]LabelSelectorRequirement{},}) above target
+  Normal  SuccessfulRescale  33s   horizontal-pod-autoscaler  New size: 2; reason: All metrics below target

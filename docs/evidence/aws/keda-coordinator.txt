@@ -1,0 +1,27 @@
+# KEDA autoscale coordinator (platform-apps, 2026-11-04T07:29:53Z)
+# Tải: 3 request/giây vào route a2a-coordinator (header x-kagent-host) lấy agent card, 150 s; ngưỡng 500m/pod; pods = Running thật.
+t=0s target=0/500m pods=2 [5qjdz,ckbwj]
+t=28s target=534m/500m pods=2 [5qjdz,ckbwj]
+t=55s target=868m/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=82s target=1/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=109s target=1/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=136s target=1/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=164s target=845m/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=191s target=178m/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=219s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=247s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=275s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=302s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=329s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=357s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=384s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=412s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=439s target=0/500m pods=3 [5qjdz,ckbwj,f2zqx]
+t=467s target=0/500m pods=3 [5qjdz,ckbwj]
+t=495s target=0/500m pods=2 [5qjdz,ckbwj]
+Events:
+  Type     Reason                   Age                   From                       Message
+  ----     ------                   ----                  ----                       -------
+  Warning  FailedGetExternalMetric  36m (x11590 over 2d)  horizontal-pod-autoscaler  unable to get external metric kagent/s0-prometheus/&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: coordinator,},MatchExpressions:[]LabelSelectorRequirement{},}: unable to fetch metrics from external metrics API: the server is currently unable to handle the request (get s0-prometheus.external.metrics.k8s.io)
+  Normal   SuccessfulRescale        7m48s                 horizontal-pod-autoscaler  New size: 3; reason: external metric s0-prometheus(&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: coordinator,},MatchExpressions:[]LabelSelectorRequirement{},}) above target
+  Normal   SuccessfulRescale        32s                   horizontal-pod-autoscaler  New size: 2; reason: All metrics below target

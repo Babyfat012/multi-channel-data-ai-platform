@@ -2,7 +2,7 @@
 # Đo KEDA scale của một Agent trên cluster thật: tạo tải A2A vào agentgateway, ghi target/pods theo thời gian.
 # Chạy: KCTX=<kube-context> scripts/evidence/keda_scale_test.sh <coordinator|model-agent|data-agent> [rps=3] [giây tải=150]
 # Cần VAULT_ADDR + VAULT_TOKEN (lấy API key gateway như eval_agent_ci.sh) hoặc đặt sẵn AGW_AGENT_KEY.
-# Ghi docs/evidence/aws/keda-<agent>-<ngày UTC>.txt, cùng định dạng keda-data-agent-20261030.txt.
+# Ghi docs/evidence/aws/keda-<agent>.txt, cùng định dạng keda-data-agent-20261030.txt.
 # Không bật xtrace: không in secret vào log.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -13,7 +13,7 @@ interval=${INTERVAL:-20}
 ns=kagent
 hpa="keda-hpa-$agent"
 port=${EVAL_GATEWAY_PORT:-18300}
-out=${OUT:-docs/evidence/aws/keda-$agent-$(date -u +%Y%m%d).txt}
+out=${OUT:-docs/evidence/aws/keda-$agent.txt}
 K=(kubectl --context "${KCTX:?đặt KCTX=<kube-context>}")
 [[ -n "${AGW_AGENT_KEY:-}" ]] || eval "$(scripts/setup/vault_env.sh agentgateway)"
 export AGW_AGENT_KEY
