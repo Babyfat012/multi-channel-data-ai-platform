@@ -68,9 +68,9 @@ và [Warehouse](#warehouse-trên-aws-30-ngày-năm-channel-2026-10-29).
 Với Shopee, [job partition evolution](../../spark_jobs/maintenance/repartition_small_channel.py) đổi ngày → tháng,
 rewrite-all: 180 → 6 file; 4.689.957 dòng và fingerprint `-2551885948954549477803` giữ nguyên.
 Trung vị ba lần `count(*)` 1,040 → 0,286 s; lọc 30 ngày 7,943 → 0,968 s. Đây là số trong receipt;
-chưa có ảnh AWS chụp riêng trước/sau compaction. Maintenance trước đó no-op vì mỗi partition ngày chỉ một file.
+ảnh AWS chụp riêng trước/sau compaction nằm ngay dưới. Maintenance trước đó no-op vì mỗi partition ngày chỉ một file.
 
-Để chụp trước/sau mà không chạy lại job, đọc cùng bảng ở hai snapshot qua Trino (chỉ đọc, chưa chạy trên AWS):
+Để chụp trước/sau mà không chạy lại job, đọc cùng bảng ở hai snapshot qua Trino (chỉ đọc; đã chạy trên EC2 ngày 04/11/2026, kết quả ở dưới):
 
 ```sql
 -- 1. snapshot trước khi viết lại: snapshot cuối cùng có operation = append/overwrite trước lần replace
@@ -84,7 +84,19 @@ SELECT count(DISTINCT "$path") AS files, count(*) AS rows
 FROM lakehouse.bronze.raw_shopee_orders_dp1;
 ```
 
-Nếu snapshot cũ đã bị `expire_snapshots` xóa, chụp bước 3 cùng receipt trên EC2
+**Kết quả trên AWS (04/11/2026, Trino 483 trên EC2).** Bảng `bronze.raw_shopee_orders_dp1` có đúng hai snapshot: `564699590744609361` (`append`, 27/10 15:51 UTC) và
+`2727359824964749759` (`replace`, 29/10 09:36 UTC, lần viết lại của job `repartition_small_channel`). Snapshot cũ chưa bị `expire_snapshots` xóa nên đọc lại được:
+
+| Trạng thái | Số file dữ liệu | Số dòng |
+|---|---:|---:|
+| Trước: `FOR VERSION AS OF 564699590744609361` (append 27/10, chia theo ngày) | **180** | **4.689.957** |
+| Sau: hiện tại (replace 29/10, chia theo tháng) | **6** | **4.689.957** |
+
+Số dòng bằng nhau ở hai phía (dữ liệu không đổi) và khớp receipt (180 → 6 file; fingerprint giữ nguyên).
+
+![Trino CLI trên EC2: $snapshots có append và replace; trước 180 file, 4.689.957 dòng; sau 6 file, 4.689.957 dòng](../evidence/aws/lakehouse-before-after-trino.png)
+
+Nếu snapshot cũ bị `expire_snapshots` xóa thì không đọc lại được; khi đó chụp bước 3 cùng receipt trên EC2
 (`/mnt/platform-data/airflow/logs/iceberg-maintenance/repartition-shopee.json`, có sẵn before/after).
 
 DAG [dp4_warehouse](../../dags/dp4_warehouse.py), run `manual__2026-10-29T08:34:06.602356+00:00`,
