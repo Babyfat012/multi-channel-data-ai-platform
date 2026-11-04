@@ -3,12 +3,12 @@
 # Chạy: KCTX=<kube-context> scripts/evidence/helm_rollout_fallback_test.sh
 # 1) rolling update tốt  2) bản hỏng (envSecret không tồn tại) ⇒ helm tự rollback  3) helm history + đếm mã HTTP của probe.
 # Probe chạy TRONG cluster (không port-forward: forward gắn một pod nên rớt khi pod đó bị thay).
-# Ghi docs/evidence/aws/feature-api-helm-rollout-<ngày UTC>.txt. Release đã deploy bằng scripts/setup/deploy_feature_api.sh.
+# Ghi docs/evidence/aws/feature-api-helm-rollout.txt. Release đã deploy bằng scripts/setup/deploy_feature_api.sh.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ns=${FEATURE_API_NAMESPACE:-feature-store}
 release=feature-api
-out=${OUT:-docs/evidence/aws/feature-api-helm-rollout-$(date -u +%Y%m%d).txt}
+out=${OUT:-docs/evidence/aws/feature-api-helm-rollout.txt}
 K=(kubectl --context "${KCTX:?đặt KCTX=<kube-context>}" -n "$ns")
 H=(helm --kube-context "$KCTX" -n "$ns")
 probe=rollout-probe

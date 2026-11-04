@@ -35,6 +35,21 @@ MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh s
 
 Tại ảnh API ngày 30/10, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
 
+#### Helm rolling update và tự rollback trên EKS, 04/11/2026
+
+Chạy [`helm_rollout_fallback_test.sh`](../../scripts/evidence/helm_rollout_fallback_test.sh) trên cluster `platform-apps` (release `feature-api`, namespace `feature-store`): một pod probe **trong cluster** gửi `POST /features`
+mỗi 0,2 giây suốt hai lần `helm upgrade --atomic`. Log đầy đủ: [feature-api-helm-rollout.txt](../evidence/aws/feature-api-helm-rollout.txt).
+
+| Bước | Kết quả |
+|---|---|
+| 1. Rolling update tốt (đổi `envChecksum`, `--timeout 4m`) | revision **13** `deployed`; rolling update `maxUnavailable 0, maxSurge 1` |
+| 2. Bản hỏng (`envSecret=does-not-exist`, `--timeout 90s`) | pod mới `CreateContainerConfigError: secret "does-not-exist" not found`; revision **14** `failed` (`context deadline exceeded`) |
+| 3. Tự rollback (`--atomic`) | Helm tạo revision **15** `deployed`, mô tả `Rollback to 13`; hai pod cũ chạy suốt, không bị thay |
+| Tải liên tục trong cả hai lần upgrade | **763 request, 763 trả 200**, không có lỗi |
+
+`helm history` sau cùng: 13 `superseded`, 14 `failed`, 15 `deployed` (`Rollback to 13`). Đây là bằng chứng cho cả hai yêu cầu: rolling update không gián đoạn và tự fallback khi bản mới không khởi động được.
+Ghi nhận cũ của lần chạy local ngày 21/10 (583/583 request, rollback revision 12 → 13) vẫn ở mục tham khảo bên dưới.
+
 #### Load test trên EKS
 
 Locust chạy trên laptop (Việt Nam), đi qua `kubectl port-forward svc/feature-api` tới cụm ở Sydney

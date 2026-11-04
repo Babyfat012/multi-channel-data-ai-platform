@@ -1,0 +1,30 @@
+# helm rolling update + auto rollback feature-api (platform-apps, 2026-11-04T13:34:43Z)
+# helm history trước:
+REVISION	UPDATED                 	STATUS    	CHART            	APP VERSION	DESCRIPTION     
+10      	Sat Oct 31 10:59:49 2026	superseded	feature-api-0.1.0	0.1.0      	Upgrade complete
+11      	Sat Oct 31 12:10:48 2026	superseded	feature-api-0.1.0	0.1.0      	Upgrade complete
+12      	Sat Oct 31 12:22:14 2026	deployed  	feature-api-0.1.0	0.1.0      	Upgrade complete
+# 1) Rolling update tốt (đổi envChecksum ⇒ pod template đổi), --atomic --timeout 4m
+Release "feature-api" has been upgraded. Happy Helming!
+NAME: feature-api
+LAST DEPLOYED: Wed Nov  4 20:34:49 2026
+NAMESPACE: feature-store
+STATUS: deployed
+REVISION: 13
+TEST SUITE: None
+# 2) Bản hỏng: envSecret=does-not-exist ⇒ pod mới không khởi động, --atomic --timeout 90s (mong đợi FAILED rồi rollback)
+Error: UPGRADE FAILED: release feature-api failed, and has been rolled back due to atomic being set: context deadline exceeded
+# upgrade thất bại như mong đợi; helm đã tự rollback
+# 3) helm history sau:
+REVISION	UPDATED                 	STATUS    	CHART            	APP VERSION	DESCRIPTION                                            
+10      	Sat Oct 31 10:59:49 2026	superseded	feature-api-0.1.0	0.1.0      	Upgrade complete                                       
+11      	Sat Oct 31 12:10:48 2026	superseded	feature-api-0.1.0	0.1.0      	Upgrade complete                                       
+12      	Sat Oct 31 12:22:14 2026	superseded	feature-api-0.1.0	0.1.0      	Upgrade complete                                       
+13      	Wed Nov  4 20:34:49 2026	superseded	feature-api-0.1.0	0.1.0      	Upgrade complete                                       
+14      	Wed Nov  4 20:35:15 2026	failed    	feature-api-0.1.0	0.1.0      	Upgrade "feature-api" failed: context deadline exceeded
+15      	Wed Nov  4 20:37:00 2026	deployed  	feature-api-0.1.0	0.1.0      	Rollback to 13                                         
+NAME                           READY   STATUS    RESTARTS   AGE
+feature-api-6548974cc5-nr42q   1/1     Running   0          2m8s
+feature-api-6548974cc5-plsmp   1/1     Running   0          2m15s
+# Mã HTTP của probe trong suốt hai lần upgrade (số request, mã):
+    763 200
