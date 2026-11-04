@@ -1,0 +1,52 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /home/phattl/eonsr/FSDS/.venv/bin/python
+hypothesis profile 'default'
+rootdir: /home/phattl/eonsr/FSDS
+configfile: pyproject.toml
+plugins: anyio-4.15.1, hypothesis-6.170.5
+collecting ... collected 5 items
+
+tests/unit/test_model_properties.py::test_prediction_is_idempotent_and_bounded PASSED [ 20%]
+tests/unit/test_model_properties.py::test_feature_prep_is_idempotent PASSED [ 40%]
+tests/unit/test_model_properties.py::test_retraining_same_data_gives_same_model PASSED [ 60%]
+tests/unit/test_model_properties.py::test_temporal_split_never_leaks_future PASSED [ 80%]
+tests/unit/test_model_properties.py::test_temporal_split_rejects_single_class_test PASSED [100%]
+============================ Hypothesis Statistics =============================
+
+tests/unit/test_model_properties.py::test_prediction_is_idempotent_and_bounded:
+
+  - during generate phase (3.63 seconds):
+    - Typical runtimes: ~ 1-24 ms, of which ~ 0-8 ms in data generation
+    - 200 passing, 0 failing, and 16 invalid test cases
+
+  - Stopped because settings.max_examples=200
+
+
+tests/unit/test_model_properties.py::test_feature_prep_is_idempotent:
+
+  - during generate phase (1.49 seconds):
+    - Typical runtimes: ~ 1-9 ms, of which ~ 0-3 ms in data generation
+    - 200 passing, 0 failing, and 26 invalid test cases
+
+  - Stopped because settings.max_examples=200
+
+
+tests/unit/test_model_properties.py::test_retraining_same_data_gives_same_model:
+
+  - during generate phase (3.66 seconds):
+    - Typical runtimes: ~ 29-47 ms, of which < 1ms in data generation
+    - 100 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+tests/unit/test_model_properties.py::test_temporal_split_never_leaks_future:
+
+  - during generate phase (0.31 seconds):
+    - Typical runtimes: ~ 0-3 ms, of which < 1ms in data generation
+    - 200 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=200
+
+
+============================== 5 passed in 10.69s ==============================

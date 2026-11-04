@@ -8,6 +8,28 @@ PR testing chạy trên máy phát triển, không gắn nhãn test chạy AWS. 
 
 ![Coverage: 86 pass, app.py 98%, tổng 96%](../evidence/serving-coverage-20261031.png)
 
+### Ảnh từng loại kiểm thử, 04/11/2026
+
+Các ảnh dưới là **output terminal thật** của lần chạy ngày 04/11 trên máy phát triển, do
+[`capture_testing_evidence.py`](../../scripts/evidence/capture_testing_evidence.py) chạy rồi chụp (kèm file `.txt` cùng tên). Sau 31/10 test và code đã đổi
+nên số khác ảnh coverage 31/10 ở trên: **90 test pass, `serving/app.py` 96%, tổng 96%** (vẫn trên ngưỡng 90%).
+
+**Coverage** (`pytest --cov=serving`): [`testing-coverage-20261104.txt`](../evidence/testing-coverage-20261104.txt)
+
+![pytest-cov serving: 90 passed, app.py 96%, tổng 96%](../evidence/testing-coverage-20261104.png)
+
+**EP/BVA** — 53 test theo lớp tương đương và biên (số SKU 0/1/100/101, định dạng SKU, body sai kiểu, `top_k`, trường dự đoán thiếu hoặc sai):
+
+![pytest -v EP/BVA: 53 test boundaries, sku_format, bad_body, validation PASSED](../evidence/testing-epbva-20261104.png)
+
+**Property-based (hypothesis)** — API (`test_idempotent`) và model (bất biến dự đoán, tách thời gian không rò rỉ tương lai, huấn luyện lại cùng dữ liệu ra cùng model):
+
+![hypothesis API: 50 ví dụ, 0 lỗi](../evidence/testing-hypothesis-20261104.png)
+
+![hypothesis model: 5 test, 100–200 ví dụ mỗi test, 0 lỗi](../evidence/testing-hypothesis-model-20261104.png)
+
+Mutation (mutmut) có ảnh ở mục dưới; **Locust** chạy trên EKS nên ảnh Locust lấy từ lần chạy EKS (chưa chụp thêm ảnh terminal/Locust UI cho lần đó).
+
 ## Mutation testing (mutmut)
 
 ### Kết quả lịch sử 31/10: toàn bộ file

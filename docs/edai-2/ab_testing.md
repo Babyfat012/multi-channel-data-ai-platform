@@ -47,6 +47,12 @@ data-agent, coordinator và sandbox.
 | B `data-agent-b` (0,5B) | **4/12** | 6,0 | [JSONL](../evidence/aws/agent-eval-data-agent-b-20261031.jsonl) |
 | Route chia `/a2a/data-agent-ab/` | 2/6 | — | [JSONL](../evidence/aws/agent-eval-data-agent-ab-20261031.jsonl) |
 
+![Bảng so sánh A/B Agent dựng từ JSONL eval AWS: A 12/12 (10,2 s/câu), B 4/12 (6,0 s/câu)](../evidence/ab-agent-comparison-20261031.png)
+
+Ảnh trên là bảng dựng lại từ hai file JSONL eval ở trên bằng [`render_ab_comparison.py`](../../scripts/evidence/render_ab_comparison.py), **không phải ảnh chụp Grafana**.
+Dashboard Grafana so hai cấu hình model (tỷ lệ chia, p95, token/giây, request theo backend agent) cần chụp đủ cả sáu panel
+khi có tải đủ dài; ảnh 31/10 ở trên mới thấy hai panel request và p95.
+
 Giới hạn: bench LLM ngắn (cắt ở 900 s, chỉ khoảng 9 và 8 request theo Grafana), không tính khoảng tin cậy; 12 SKU là tập nhỏ; kết quả route chia
 phản ánh trộn hai nhánh, không phải thước đo riêng của B.
 

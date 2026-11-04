@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.3.5, pluggy-1.6.0 -- /home/phattl/.cache/uv/builds-v0/.tmpxl3Wrm/bin/python
+hypothesis profile 'default' -> database=DirectoryBasedExampleDatabase(PosixPath('/home/phattl/eonsr/FSDS/.hypothesis/examples'))
+rootdir: /home/phattl/eonsr/FSDS
+configfile: pyproject.toml
+plugins: anyio-4.15.1, cov-6.1.1, locust-2.46.7, hypothesis-6.131.0, platformdirs-4.14.3
+collecting ... collected 1 item
+
+serving/tests/test_app.py::test_idempotent PASSED                        [100%]
+============================ Hypothesis Statistics =============================
+
+serving/tests/test_app.py::test_idempotent:
+
+  - during generate phase (1.18 seconds):
+    - Typical runtimes: ~ 0-34 ms, of which < 1ms in data generation
+    - 50 passing examples, 0 failing examples, 9 invalid examples
+
+  - Stopped because settings.max_examples=50
+
+
+============================== 1 passed in 1.78s ===============================

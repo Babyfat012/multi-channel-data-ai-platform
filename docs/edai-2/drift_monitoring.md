@@ -26,6 +26,29 @@ Kết quả: [mle-drift-20261031.json](../evidence/aws/mle-drift-20261031.json).
 Lô ổn định không báo; lô chỉ giữ Shopee làm đổi cơ cấu SKU và vượt ngưỡng. Đây là kết quả đo trên đầu vào S3
 đã dùng trên AWS; không dùng số lô Sale local thay cho lần AWS.
 
+### Từng bước và ảnh
+
+Quy trình có bốn bước; ảnh dưới đây chạy **local trên dữ liệu mô phỏng** (60 ngày, 400 dòng/ngày, kênh Shopee dồn về nửa sau danh mục SKU),
+để chứng minh quy trình chạy được trước khi chạy EKS. Số JS ở đây **không phải** số đo AWS ở bảng trên.
+
+1. **Dữ liệu tham chiếu và hiện tại:** `training_lines`, 30 ngày đầu làm tham chiếu; `stable` là phần sau, `channel_shift` là phần sau chỉ của Shopee.
+2. **Báo cáo `stable`:** Evidently so từng cột bằng Jensen-Shannon; lô cùng phân phối không vượt ngưỡng.
+
+   ![Evidently stable (local, mô phỏng): seller_sku không drift](../evidence/drift-stable-local-20261104.png)
+
+3. **Báo cáo `channel_shift`:** `seller_sku` vượt ngưỡng 0,2, `label` không.
+
+   ![Evidently channel_shift (local, mô phỏng): seller_sku drift, JS 0,649](../evidence/drift-channel_shift-local-20261104.png)
+
+4. **Bảng kết quả và alert** (cùng cấu trúc với `mle-drift-20261031.json`):
+
+   ![Bảng JS theo cột: stable ổn định, channel_shift alert](../evidence/drift-summary-local-20261104.png)
+
+Ảnh EKS: Job `mle-drift` giữ pod 15 phút sau khi chạy xong; lấy HTML bằng `kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks`,
+rồi `capture_drift_evidence.py --html-dir drift-eks --summary <summary.json> --tag aws-<ngày>`
+([script](../../scripts/evidence/capture_drift_evidence.py)). **Chưa chạy trên EKS**, nên chưa có ảnh báo cáo Evidently từ AWS;
+bằng chứng AWS hiện có chỉ là JSON ở trên.
+
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
