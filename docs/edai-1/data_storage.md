@@ -70,6 +70,23 @@ rewrite-all: 180 → 6 file; 4.689.957 dòng và fingerprint `-25518859489545494
 Trung vị ba lần `count(*)` 1,040 → 0,286 s; lọc 30 ngày 7,943 → 0,968 s. Đây là số trong receipt;
 chưa có ảnh AWS chụp riêng trước/sau compaction. Maintenance trước đó no-op vì mỗi partition ngày chỉ một file.
 
+Để chụp trước/sau mà không chạy lại job, đọc cùng bảng ở hai snapshot qua Trino (chỉ đọc, chưa chạy trên AWS):
+
+```sql
+-- 1. snapshot trước khi viết lại: snapshot cuối cùng có operation = append/overwrite trước lần replace
+SELECT snapshot_id, committed_at, operation
+FROM lakehouse.bronze."raw_shopee_orders_dp1$snapshots" ORDER BY committed_at;
+-- 2. trước (mong đợi 180 file, 4.689.957 dòng)
+SELECT count(DISTINCT "$path") AS files, count(*) AS rows
+FROM lakehouse.bronze.raw_shopee_orders_dp1 FOR VERSION AS OF <snapshot_id>;
+-- 3. sau (mong đợi 6 file, 4.689.957 dòng)
+SELECT count(DISTINCT "$path") AS files, count(*) AS rows
+FROM lakehouse.bronze.raw_shopee_orders_dp1;
+```
+
+Nếu snapshot cũ đã bị `expire_snapshots` xóa, chụp bước 3 cùng receipt trên EC2
+(`/mnt/platform-data/airflow/logs/iceberg-maintenance/repartition-shopee.json`, có sẵn before/after).
+
 DAG [dp4_warehouse](../../dags/dp4_warehouse.py), run `manual__2026-10-29T08:34:06.602356+00:00`,
 gọi [export và index](../../spark_jobs/warehouse/export_order_snapshot_lines.py). Job chép 30 ngày năm Channel,
 so count từng Channel với Gold rồi tạo B-tree `(seller_sku)` và `ANALYZE`.
