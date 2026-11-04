@@ -18,11 +18,13 @@ Code lấy từ git bundle; image đẩy lên ECR
 | [feature-api-agents](../../ci/jenkins/feature-api-agents.Jenkinsfile) #8 | Test → Build → Push ECR → Deploy MCP server → Sync prompts từ Langfuse → Deploy Agent → Eval agent → Smoke: xanh. Gate đạt **12/12 = 1,00 ≥ 0,95**; [JSONL và giới hạn PII](agent_evaluation.md#trên-aws-2026-10-31). |
 | [rag-pipeline](../../ci/jenkins/rag-pipeline.Jenkinsfile) #2 | Test → Build → Push → Release config → Deploy → DAG import → Run DAG: xanh. Lineage DataHub đã có ảnh AWS ngày 31/10: [RAG Pipeline](rag_pipeline.md). |
 | [stream-features](../../ci/jenkins/stream-features.Jenkinsfile) #2 | Test → Build → Push → Release config → Deploy → Verify: xanh. |
-| [coordinator](../../ci/jenkins/coordinator.Jenkinsfile) | Validate / Sync / Deploy xanh; **Eval agent thất bại** vì mỗi câu hỏi vượt timeout 180 s. Một Qwen 1,5B chạy CPU phục vụ chung các Agent; chưa tính pipeline này là hoàn tất. |
+| [coordinator](../../ci/jenkins/coordinator.Jenkinsfile) | 31/10 (#2): Validate / Sync / Deploy xanh, **Eval agent đỏ** sau 15 phút 6 giây. 04/11 (#4): Validate / Sync / Deploy xanh, **Eval agent chạy hơn 20 phút chưa xong** nên không đạt cổng. Chưa có build xanh cho pipeline này. Chi tiết và số liệu LLM: [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026) |
 
 ![Jenkins EC2 feature-api-agents #8: các stage xanh, gồm Push, Sync prompts và Eval agent](../evidence/aws/jenkins-feature-api-agents-20261031.png)
 
 ![Jenkins EC2 rag-pipeline #2: Test, Build, Push, Release config, Deploy, DAG import và Run DAG xanh](../evidence/aws/jenkins-rag-pipeline-20261031.png)
+
+![Jenkins EC2 coordinator: build #4 (04/11) qua Validate, Sync prompts, Deploy rồi Eval agent chạy 20 phút 9 giây chưa xong; build #2 (31/10) Eval agent đỏ sau 15 phút 6 giây](../evidence/aws/jenkins-coordinator-eval-20min.png)
 
 ![Jenkins EC2 stream-features #2: Test, Build, Push, Release config, Deploy và Verify xanh](../evidence/aws/jenkins-stream-features-20261031.png)
 

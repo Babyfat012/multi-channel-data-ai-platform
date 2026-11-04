@@ -28,6 +28,6 @@ của KEDA không trả lời; cảnh báo không xuất hiện trong lần scal
 
 ## Giới hạn
 
-CI deploy thành công, eval timeout 180 giây/câu; chưa tính pipeline hoàn tất. [CI/CD](cicd.md).
+CI deploy thành công nhưng cổng `Eval agent` chưa đạt (31/10 đỏ sau 15 phút; 04/11 chạy hơn 20 phút chưa xong); chưa tính pipeline hoàn tất. [CI/CD](cicd.md), [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026).
 
 [Mục lục phần này](README.md) · [Mục lục chung](../README.md)

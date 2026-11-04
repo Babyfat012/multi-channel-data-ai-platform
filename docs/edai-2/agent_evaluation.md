@@ -21,8 +21,17 @@ Lần 12/12 chọn SKU có `labeled_count_90d` dưới bảy chữ số; kết q
 không chứng minh đã sửa lỗi mask cho mọi số đếm lớn. Khác với lỗi làm tròn tỷ lệ ngày 30/10,
 đây là số đếm nguyên bị nhận nhầm thành số điện thoại.
 
-Coordinator đã Validate / Sync / Deploy xanh nhưng Eval agent thất bại: mỗi câu vượt timeout **180 s**,
-do một Qwen 1,5B chạy CPU phục vụ chung các Agent. Chưa có kết quả gate đạt cho Coordinator trên AWS.
+<a id="coordinator-trên-aws-04112026"></a>
+**Coordinator trên AWS (31/10 và 04/11/2026).** Cả hai lần `Validate`, `Sync prompts` và `Deploy` đều xanh, nhưng cổng `Eval agent` (12 SKU, ngưỡng độ chính xác 0,95) **chưa đạt**:
+lần 31/10 đỏ sau 15 phút 6 giây; lần 04/11 (build #4) chạy hơn **20 phút** mà chưa kết thúc, không có kết quả `accuracy` để báo cáo (EC2 được dừng trong lúc build còn chạy).
+
+![Jenkins coordinator: build #4 Eval agent chạy 20 phút 9 giây, build #2 đỏ sau 15 phút 6 giây](../evidence/aws/jenkins-coordinator-eval-20min.png)
+
+Số đo cùng ngày 04/11: một câu hỏi tay vào Coordinator mất **40,7 giây** và trả đúng số (15.306 / 2.599 / 16,98%). Nhưng khi chạy eval, log llama.cpp
+([llm-slot-timing-during-eval.txt](../evidence/aws/llm-slot-timing-during-eval.txt)) ghi 69 lượt gọi LLM với trung vị 6 s nhưng có lượt tới **350 s** (6 lượt trên 100 s), và
+gateway chỉ nhận khoảng 4 câu hỏi Coordinator trong 10 phút (~2,5 phút/câu). Nguyên nhân chưa xác định; giả thuyết (chưa kiểm chứng): khi một câu vượt timeout 180 s,
+harness bỏ qua và hỏi câu kế, nhưng Coordinator vẫn xử lý câu bị bỏ nên các lượt LLM chồng lên nhau trên 4 slot CPU, kéo theo các câu sau cũng chậm.
+Điều đã biết chắc: một Qwen 1,5B chạy CPU phục vụ chung mọi Agent không đủ nhanh cho chuỗi Coordinator → Agent → tool → Coordinator trong cổng CI này.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
