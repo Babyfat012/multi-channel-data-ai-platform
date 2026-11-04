@@ -44,10 +44,19 @@ Quy trình có bốn bước; ảnh dưới đây chạy **local trên dữ li�
 
    ![Bảng JS theo cột: stable ổn định, channel_shift alert](../evidence/drift-summary-local-20261104.png)
 
-Ảnh EKS: Job `mle-drift` giữ pod 15 phút sau khi chạy xong; lấy HTML bằng `kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks`,
-rồi `capture_drift_evidence.py --html-dir drift-eks --summary <summary.json> --tag aws-<ngày>`
-([script](../../scripts/evidence/capture_drift_evidence.py)). **Chưa chạy trên EKS**, nên chưa có ảnh báo cáo Evidently từ AWS;
-bằng chứng AWS hiện có chỉ là JSON ở trên.
+**Báo cáo Evidently từ EKS (04/11/2026).** Chạy lại Job [`mle-drift`](../../infra/k8s/ml/drift-job.yaml) (ns `kubeflow`, đầu vào là `training_lines` trên S3 như lần 31/10).
+Pod giữ 15 phút sau khi chạy xong để lấy HTML bằng `kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks`, rồi chụp bằng
+[`capture_drift_evidence.py`](../../scripts/evidence/capture_drift_evidence.py) (`--html-dir drift-eks --summary drift-eks/summary.json`). Kết quả lần chạy lại **trùng đến chữ số thập phân
+với lần 31/10** ([drift-summary-eks.json](../evidence/aws/drift-summary-eks.json)): phép đo ổn định, tái lập được.
+
+![Evidently trên EKS, phép so stable: seller_sku và label không drift](../evidence/aws/drift-stable-aws.png)
+
+![Evidently trên EKS, phép so channel_shift: seller_sku drift, JS 0,2028 vượt ngưỡng 0,2; label không drift](../evidence/aws/drift-channel_shift-aws.png)
+
+![Bảng Jensen-Shannon theo cột từ summary.json của EKS: stable không alert, channel_shift có alert](../evidence/aws/drift-summary-aws.png)
+
+Lưu ý khi đọc ảnh `channel_shift`: biểu đồ phân phối của `seller_sku` gần như trống vì cột này có hàng nghìn giá trị khác nhau (mỗi giá trị chiếm tỉ lệ rất nhỏ);
+điểm Jensen-Shannon và kết luận `Detected` là thông tin chính. Cột `Alert` trong bảng tóm tắt là kết luận của cả phép so, không phải của từng cột.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>

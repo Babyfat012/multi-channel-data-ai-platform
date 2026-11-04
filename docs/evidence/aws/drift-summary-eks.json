@@ -1,0 +1,44 @@
+{
+  "stable": {
+    "reference_rows": 72109,
+    "current_rows": 287348,
+    "columns": {
+      "seller_sku": {
+        "method": "jensenshannon",
+        "score": 0.06641775753329336,
+        "threshold": 0.2,
+        "drift": false
+      },
+      "label": {
+        "method": "jensenshannon",
+        "score": 0.0007763871020109811,
+        "threshold": 0.1,
+        "drift": false
+      }
+    },
+    "drifted": [],
+    "alert": false
+  },
+  "channel_shift": {
+    "reference_rows": 72109,
+    "current_rows": 8320,
+    "columns": {
+      "seller_sku": {
+        "method": "jensenshannon",
+        "score": 0.20279959483702048,
+        "threshold": 0.2,
+        "drift": true
+      },
+      "label": {
+        "method": "jensenshannon",
+        "score": 0.02978759788428053,
+        "threshold": 0.1,
+        "drift": false
+      }
+    },
+    "drifted": [
+      "seller_sku"
+    ],
+    "alert": true
+  }
+}
