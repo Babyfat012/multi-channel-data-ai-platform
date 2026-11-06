@@ -241,7 +241,13 @@ def main(argv=None) -> int:
                 )
                 jobs.append((sku, question, lambda a, t=truth: score_predict(a, t)))
     rows = []
+    timeouts = 0  # quá hạn liên tiếp
     for label, question, grade in jobs:
+        if timeouts >= 2:
+            # Agent vẫn xử lý câu quá hạn ở nền: hỏi tiếp chỉ chất thêm phiên mồ côi lên LLM (vòng xoáy 04/11 và 06/11).
+            # Câu bỏ dở tính là trượt (accuracy vẫn chia cho cả bộ).
+            rows.append({"agent": args.agent, "sku": label, "seconds": 0, "answer": "SKIPPED after 2 timeouts", "gradable": True, "pass": False, "mode": "skipped"})
+            continue
         started = time.perf_counter()
         try:
             reply = post(
@@ -269,6 +275,7 @@ def main(argv=None) -> int:
             TimeoutError,
         ) as error:  # agent hỏng = câu trượt, không dừng harness
             answer = f"ERROR {error}"
+        timeouts = timeouts + 1 if answer.startswith("ERROR") else 0
         rows.append(
             {
                 "agent": args.agent,

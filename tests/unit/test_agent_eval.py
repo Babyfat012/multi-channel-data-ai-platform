@@ -1,5 +1,7 @@
 """Kiểm phần chấm của ml/agent_eval: chuẩn hoá số, biên làm tròn tỷ lệ, SKU không chấm được."""
 
+import json
+
 import pytest
 
 from ml.agent_eval import numbers, score, score_policy, score_predict, texts
@@ -203,3 +205,25 @@ def test_score_policy(answer, ok):
 def test_score_predict(truth, answer, ok):
     """Score lệch ≤ 0,005 so với Feature API; SKU thiếu lịch sử thì agent phải nói là từ chối."""
     assert score_predict(answer, truth)["pass"] is ok
+
+
+def test_main_stops_asking_after_two_timeouts(monkeypatch, tmp_path):
+    """Hai câu quá hạn liên tiếp ⇒ không hỏi tiếp (khỏi chất phiên mồ côi), câu bỏ dở tính trượt."""
+    import ml.agent_eval as ae
+
+    calls = []
+
+    def fake_post(url, body, headers, context=None, timeout=180):
+        if url.endswith("/features"):
+            return {"features": [{"seller_sku": f"S-{i}", **FEATURES} for i in range(5)]}
+        calls.append(url)
+        raise TimeoutError
+
+    monkeypatch.setattr(ae, "post", fake_post)
+    monkeypatch.setenv("AGW_AGENT_KEY", "k")
+    out = tmp_path / "o.jsonl"
+    rc = ae.main(["--agent", "coordinator", "--skus", "a", "--feature-api", "http://x", "--out", str(out)])
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    assert (rc, len(calls), len(rows)) == (1, 2, 5)
+    assert [r["mode"] for r in rows[2:]] == ["skipped"] * 3
+    assert not any(r["pass"] for r in rows)
