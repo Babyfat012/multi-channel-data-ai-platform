@@ -18,12 +18,13 @@ APP-00042 có 15.306 dòng gắn nhãn, 2.599 Return, tỉ lệ 0,1698. Model Ag
 
 KEDA Data Agent: 3 request/giây vào agent card trong 150 giây, pod **2 → 3 → 2**. Script [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh) ghi thêm tên từng pod ở mỗi mốc, và [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh) in ScaledObject/HPA, từng pod Agent chạy ở node nào, WorkerPool và SandboxAgent (04/11/2026, [output](../evidence/aws/eks-runtime-proof-part2.png)). Đây là tải route A2A, không phải tải inference LLM. [Log EKS](../evidence/aws/keda-data-agent-20261030.txt).
 
-### KEDA Model Agent, 04/11/2026 (EKS `platform-apps`)
+### KEDA Model Agent, 04/11 và 06/11/2026 (EKS `platform-apps`)
 
 [ScaledObject](../../infra/k8s/agents/model-agent-keda.yaml) min 2, max 3, ngưỡng 0,5 request/giây mỗi pod theo route `a2a-model-agent`.
-Áp dụng bằng `kubectl apply`, rồi chạy [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh) (3 request/giây lấy agent card, 150 giây).
-Log: [keda-model-agent.txt](../evidence/aws/keda-model-agent.txt): pod **2 → 3 → 2** (lên 3 sau khoảng 27 giây khi tải vượt ngưỡng, về 2 sau khoảng 8 phút
-do HPA chờ ổn định). Tải là A2A lấy agent card, không phải tải inference LLM.
+Chạy [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh) (3 request/giây lấy agent card, 150 giây); mỗi mốc ghi **tên đuôi từng pod**.
+Log [keda-model-agent.txt](../evidence/aws/keda-model-agent.txt) là lần **06/11**: pod **2 → 3 → 2**; lên 3 sau 54 giây khi `target=792m/500m` (pod mới `smvxc`),
+về 2 sau 468 giây khi tải đã dừng (pod `gljwt` bị bỏ, `bqckg` và `smvxc` ở lại). Lần 04/11 (ảnh bên dưới) cho kết quả tương tự (lên 3 sau khoảng 27 giây, về 2 sau khoảng 8 phút do HPA chờ ổn định).
+Tải là A2A lấy agent card, không phải tải inference LLM. Phần Events của HPA có vài dòng `FailedGetExternalMetric` rải rác trong 45 giờ: thời gian cluster tắt nên Prometheus không trả lời.
 
 ![ScaledObject và HPA Model Agent sau khi áp dụng: READY True, min 2, max 3, 2 pod Running](../evidence/aws/keda-model-agent-apply.png)
 
@@ -48,13 +49,21 @@ Kubernetes không có RuntimeClass nào (`No resources found`): gVisor do Substr
 
 Code Sandbox: [deploy_substrate.sh](../../scripts/setup/deploy_substrate.sh), [manifest](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
 
+## Bằng chứng bổ sung cho Model Agent, 06/11/2026 (EKS `platform-apps`)
+
+- **Probe và health:** [eks-runtime-proof-20261106.txt](../evidence/aws/eks-runtime-proof-20261106.txt). Feature API có Liveness `/healthz`, Readiness `/readyz` và Startup;
+  gọi `/healthz` và `/readyz` trong từng pod đều trả 200. Ba Deployment Agent chỉ khai **Readiness** `/.well-known/agent-card.json` (không có Liveness/Startup).
+- **MCP trực tiếp qua gateway:** [gateway-smoke-20261106.json](../evidence/aws/gateway-smoke-20261106.json), **24/24 PASS**, gồm `predict_return_risk` (có `score`, `model_version`)
+  và `search_policy_chunks` (≥ 1 chunk), tool ngoài danh sách bị chặn, 401/403/429.
+- **SandboxAgent:** `model-agent-sandbox` `READY True`, `ACCEPTED True` trên WorkerPool `kagent-default` (`sandboxClass: gvisor`).
+  Trước đó phải dựng lại cụm valkey của Substrate (giữ IP pod cũ sau khi thay node, khiến `ate-api` và `kagent-controller` crash).
+  Chat qua kagent UI: câu hỏi hạn trả hàng của Shopee, Agent gọi `search_policy_chunks` (1 tool call thành công) và trả lời 15 ngày, đúng tài liệu `rag/corpus/shopee-returns.md`.
+
+![Model Agent chạy trong Sandbox gVisor: gọi search_policy_chunks và trả lời 15 ngày](../evidence/aws/model-agent-sandbox-chat-20261106.png)
+
 ## Giới hạn
 
-Rubric yêu cầu Agent 2 có bằng chứng "tương tự" Agent 1 (registry, multi-replica, Sandbox, UI chat, YAML). Hiện **thiếu hai mục** của Model Agent trên EKS:
-(1) **Sandbox:** chỉ `data-agent-sandbox` và năm Agent `fleet-*` chạy trong gVisor; bản Sandbox của Model Agent
-([`model-agent-sandbox.yaml`](../../infra/k8s/agents/sandbox/model-agent-sandbox.yaml), cùng ba tool, cùng prompt) đã viết và qua kiểm tra schema của cụm (`--dry-run=server`) nhưng **chưa được áp dụng**, nên chưa có ảnh;
-(2) **MCP trực tiếp:** [`gateway_smoke.py`](../../scripts/evidence/gateway_smoke.py) đã thêm hai kiểm tra gọi `predict_return_risk` và `search_policy_chunks` qua gateway,
-nhưng chưa chạy trên EKS (kết quả smoke 22/22 chưa gồm hai dòng này). Probe của pod Agent cũng được thêm vào [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh) và chưa chạy.
+Ảnh Swagger gộp (danh sách endpoint, `/healthz`, `/readyz`) của Feature API nằm ở [Web API và MCP](web_api_mcp.md). Ba Agent chỉ khai probe Readiness (agent card), không có Liveness/Startup. Các SandboxAgent cũ (`data-agent-sandbox`, `fleet-*`) vẫn báo `ACCEPTED False` (lỗi `WorkerPool kagent-default not found` ghi lúc chúng được reconcile trước khi WorkerPool tồn tại; thêm annotation không kích hoạt reconcile lại), không ảnh hưởng `model-agent-sandbox`.
 
 Khi câu hỏi thiếu giá/số lượng, model nhỏ có thể tự điền tham số sai. [Registry](agent_registry.md) có proof publish; [Agent Evaluation](agent_evaluation.md) ghi giới hạn PII và kết quả chấm.
 

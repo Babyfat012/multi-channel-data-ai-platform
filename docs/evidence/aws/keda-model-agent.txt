@@ -1,27 +1,28 @@
-# KEDA autoscale model-agent (platform-apps, 2026-11-04T07:29:45Z)
+# KEDA autoscale model-agent (platform-apps, 2026-11-06T10:26:21Z)
 # Tải: 3 request/giây vào route a2a-model-agent (header x-kagent-host) lấy agent card, 150 s; ngưỡng 500m/pod; pods = Running thật.
-t=0s target=0/500m pods=2 [m99ss,pmb4d]
-t=27s target=576m/500m pods=3 [m99ss,npfqd,pmb4d]
-t=55s target=884m/500m pods=3 [m99ss,npfqd,pmb4d]
-t=82s target=1/500m pods=3 [m99ss,npfqd,pmb4d]
-t=110s target=1/500m pods=3 [m99ss,npfqd,pmb4d]
-t=137s target=1/500m pods=3 [m99ss,npfqd,pmb4d]
-t=164s target=978m/500m pods=3 [m99ss,npfqd,pmb4d]
-t=192s target=311m/500m pods=3 [m99ss,npfqd,pmb4d]
-t=219s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=248s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=275s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=303s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=330s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=358s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=386s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=413s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=441s target=0/500m pods=3 [m99ss,npfqd,pmb4d]
-t=469s target=0/500m pods=3 [m99ss,npfqd]
-t=497s target=0/500m pods=2 [m99ss,npfqd]
+t=0s target=0/500m pods=2 [bqckg,gljwt]
+t=27s target=0/500m pods=2 [bqckg,gljwt]
+t=54s target=792m/500m pods=3 [bqckg,gljwt,smvxc]
+t=81s target=1/500m pods=3 [bqckg,gljwt,smvxc]
+t=108s target=1/500m pods=3 [bqckg,gljwt,smvxc]
+t=135s target=1/500m pods=3 [bqckg,gljwt,smvxc]
+t=163s target=956m/500m pods=3 [bqckg,gljwt,smvxc]
+t=191s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=218s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=245s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=273s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=301s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=328s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=356s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=384s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=412s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=440s target=0/500m pods=3 [bqckg,gljwt,smvxc]
+t=468s target=0/500m pods=2 [bqckg,smvxc]
 Events:
-  Type    Reason             Age   From                       Message
-  ----    ------             ----  ----                       -------
-  Normal  SuccessfulRescale  16m   horizontal-pod-autoscaler  New size: 2; reason: Current number of replicas below Spec.MinReplicas
-  Normal  SuccessfulRescale  8m4s  horizontal-pod-autoscaler  New size: 3; reason: external metric s0-prometheus(&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: model-agent,},MatchExpressions:[]LabelSelectorRequirement{},}) above target
-  Normal  SuccessfulRescale  33s   horizontal-pod-autoscaler  New size: 2; reason: All metrics below target
+  Type     Reason                        Age                   From                       Message
+  ----     ------                        ----                  ----                       -------
+  Normal   SuccessfulRescale             8m9s (x2 over 2d3h)   horizontal-pod-autoscaler  New size: 2; reason: Current number of replicas below Spec.MinReplicas
+  Normal   SuccessfulRescale             7m24s (x2 over 2d3h)  horizontal-pod-autoscaler  New size: 3; reason: external metric s0-prometheus(&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: model-agent,},MatchExpressions:[]LabelSelectorRequirement{},}) above target
+  Warning  FailedGetExternalMetric       2m24s (x12 over 45h)  horizontal-pod-autoscaler  unable to get external metric kagent/s0-prometheus/&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: model-agent,},MatchExpressions:[]LabelSelectorRequirement{},}: unable to fetch metrics from external metrics API: rpc error: code = Unknown desc = error when getting metric values metric:s0-prometheus encountered error
+  Warning  FailedComputeMetricsReplicas  2m24s (x12 over 45h)  horizontal-pod-autoscaler  invalid metrics (1 invalid out of 1), first error is: failed to get s0-prometheus external metric value: failed to get s0-prometheus external metric: unable to get external metric kagent/s0-prometheus/&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: model-agent,},MatchExpressions:[]LabelSelectorRequirement{},}: unable to fetch metrics from external metrics API: rpc error: code = Unknown desc = error when getting metric values metric:s0-prometheus encountered error
+  Normal   SuccessfulRescale             24s (x2 over 2d2h)    horizontal-pod-autoscaler  New size: 2; reason: All metrics below target

@@ -31,6 +31,15 @@ Lệnh gọi `/healthz` và `/readyz` **trong từng pod** đều trả `200`.
 
 ![Swagger GET /readyz: 200, status ready](../evidence/aws/feature-api-readyz-swagger.png)
 
+**Swagger 06/11/2026 (EKS, port-forward `svc/feature-api`):** ảnh tổng quan liệt kê sáu endpoint (`/healthz`, `/readyz`, `/features`, `/chunks`, `/predict`, `/chunks/by-id`);
+`/metrics` cố ý ẩn khỏi schema (`include_in_schema=False`), Prometheus lấy số đo ở đó. Hai ảnh sau gọi trực tiếp từ Swagger.
+
+![Swagger Feature API: sáu endpoint gồm /healthz, /readyz, /features, /chunks, /predict, /chunks/by-id](../evidence/aws/feature-api-swagger-overview-20261106.png)
+
+![Swagger GET /healthz ngày 06/11: 200, status ok](../evidence/aws/feature-api-swagger-healthz-20261106.png)
+
+![Swagger GET /readyz ngày 06/11: 200, status ready](../evidence/aws/feature-api-swagger-readyz-20261106.png)
+
 MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh sách tool `tools/list` và kết quả `tools/call`; bản có bảng này đã chạy lại trên EKS ngày 04/11 (smoke 22/22, có allow/deny theo từng policy).
 
 Tại ảnh API ngày 30/10, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).

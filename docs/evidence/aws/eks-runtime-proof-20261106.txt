@@ -1,0 +1,78 @@
+# Bằng chứng runtime EKS (platform-apps, 2026-11-06T10:21:49Z)
+
+## Feature API: Deployment, từng pod, cấu hình probe
+NAME                          READY   UP-TO-DATE   AVAILABLE   AGE    CONTAINERS   IMAGES                                                                                                                     SELECTOR
+deployment.apps/feature-api   2/2     2            2           7d2h   api          665116832975.dkr.ecr.ap-southeast-2.amazonaws.com/platform/platform-feature-api:cd8398e28113fda16352fba0385db222cf14b459   app=feature-api
+
+NAME                               READY   STATUS    RESTARTS   AGE    IP            NODE                                            NOMINATED NODE   READINESS GATES
+pod/feature-api-5c844dcc9b-jc68x   1/1     Running   0          164m   10.42.0.201   ip-10-42-0-26.ap-southeast-2.compute.internal   <none>           <none>
+pod/feature-api-5c844dcc9b-vtcqk   1/1     Running   0          164m   10.42.0.92    ip-10-42-0-26.ap-southeast-2.compute.internal   <none>           <none>
+Replicas:               2 desired | 2 updated | 2 total | 2 available | 0 unavailable
+StrategyType:           RollingUpdate
+RollingUpdateStrategy:  0 max unavailable, 1 max surge
+    Liveness:   http-get http://:http/healthz delay=0s timeout=1s period=10s #success=1 #failure=3
+    Readiness:  http-get http://:http/readyz delay=0s timeout=1s period=5s #success=1 #failure=3
+    Startup:    http-get http://:http/healthz delay=0s timeout=1s period=2s #success=1 #failure=30
+
+## Feature API: /healthz (liveness) và /readyz (readiness) gọi trong từng pod
+pod/feature-api-5c844dcc9b-jc68x: {'/healthz': 200, '/readyz': 200}
+pod/feature-api-5c844dcc9b-vtcqk: {'/healthz': 200, '/readyz': 200}
+
+## Agent: số replica và autoscale (KEDA → HPA), từng pod chạy ở node nào
+NAME                               SCALETARGETKIND      SCALETARGETNAME   MIN   MAX   READY   ACTIVE   FALLBACK   PAUSED   TRIGGERS     AUTHENTICATIONS   AGE
+scaledobject.keda.sh/coordinator   apps/v1.Deployment   coordinator       1     1     True    False    False      False    prometheus                     7d1h
+scaledobject.keda.sh/data-agent    apps/v1.Deployment   data-agent        1     1     True    False    False      False    prometheus                     7d1h
+scaledobject.keda.sh/model-agent   apps/v1.Deployment   model-agent       1     1     True    False    False      False    prometheus                     2d3h
+
+NAME                                                       REFERENCE                TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/keda-hpa-coordinator   Deployment/coordinator   0/500m (avg)   1         1         1          7d1h
+horizontalpodautoscaler.autoscaling/keda-hpa-data-agent    Deployment/data-agent    0/500m (avg)   1         1         1          7d1h
+horizontalpodautoscaler.autoscaling/keda-hpa-model-agent   Deployment/model-agent   0/500m (avg)   1         1         1          2d3h
+NAME                            READY   STATUS    RESTARTS   AGE   IP            NODE                                             NOMINATED NODE   READINESS GATES
+coordinator-7766c9fb75-7n7zj    1/1     Running   0          68m   10.42.0.237   ip-10-42-0-26.ap-southeast-2.compute.internal    <none>           <none>
+data-agent-845c74c95f-gml45     1/1     Running   0          68m   10.42.0.63    ip-10-42-0-26.ap-southeast-2.compute.internal    <none>           <none>
+data-agent-b-7bb5d97bb8-7667t   1/1     Running   0          44h   10.42.0.75    ip-10-42-0-234.ap-southeast-2.compute.internal   <none>           <none>
+model-agent-57ddd9cfb6-bqckg    1/1     Running   0          68m   10.42.0.254   ip-10-42-0-234.ap-southeast-2.compute.internal   <none>           <none>
+
+## Agent: probe và replica của từng Deployment (Data Agent, Model Agent, Coordinator)
+--- data-agent
+Replicas:               1 desired | 1 updated | 1 total | 1 available | 0 unavailable
+    Readiness:  http-get http://:http/.well-known/agent-card.json delay=1s timeout=5s period=1s #success=1 #failure=3
+--- model-agent
+Replicas:               1 desired | 1 updated | 1 total | 1 available | 0 unavailable
+    Readiness:  http-get http://:http/.well-known/agent-card.json delay=1s timeout=5s period=1s #success=1 #failure=3
+--- coordinator
+Replicas:               1 desired | 1 updated | 1 total | 1 available | 0 unavailable
+    Readiness:  http-get http://:http/.well-known/agent-card.json delay=1s timeout=5s period=1s #success=1 #failure=3
+
+## Sandbox / Agent Substrate (gVisor)
+NAME                                DESIRED   REPLICAS   AGE
+workerpool.ate.dev/kagent-default   1         1          5m38s
+
+NAME                                             READY     ACCEPTED
+sandboxagent.kagent.dev/data-agent-sandbox       Unknown   False
+sandboxagent.kagent.dev/fleet-channel-guide      True      False
+sandboxagent.kagent.dev/fleet-currency-helper    True      False
+sandboxagent.kagent.dev/fleet-returns-glossary   True      False
+sandboxagent.kagent.dev/fleet-risk-explainer     True      False
+sandboxagent.kagent.dev/fleet-triage-helper      True      False
+sandboxagent.kagent.dev/model-agent-sandbox      True      True
+  ateomImage: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.0.9
+  replicas: 1
+  sandboxClass: gvisor
+  replicas: 1
+NAME                                         READY   STATUS      RESTARTS       AGE
+ate-api-server-deployment-5c6d678c5b-sknjg   1/1     Running     25 (12m ago)   44h
+ate-controller-84cb9ff5b6-8drk9              1/1     Running     0              44h
+atelet-452w6                                 1/1     Running     0              3h22m
+atelet-ndjnm                                 1/1     Running     0              3h22m
+atenet-router-67d8c899c8-mcw9n               2/2     Running     0              44h
+dns-764b48fb86-4pdpj                         2/2     Running     0              44h
+rustfs-6c4c677cb6-z6kcw                      1/1     Running     0              44h
+valkey-cluster-0                             1/1     Running     0              9m31s
+valkey-cluster-1                             1/1     Running     0              9m31s
+valkey-cluster-2                             1/1     Running     0              9m31s
+valkey-cluster-3                             1/1     Running     0              9m31s
+valkey-cluster-4                             1/1     Running     0              9m31s
+valkey-cluster-5                             1/1     Running     0              9m31s
+valkey-cluster-init-m94gj                    0/1     Completed   0              9m30s
