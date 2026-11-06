@@ -2,7 +2,8 @@
 
 Hỏi agent (qua agentgateway, giao thức A2A) cùng một bộ câu về SKU; đáp án chuẩn lấy từ Feature API
 (chính nguồn agent phải gọi tool). Agent được yêu cầu trả JSON ba trường; không có JSON thì đọc câu
-văn, số phải đứng cạnh tên trường. ĐẠT khi số line có nhãn, số line bị trả và tỷ lệ trả 90 ngày đều đúng
+văn, số phải đứng cạnh tên trường. Với agent coordinator chỉ chấm định tuyến (gọi đúng tool agent con, có câu trả lời cuối): model 1,5B hay
+làm rơi chữ số khi chép lại, còn độ đúng của số do eval từng agent con đảm nhiệm. ĐẠT khi số line có nhãn, số line bị trả và tỷ lệ trả 90 ngày đều đúng
 TRƯỜNG. Độ chính xác dưới ngưỡng ⇒ thoát mã 1 ⇒ CI báo build đỏ sau deploy agent.
 Chạy: `python -m ml.agent_eval --agent data-agent --skus sku-00001,sku-00002 --min-accuracy 0.6`.
 """
@@ -162,6 +163,13 @@ def score_predict(answer: str, truth: dict) -> dict:
     }
 
 
+def score_route(result: dict, tool: str) -> dict:
+    """Coordinator đạt khi history có lệnh gọi tool `tool` và có câu trả lời cuối; số liệu do eval của agent con chấm."""
+    routed = tool in json.dumps(result.get("history") or [])
+    answered = bool(" ".join(texts(result.get("artifacts") or [])).strip())
+    return {"gradable": True, "pass": routed and answered, "mode": "route", "expected": tool}
+
+
 def texts(node) -> list[str]:
     """Gom mọi trường "text" trong kết quả A2A (artifacts/parts/status.message), theo thứ tự."""
     if isinstance(node, dict):
@@ -240,6 +248,7 @@ def main(argv=None) -> int:
                     "shipped to US, price 4500 cents?"
                 )
                 jobs.append((sku, question, lambda a, t=truth: score_predict(a, t)))
+    tool = "data_agent" if args.task == "features" else "model_agent"
     rows = []
     timeouts = 0  # quá hạn liên tiếp
     for label, question, grade in jobs:
@@ -249,6 +258,7 @@ def main(argv=None) -> int:
             rows.append({"agent": args.agent, "sku": label, "seconds": 0, "answer": "SKIPPED after 2 timeouts", "gradable": True, "pass": False, "mode": "skipped"})
             continue
         started = time.perf_counter()
+        result = {}
         try:
             reply = post(
                 f"{args.gateway}/a2a/{args.agent}/",
@@ -282,7 +292,7 @@ def main(argv=None) -> int:
                 "sku": label,
                 "seconds": round(time.perf_counter() - started, 2),
                 "answer": answer[-600:],
-                **grade(answer),
+                **(score_route(result, tool) if args.agent == "coordinator" else grade(answer)),
             }
         )
     graded = [r for r in rows if r["gradable"]]

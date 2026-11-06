@@ -227,3 +227,15 @@ def test_main_stops_asking_after_two_timeouts(monkeypatch, tmp_path):
     assert (rc, len(calls), len(rows)) == (1, 2, 5)
     assert [r["mode"] for r in rows[2:]] == ["skipped"] * 3
     assert not any(r["pass"] for r in rows)
+
+
+def test_score_route():
+    """Coordinator: gọi đúng agent con + có câu trả lời cuối là đạt, dù số bị chép sai; gọi sai hoặc không trả lời thì trượt."""
+    from ml.agent_eval import score_route
+
+    call = {"history": [{"parts": [{"data": {"name": "kagent__kagent__data_agent"}}]}]}
+    final = {"artifacts": [{"parts": [{"text": "0 returns"}]}]}
+    assert score_route({**call, **final}, "data_agent")["pass"] is True
+    assert score_route({**call, **final}, "model_agent")["pass"] is False
+    assert score_route(call, "data_agent")["pass"] is False
+    assert score_route({}, "data_agent")["pass"] is False
