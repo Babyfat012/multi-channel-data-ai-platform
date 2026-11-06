@@ -94,7 +94,7 @@ bash scripts/run/eval_agent_ci.sh
 EVAL_AGENT=coordinator bash scripts/run/eval_agent_ci.sh
 ```
 
-Với `coordinator`, cổng chỉ chấm định tuyến (history có lệnh gọi `data_agent`/`model_agent` và có câu trả lời cuối), không chấm số: model 1,5B hay rơi chữ số khi chép lại, còn độ đúng của số do eval data-agent/model-agent đảm nhiệm. Giới hạn: cổng này không bắt được coordinator chép sai hoặc bịa số.
+Với `coordinator`, cổng chỉ chấm định tuyến (history có lệnh gọi `data_agent`/`model_agent` và có câu trả lời cuối), không chấm số: model 1,5B hay rơi chữ số khi chép lại, còn độ đúng của số do eval data-agent/model-agent đảm nhiệm. Giới hạn: cổng này không bắt được coordinator chép sai hoặc bịa số. Đo trên AWS 06/11/2026 (Jenkins coordinator #9, 12 SKU): **12/12 = 1,00 ≥ 0,95**, 12 lần gọi `data_agent`, mỗi câu 14–48 giây (riêng TOY-01577 165 giây). ACC-00842 vẫn trả số sai (0 returns) nhưng đã định tuyến đúng nên đạt; số của data-agent do eval data-agent chấm.
 
 Wrapper đọc key từ `vault_env.sh agentgateway`, port-forward Feature API `18000:8000` và
 gateway `18300:3000` (đổi bằng `EVAL_FEATURE_PORT`/`EVAL_GATEWAY_PORT` nếu cần), rồi gọi `python3 -m ml.agent_eval` với đủ 12 mã `sku-00001` đến
