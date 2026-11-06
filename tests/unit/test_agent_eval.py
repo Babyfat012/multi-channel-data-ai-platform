@@ -160,3 +160,19 @@ def test_timeout_flag_reaches_agent_call_only(monkeypatch, tmp_path):
     args = ["--agent", "coordinator", "--skus", "sku-00001", "--feature-api", "http://f"]
     agent_eval.main([*args, "--timeout", "600", "--out", str(tmp_path / "o.jsonl")])
     assert seen == {"features": 180, "a2a": 600}
+
+
+def test_texts_of_artifacts_ignore_history_echo():
+    """Chấm câu trả lời cuối: câu hỏi echo trong history không được lẫn vào."""
+    result = {
+        "history": [{"parts": [{"text": "Reply {labeled_count_90d: int} for sku-00002"}]}],
+        "artifacts": [{"parts": [{"text": "labeled 44"}]}],
+    }
+    assert " ".join(texts(result["artifacts"])) == "labeled 44"
+
+
+def test_time_window_is_not_a_value():
+    """'last 90 days: 30' → giá trị là 30, không phải 90; nhưng số thật vẫn phải đủ và đúng."""
+    ok = "Total labeled returns in the last 90 days: 30\nPositive returns in the last 90 days: 10\nRate in the last 90 days: 33.3%"
+    assert score(ok, FEATURES)["pass"] is True
+    assert score(ok.replace(": 10", ": 11"), FEATURES)["pass"] is False

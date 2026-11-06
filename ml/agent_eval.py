@@ -23,6 +23,8 @@ import uuid
 NUMBER = re.compile(r"(?<![\w.])-?\d+(?:[.,]\d+)?%?")
 # Mã SKU dạng chữ-số: local `sku-00001`, pipeline A trên AWS `APP-00042`; số trong mã không phải đáp án.
 SKU_ID = re.compile(r"\b[A-Za-z]+-\d+\b")
+# Cửa sổ thời gian ("last 90 days", "24 hours") là ngữ cảnh, không phải giá trị cần chấm.
+WINDOW = re.compile(r"\b\d+[- ]?(?:days?|hours?)\b", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|[.,](?=\s|$)")  # "0.333", "33,3%" không bị cắt
 FIELDS = {  # tên trường → cách agent hay gọi nó trong câu văn
     "labeled_count_90d": re.compile(r"\w*label\w*", re.IGNORECASE),
@@ -87,7 +89,7 @@ def from_text(answer: str) -> dict[str, set[str]]:
     # Giới hạn: heuristic khoảng cách ký tự, câu lòng vòng có thể chấm sai; JSON là đường chính,
     # cột mode cho biết bao nhiêu câu đi đường này.
     out: dict[str, set[str]] = {field: set() for field in FIELDS}
-    for clause in CLAUSE.split(SKU_ID.sub(" ", answer)):
+    for clause in CLAUSE.split(WINDOW.sub(" ", SKU_ID.sub(" ", answer))):
         nums = [(m.start(), m.end(), m.group()) for m in NUMBER.finditer(clause)]
         for field, label in FIELDS.items():
             for hit in label.finditer(clause):
@@ -198,7 +200,9 @@ def main(argv=None) -> int:
                 key,
                 timeout=args.timeout,
             )
-            answer = " ".join(texts(reply.get("result", {})))
+            result = reply.get("result", {})
+            # Chỉ câu trả lời cuối (artifacts): history chứa câu hỏi echo và tool-call, làm nhiễu phép chấm.
+            answer = " ".join(texts(result.get("artifacts") or result))
         except (
             urllib.error.URLError,
             TimeoutError,
