@@ -4,7 +4,9 @@ Agent đọc prompt qua `systemMessageFrom` ⇒ đổi prompt = sửa trên Lang
 `--seed`: tạo prompt `platform-<agent>` từ infra/k8s/agents/prompts/<agent>.txt nếu Langfuse chưa có (lần đầu).
 Khoá API đọc từ Secret `kagent/langfuse-api`; Langfuse gọi qua port-forward tạm.
 
-python scripts/setup/sync_agent_prompts.py [--seed]
+`--push AGENT`: tạo version MỚI từ file .txt (label production) khi nội dung khác bản production hiện tại; rồi đồng bộ.
+
+python scripts/setup/sync_agent_prompts.py [--seed] [--push coordinator]
 """
 
 import argparse
@@ -55,6 +57,7 @@ def main():
     parser.add_argument(
         "--seed", action="store_true", help="tạo prompt từ file .txt nếu Langfuse chưa có"
     )
+    parser.add_argument("--push", choices=AGENTS, help="đẩy file .txt của agent này thành version mới")
     args = parser.parse_args()
     auth = base64.b64encode(
         f"{secret('langfuse-api', 'LANGFUSE_PUBLIC_KEY')}:{secret('langfuse-api', 'LANGFUSE_SECRET_KEY')}".encode()
@@ -84,6 +87,16 @@ def main():
                     {"name": name, "type": "text", "prompt": text, "labels": ["production"]},
                 )
                 print(f"seeded {name}: HTTP {status}")
+            if args.push == agent and data:
+                text = (SEEDS / f"{agent}.txt").read_text()
+                if text != data["prompt"]:
+                    status, data = call(
+                        "POST",
+                        "/api/public/v2/prompts",
+                        auth,
+                        {"name": name, "type": "text", "prompt": text, "labels": ["production"]},
+                    )
+                    print(f"pushed {name}: HTTP {status}")
             if not data:
                 raise SystemExit(f"không lấy được prompt {name} (HTTP {status})")
             prompts[agent], versions[agent] = data["prompt"], str(data["version"])
