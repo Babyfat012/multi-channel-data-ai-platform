@@ -57,7 +57,9 @@ def main():
     parser.add_argument(
         "--seed", action="store_true", help="tạo prompt từ file .txt nếu Langfuse chưa có"
     )
-    parser.add_argument("--push", choices=AGENTS, help="đẩy file .txt của agent này thành version mới")
+    parser.add_argument(
+        "--push", choices=AGENTS, help="đẩy file .txt của agent này thành version mới"
+    )
     args = parser.parse_args()
     auth = base64.b64encode(
         f"{secret('langfuse-api', 'LANGFUSE_PUBLIC_KEY')}:{secret('langfuse-api', 'LANGFUSE_SECRET_KEY')}".encode()

@@ -222,7 +222,9 @@ def test_main_stops_asking_after_two_timeouts(monkeypatch, tmp_path):
     monkeypatch.setattr(ae, "post", fake_post)
     monkeypatch.setenv("AGW_AGENT_KEY", "k")
     out = tmp_path / "o.jsonl"
-    rc = ae.main(["--agent", "coordinator", "--skus", "a", "--feature-api", "http://x", "--out", str(out)])
+    rc = ae.main(
+        ["--agent", "coordinator", "--skus", "a", "--feature-api", "http://x", "--out", str(out)]
+    )
     rows = [json.loads(line) for line in out.read_text().splitlines()]
     assert (rc, len(calls), len(rows)) == (1, 2, 5)
     assert [r["mode"] for r in rows[2:]] == ["skipped"] * 3

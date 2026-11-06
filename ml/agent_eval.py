@@ -224,7 +224,9 @@ def main(argv=None) -> int:
         if not skus:
             parser.error("--skus bắt buộc với --task features/predict")
         if args.task == "features":
-            truth = post(f"{args.feature_api}/features", {"seller_skus": skus}, {}, context)["features"]
+            truth = post(f"{args.feature_api}/features", {"seller_skus": skus}, {}, context)[
+                "features"
+            ]
             jobs = [
                 (
                     t["seller_sku"],
@@ -255,7 +257,17 @@ def main(argv=None) -> int:
         if timeouts >= 2:
             # Agent vẫn xử lý câu quá hạn ở nền: hỏi tiếp chỉ chất thêm phiên mồ côi lên LLM (vòng xoáy 04/11 và 06/11).
             # Câu bỏ dở tính là trượt (accuracy vẫn chia cho cả bộ).
-            rows.append({"agent": args.agent, "sku": label, "seconds": 0, "answer": "SKIPPED after 2 timeouts", "gradable": True, "pass": False, "mode": "skipped"})
+            rows.append(
+                {
+                    "agent": args.agent,
+                    "sku": label,
+                    "seconds": 0,
+                    "answer": "SKIPPED after 2 timeouts",
+                    "gradable": True,
+                    "pass": False,
+                    "mode": "skipped",
+                }
+            )
             continue
         started = time.perf_counter()
         result = {}
