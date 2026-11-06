@@ -45,6 +45,12 @@ pipeline {
             if [ "$PLATFORM_STORAGE" = minio ]; then eval "$(scripts/setup/vault_env.sh minio)"; fi
             set +x
             eval "$(scripts/setup/vault_env.sh postgres)"
+            if [ "$PLATFORM_STORAGE" = s3 ]; then
+              # Bật RAG (registry đã có trên S3; thiếu biến này /chunks trả 503 và tool RAG của model-agent chết).
+              export FEAST_RAG_REGISTRY="s3://$LAKEHOUSE_BUCKET/feature-store/rag-registry.db"
+              # D3 chưa migration (chưa có publications/ trên S3): để rỗng = reader legacy. Bỏ dòng này sau publication đầu tiên.
+              export FEAST_PUBLICATION_ROOT=
+            fi
             SKIP_BUILD_PUSH=1 REPLICAS=2 bash scripts/setup/deploy_kind_feature_api.sh "$TAG"
           '''
         }
