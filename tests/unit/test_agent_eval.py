@@ -2,7 +2,7 @@
 
 import pytest
 
-from ml.agent_eval import numbers, score, texts
+from ml.agent_eval import numbers, score, score_policy, score_predict, texts
 
 FEATURES = {"labeled_count_90d": 30, "positive_count_90d": 10, "return_or_refund_rate_90d": 1 / 3}
 
@@ -176,3 +176,30 @@ def test_time_window_is_not_a_value():
     ok = "Total labeled returns in the last 90 days: 30\nPositive returns in the last 90 days: 10\nRate in the last 90 days: 33.3%"
     assert score(ok, FEATURES)["pass"] is True
     assert score(ok.replace(": 10", ": 11"), FEATURES)["pass"] is False
+
+
+@pytest.mark.parametrize(
+    ("answer", "ok"),
+    [
+        ("Shopee buyers can request a return within 15 days after delivery.", True),
+        ("Within 30 days after delivery.", False),
+        ("The window is 150 days.", False),  # 150 không phải 15
+    ],
+)
+def test_score_policy(answer, ok):
+    """Đạt khi đúng con số trong tài liệu; số khác hoặc số chứa con số đó thì trượt."""
+    assert score_policy(answer, "15")["pass"] is ok
+
+
+@pytest.mark.parametrize(
+    ("truth", "answer", "ok"),
+    [
+        ({"score": 0.3047, "abstain": False}, "The risk score is 0.30 (low).", True),
+        ({"score": 0.3047, "abstain": False}, "The risk score is 0.45.", False),
+        ({"score": None, "abstain": True}, "The model abstains: too little history.", True),
+        ({"score": None, "abstain": True}, "The risk score is 0.30.", False),
+    ],
+)
+def test_score_predict(truth, answer, ok):
+    """Score lệch ≤ 0,005 so với Feature API; SKU thiếu lịch sử thì agent phải nói là từ chối."""
+    assert score_predict(answer, truth)["pass"] is ok

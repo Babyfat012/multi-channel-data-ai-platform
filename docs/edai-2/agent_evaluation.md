@@ -33,6 +33,12 @@ gateway chỉ nhận khoảng 4 câu hỏi Coordinator trong 10 phút (~2,5 phú
 harness bỏ qua và hỏi câu kế, nhưng Coordinator vẫn xử lý câu bị bỏ nên các lượt LLM chồng lên nhau trên 4 slot CPU, kéo theo các câu sau cũng chậm.
 Điều đã biết chắc: một Qwen 1,5B chạy CPU phục vụ chung mọi Agent không đủ nhanh cho chuỗi Coordinator → Agent → tool → Coordinator trong cổng CI này.
 
+**Agent 2 (model-agent) có cổng eval riêng.** `ml/agent_eval.py --task predict` hỏi điểm rủi ro của một đơn mới và so với `POST /predict` của Feature API
+(lệch ≤ 0,005, hoặc phải nói "từ chối" khi SKU thiếu lịch sử); `--task policy` hỏi 5 câu về cửa sổ/hạn trong chính sách và kiểm con số đúng theo `rag/corpus`.
+`feature-api-agents.Jenkinsfile` chạy cả ba (`EVAL_AGENT`, `EVAL_TASK` trong `eval_agent_ci.sh`; file kết quả `out/agent-eval-<agent>-<task>.jsonl`).
+Thử local (kind, Feature API giả có dữ liệu cố định, chưa phải Redis/pgvector thật, chưa chạy AWS): predict 4/4; policy 4/5 sau khi siết prompt (3/5 trước đó).
+Câu còn trượt: Qwen 1,5B viết lệnh gọi tool thành văn bản thay vì gọi thật (tool không chạy), nên cổng 0,95 của policy có thể đỏ trên AWS cho tới khi model gọi tool ổn định hơn.
+
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 

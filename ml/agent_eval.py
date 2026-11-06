@@ -132,6 +132,36 @@ def score(answer: str, features: dict) -> dict:
     }
 
 
+# Agent 2 (model-agent), tool RAG: câu hỏi → con số phải có trong câu trả lời (đối chiếu rag/corpus/*.md).
+POLICY_CASES = [
+    ("How many days does a Shopee buyer have to request a return after delivery?", "15"),
+    ("What is the TikTok Shop return window for most categories, in days?", "15"),
+    ("How many days does an Amazon seller have to inspect returned items?", "3"),
+    ("How many days does a Shopee seller have to answer a return dispute?", "3"),
+    ("How many days do Walmart buyers have to return an item after delivery?", "30"),
+]
+ABSTAIN = re.compile(r"abstain|too little|insufficient|not enough", re.IGNORECASE)
+
+
+def score_policy(answer: str, want: str) -> dict:
+    """Câu hỏi chính sách đạt khi con số đúng có trong câu trả lời (số trong mã SKU đã loại)."""
+    found = numbers(WINDOW.sub(lambda m: m.group().split()[0], answer))
+    return {"gradable": True, "pass": want in found, "mode": "policy", "expected": want}
+
+
+def score_predict(answer: str, truth: dict) -> dict:
+    """Dự đoán đạt khi score lệch ≤ 0,005 so với Feature API /predict (hoặc cùng abstain)."""
+    if truth.get("abstain") or truth.get("score") is None:
+        return {"gradable": True, "pass": bool(ABSTAIN.search(answer)), "mode": "predict"}
+    want = str(truth["score"])  # chưa làm tròn: agent hay làm tròn 2 chữ số
+    return {
+        "gradable": True,
+        "pass": rate_close(numbers(answer), want),
+        "mode": "predict",
+        "expected": want,
+    }
+
+
 def texts(node) -> list[str]:
     """Gom mọi trường "text" trong kết quả A2A (artifacts/parts/status.message), theo thứ tự."""
     if isinstance(node, dict):
@@ -156,7 +186,13 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--agent", required=True, help="tên route A2A: data-agent, data-agent-b, data-agent-ab"
     )
-    parser.add_argument("--skus", required=True)
+    parser.add_argument("--skus", default="", help="bắt buộc với --task features/predict")
+    parser.add_argument(
+        "--task",
+        choices=("features", "predict", "policy"),
+        default="features",
+        help="features: Agent 1; predict + policy: hai tool của Agent 2 (model-agent)",
+    )
     parser.add_argument("--gateway", default="http://localhost:13000")
     parser.add_argument("--feature-api", default="https://api.172-25-0-2.sslip.io:30443")
     parser.add_argument("--ca", default="out/ingress/platform-local-ca.crt")
@@ -166,21 +202,46 @@ def main(argv=None) -> int:
         "--timeout", type=int, default=180, help="giây chờ mỗi câu hỏi agent (CPU chậm: tăng)"
     )
     args = parser.parse_args(argv)
-    skus = args.skus.split(",")
-    truth = post(
-        f"{args.feature_api}/features",
-        {"seller_skus": skus},
-        {},
-        context=(
-            ssl.create_default_context(cafile=args.ca)
-            if args.feature_api.startswith("https://")
-            else None
-        ),
-    )["features"]
     key = {"Authorization": f"Bearer {os.environ['AGW_AGENT_KEY']}"}
+    context = (
+        ssl.create_default_context(cafile=args.ca)
+        if args.feature_api.startswith("https://")
+        else None
+    )
+    skus = [x for x in args.skus.split(",") if x]
+    jobs = []  # (nhãn, câu hỏi, hàm chấm)
+    if args.task == "policy":
+        jobs = [(q, q, lambda a, w=w: score_policy(a, w)) for q, w in POLICY_CASES]
+    else:
+        if not skus:
+            parser.error("--skus bắt buộc với --task features/predict")
+        if args.task == "features":
+            truth = post(f"{args.feature_api}/features", {"seller_skus": skus}, {}, context)["features"]
+            jobs = [
+                (
+                    t["seller_sku"],
+                    f"What are the return features of {t['seller_sku']}?" + ASK_JSON,
+                    lambda a, t=t: score(a, t),
+                )
+                for t in truth
+            ]
+        else:
+            for sku in skus:
+                order = {
+                    "seller_sku": sku,
+                    "channel": "amazon",
+                    "country": "US",
+                    "ordered_basis_qty": 2,
+                    "ordered_product_net_minor": 4500,
+                }
+                truth = post(f"{args.feature_api}/predict", order, {}, context)
+                question = (
+                    f"What is the return risk of a new order: 2 units of {sku} on amazon, "
+                    "shipped to US, price 4500 cents?"
+                )
+                jobs.append((sku, question, lambda a, t=truth: score_predict(a, t)))
     rows = []
-    for item in truth:
-        question = f"What are the return features of {item['seller_sku']}?" + ASK_JSON
+    for label, question, grade in jobs:
         started = time.perf_counter()
         try:
             reply = post(
@@ -211,10 +272,10 @@ def main(argv=None) -> int:
         rows.append(
             {
                 "agent": args.agent,
-                "sku": item["seller_sku"],
+                "sku": label,
                 "seconds": round(time.perf_counter() - started, 2),
                 "answer": answer[-600:],
-                **score(answer, item),
+                **grade(answer),
             }
         )
     graded = [r for r in rows if r["gradable"]]

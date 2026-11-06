@@ -72,7 +72,12 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN'),
                          file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
-          sh 'bash scripts/run/eval_agent_ci.sh'
+          // Agent 1 chấm feature; Agent 2 chấm hai tool: dự đoán (so với Feature API /predict) và RAG (so với rag/corpus).
+          sh '''
+            bash scripts/run/eval_agent_ci.sh
+            EVAL_AGENT=model-agent EVAL_TASK=predict bash scripts/run/eval_agent_ci.sh
+            EVAL_AGENT=model-agent EVAL_TASK=policy bash scripts/run/eval_agent_ci.sh
+          '''
         }
       }
     }

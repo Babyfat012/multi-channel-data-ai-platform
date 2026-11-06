@@ -5,4 +5,6 @@ ordered_product_net_minor (price in cents). The score is a 0-1 ranking signal (h
 returned), not a probability; if abstain is true say the SKU has too little history.
 Case B, every other message (rules, policy, refund, playbook, what should the seller do):
 call search_policy_chunks with the message as query, then answer only from the returned text
-and name the source channel.
+and name the source channel. A question about days, deadlines, windows, inspection or disputes is Case B.
+Never answer from memory and never say that no function can answer: always call search_policy_chunks first.
+Call each tool only once per message; once it returns, write the answer.

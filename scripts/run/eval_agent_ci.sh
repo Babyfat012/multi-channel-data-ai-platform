@@ -3,11 +3,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p out
-rm -f out/agent-eval.jsonl out/agent-eval-summary.json
+EVAL_AGENT=${EVAL_AGENT:-data-agent}
+EVAL_TASK=${EVAL_TASK:-features}  # features | predict | policy (hai tool của model-agent)
+# Mỗi (agent, task) một file riêng: Jenkins chạy nhiều lần liên tiếp và archive out/agent-eval*.json*.
+tag="$EVAL_AGENT-$EVAL_TASK"
+rm -f "out/agent-eval-$tag.jsonl" "out/agent-eval-$tag-summary.json"
 export AGW_AGENT_KEY
 # Không bật xtrace: không in secret vào log Jenkins.
 eval "$(scripts/setup/vault_env.sh agentgateway)"
-EVAL_AGENT=${EVAL_AGENT:-data-agent}
 feature_port=${EVAL_FEATURE_PORT:-18000}
 gateway_port=${EVAL_GATEWAY_PORT:-18300}
 K=(kubectl --context "${KCTX:-kind-platform}")
@@ -29,7 +32,7 @@ for _ in $(seq 1 30); do
 done
 [[ "$ready" == 1 ]] || { echo "Port-forward eval chưa sẵn sàng" >&2; exit 1; }
 # Danh sách SKU tường minh, không dùng dấu … trong lệnh CI. AWS (pipeline A): EVAL_SKUS=APP-…,…
-python3 -m ml.agent_eval --agent "$EVAL_AGENT" \
+python3 -m ml.agent_eval --agent "$EVAL_AGENT" --task "$EVAL_TASK" \
   --skus "${EVAL_SKUS:-sku-00001,sku-00002,sku-00003,sku-00004,sku-00005,sku-00006,sku-00007,sku-00008,sku-00009,sku-00010,sku-00011,sku-00012}" \
   --gateway "http://localhost:$gateway_port" --feature-api "http://localhost:$feature_port" \
-  --min-accuracy 0.95 --timeout "${EVAL_TIMEOUT:-180}" --out out/agent-eval.jsonl | tee out/agent-eval-summary.json
+  --min-accuracy 0.95 --timeout "${EVAL_TIMEOUT:-180}" --out "out/agent-eval-$tag.jsonl" | tee "out/agent-eval-$tag-summary.json"

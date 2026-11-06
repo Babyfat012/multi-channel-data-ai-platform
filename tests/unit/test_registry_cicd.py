@@ -157,7 +157,7 @@ def test_eval_gate_propagates_failure_and_archives_summary_contract():
     text = read("scripts/run/eval_agent_ci.sh")
     assert "set -euo pipefail" in text
     assert "--min-accuracy 0.95" in text
-    assert "tee out/agent-eval-summary.json" in text
+    assert 'tee "out/agent-eval-$tag-summary.json"' in text
     assert "flushall" not in text
 
 
