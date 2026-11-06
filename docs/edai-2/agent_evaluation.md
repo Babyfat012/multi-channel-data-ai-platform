@@ -94,6 +94,8 @@ bash scripts/run/eval_agent_ci.sh
 EVAL_AGENT=coordinator bash scripts/run/eval_agent_ci.sh
 ```
 
+Với `coordinator`, cổng chỉ chấm định tuyến (history có lệnh gọi `data_agent`/`model_agent` và có câu trả lời cuối), không chấm số: model 1,5B hay rơi chữ số khi chép lại, còn độ đúng của số do eval data-agent/model-agent đảm nhiệm. Giới hạn: cổng này không bắt được coordinator chép sai hoặc bịa số.
+
 Wrapper đọc key từ `vault_env.sh agentgateway`, port-forward Feature API `18000:8000` và
 gateway `18300:3000` (đổi bằng `EVAL_FEATURE_PORT`/`EVAL_GATEWAY_PORT` nếu cần), rồi gọi `python3 -m ml.agent_eval` với đủ 12 mã `sku-00001` đến
 `sku-00012`, `--min-accuracy 0.95`, `--out out/agent-eval.jsonl`. HTTP chỉ dùng trên loopback
