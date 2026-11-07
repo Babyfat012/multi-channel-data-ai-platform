@@ -231,7 +231,7 @@
       "export_training_lines: AMBIGUOUS_REFERENCE run_id",
       "feast_apply: /opt/feature_repo không mount trong overlay AWS"
     ],
-    "limitation": "sku_return_24h.parquet rỗng: stream pusher chưa chạy trên AWS",
+    "limitation": "Tại 27/10 sku_return_24h.parquet rỗng (stream pusher chưa chạy trên AWS). Đã có dữ liệu từ lần chạy stream 30–31/10: xem stream-offline-parquet-s3-20261107.txt",
     "evidence": [
       "ml-feature-materialize-feast-apply-log-20261029.png",
       "ml-feature-materialize-graph-20261029.png",

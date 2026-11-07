@@ -63,6 +63,17 @@ Sau khi sửa, job mới chạy hết 3 ngày phát lại: 401.129 sự kiện v
 
 ![Swagger /features trên EKS: approved_returns_24h BEA-01708 = 39, APP-00042 = 23, cạnh feature batch 90 ngày](../evidence/aws/feature-api-stream-a-features-20261031.png)
 
+**Online và offline từ cùng một lần push.** Pusher gọi `store.push(..., to=PushMode.ONLINE_AND_OFFLINE)` một lần cho mỗi lô:
+Feast ghi giá trị mới nhất vào **Redis** (ảnh `/features` ở trên) và nối lịch sử vào **Parquet trên S3**
+(`feature-store/sku_return_24h.parquet`). Không tách thành hai job để online và offline không thể lệch nhau.
+Đọc lại file offline trên S3 ngày 07/11 bằng [`offline_store_proof.sh`](../../scripts/evidence/offline_store_proof.sh)
+(file ghi lúc 31/10 20:13, 3,0 MiB): **1.142.557 dòng, 2.000 SKU**, từ 06-27 01:00 tới 06-29 22:00 UTC; giá trị cuối
+BEA-01708 = 39, ELE-01084 = 38, APP-00042 = 23, **khớp Redis**. Offline giữ từng giờ (BEA-01708: 36 → 38 → 39 → 40 → 43 → 43 → 40 → 39)
+để train lấy đúng giá trị tại thời điểm đặt đơn (point-in-time join). Số dòng lớn hơn số cửa sổ đối chiếu vì pusher là
+at-least-once và có tin của job hỏng trước đó; các dòng trùng cùng giá trị nên PIT join không đổi. Output: [stream-offline-parquet-s3-20261107.txt](../evidence/aws/stream-offline-parquet-s3-20261107.txt).
+
+![Offline store trên S3: sku_return_24h.parquet 1.142.557 dòng, 2.000 SKU; giá trị cuối khớp Redis; lịch sử từng giờ của BEA-01708](../evidence/aws/stream-offline-parquet-s3-20261107.png)
+
 Cửa sổ cuối dừng ở 06-29 22:00 (không tới 06-30 00:00) vì watermark trễ 1 giờ sau sự kiện cuối, luồng không tự kết
 thúc . Code job: [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql),
 phát lại: [`replay_return_events.py`](../../feature_repo/replay_return_events.py),
