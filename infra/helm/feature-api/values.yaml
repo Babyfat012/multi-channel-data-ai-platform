@@ -4,6 +4,13 @@ image:
   tag: "0.1.0"  # script deploy luôn ghi đè bằng git SHA/TAG
   pullPolicy: IfNotPresent
 replicas: 2
+# KEDA ScaledObject (cần KEDA + Prometheus trong cluster); values-aws.yaml bật trên EKS.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 3
+  threshold: 10   # request/giây mỗi pod
+  prometheus: http://prometheus-server.observability.svc.cluster.local
 # Secret chứa AWS_*, FEAST_*; tạo ngoài chart từ .env (scripts/setup/deploy_kind_feature_api.sh).
 envSecret: feature-api-env
 nodePort: 30800

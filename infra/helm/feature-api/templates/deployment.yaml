@@ -5,7 +5,9 @@ metadata:
   name: {{ .Release.Name }}
   labels: {app: {{ .Release.Name }}}
 spec:
+  {{- if not .Values.autoscaling.enabled }}   # bật autoscale thì để HPA giữ số replica
   replicas: {{ .Values.replicas }}
+  {{- end }}
   strategy:
     type: RollingUpdate
     # Thêm 1 pod mới, chỉ bỏ pod cũ khi pod mới Ready: luôn đủ replica phục vụ.

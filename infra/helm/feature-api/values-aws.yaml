@@ -2,6 +2,8 @@
 service:
   type: ClusterIP
   port: 8000
+autoscaling:
+  enabled: true
 serviceAccount:
   create: true
   name: feature-api
