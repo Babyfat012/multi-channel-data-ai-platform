@@ -6,6 +6,35 @@ Data Agent lấy feature SKU qua MCP. Model Agent dùng online feature, gọi KS
 
 Code: [Data Agent](../../infra/k8s/agents/data-agent.yaml), [Model Agent](../../infra/k8s/agents/model-agent.yaml), [KEDA Data Agent](../../infra/k8s/agents/data-agent-keda.yaml), [KEDA Model Agent](../../infra/k8s/agents/model-agent-keda.yaml).
 
+## Model Agent đủ bộ như Data Agent
+
+Rubric: Agent 2 (online feature + predict + RAG) phải có tài liệu **tương tự** Agent 1. Cùng từng hạng mục, cho cả hai Agent:
+
+| Hạng mục | Data Agent (Agent 1) | Model Agent (Agent 2) |
+|---|---|---|
+| Tool | `get_sku_features`, `get_policy_chunks` | `get_sku_features` (online feature), `predict_return_risk` (KServe), `search_policy_chunks` (RAG) — [manifest](../../infra/k8s/agents/model-agent.yaml) |
+| Chat gọi tool trên EKS | [ảnh](../evidence/aws/kagent-ui-coordinator-data-agent-20261030.png) | predict: [ảnh](../evidence/aws/kagent-ui-model-agent-tool-20261030.png), RAG: [ảnh](../evidence/aws/rag-model-agent-answer-20261030.png) (30/10) |
+| Multi-replica + KEDA | 2 → 3 → 2 ([log](../evidence/aws/keda-data-agent-20261030.txt)) | min 2 max 3, 2 → 3 → 2: [ảnh apply](../evidence/aws/keda-model-agent-apply.png), [lúc tải](../evidence/aws/keda-scale-up-model-agent-coordinator.png), [sau tải](../evidence/aws/keda-scale-down-model-agent-coordinator.png) (04/11), [log theo pod](../evidence/aws/keda-model-agent.txt) (06/11) |
+| Sandbox gVisor | `data-agent-sandbox` gọi tool ([ảnh](../evidence/aws/substrate-sandbox-agent-ui-20261031.png), 31/10) | `model-agent-sandbox` READY, gọi `search_policy_chunks`, trả lời 15 ngày ([ảnh](../evidence/aws/model-agent-sandbox-chat-20261106.png), 06/11) — [manifest](../../infra/k8s/agents/sandbox/model-agent-sandbox.yaml) |
+| Publish registry | [entry](../../infra/k8s/agents/registry/data-agent.yaml) | [entry](../../infra/k8s/agents/registry/model-agent.yaml); UI registry có cả 3 Agent ([ảnh](../evidence/aws/agent-registry-ui-20261030.png)) |
+| Gọi MCP qua gateway | `tools/list`, `get_sku_features` | cả hai tool riêng của Model Agent, smoke EKS 06/11 ([JSON](../evidence/aws/gateway-smoke-20261106.json), bảng dưới) |
+| Backend multi-replica + autoscale | MCP `feature-mcp` | KServe `return-risk` + MCP `feature-mcp`: manifest min 2 max 3 + KEDA ([KServe](../../infra/k8s/ml/return-risk.yaml), [Helm](../../infra/helm/feature-api/values-mcp.yaml)); **chưa chụp trên EKS** |
+
+Các check MCP của Model Agent trong smoke 06/11 (`recorded 2026-11-06T10:23:46Z`, tổng 24/24 PASS):
+
+| Check | Kết quả |
+|---|---|
+| MCP không key | 401 (bị chặn) ✅ |
+| MCP `initialize` có key | 200 ✅ |
+| `tools/list` | đủ `get_policy_chunks`, `get_sku_features`, `predict_return_risk`, `search_policy_chunks` ✅ |
+| `get_sku_features` HOM-01815 | có giá trị khác null ✅ |
+| `predict_return_risk` HOM-01815 | có `score` và `model_version` ✅ |
+| `search_policy_chunks` | ≥ 1 chunk ✅ |
+| A2A agent card `model-agent` có key / không key | 200 / 401 ✅ |
+| Tool ngoài danh sách (`delete_all_features`) | bị chặn ✅ |
+
+![agentregistry UI trên EKS: 1 MCP server và 3 agent đã publish, gồm model-agent](../evidence/aws/agent-registry-ui-20261030.png)
+
 ## Bằng chứng EKS, 30–31/10/2026
 
 APP-00042 có 15.306 dòng gắn nhãn, 2.599 Return, tỉ lệ 0,1698. Model Agent gọi prediction tool, score 0,1661; số khớp API trực tiếp.

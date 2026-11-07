@@ -24,13 +24,15 @@ metadata:
     prometheus.io/scrape: "true"
     prometheus.io/port: "8080"
     prometheus.io/path: /metrics
+    # KServe không tự tạo HPA (EKS không có metrics-server cho HPA CPU); KEDA bên dưới scale theo số dự đoán.
+    serving.kserve.io/autoscalerClass: external
   labels:
     model-version: "@@VERSION@@"
 spec:
   predictor:
     serviceAccountName: return-risk
-    minReplicas: 1
-    maxReplicas: 1
+    minReplicas: 2   # multi-replica: một pod chết vẫn còn pod trả dự đoán cho Model Agent
+    maxReplicas: 3
     containers:
       - name: kserve-container
         image: "@@IMAGE@@"
@@ -51,3 +53,21 @@ spec:
         resources:
           requests: {cpu: 100m, memory: 256Mi}
           limits: {memory: 768Mi}
+---
+# Autoscale predictor theo tải thật: tốc độ dự đoán (metric nghiệp vụ return_risk_predictions_total), cùng cách với Agent.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: return-risk-predictor
+  namespace: ml-serving
+spec:
+  scaleTargetRef:
+    name: return-risk-predictor   # Deployment KServe RawDeployment tạo: <isvc>-predictor
+  minReplicaCount: 2
+  maxReplicaCount: 3
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-server.observability.svc.cluster.local
+        query: sum(rate(return_risk_predictions_total{namespace="ml-serving"}[1m]))
+        threshold: "5"   # dự đoán/giây mỗi pod
