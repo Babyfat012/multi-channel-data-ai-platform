@@ -760,3 +760,25 @@ def test_predict_forwards_unavailable_without_inventing_score(store, monkeypatch
     with TestClient(create_app(store_factory=lambda: store, http_factory=factory)) as c:
         result = c.post("/predict", json=ORDER_LINE).json()
     assert result == payload["predictions"][0]
+
+
+@pytest.mark.parametrize(
+    ("surface", "features", "mcp", "health"),
+    [("rest", 200, 404, 200), ("mcp", 404, 200, 200), ("all", 200, 200, 200)],
+)
+def test_surface_splits_rest_and_mcp_pods(store, surface, features, mcp, health):
+    """Pod REST không phơi /mcp, pod MCP không phơi REST; cả hai giữ probe."""
+    app = create_app(store_factory=lambda: store, surface=surface)
+    with TestClient(app) as c:
+        assert c.post("/features", json={"seller_skus": ["sku-00001"]}).status_code == features
+        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        assert c.post("/mcp/", json=body, headers=MCP_HEADERS).status_code == mcp
+        assert c.get("/readyz").status_code == health
+
+
+def test_surface_from_env_and_rejects_unknown(store, monkeypatch):
+    monkeypatch.setenv("API_SURFACE", "mcp")
+    with TestClient(create_app(store_factory=lambda: store)) as c:
+        assert c.post("/features", json={"seller_skus": ["sku-00001"]}).status_code == 404
+    with pytest.raises(ValueError, match="API_SURFACE"):
+        create_app(store_factory=lambda: store, surface="both")

@@ -1,4 +1,4 @@
-# Danh bạ agentregistry: MCP server Feature API (4 tool) — khai dạng remote vì đã chạy sau agentgateway /mcp.
+# Danh bạ agentregistry: MCP server (pod feature-mcp, 4 tool) — khai dạng remote vì đã chạy sau agentgateway /mcp.
 # Đăng: arctl apply -f infra/k8s/agents/registry/ (scripts/setup/publish_agentregistry.sh).
 apiVersion: ar.dev/v1alpha1
 kind: MCPServer
@@ -9,7 +9,7 @@ spec:
   description: >-
     Feature trả hàng theo SKU (Feast/Redis), chunk chính sách theo id và tìm theo câu hỏi (Feast/pgvector),
     điểm rủi ro Return (KServe return-risk). Tool: get_sku_features, get_policy_chunks, search_policy_chunks,
-    predict_return_risk. Cần API key của agentgateway. Code: serving/ (Helm infra/helm/feature-api).
+    predict_return_risk. Cần API key của agentgateway. Code: serving/ (Helm infra/helm/feature-api, release feature-mcp).
   remote:
     type: streamable-http
     url: http://agentgateway.agentgateway.svc.cluster.local:3000/mcp

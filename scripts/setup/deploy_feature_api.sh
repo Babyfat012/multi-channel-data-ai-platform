@@ -79,4 +79,9 @@ extra=()
   --set-string image.repository="${REGISTRY%/}/platform-feature-api" --set-string image.tag="$TAG" \
   --set replicas="${REPLICAS:-2}" --set-string envChecksum="$env_checksum" --atomic --timeout 4m
 "${H[@]}" history feature-api --max 5
-printf 'Feature API %s deployed to %s/%s; verify /readyz through the configured ingress or port-forward.\n' "$TAG" "$KCTX" "$namespace"
+# MCP server: release riêng, cùng chart/image/Secret, API_SURFACE=mcp (values-mcp.yaml đặt sau để dùng lại ServiceAccount).
+"${H[@]}" upgrade --install feature-mcp infra/helm/feature-api "${extra[@]}" -f infra/helm/feature-api/values-mcp.yaml \
+  --set-string image.repository="${REGISTRY%/}/platform-feature-api" --set-string image.tag="$TAG" \
+  --set replicas="${REPLICAS:-2}" --set-string envChecksum="$env_checksum" --atomic --timeout 4m
+"${H[@]}" history feature-mcp --max 5
+printf 'Feature API + MCP server %s deployed to %s/%s; verify /readyz through the configured ingress or port-forward.\n' "$TAG" "$KCTX" "$namespace"

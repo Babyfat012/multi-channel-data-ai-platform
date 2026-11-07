@@ -4,6 +4,8 @@ image:
   tag: "0.1.0"  # script deploy luôn ghi đè bằng git SHA/TAG
   pullPolicy: IfNotPresent
 replicas: 2
+# rest = Feature API (REST); release feature-mcp đặt mcp qua values-mcp.yaml (MCP server pod riêng).
+surface: rest
 # KEDA ScaledObject (cần KEDA + Prometheus trong cluster); values-aws.yaml bật trên EKS.
 autoscaling:
   enabled: false

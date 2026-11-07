@@ -1,4 +1,4 @@
-# REST /features và MCP /mcp/ chung một cổng. NodePort để gọi từ mạng platform_default.
+# Service của release: feature-api (REST) hoặc feature-mcp (MCP /mcp/). NodePort để gọi từ mạng platform_default.
 apiVersion: v1
 kind: Service
 metadata:

@@ -14,6 +14,6 @@ spec:
     - type: prometheus
       metadata:
         serverAddress: {{ .Values.autoscaling.prometheus }}
-        query: sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}",handler!~"/healthz|/readyz|/metrics"}[1m]))
+        query: sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}",pod=~"{{ .Release.Name }}-.*",handler!~"/healthz|/readyz|/metrics"}[1m]))
         threshold: {{ .Values.autoscaling.threshold | quote }}
 {{- end }}

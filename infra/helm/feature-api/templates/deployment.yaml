@@ -42,6 +42,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{name: http, containerPort: 8000}]
           envFrom: [{secretRef: {name: {{ .Values.envSecret }}}}]
+          env: [{name: API_SURFACE, value: {{ .Values.surface | quote }}}]   # rest | mcp: cùng image, khác cổng phơi ra
           resources: {{- toYaml .Values.resources | nindent 12 }}
           # Chờ 5 s trước khi tắt: kube-proxy kịp gỡ pod khỏi Service, request đang tới không bị rớt.
           lifecycle:

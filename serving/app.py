@@ -252,8 +252,17 @@ async def fetch_features(store, requested_skus):
     return FeatureResponse(features=rows)
 
 
-def create_app(store_factory=load_store, rag_factory=load_rag, http_factory=httpx.AsyncClient):
-    """`store_factory`, `rag_factory`, `http_factory` để test thay bằng bản giả."""
+def create_app(
+    store_factory=load_store, rag_factory=load_rag, http_factory=httpx.AsyncClient, surface=None
+):
+    """`store_factory`, `rag_factory`, `http_factory` để test thay bằng bản giả.
+
+    `surface` (mặc định env `API_SURFACE`): `rest` = pod Feature API, `mcp` = pod MCP server,
+    `all` = cả hai trong một process (chạy local/test). Hai pod dùng chung image và code.
+    """
+    surface = surface or os.environ.get("API_SURFACE", "all")
+    if surface not in {"all", "rest", "mcp"}:
+        raise ValueError(f"API_SURFACE must be all|rest|mcp, got {surface!r}")
     # Cùng hàm tra feature, phơi ra thêm dạng MCP tool cho Agent.
     # stateless: request MCP nào cũng tới được replica nào, không cần sticky session.
     mcp = MCPServer(
@@ -349,7 +358,8 @@ def create_app(store_factory=load_store, rag_factory=load_rag, http_factory=http
             yield
 
     app = FastAPI(title="Feature API", lifespan=lifespan)
-    app.mount("/mcp", mcp_app)
+    if surface != "rest":
+        app.mount("/mcp", mcp_app)
 
     @app.middleware("http")
     async def metrics(request: Request, call_next):
@@ -386,6 +396,9 @@ def create_app(store_factory=load_store, rag_factory=load_rag, http_factory=http
         if getattr(request.app.state, "store", None) is None:
             raise HTTPException(503, "feature store not loaded")
         return {"status": "ready"}
+
+    if surface == "mcp":
+        return app
 
     @app.post("/features", response_model=FeatureResponse)
     async def features(body: FeatureRequest, request: Request):

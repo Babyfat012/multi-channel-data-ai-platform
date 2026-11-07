@@ -40,7 +40,46 @@ Lệnh gọi `/healthz` và `/readyz` **trong từng pod** đều trả `200`.
 
 ![Swagger GET /readyz ngày 06/11: 200, status ready](../evidence/aws/feature-api-swagger-readyz-20261106.png)
 
-MCP: [gateway smoke](agent_gateways.md#allow--deny-theo-từng-policy) in danh sách tool `tools/list` và kết quả `tools/call`; bản có bảng này đã chạy lại trên EKS ngày 04/11 (smoke 22/22, có allow/deny theo từng policy).
+#### MCP server trên EKS
+
+MCP server (thư viện `mcp`, chế độ stateless + JSON, đường dẫn `/mcp/`) chạy **pod riêng**, tách khỏi pod REST:
+
+```text
+agentgateway /mcp ──► Service feature-mcp ──► pod feature-mcp-*  (API_SURFACE=mcp: /mcp/, /healthz, /readyz, /metrics)
+Ingress api.…     ──► Service feature-api ──► pod feature-api-*  (API_SURFACE=rest: /features, /predict, /chunks, …)
+                                  cả hai ──► Feast/Redis, KServe return-risk, pgvector
+```
+
+Hai release Helm (`feature-api`, `feature-mcp`) dùng chung chart [`infra/helm/feature-api`](../../infra/helm/feature-api/), chung image và code
+[`serving/app.py`](../../serving/app.py) (`create_app(surface=…)`); [`values-mcp.yaml`](../../infra/helm/feature-api/values-mcp.yaml) đặt `surface: mcp`, Service ClusterIP.
+Mỗi release có Deployment, probe, Helm `--atomic` và ScaledObject riêng ⇒ MCP scale và rollback độc lập với REST.
+Test: `test_surface_splits_rest_and_mcp_pods` (pod REST trả 404 ở `/mcp/`, pod MCP trả 404 ở `/features`).
+
+Ghi chú: smoke và các ảnh dưới đây (30/10–06/11) chụp **trước khi tách**, lúc MCP còn mount trong pod Feature API; tool, route gateway và kết quả không đổi.
+
+Bốn tool dùng chung code với REST:
+
+| Tool | Làm gì | REST tương ứng |
+|---|---|---|
+| `get_sku_features(seller_skus)` | feature online từ Feast/Redis | `POST /features` |
+| `predict_return_risk(...)` | gọi KServe `return-risk` | `POST /predict` |
+| `search_policy_chunks(query, top_k)` | tìm chính sách trả hàng (RAG, pgvector) | `POST /chunks` |
+| `get_policy_chunks(chunk_ids)` | lấy chunk theo id | `POST /chunks/by-id` |
+
+Agent không gọi thẳng pod mà đi qua route `/mcp` của [agentgateway](agent_gateways.md) (API key, chỉ cho phép bốn tool trên).
+Smoke trên EKS ngày 06/11 ([gateway-smoke-20261106.json](../evidence/aws/gateway-smoke-20261106.json), **24/24 PASS**):
+MCP không key → 401; `initialize` có key → 200; `tools/list` trả đủ bốn tool;
+`get_sku_features` có giá trị, `predict_return_risk` có `score` và `model_version`, `search_policy_chunks` trả ≥ 1 chunk; tool ngoài danh sách bị chặn.
+
+![Bảng policy trên EKS: MCP tools/list và get_sku_features, tool ngoài danh sách bị chặn, cùng các check API key, PII, A2A, rate limit](../evidence/aws/gateway-smoke-policy-table.png)
+
+MCP server đã đăng ký trong Agent Registry, và Grafana đếm từng lượt gọi tool theo kết quả (`mcp_tool_calls_total{tool,outcome}` do Feature API xuất ra):
+
+![agentregistry UI trên EKS: 1 MCP server và 3 agent đã publish](../evidence/aws/agent-registry-ui-20261030.png)
+
+![Grafana: mcp_tool_calls_total theo tool và outcome cho get_sku_features, search_policy_chunks, predict_return_risk, get_policy_chunks](../evidence/aws/grafana-mcp-tool-outcome-20261031.png)
+
+Agent dùng các tool này: [Data Agent / Model Agent](agents.md), cấu hình route và backend MCP: [Agent Gateways](agent_gateways.md).
 
 Tại ảnh API ngày 30/10, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
 
@@ -189,8 +228,8 @@ nên mỗi request chỉ thật sự đọc Redis một lần; số này là m�
 
 ## MCP tool
 
-Cùng app phơi thêm MCP server (thư viện `mcp` 2.3.0) tại `/mcp/`, một tool `get_sku_features(seller_skus)`
-dùng chung `fetch_features` với REST. Chế độ **stateless + JSON**: request MCP nào tới replica nào cũng được,
+Cùng app phơi thêm MCP server (thư viện `mcp` 2.3.0) tại `/mcp/`. Bản đầu (21/10) có một tool `get_sku_features(seller_skus)`
+dùng chung `fetch_features` với REST; bản hiện tại có bốn tool, xem [MCP server trên EKS](#mcp-server-trên-eks). Chế độ **stateless + JSON**: request MCP nào tới replica nào cũng được,
 không cần sticky session, nên scale nhiều replica như API thường. Input sai hoặc Redis lỗi → `isError: true`
 kèm lời nhắn rõ (`ToolError`) để LLM tự sửa lại lời gọi. Test: `test_mcp_*` trong
 [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
