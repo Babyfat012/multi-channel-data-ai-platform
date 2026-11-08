@@ -50,7 +50,7 @@ Ingress api.…     ──► Service feature-api ──► pod feature-api-*  (
                                   cả hai ──► Feast/Redis, KServe return-risk, pgvector
 ```
 
-Hai release Helm (`feature-api`, `feature-mcp`) dùng chung chart [`infra/helm/feature-api`](../../infra/helm/feature-api/), chung image và code
+Hai release Helm (`feature-api`, `feature-mcp`) dùng chung chart [`infra/helm/feature-api`](../../infra/helm/feature-api/Chart.yaml), chung image và code
 [`serving/app.py`](../../serving/app.py) (`create_app(surface=…)`); [`values-mcp.yaml`](../../infra/helm/feature-api/values-mcp.yaml) đặt `surface: mcp`, Service ClusterIP.
 Mỗi release có Deployment, probe, Helm `--atomic` và ScaledObject riêng ⇒ MCP scale và rollback độc lập với REST.
 Test: `test_surface_splits_rest_and_mcp_pods` (pod REST trả 404 ở `/mcp/`, pod MCP trả 404 ở `/features`).
@@ -97,6 +97,17 @@ mỗi 0,2 giây suốt hai lần `helm upgrade --atomic`. Log đầy đủ: [fea
 
 `helm history` sau cùng: 13 `superseded`, 14 `failed`, 15 `deployed` (`Rollback to 13`). Đây là bằng chứng cho cả hai yêu cầu: rolling update không gián đoạn và tự fallback khi bản mới không khởi động được.
 Ghi nhận cũ của lần chạy local ngày 21/10 (583/583 request, rollback revision 12 → 13) vẫn ở mục tham khảo bên dưới.
+
+#### Autoscale Feature API và MCP server (KEDA)
+
+Mỗi release Helm có [ScaledObject](../../infra/helm/feature-api/templates/scaledobject.yaml) riêng (bật trong
+[`values-aws.yaml`](../../infra/helm/feature-api/values-aws.yaml)): min 2, max 3, scale theo
+`sum(rate(http_requests_total{pod=~"<release>-.*", handler!~"/healthz|/readyz|/metrics"}[1m]))`, ngưỡng 10 request/giây
+mỗi pod — cùng cách với Agent, không tính probe nên khi rảnh về 2 pod. Release `feature-api` (REST) và `feature-mcp`
+(MCP) scale độc lập. Đo: [`feature_api_scale_test.sh`](../../scripts/evidence/feature_api_scale_test.sh) tạo tải
+`POST /features` từ pod trong cluster, ghi target/pod theo thời gian tới khi về lại 2.
+
+**Bằng chứng EKS: chưa chụp.** Cần: `get scaledobject,hpa` sau khi apply, lúc tải `REPLICAS 3`, sau tải về 2, và log `feature-api-autoscale.txt`.
 
 #### Load test trên EKS
 
