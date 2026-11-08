@@ -50,7 +50,7 @@ services:
     cpus: "1"
     ports: !override
       - "127.0.0.1:${DEBEZIUM_PORT:-8084}:8083"
-  # Flink ghi ml.sku_return_24h → push Feast: Redis trên EKS (NodePort, IP node từ Ansible) + Parquet offline S3.
+  # Ảnh công cụ Feast/Kafka: phát lại Return (replay_return_events.py) vào Kafka cho job PyFlink.
   # S3 qua IAM role EC2: không key, không endpoint MinIO.
   feast-pusher:
     cpus: "0.5"
@@ -60,6 +60,37 @@ services:
       AWS_REGION: ${AWS_REGION:?AWS_REGION_required}
       FEAST_REGISTRY: s3://${LAKEHOUSE_BUCKET}/feature-store/registry.db
       FEAST_SKU_DAILY_PATH: s3://${LAKEHOUSE_BUCKET}/feature-store/sku_daily
-      FEAST_SKU_RETURN_24H_PATH: s3://${LAKEHOUSE_BUCKET}/feature-store/sku_return_24h.parquet
+      FEAST_SKU_RETURN_24H_PATH: s3://${LAKEHOUSE_BUCKET}/feature-store/sku_return_24h/
       FEAST_REDIS: ${PLATFORM_FEAST_REDIS:?PLATFORM_FEAST_REDIS_required}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  # Cluster Flink 2.2 cho 2 job PyFlink stream feature: online → Redis EKS (NodePort), offline → Parquet S3 (IAM role).
+  # Thư mục checkpoint thuộc user flink: sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink-ml
+  flink-ml-jobmanager:
+    scale: 1
+    cpus: "1"
+    environment: !override &flink-ml-aws-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-ml-jobmanager
+        rest.address: flink-ml-jobmanager
+        jobmanager.memory.process.size: 1024m
+        taskmanager.memory.process.size: 3072m
+        taskmanager.numberOfTaskSlots: 2
+        execution.checkpointing.dir: file:///opt/flink/output/checkpoints
+        python.executable: python3
+      AWS_REGION: ${AWS_REGION:?AWS_REGION_required}
+      FEAST_REGISTRY: s3://${LAKEHOUSE_BUCKET}/feature-store/registry.db
+      FEAST_SKU_DAILY_PATH: s3://${LAKEHOUSE_BUCKET}/feature-store/sku_daily
+      FEAST_SKU_RETURN_24H_PATH: s3://${LAKEHOUSE_BUCKET}/feature-store/sku_return_24h/
+      FEAST_REDIS: ${PLATFORM_FEAST_REDIS:?PLATFORM_FEAST_REDIS_required}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports: !override
+      - "127.0.0.1:${FLINK_ML_UI_PORT:-8086}:8081"
+    volumes: !override
+      - /mnt/platform-data/flink-ml:/opt/flink/output
+  flink-ml-taskmanager:
+    scale: 1
+    cpus: "2"
+    environment: *flink-ml-aws-env
+    mem_limit: 3584m
+    volumes: !override
+      - /mnt/platform-data/flink-ml:/opt/flink/output

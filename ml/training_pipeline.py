@@ -27,7 +27,7 @@ else:
 FEAST_ENV = {
     "FEAST_REGISTRY": f"{FEAST_ROOT}/registry.db",
     "FEAST_SKU_DAILY_PATH": f"{FEAST_ROOT}/sku_daily",
-    "FEAST_SKU_RETURN_24H_PATH": f"{FEAST_ROOT}/sku_return_24h.parquet",
+    "FEAST_SKU_RETURN_24H_PATH": f"{FEAST_ROOT}/sku_return_24h/",
     "FEAST_REDIS": "redis.feature-store.svc.cluster.local:6379",
     **S3_ENV,
 }

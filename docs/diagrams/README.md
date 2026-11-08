@@ -28,7 +28,7 @@ Nguồn đối chiếu rubric là [rubric guide](../shared/rubric_guide.md) và 
 
 | Namespace / runtime | Workload / tài nguyên | Rubric / chức năng |
 |---|---|---|
-| EC2 · Airflow / stream | `ml_feature_materialize`, `ml_rag_ingest`, `feast-pusher`, Kafka / Flink | Batch materialize, streaming push online + offline, RAG pipeline / governance |
+| EC2 · Airflow / stream | `ml_feature_materialize`, `ml_rag_ingest`, Kafka / Flink, 2 job PyFlink stream feature (Flink ML 2.2) | Batch materialize, streaming push online + offline, RAG pipeline / governance |
 | S3 | Offline features, training_lines, registry, RAG raw / chunk / embedding, MLflow artifacts | Offline feature store, dataset / model versioning |
 | `feature-store` | Redis, Feature API 2 replicas, Helm release | Online features, async FastAPI / Pydantic, health, REST / MCP, rolling update |
 | `kubeflow` | KFP pipeline, `mle-drift` | PIT join → split → train → evaluate → register; novel drift theo kênh |

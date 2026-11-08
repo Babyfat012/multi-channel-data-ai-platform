@@ -329,7 +329,7 @@ def test_ci_compose_adds_aws_overlays_only_on_s3(tmp_path):
 
 
 def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
-    """Nhánh s3: .env thật của EC2, không key MinIO, không setup_airflow, Flink bản A; không còn compose trơn."""
+    """Nhánh s3: .env thật của EC2, không key MinIO, không setup_airflow, 2 job PyFlink; không còn compose trơn."""
     rag = (ROOT / "ci/jenkins/rag-pipeline.Jenkinsfile").read_text()
     stream = (ROOT / "ci/jenkins/stream-features.Jenkinsfile").read_text()
     for text in (rag, stream):
@@ -338,10 +338,12 @@ def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
         assert "-f docker-compose.yml -f out/ci-compose-images.yaml" not in text
         assert "always { sh 'rm -f .env' }" in text
     assert 'if [ "$DATA_STORAGE" != s3 ]; then bash scripts/setup/setup_airflow.sh' in rag
-    assert "export FEATURE_SQL=flink_jobs/ml/sku_return_feature_a.sql" in stream
-    assert (
-        '[ "$DATA_STORAGE" = s3 ] || { set +x; eval "$(scripts/setup/vault_env.sh minio)"' in stream
-    )
+    # AWS: hai job PyFlink trên cluster Flink ML, verify đúng 2 job RUNNING.
+    assert 'COMPOSE="$COMPOSE" scripts/run/run_stream_feature_jobs.sh' in stream
+    assert 'want="ml-sku-return-24h-online ml-sku-return-24h-offline"' in stream
+    # Chỉ nhánh local lấy key MinIO từ Vault; AWS đi IAM role.
+    local_branch = stream.split("else\n", 1)[1].split("fi", 1)[0]
+    assert 'set +x; eval "$(scripts/setup/vault_env.sh minio)"' in local_branch
 
 
 def test_agent_pipelines_pass_eval_skus_for_pipeline_a():

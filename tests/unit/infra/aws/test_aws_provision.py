@@ -235,6 +235,8 @@ def test_stream_overlay_only_enables_kafka_flink_on_loopback():
         "flink-taskmanager",
         "debezium-connect",
         "feast-pusher",
+        "flink-ml-jobmanager",
+        "flink-ml-taskmanager",
     }
     for svc in services.values():
         assert all(port.startswith("127.0.0.1:") for port in svc.get("ports", []))
@@ -332,6 +334,21 @@ def test_stream_feature_checkpoints_go_to_disk_not_jobmanager_memory(name):
     stream = yaml.load((ROOT / "docker-compose.aws-stream.yml").read_text(), Loader=ComposeLoader)
     for svc in ("flink-jobmanager", "flink-taskmanager"):
         assert "/mnt/platform-data/flink:/opt/flink/output" in stream["services"][svc]["volumes"]
+
+
+def test_aws_flink_ml_cluster_uses_iam_and_disk_checkpoints():
+    """Cluster Flink ML 2.2 (2 job PyFlink) trên EC2: S3 qua IAM role (không key MinIO), checkpoint ra EBS,
+    UI chỉ loopback, offline là thư mục part Parquet."""
+    stream = yaml.load((ROOT / "docker-compose.aws-stream.yml").read_text(), Loader=ComposeLoader)
+    for svc in ("flink-ml-jobmanager", "flink-ml-taskmanager"):
+        conf = stream["services"][svc]
+        env = conf["environment"]
+        assert not {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "FEAST_S3_ENDPOINT_URL"} & set(env)
+        assert env["FEAST_SKU_RETURN_24H_PATH"].endswith("/feature-store/sku_return_24h/")
+        assert "execution.checkpointing.dir: file:///opt/flink/output/checkpoints" in env["FLINK_PROPERTIES"]
+        assert conf["volumes"] == ["/mnt/platform-data/flink-ml:/opt/flink/output"]
+    ports = stream["services"]["flink-ml-jobmanager"]["ports"]
+    assert ports == ["127.0.0.1:${FLINK_ML_UI_PORT:-8086}:8081"]
 
 
 def test_prometheus_reloads_config_when_targets_change():

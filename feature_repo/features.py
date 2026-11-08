@@ -46,7 +46,7 @@ sku_return_24h_push = PushSource(
     batch_source=FileSource(
         name="sku_return_24h_source",
         path=os.environ.get(
-            "FEAST_SKU_RETURN_24H_PATH", "s3://platform/feature-store/sku_return_24h.parquet"
+            "FEAST_SKU_RETURN_24H_PATH", "s3://platform/feature-store/sku_return_24h/"
         ),
         timestamp_field="event_timestamp",
         s3_endpoint_override=os.environ.get("FEAST_S3_ENDPOINT_URL") or None,

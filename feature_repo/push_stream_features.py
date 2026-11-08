@@ -1,7 +1,8 @@
-"""Đọc Kafka `ml.sku_return_24h` (do Flink ghi) rồi push vào Feast: Redis online + Parquet offline.
+"""Luồng local (bản B, Flink SQL tra PostgreSQL): đọc Kafka `ml.sku_return_24h` rồi ghi Redis (Feast push
+ONLINE) + một file Parquet mới vào thư mục offline. AWS dùng job PyFlink flink_jobs/ml/sku_return_feature.py.
 
-Commit offset Kafka SAU khi push thành công (at-least-once): chạy lại có thể ghi trùng dòng
-offline, nhưng cùng (SKU, event_timestamp, giá trị) nên PIT join vẫn ra đúng số.
+Offline là THƯ MỤC nhiều file part (cùng bố cục job PyFlink offline ghi; Feast FileSource đọc cả thư mục).
+Commit offset Kafka SAU khi ghi (at-least-once): chạy lại có thể ghi trùng dòng offline cùng giá trị, PIT join không đổi.
 """
 
 import json
@@ -23,12 +24,24 @@ SCHEMA = pa.schema(
 )
 
 
+def _fs():
+    """S3 thật (IAM) hoặc MinIO (FEAST_S3_ENDPOINT_URL)."""
+    return s3fs.S3FileSystem(endpoint_url=os.environ.get("FEAST_S3_ENDPOINT_URL"))
+
+
 def ensure_offline_file(path):
-    """Feast chỉ append được vào file đã tồn tại; tạo file rỗng đúng schema nếu chưa có."""
-    fs = s3fs.S3FileSystem(endpoint_url=os.environ.get("FEAST_S3_ENDPOINT_URL"))
-    key = path.removeprefix("s3://")
-    if not fs.exists(key):
-        pq.write_table(SCHEMA.empty_table(), key, filesystem=fs)
+    """Thư mục offline rỗng thì Feast không biết schema; ghi một part 0 dòng đúng schema nếu chưa có part nào."""
+    fs, key = _fs(), path.removeprefix("s3://").rstrip("/")
+    if not fs.glob(f"{key}/part-*.parquet"):
+        pq.write_table(SCHEMA.empty_table(), f"{key}/part-0-0-0.parquet", filesystem=fs)
+
+
+def write_offline_part(frame, path):
+    """Một file part mới mỗi lô; tên giống job PyFlink offline (min/max window_end ms, số dòng)."""
+    ms = frame["event_timestamp"].astype("int64") // 1_000_000
+    name = f"part-{ms.min()}-{ms.max()}-{len(frame)}.parquet"
+    table = pa.Table.from_pandas(frame, schema=SCHEMA, preserve_index=False)
+    pq.write_table(table, f"{path.removeprefix('s3://').rstrip('/')}/{name}", filesystem=_fs())
 
 
 def to_frame(messages):
@@ -45,7 +58,8 @@ def main():
     # Import ở đây: Airflow gọi ensure_offline_file từ venv Feast không có confluent_kafka.
     from confluent_kafka import Consumer
 
-    ensure_offline_file(os.environ["FEAST_SKU_RETURN_24H_PATH"])
+    offline = os.environ["FEAST_SKU_RETURN_24H_PATH"]
+    ensure_offline_file(offline)
     store = FeatureStore(os.path.dirname(os.path.abspath(__file__)))
     consumer = Consumer(
         {
@@ -62,7 +76,8 @@ def main():
             if not messages:
                 continue
             frame = to_frame(messages)
-            store.push("sku_return_24h_push", frame, to=PushMode.ONLINE_AND_OFFLINE)
+            store.push("sku_return_24h_push", frame, to=PushMode.ONLINE)
+            write_offline_part(frame, offline)
             consumer.commit(asynchronous=False)
             print(f"pushed {len(frame)} rows, last {frame['event_timestamp'].max()}", flush=True)
     finally:

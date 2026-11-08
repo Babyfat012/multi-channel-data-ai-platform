@@ -302,11 +302,48 @@ services:
       FEAST_S3_ENDPOINT_URL: http://minio:9000
       FEAST_REGISTRY: s3://${MINIO_BUCKET}/feature-store/registry.db
       FEAST_SKU_DAILY_PATH: s3://${MINIO_BUCKET}/feature-store/sku_daily
-      FEAST_SKU_RETURN_24H_PATH: s3://${MINIO_BUCKET}/feature-store/sku_return_24h.parquet
+      FEAST_SKU_RETURN_24H_PATH: s3://${MINIO_BUCKET}/feature-store/sku_return_24h/
       FEAST_REDIS: platform-control-plane:30379
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     restart: on-failure
     mem_limit: 768m
+
+  # ML Platform: cluster Flink 2.2 riêng chạy job PyFlink stream feature (2 job: online → Redis, offline → Parquet).
+  # Tách khỏi cluster 1.20 của EDAI-1 (PyFlink 1.20 không cài chung được Feast 0.66). UI: http://localhost:8086.
+  flink-ml-jobmanager:
+    build: {context: ., dockerfile: docker/Dockerfile.flink-ml}
+    image: platform-flink-ml:2.2.1
+    profiles: [flink-ml]
+    command: jobmanager
+    environment: &flink-ml-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-ml-jobmanager
+        rest.address: flink-ml-jobmanager
+        jobmanager.memory.process.size: 1024m
+        taskmanager.memory.process.size: 2560m
+        taskmanager.numberOfTaskSlots: 2
+        execution.checkpointing.dir: file:///opt/flink/output/checkpoints
+        python.executable: python3
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      FEAST_S3_ENDPOINT_URL: http://minio:9000
+      FEAST_REGISTRY: s3://${MINIO_BUCKET}/feature-store/registry.db
+      FEAST_SKU_DAILY_PATH: s3://${MINIO_BUCKET}/feature-store/sku_daily
+      FEAST_SKU_RETURN_24H_PATH: s3://${MINIO_BUCKET}/feature-store/sku_return_24h/
+      FEAST_REDIS: platform-control-plane:30379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports: ["${FLINK_ML_UI_PORT:-8086}:8081"]
+    volumes: [./out/flink-ml:/opt/flink/output]
+    mem_limit: 1280m
+
+  flink-ml-taskmanager:
+    image: platform-flink-ml:2.2.1
+    profiles: [flink-ml]
+    command: taskmanager
+    depends_on: [flink-ml-jobmanager]
+    environment: *flink-ml-env
+    volumes: [./out/flink-ml:/opt/flink/output]
+    mem_limit: 3072m
 
   # ML Platform: MLflow tracking + model registry. Sổ ghi ở DB `mlflow` của PostgreSQL có sẵn, artifact
   # ở MinIO; client (bước KFP trong kind) gửi artifact qua server nên không cần credential S3.

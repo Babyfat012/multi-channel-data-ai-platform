@@ -1,7 +1,7 @@
 # Registry cloud bật tường minh; không xóa image khi destroy và không dùng tag mutable.
 resource "aws_ecr_repository" "application" {
   for_each = var.enable_ecr ? toset([
-    "platform-generator", "platform-airflow", "platform-flink", "platform-feast",
+    "platform-generator", "platform-airflow", "platform-flink", "platform-flink-ml", "platform-feast",
     "platform-mlflow", "platform-train", "platform-return-risk", "platform-feature-api",
     "platform-jenkins",
   ]) : toset([])

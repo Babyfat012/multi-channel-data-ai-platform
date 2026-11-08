@@ -44,7 +44,7 @@ Cập nhật 31/10 sau buổi AWS. Bằng chứng: [LLM và agent](../edai-2/age
 | Agent registry | 2 | ✅ | agentregistry 0.4.0, 1 MCP + 3 agent (`agent-registry-ui`) |
 | RAG pipeline (Airflow) + governance (DataHub) | 2+2 | ✅ | `ml_rag_ingest` 6/6 task xanh trên Airflow EC2 gồm `publish` ([ảnh](../evidence/aws/airflow-ml-rag-ingest-publish-20261031.png)); DataHub EC2 lineage corpus → S3 raw → chunks → embedding → pgvector → validate ([ảnh](../evidence/aws/datahub-rag-lineage-20261031.png)). 31/10 sửa: value aspect escape ASCII, `DataJobInfo.type` dạng union |
 | Materialize offline → online | 2 | ✅ | `ml_feature_materialize` 4/4 |
-| Push streaming feature → offline + online | 2 | ✅ | 31/10: Flink EC2 76/76 checkpoint, đối chiếu 1.004.354 cửa sổ khớp, API `approved_returns_24h` ([stream](../edai-2/stream_features.md)); dữ liệu phát lại |
+| Push streaming feature → offline + online | 2 | ⚠️ | Bản hiện tại: 2 job PyFlink `ml-sku-return-24h-online` / `-offline` (Flink 2.2, [stream](../edai-2/stream_features.md)), **chưa chạy trên AWS**. Bản trước 31/10 (Flink SQL + pusher): 76/76 checkpoint, đối chiếu 1.004.354 cửa sổ khớp, API `approved_returns_24h`, Parquet S3 khớp Redis; dữ liệu phát lại |
 | KFP training ≥4 bước | 2 | ✅ | `train-aws-3` 5/5 |
 | MLflow version model + data + tag | 2 | ✅ | v1 `production` chạy trên AWS; 04/11: ảnh Tags `data.*` và Artifacts `data/train`, `data/test` của run `mysterious-flea-253`, script đối chiếu SHA-256 artifact với tag (khớp) và truy ngược model v1 → run ([Training](../edai-2/training_pipeline.md#trên-aws-2026-10-29)). Liên kết run MLflow ↔ run KFP dựa vào thời điểm. |
 | KServe model-inside-image | 2 | ✅ | predict OK |

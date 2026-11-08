@@ -1,3 +1,4 @@
+-- Đã thay trên AWS bằng flink_jobs/ml/sku_return_feature.py (2 job PyFlink online/offline); giữ cho lần chạy 30–31/10.
 -- Pipeline A: số Return "approved" mỗi SKU trong 24h gần nhất (HOP trượt 1h) → Kafka ml.sku_return_24h → feast-pusher.
 -- Khác bản B (sku_return_feature.sql): tin đã mang seller_sku (phát lại từ Gold A) nên không tra PostgreSQL.
 -- Submit: FEATURE_SQL=flink_jobs/ml/sku_return_feature_a.sql scripts/run/run_sku_return_feature.sh

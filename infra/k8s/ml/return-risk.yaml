@@ -45,7 +45,7 @@ spec:
           - {name: FEAST_REGISTRY, value: "@@FEAST_ROOT@@/registry.db"}
           - {name: FEAST_PUBLICATION_ROOT, value: "@@FEAST_ROOT@@/publications"}
           - {name: FEAST_SKU_DAILY_PATH, value: "@@FEAST_ROOT@@/sku_daily"}
-          - {name: FEAST_SKU_RETURN_24H_PATH, value: "@@FEAST_ROOT@@/sku_return_24h.parquet"}
+          - {name: FEAST_SKU_RETURN_24H_PATH, value: "@@FEAST_ROOT@@/sku_return_24h/"}
           - {name: AWS_REGION, value: "@@AWS_REGION@@"}
         envFrom:
           # kind: key + endpoint MinIO; EKS không có Secret này, S3 qua Pod Identity.

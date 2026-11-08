@@ -64,7 +64,7 @@ def run_feast(*args, **context):
     env |= {
         "FEAST_REGISTRY": f"{root}/registry.db",
         "FEAST_SKU_DAILY_PATH": f"{root}/sku_daily",
-        "FEAST_SKU_RETURN_24H_PATH": f"{root}/sku_return_24h.parquet",
+        "FEAST_SKU_RETURN_24H_PATH": f"{root}/sku_return_24h/",
         "FEAST_REDIS": redis,
         "FEAST_PUBLICATION_ROOT": f"{root}/publications",
     }
