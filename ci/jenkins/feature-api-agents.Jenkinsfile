@@ -52,6 +52,10 @@ pipeline {
               export FEAST_PUBLICATION_ROOT=
             fi
             SKIP_BUILD_PUSH=1 REPLICAS=2 bash scripts/setup/deploy_kind_feature_api.sh "$TAG"
+            # Gateway trỏ backend MCP sang pod feature-mcp (deploy ở trên) rồi nạp lại ConfigMap; không có Secret trong file.
+            kubectl --context $KCTX apply -f infra/k8s/agents/agentgateway.yaml
+            kubectl --context $KCTX -n agentgateway rollout restart deploy/agentgateway
+            kubectl --context $KCTX -n agentgateway rollout status deploy/agentgateway --timeout=180s
           '''
         }
       }

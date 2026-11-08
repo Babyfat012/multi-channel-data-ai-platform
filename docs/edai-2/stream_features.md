@@ -33,7 +33,12 @@ Kafka order_snapshots.return_events
 Chạy trên EC2 (overlay AWS đã đặt trong `COMPOSE_FILE`):
 
 ```bash
+# Laptop: đồng bộ code mới lên /opt/platform (compose đổi ⇒ chạy cả playbook, không chỉ --tags code)
+#   ansible-playbook -i inventory.ini site.yml --ask-vault-pass        (thư mục infra/aws/ansible)
+# Trong phiên EC2, cd /opt/platform:
 sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink-ml
+# Registry trỏ offline sang thư mục part (chỉ task feast_apply, không chạy Spark export):
+docker compose --profile airflow exec airflow airflow tasks test ml_feature_materialize feast_apply "$(date -u +%F)"
 docker compose --profile stream --profile flink-ml up -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
 scripts/run/run_stream_feature_jobs.sh                       # submit 2 job
 docker compose --profile stream --profile ml-stream run --rm -T --no-deps feast-pusher \
