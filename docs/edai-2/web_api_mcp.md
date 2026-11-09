@@ -107,7 +107,18 @@ mỗi pod — cùng cách với Agent, không tính probe nên khi rảnh về 2
 (MCP) scale độc lập. Đo: [`feature_api_scale_test.sh`](../../scripts/evidence/feature_api_scale_test.sh) tạo tải
 `POST /features` từ pod trong cluster, ghi target/pod theo thời gian tới khi về lại 2.
 
-**Bằng chứng EKS: chưa chụp.** Cần: `get scaledobject,hpa` sau khi apply, lúc tải `REPLICAS 3`, sau tải về 2, và log `feature-api-autoscale.txt`.
+**Trên EKS 09/11/2026** (4 luồng `curl` trong cluster, 150 giây, chạy song song hai release):
+
+| Release | Tải vào | Lên 3 pod | Về 2 pod | Log |
+|---|---|---:|---:|---|
+| `feature-api` | `POST /features` | ~47 s, `60538m/10` | ~489 s | [feature-api-autoscale.txt](../evidence/aws/feature-api-autoscale.txt) |
+| `feature-mcp` | `POST /mcp/` `tools/list` | ~46 s, `59296m/10` | ~490 s | [feature-mcp-autoscale.txt](../evidence/aws/feature-mcp-autoscale.txt) |
+
+Mốc thời gian theo chu kỳ lấy mẫu 15–25 giây của script. Events HPA ghi `New size: 3` và `New size: 2`. Về 2 lâu do HPA chờ ổn định 5 phút; tải là request ngắn trong cluster, không phải tải production.
+
+![Lúc tải: HPA feature-api và feature-mcp đều REPLICAS 3, thêm pod wf27d và kq5wg](../evidence/aws/feature-api-mcp-scale-up-20261109.png)
+
+![Sau tải: cả hai về REPLICAS 2](../evidence/aws/feature-api-mcp-scale-down-20261109.png)
 
 #### Load test trên EKS
 
