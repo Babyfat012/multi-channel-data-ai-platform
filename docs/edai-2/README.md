@@ -13,7 +13,7 @@ Tài liệu bám theo rubric, tập trung các lần triển khai AWS. Data Plat
 | 8, 21, 26 | [Agent Registry](agent_registry.md) | Có UI EKS: 3 Agent, 1 MCP server. |
 | 9–10 | [RAG Pipeline](rag_pipeline.md) | 6/6 task, có publish và lineage DataHub AWS. |
 | 11 | [Feature Store](feature_store.md) | Có DAG materialize AWS và dữ liệu Redis. |
-| 12 | [Streaming Feature](stream_features.md) | Hai job PyFlink (online → Redis, offline → Parquet S3) trên Flink 2.2, chạy trên AWS; đối chiếu giữa chừng 20.316/20.316 cửa sổ, **chưa có số cuối**. Model đã train chưa dùng feature này. |
+| 12 | [Streaming Feature](stream_features.md) | Hai job PyFlink (online → Redis, offline → Parquet S3) trên Flink 2.2, chạy trên AWS; đối chiếu 56.231/56.231 cửa sổ, 2.000/2.000 SKU tới mốc đã đóng, **chưa có số cuối**. Model đã train chưa dùng feature này. |
 | 13–14 | [Training Pipeline / MLflow](training_pipeline.md) | KFP 5/5; có ảnh Tags/Artifacts của run và đối chiếu SHA-256 train/test với tag. |
 | 15 | [ML Inference Service](ml_inference_service.md) | Có pod READY và prediction EKS. |
 | 16–18 | [Web API / MCP](web_api_mcp.md) | Có deployment/API/probe; MCP server bốn tool tách pod riêng `feature-mcp` (smoke EKS 24/24 sau khi tách); autoscale Feature API và MCP 2→3→2; Helm rolling update và tự rollback khi bản hỏng trên EKS (763/763 request 200). |

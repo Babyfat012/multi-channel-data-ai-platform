@@ -89,10 +89,14 @@ Monitor: metric riêng của từng job (`duplicates_dropped` chỉ xuất hiệ
 
 ![Swagger /features trước khi phát lại: approved_returns_24h null cho BEA-01708, ELE-01084, APP-00042](../evidence/aws/stream-features-before-replay-20261109.png)
 
-**Đối chiếu độc lập khi replay còn chạy** ([`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py), không dùng Flink, [output](../evidence/aws/stream-reconcile-midrun-20261109.txt)):
-tới cửa sổ 06-27 11:00, **20.316/20.316 cửa sổ** trên S3 đúng, **1.981/1.981 SKU** trên Redis đúng; BEA-01708 = 15, ELE-01084 = 10, APP-00042 = 15 ở cả hai kho.
+**Khi replay đang chạy**, cùng lời gọi đó trả số thật và `stream_status: ready`, tức job online đã ghi vào Redis; số tiếp tục thay đổi theo cửa sổ.
 
-**Chưa có số cuối: replay trên AWS đang chạy.**
+![Swagger /features khi replay đang chạy: approved_returns_24h BEA-01708 = 29, ELE-01084 = 34, stream_status ready](../evidence/aws/stream-features-during-replay-20261109.png)
+
+**Đối chiếu độc lập khi replay còn chạy** ([`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py), không dùng Flink, [output](../evidence/aws/stream-reconcile-midrun-20261109.txt)):
+tới cửa sổ 06-28 05:00, **56.231/56.231 cửa sổ** trên S3 đúng, không thừa; **2.000/2.000 SKU** trên Redis đúng; BEA-01708 = 29, ELE-01084 = 34, APP-00042 = 26 ở cả hai kho, khớp ảnh Swagger trên. Lần đối chiếu trước đó tới 06-27 11:00 cũng khớp 20.316/20.316.
+
+**Giới hạn:** đối chiếu trên đây dừng ở cửa sổ 06-28 05:00, khi job mới xử lý khoảng 40–48% số tin; chưa có số của cửa sổ cuối. Diễn tập cùng quy mô ở local khớp tới 114.638 cửa sổ trước khi dừng.
 
 <a id="trên-aws-pipeline-a-2026-10-30"></a>
 ## Bản trước: Flink SQL + pusher trên AWS

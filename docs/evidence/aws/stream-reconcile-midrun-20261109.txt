@@ -1,4 +1,9 @@
-# scripts/evidence/stream_feature_reconcile.py trên EC2, 09/11/2026, khi replay còn chạy (khoảng 20% tin): chỉ xét cửa sổ đã ghi ra.
+# scripts/evidence/stream_feature_reconcile.py trên EC2, khi replay còn chạy: chỉ xét cửa sổ đã ghi ra.
+# Lần 1
 nguon=401129 duy_nhat=401129 offline_dong_toi=2026-06-27T11:00:00+00:00 dong=20316 cua_so=20316 ky_vong=20316 sai_hoac_thieu=0 thua=0
 redis sku=1981 sai=0 mau=[]
 SKU mẫu (Redis, cửa sổ offline cuối): [('BEA-01708', 15, 15), ('ELE-01084', 10, 10), ('APP-00042', 15, 15)]
+# Lần 2
+nguon=401129 duy_nhat=401129 offline_dong_toi=2026-06-28T05:00:00+00:00 dong=56231 cua_so=56231 ky_vong=56231 sai_hoac_thieu=0 thua=0
+redis sku=2000 sai=0 mau=[]
+SKU mẫu (Redis, cửa sổ offline cuối): [('BEA-01708', 29, 29), ('ELE-01084', 34, 34), ('APP-00042', 26, 26)]
