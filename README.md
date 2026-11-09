@@ -41,15 +41,17 @@ Triển khai tham chiếu AWS ap-southeast-2: EC2 Data Platform + EKS `platform-
 
 ### Data Platform
 
-[![Data Platform — system architecture](docs/diagrams/data-platform-system-architecture.svg)](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)
+[![Data Platform — system architecture](docs/diagrams/data-platform-system-architecture.svg)](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)
 
-Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)** (bấm ô chú giải để xem riêng từng luồng) · [Ảnh tĩnh phóng to được](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html?static) · [PNG](docs/diagrams/data-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/data-platform-system-architecture.excalidraw)
+Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)** (bấm ô chú giải để xem riêng từng luồng) · [Ảnh tĩnh phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html?static) · [PNG](docs/diagrams/data-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/data-platform-system-architecture.excalidraw)
 
 ### ML + LLM Platform
 
-[![ML + LLM Platform — system architecture](docs/diagrams/ml-llm-platform-system-architecture.svg)](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)
+[![ML + LLM Platform — system architecture](docs/diagrams/ml-llm-platform-system-architecture.svg)](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)
 
-Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)** (bấm ô chú giải để xem riêng từng luồng) · [Ảnh tĩnh phóng to được](https://babyfat012.github.io/multichannel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html?static) · [PNG](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
+Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)** (bấm ô chú giải để xem riêng từng luồng) · [Ảnh tĩnh phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html?static) · [PNG](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
+
+Stream feature chạy hai job PyFlink (online → Redis qua Feast, offline → Parquet trên S3). MCP server là pod riêng `feature-mcp`; `feature-api`, `feature-mcp` và KServe `return-risk` autoscale bằng KEDA.
 
 Hai ảnh nối nhau qua Gold / feature / training data, replay Return qua Kafka và DataHub governance.
 [Đối chiếu khối kiến trúc với rubric và cấu hình](docs/diagrams/README.md).

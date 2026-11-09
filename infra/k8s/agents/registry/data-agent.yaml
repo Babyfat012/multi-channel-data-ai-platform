@@ -10,7 +10,7 @@ spec:
     image: ghcr.io/kagent-dev/kagent/golang-adk:0.10.3
     protocol: A2A
     repository:
-      url: https://github.com/Babyfat012/multichannel-data-ai-platform
+      url: https://github.com/Babyfat012/multi-channel-data-ai-platform
       subfolder: infra/k8s/agents
   mcpServers:
     - kind: MCPServer

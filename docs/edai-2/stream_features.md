@@ -66,7 +66,7 @@ RUNNING** (mới đóng tới một phần đã thiếu 1.193 cửa sổ, sai s�
 
 ### Trên AWS
 
-Jenkins `stream-features` (commit `4cc4502`, `DATA_STORAGE=s3`) dựng cluster Flink ML trên EC2 và submit 2 job. Phát lại **401.129** Return vào 3 partition
+Jenkins `stream-features` #7 xanh ([ảnh](../evidence/aws/jenkins-stream-features-7-20261109.png), commit `4cc4502`, `DATA_STORAGE=s3`) dựng cluster Flink ML trên EC2, submit 2 job và kiểm đúng 2 job RUNNING. Phát lại **401.129** Return vào 3 partition
 (151.254 + 117.583 + 132.292), bản ghi đầu `CreateTime:1782518400289` là event time tháng 6/2026.
 
 ![Flink UI EC2: 2 job ml-sku-return-24h-online và -offline RUNNING, Flink 2.2.1](../evidence/aws/flink-ml-two-jobs-running-20261109.png)
@@ -260,7 +260,7 @@ Nhánh local: Flink SQL bản B + pusher như mô tả ở mục này; **Verify*
 
 Secret không nằm trong repo: Jenkins credential `platform-postgres` và `platform-minio` (username/password),
 truyền vào bằng `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh)
-chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 (`stream-features`, bản Flink SQL #2 xanh, bản PyFlink chạy lại sau đó), xem [CI/CD](cicd.md#trên-aws).
+chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 (`stream-features`, bản Flink SQL #2 và bản PyFlink #7 đều xanh), xem [CI/CD](cicd.md#trên-aws).
 
 ## Bằng chứng
 

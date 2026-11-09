@@ -56,9 +56,9 @@ Các route còn lại: `a2a-model-agent` và `a2a-coordinator` (theo header `x-k
 
 ![ConfigMap agentgateway-config: route a2a-model-agent-path, a2a-coordinator, a2a-coordinator-path, route mcp với mcpAuthorization bốn tool](../evidence/aws/gateway-config-routes-model-coordinator-mcp.png)
 
-Ảnh dưới chụp trước khi tách pod, lúc backend còn là `feature-api`:
+![ConfigMap agentgateway-config trên EKS: backend MCP features trỏ tới feature-mcp /mcp/](../evidence/aws/gateway-mcp-backend-feature-mcp-20261109.png)
 
-![ConfigMap agentgateway-config trước khi tách: backend MCP trỏ tới feature-api /mcp/](../evidence/aws/gateway-config-mcp-backend.png)
+Ảnh chụp trước khi tách pod, lúc backend còn là `feature-api`: [gateway-config-mcp-backend.png](../evidence/aws/gateway-config-mcp-backend.png).
 
 ### Allow / deny theo từng policy
 

@@ -22,7 +22,7 @@ Tài liệu bám theo rubric, tập trung các lần triển khai AWS. Data Plat
 | 25–26 | [Coordinator](coordinator.md) | Có chat/publish và scale 2 → 3 → 2 trên EKS; cổng CI eval 12/12 (#9) nhưng chỉ chấm định tuyến. |
 | 27 | [Warm Up](warm_up.md) | 6 Agent/1 worker; chưa đo cold start. |
 | 28–32 | [Validation & Verification](validation_verification.md) | PR tests ở máy phát triển; Locust gọi EKS, 3.004 request/0 lỗi. |
-| 33–36 | [CI/CD](cicd.md) | `stream-features` chạy 2 job PyFlink trên AWS; `feature-api-agents` #13 deploy xanh nhưng **đỏ ở eval RAG 3/5**; Coordinator eval 12/12 (chỉ chấm định tuyến). |
+| 33–36 | [CI/CD](cicd.md) | `stream-features` #7 xanh với 2 job PyFlink trên AWS; `feature-api-agents` #13 deploy xanh nhưng **đỏ ở eval RAG 3/5**; Coordinator eval 12/12 (chỉ chấm định tuyến). |
 | 37–43 | [External Routing / Gateway](routing_gateway.md) | Có HTTPS/auth; giới hạn gia hạn cert xem tài liệu. |
 | 44–45 | [IaC](iac.md) | Có plan No changes và Ansible failed=0 trên AWS. |
 | 46–51 | [Observability](observability.md) | Có dashboard metric/log/trace và telemetry EKS. |

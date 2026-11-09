@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Stage 2: chỉ Python slim, virtualenv và file cấu hình. Không có uv, cache hay trình biên dịch.
 FROM python:3.12-slim
 # GitHub dựa vào nhãn này để gắn package (ghcr.io) vào repo.
-LABEL org.opencontainers.image.source="https://github.com/Babyfat012/multichannel-data-ai-platform" \
+LABEL org.opencontainers.image.source="https://github.com/Babyfat012/multi-channel-data-ai-platform" \
       org.opencontainers.image.description="Generator dữ liệu giả lập năm kênh (skew, schema evolution, duplicate, late arrival)" \
       org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app
