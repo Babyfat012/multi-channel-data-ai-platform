@@ -64,8 +64,35 @@ sau khi gộp partition ⇒ partition đọc nhanh làm watermark vượt partit
 RUNNING** (mới đóng tới một phần đã thiếu 1.193 cửa sổ, sai số 37.284 cửa sổ). Sửa: event time là timestamp bản ghi Kafka do
 [`replay_return_events.py`](../../feature_repo/replay_return_events.py) đặt, watermark sinh ở source theo từng partition, có idleness.
 
-**Bằng chứng AWS: chưa chạy.** Cần chụp: Flink UI cổng 8086 có 2 job RUNNING, metric riêng của từng job,
-`/features` trả `approved_returns_24h`, và [`offline_store_proof.sh`](../../scripts/evidence/offline_store_proof.sh) đọc thư mục part trên S3.
+### Trên AWS, 09/11/2026
+
+Jenkins `stream-features` (commit `4cc4502`, `DATA_STORAGE=s3`) dựng cluster Flink ML trên EC2 và submit 2 job. Phát lại **401.129** Return vào 3 partition
+(151.254 + 117.583 + 132.292), bản ghi đầu `CreateTime:1782518400289` là event time tháng 6/2026.
+
+![Flink UI EC2: 2 job ml-sku-return-24h-online và -offline RUNNING, Flink 2.2.1](../evidence/aws/flink-ml-two-jobs-running-20261109.png)
+
+![Job online: Source return_events → drop-duplicates → hop-24h-count → feast-online-writer](../evidence/aws/flink-ml-online-job-20261109.png)
+
+![Job offline: Source return_events → drop-duplicates → hop-24h-count → parquet-offline-writer](../evidence/aws/flink-ml-offline-job-20261109.png)
+
+Monitor: metric riêng của từng job (`duplicates_dropped` chỉ xuất hiện từ tin trùng đầu tiên; bản phát lại này khoá theo Order Line nên không có tin trùng).
+
+![Metric job online: online_rows_written, online_batches_written, online_last_window_end_ms](../evidence/aws/flink-ml-online-metrics-20261109.png)
+
+![Metric job offline: offline_rows_written](../evidence/aws/flink-ml-offline-metrics-20261109.png)
+
+![Checkpoint job online: ghi ra file:/opt/flink/output/checkpoints trên EBS](../evidence/aws/flink-ml-online-checkpoints-20261109.png)
+
+![Checkpoint job offline: 65 completed, 0 failed](../evidence/aws/flink-ml-offline-checkpoints-20261109.png)
+
+**Trước khi phát lại**, Feature API trả `approved_returns_24h: null`, `stream_status: not_available` (Redis chưa có feature stream), nên giá trị xuất hiện sau đó là do job online ghi.
+
+![Swagger /features trước khi phát lại: approved_returns_24h null cho BEA-01708, ELE-01084, APP-00042](../evidence/aws/stream-features-before-replay-20261109.png)
+
+**Đối chiếu độc lập khi replay còn chạy** ([`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py), không dùng Flink, [output](../evidence/aws/stream-reconcile-midrun-20261109.txt)):
+tới cửa sổ 06-27 11:00, **20.316/20.316 cửa sổ** trên S3 đúng, **1.981/1.981 SKU** trên Redis đúng; BEA-01708 = 15, ELE-01084 = 10, APP-00042 = 15 ở cả hai kho.
+
+**Chưa có số cuối: replay trên AWS đang chạy.**
 
 <a id="trên-aws-pipeline-a-2026-10-30"></a>
 ## Bản trước: Flink SQL + pusher trên AWS, 30–31/10/2026
