@@ -18,7 +18,10 @@ Rubric: Agent 2 (online feature + predict + RAG) phải có tài liệu **tươn
 | Sandbox gVisor | `data-agent-sandbox` gọi tool ([ảnh](../evidence/aws/substrate-sandbox-agent-ui-20261031.png), 31/10) | `model-agent-sandbox` READY, gọi `search_policy_chunks`, trả lời 15 ngày ([ảnh](../evidence/aws/model-agent-sandbox-chat-20261106.png), 06/11) — [manifest](../../infra/k8s/agents/sandbox/model-agent-sandbox.yaml) |
 | Publish registry | [entry](../../infra/k8s/agents/registry/data-agent.yaml) | [entry](../../infra/k8s/agents/registry/model-agent.yaml); UI registry có cả 3 Agent ([ảnh](../evidence/aws/agent-registry-ui-20261030.png)) |
 | Gọi MCP qua gateway | `tools/list`, `get_sku_features` | cả hai tool riêng của Model Agent, smoke EKS 06/11 ([JSON](../evidence/aws/gateway-smoke-20261106.json), bảng dưới) |
-| Backend multi-replica + autoscale | MCP `feature-mcp` | KServe `return-risk` + MCP `feature-mcp`: manifest min 2 max 3 + KEDA ([KServe](../../infra/k8s/ml/return-risk.yaml), [Helm](../../infra/helm/feature-api/values-mcp.yaml)); **chưa chụp trên EKS** |
+| Backend multi-replica + autoscale | MCP `feature-mcp` 2→3→2 ([log](../evidence/aws/feature-mcp-autoscale.txt)) | KServe `return-risk` 2→3→2 ([ảnh lúc tải](../evidence/aws/return-risk-scale-up-20261109.png), [sau tải](../evidence/aws/return-risk-scale-down-20261109.png), [log](../evidence/aws/return-risk-autoscale.txt), 09/11); MCP `feature-mcp` như cột trái ([Web API và MCP](web_api_mcp.md)) |
+
+Eval Model Agent trên EKS 09/11 (Jenkins #13, [chi tiết](agent_evaluation.md)): predict **12/12**, policy **3/5**, dưới ngưỡng 0,95 nên build đỏ: Qwen 1,5B đôi khi viết lệnh gọi tool thành văn bản thay vì gọi thật.
+Smoke chạy lại sau khi tách `feature-mcp`, 09/11: [24/24 PASS](../evidence/aws/gateway-smoke-20261109.json).
 
 Các check MCP của Model Agent trong smoke 06/11 (`recorded 2026-11-06T10:23:46Z`, tổng 24/24 PASS):
 
@@ -32,6 +35,14 @@ Các check MCP của Model Agent trong smoke 06/11 (`recorded 2026-11-06T10:23:4
 | `search_policy_chunks` | ≥ 1 chunk ✅ |
 | A2A agent card `model-agent` có key / không key | 200 / 401 ✅ |
 | Tool ngoài danh sách (`delete_all_features`) | bị chặn ✅ |
+
+KServe `return-risk` (backend predict): KEDA scale theo `return_risk_predictions_total`, min 2, max 3; lúc tải `:predict` 150 giây lên 3 pod sau ~48 s (`11237m/5`), về 2 sau ~495 s; chỉ còn một HPA do KEDA tạo.
+
+![KServe sau khi apply: keda-hpa-return-risk-predictor min 2 max 3, ScaledObject READY True, 2 pod Running](../evidence/aws/return-risk-keda-apply-20261109.png)
+
+![KServe lúc tải: REPLICAS 3, thêm pod l5n92](../evidence/aws/return-risk-scale-up-20261109.png)
+
+![KServe sau tải: về REPLICAS 2](../evidence/aws/return-risk-scale-down-20261109.png)
 
 ![agentregistry UI trên EKS: 1 MCP server và 3 agent đã publish, gồm model-agent](../evidence/aws/agent-registry-ui-20261030.png)
 

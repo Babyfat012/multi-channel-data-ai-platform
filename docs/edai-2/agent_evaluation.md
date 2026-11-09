@@ -39,6 +39,11 @@ harness bỏ qua và hỏi câu kế, nhưng Coordinator vẫn xử lý câu b�
 Thử local (kind, Feature API giả có dữ liệu cố định, chưa phải Redis/pgvector thật, chưa chạy AWS): predict 4/4; policy 4/5 sau khi siết prompt (3/5 trước đó).
 Câu còn trượt: Qwen 1,5B viết lệnh gọi tool thành văn bản thay vì gọi thật (tool không chạy), nên cổng 0,95 của policy có thể đỏ trên AWS cho tới khi model gọi tool ổn định hơn.
 
+**Trên EKS 09/11/2026** (Jenkins `feature-api-agents` #13, sau khi tách MCP sang pod `feature-mcp`): Data Agent **12/12**, Model Agent predict **12/12**, Model Agent policy **3/5** (dưới ngưỡng 0,95 ⇒ build đỏ, stage Smoke không chạy; `gateway_smoke.py` chạy riêng đạt 24/24).
+Hai câu trượt (hạn trả hàng Shopee, Walmart) đều là model trả về văn bản `Call search_policy_chunks with the query …` thay vì gọi tool; gọi trực tiếp `search_policy_chunks` qua MCP vẫn trả chunk. Không hạ ngưỡng để pipeline xanh: đây là giới hạn của model 1,5B trên CPU, chưa khắc phục.
+
+![Jenkins feature-api-agents #13: Data Agent 12/12, predict 12/12, policy 3/5, stage Eval agent đỏ](../evidence/aws/jenkins-feature-api-agents-13-eval-20261109.png)
+
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 

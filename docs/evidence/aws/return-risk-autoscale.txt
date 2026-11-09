@@ -1,0 +1,34 @@
+# KEDA autoscale return-risk-predictor (platform-apps, 2026-11-09T15:32:01Z)
+# Tải: 4 luồng curl song song trong cluster, POST http://return-risk-predictor/v1/models/return-risk:predict, 150 s; ngưỡng 5/giây mỗi pod.
+NAME                    SCALETARGETKIND      SCALETARGETNAME         MIN   MAX   READY   ACTIVE   FALLBACK   PAUSED   TRIGGERS     AUTHENTICATIONS   AGE
+return-risk-predictor   apps/v1.Deployment   return-risk-predictor   2     3     True    True     False      False    prometheus                     10m
+t=0s target=78m/5 pods=2 [wnhtn,xvdf7]
+t=24s target=9503m/5 pods=2 [wnhtn,xvdf7]
+t=48s target=11237m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=71s target=20489m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=95s target=23637m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=119s target=29520m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=143s target=54067m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=167s target=54390m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=190s target=13193m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=213s target=230m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=236s target=8m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=259s target=15m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=283s target=8m/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=307s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=330s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=353s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=377s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=401s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=426s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=449s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=472s target=0/5 pods=3 [l5n92,wnhtn,xvdf7]
+t=495s target=0/5 pods=2 [l5n92,xvdf7]
+NAME                             REFERENCE                          TARGETS     MINPODS   MAXPODS   REPLICAS   AGE
+keda-hpa-return-risk-predictor   Deployment/return-risk-predictor   0/5 (avg)   2         3         3          19m
+Events:
+  Type    Reason             Age   From                       Message
+  ----    ------             ----  ----                       -------
+  Normal  SuccessfulRescale  19m   horizontal-pod-autoscaler  New size: 2; reason: Current number of replicas below Spec.MinReplicas
+  Normal  SuccessfulRescale  8m1s  horizontal-pod-autoscaler  New size: 3; reason: external metric s0-prometheus(&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: return-risk-predictor,},MatchExpressions:[]LabelSelectorRequirement{},}) above target
+  Normal  SuccessfulRescale  15s   horizontal-pod-autoscaler  New size: 2; reason: All metrics below target
