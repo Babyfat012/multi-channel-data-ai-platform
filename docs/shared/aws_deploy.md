@@ -293,3 +293,18 @@ transfer, version S3, thuế và biến động giá; thay đơn giá giả đ�
 trang AWS ở thời điểm chạy. Không truy cập mạng trong lượt viết tài liệu này.
 Credit chỉ bù khoản đủ điều kiện, không làm chi phí bằng 0; budget $30 là
 cảnh báo, không tự dừng máy. Chưa có lịch tự động stop.
+
+## Bật lại EKS từ 0 node (đo 09/11/2026)
+
+Sau khi đưa node group về 2, làm theo thứ tự rồi mới deploy:
+
+1. **Valkey của Substrate:** pod đổi IP nhưng cụm vẫn nhớ IP cũ ⇒ `cluster_state:fail`, `ate-api` không Ready, `kagent-controller` `CrashLoopBackOff`. Sửa không mất dữ liệu (cụm không đặt mật khẩu), rồi kiểm `cluster_state:ok`, đủ 16384 slot; hai pod kia tự hồi phục:
+   ```bash
+   K="kubectl --context platform-apps -n ate-system"
+   IPS=$($K get pods -o wide --no-headers | awk '/^valkey-cluster/{print $6}')
+   for p in 0 1 2 3 4 5; do for ip in $IPS; do $K exec valkey-cluster-$p -- valkey-cli cluster meet "$ip" 6379; done; done
+   $K exec valkey-cluster-0 -- valkey-cli cluster info | head -3
+   ```
+2. **IP node đổi:** chạy lại Ansible với `-e feast_redis=<IP node>:30379 -e rag_pg=<IP node>:30432`, nếu không `.env` EC2 vẫn trỏ IP cũ. NodePort vào node nào cũng tới được.
+3. **LLM:** `kubectl --context platform-apps -n llm scale deploy/qwen --replicas=1` rồi đợi rollout trước khi chạy eval; thiếu LLM thì eval ra 0 điểm.
+4. **Jenkins:** dùng `scripts/setup/setup_jenkins.sh` thay vì `docker compose up jenkins` (thiếu `DOCKER_GID`, kubeconfig); `setup_vault.sh` để unseal Vault trước. Code của job lấy từ `/repo/out/platform.bundle`: tạo lại bằng `git bundle create out/platform.bundle main` rồi chép lên EC2.
