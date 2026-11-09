@@ -1,0 +1,34 @@
+# KEDA autoscale feature-mcp (platform-apps, 2026-11-09T15:36:40Z)
+# Tải: 4 luồng curl song song trong cluster, POST http://feature-mcp:8000/mcp/, 150 s; ngưỡng 10/giây mỗi pod.
+NAME          SCALETARGETKIND      SCALETARGETNAME   MIN   MAX   READY   ACTIVE   FALLBACK   PAUSED   TRIGGERS     AUTHENTICATIONS   AGE
+feature-mcp   apps/v1.Deployment   feature-mcp       2     3     True    True     False      False    prometheus                     14m
+t=0s target=4175m/10 pods=2 [kxklb,lqtjm]
+t=23s target=31008m/10 pods=2 [kq5wg,kxklb,lqtjm]
+t=46s target=59296m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=70s target=67725m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=93s target=73348m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=117s target=71934m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=140s target=73578m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=163s target=83230m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=187s target=32956m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=211s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=233s target=0/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=257s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=280s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=304s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=327s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=350s target=0/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=375s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=398s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=421s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=445s target=23m/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=467s target=0/10 pods=3 [kq5wg,kxklb,lqtjm]
+t=490s target=15m/10 pods=2 [kxklb,lqtjm]
+NAME                   REFERENCE                TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+keda-hpa-feature-mcp   Deployment/feature-mcp   15m/10 (avg)   2         3         3          23m
+Events:
+  Type    Reason             Age   From                       Message
+  ----    ------             ----  ----                       -------
+  Normal  SuccessfulRescale  23m   horizontal-pod-autoscaler  New size: 2; reason: Current number of replicas below Spec.MinReplicas
+  Normal  SuccessfulRescale  8m3s  horizontal-pod-autoscaler  New size: 3; reason: external metric s0-prometheus(&LabelSelector{MatchLabels:map[string]string{scaledobject.keda.sh/name: feature-mcp,},MatchExpressions:[]LabelSelectorRequirement{},}) above target
+  Normal  SuccessfulRescale  18s   horizontal-pod-autoscaler  New size: 2; reason: All metrics below target

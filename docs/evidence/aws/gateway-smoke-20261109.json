@@ -1,0 +1,168 @@
+{
+  "recorded": "2026-11-09T15:36:40Z",
+  "passed": true,
+  "checks": [
+    {
+      "check": "LLM không key",
+      "got": 401,
+      "want": 401,
+      "ok": true
+    },
+    {
+      "check": "LLM có key",
+      "got": 200,
+      "want": 200,
+      "ok": true
+    },
+    {
+      "check": "LLM stream có key (TTFT)",
+      "got": 200,
+      "want": 200,
+      "ok": true
+    },
+    {
+      "check": "PII (email) bị chặn",
+      "got": 403,
+      "want": 403,
+      "ok": true
+    },
+    {
+      "check": "MCP không key",
+      "got": 401,
+      "want": 401,
+      "ok": true
+    },
+    {
+      "check": "MCP initialize có key",
+      "got": 200,
+      "want": 200,
+      "ok": true
+    },
+    {
+      "check": "MCP tools/list có get_sku_features",
+      "got": true,
+      "want": true,
+      "tools": [
+        "get_policy_chunks",
+        "get_sku_features",
+        "predict_return_risk",
+        "search_policy_chunks"
+      ],
+      "ok": true
+    },
+    {
+      "check": "MCP get_sku_features APP-00042 có giá trị khác null",
+      "got": true,
+      "want": true,
+      "ok": true
+    },
+    {
+      "check": "MCP predict_return_risk APP-00042 trả score và model_version",
+      "got": true,
+      "want": true,
+      "ok": true
+    },
+    {
+      "check": "MCP search_policy_chunks trả ít nhất 1 chunk",
+      "got": true,
+      "want": true,
+      "ok": true
+    },
+    {
+      "check": "A2A card có key (data-agent)",
+      "got": 200,
+      "want": 200,
+      "ok": true
+    },
+    {
+      "check": "A2A card không key (data-agent)",
+      "got": 401,
+      "want": 401,
+      "ok": true
+    },
+    {
+      "check": "A2A card có key (model-agent)",
+      "got": 200,
+      "want": 200,
+      "ok": true
+    },
+    {
+      "check": "A2A card không key (model-agent)",
+      "got": 401,
+      "want": 401,
+      "ok": true
+    },
+    {
+      "check": "A2A card có key (coordinator)",
+      "got": 200,
+      "want": 200,
+      "ok": true
+    },
+    {
+      "check": "A2A card không key (coordinator)",
+      "got": 401,
+      "want": 401,
+      "ok": true
+    },
+    {
+      "check": "MCP tool ngoài danh sách (delete_all_features) bị chặn",
+      "got": true,
+      "want": true,
+      "detail": "HTTP 400: {\"jsonrpc\":\"2.0\",\"id\":9,\"error\":{\"code\":-32602,\"message\":\"Unknown tool: delete_all_features\"}}",
+      "ok": true
+    },
+    {
+      "check": "80 request LLM dồn: có 429 (rate limit)",
+      "got": true,
+      "want": true,
+      "statuses": {
+        "200": 60,
+        "429": 20
+      },
+      "seconds": 3.6,
+      "ok": true
+    },
+    {
+      "check": "Prometheus llm_tokens > 0",
+      "got": true,
+      "want": true,
+      "value": 110985.0,
+      "ok": true
+    },
+    {
+      "check": "Prometheus ttft_requests > 0",
+      "got": true,
+      "want": true,
+      "value": 1.0,
+      "ok": true
+    },
+    {
+      "check": "Prometheus mcp_requests > 0",
+      "got": true,
+      "want": true,
+      "value": 99.0,
+      "ok": true
+    },
+    {
+      "check": "Prometheus a2a_requests > 0",
+      "got": true,
+      "want": true,
+      "value": 38.0,
+      "ok": true
+    },
+    {
+      "check": "Prometheus pii_checks > 0",
+      "got": true,
+      "want": true,
+      "value": 232.0,
+      "ok": true
+    },
+    {
+      "check": "Prometheus llamacpp_tokens_per_s > 0",
+      "got": true,
+      "want": true,
+      "value": 18.9174,
+      "ok": true
+    }
+  ]
+}

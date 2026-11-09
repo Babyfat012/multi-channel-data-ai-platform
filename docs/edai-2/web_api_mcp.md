@@ -55,7 +55,7 @@ Hai release Helm (`feature-api`, `feature-mcp`) dùng chung chart [`infra/helm/f
 Mỗi release có Deployment, probe, Helm `--atomic` và ScaledObject riêng ⇒ MCP scale và rollback độc lập với REST.
 Test: `test_surface_splits_rest_and_mcp_pods` (pod REST trả 404 ở `/mcp/`, pod MCP trả 404 ở `/features`).
 
-Ghi chú: smoke và các ảnh dưới đây (30/10–06/11) chụp **trước khi tách**, lúc MCP còn mount trong pod Feature API; tool, route gateway và kết quả không đổi.
+Chạy thật sau khi tách, EKS 09/11/2026: `feature-api` trả 200 ở `/features`, 404 ở `/mcp/`; `feature-mcp` ngược lại; `helm list` có hai release cùng image `4cc4502`; gateway trỏ `feature-mcp`. Ảnh Registry và Grafana bên dưới chụp 30–31/10, trước khi tách.
 
 Bốn tool dùng chung code với REST:
 
@@ -67,11 +67,11 @@ Bốn tool dùng chung code với REST:
 | `get_policy_chunks(chunk_ids)` | lấy chunk theo id | `POST /chunks/by-id` |
 
 Agent không gọi thẳng pod mà đi qua route `/mcp` của [agentgateway](agent_gateways.md) (API key, chỉ cho phép bốn tool trên).
-Smoke trên EKS ngày 06/11 ([gateway-smoke-20261106.json](../evidence/aws/gateway-smoke-20261106.json), **24/24 PASS**):
+Smoke trên EKS sau khi tách, 09/11 ([gateway-smoke-20261109.json](../evidence/aws/gateway-smoke-20261109.json), **24/24 PASS**):
 MCP không key → 401; `initialize` có key → 200; `tools/list` trả đủ bốn tool;
 `get_sku_features` có giá trị, `predict_return_risk` có `score` và `model_version`, `search_policy_chunks` trả ≥ 1 chunk; tool ngoài danh sách bị chặn.
 
-![Bảng policy trên EKS: MCP tools/list và get_sku_features, tool ngoài danh sách bị chặn, cùng các check API key, PII, A2A, rate limit](../evidence/aws/gateway-smoke-policy-table.png)
+![Bảng policy trên EKS 09/11: MCP không key 401, tools/list đủ bốn tool, get_sku_features, predict_return_risk, search_policy_chunks, tool ngoài danh sách bị chặn, A2A, rate limit 429, đều PASS](../evidence/aws/gateway-smoke-policy-table-20261109.png)
 
 MCP server đã đăng ký trong Agent Registry, và Grafana đếm từng lượt gọi tool theo kết quả (`mcp_tool_calls_total{tool,outcome}` do Feature API xuất ra):
 
