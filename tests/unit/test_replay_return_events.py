@@ -2,7 +2,7 @@
 
 import pytest
 
-from feature_repo.replay_return_events import to_event
+from feature_repo.replay_return_events import event_ms, to_event
 
 
 @pytest.mark.parametrize(
@@ -46,3 +46,15 @@ def test_feast_apply_skips_helper_scripts():
         line.split("#")[0].strip() for line in (repo / ".feastignore").read_text().splitlines()
     }
     assert {p.name for p in repo.glob("*.py")} - {"features.py"} <= ignored
+
+
+def test_event_ms_matches_event_time_for_watermark():
+    """Timestamp bản ghi Kafka = effective_at: job PyFlink sinh watermark theo partition từ giá trị này."""
+    event = to_event(
+        {
+            "label_available_at": "2026-06-27 01:00:00.123 UTC",
+            "order_line_key": "l",
+            "seller_sku": "s",
+        }
+    )
+    assert event_ms(event) == 1782522000123

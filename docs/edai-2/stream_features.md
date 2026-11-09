@@ -27,6 +27,7 @@ Kafka order_snapshots.return_events
 | Online | Feast `push(..., PushMode.ONLINE)`: Redis đúng định dạng Feast mà Feature API đọc qua `get_online_features` |
 | Offline | Parquet `part-<min>-<max>-<n>.parquet`, schema `seller_sku`, `event_timestamp` (UTC), `approved_returns_24h` |
 | Monitor | Ngoài số đo sẵn của Flink (bản ghi vào/ra, checkpoint, backpressure), mỗi job có metric riêng hiện trên Flink UI: `duplicates_dropped`, `<sink>_rows_written`, `<sink>_batches_written`, `<sink>_last_window_end_ms` |
+| Event time | Timestamp bản ghi Kafka = `effective_at`; watermark theo từng partition ở source, trễ tối đa 1 giờ; topic `retention.ms=-1` vì bản ghi mang thời gian quá khứ |
 | Đảm bảo | Lô nằm trong state của cửa sổ thời gian xử lý ⇒ vào checkpoint; khôi phục có thể ghi lại một lô (at-least-once, dòng trùng cùng giá trị, PIT join không đổi) |
 | Test | [`tests/flink/test_sku_return_feature.py`](../../tests/flink/test_sku_return_feature.py) chạy job trên mini cluster trong image: cửa sổ khớp phép đếm độc lập (có tin trùng, tin trễ, tin không phải approved); Feast đọc thư mục part và PIT join đúng; CLI từ chối cấu hình sai |
 
@@ -40,16 +41,28 @@ sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink-ml
 # Registry trỏ offline sang thư mục part (chỉ task feast_apply, không chạy Spark export):
 docker compose --profile airflow exec airflow airflow tasks test ml_feature_materialize feast_apply "$(date -u +%F)"
 docker compose --profile stream --profile flink-ml up -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
+# Xoá topic cũ: tin của lần chạy 30–31/10 mang timestamp thời điểm phát, làm watermark nhảy sai.
+docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+  --delete --if-exists --topic order_snapshots.return_events
 scripts/run/run_stream_feature_jobs.sh                       # submit 2 job
-docker compose --profile stream --profile ml-stream run --rm -T --no-deps feast-pusher \
+# Mount script mới: script nằm sẵn trong image platform-feast, image cũ phát lại tin KHÔNG có event time.
+docker compose --profile stream --profile ml-stream run --rm -T --no-deps \
+  -v "$PWD/feature_repo/replay_return_events.py:/opt/feature_repo/replay_return_events.py:ro" feast-pusher \
   python replay_return_events.py < ~/return_events.jsonl     # phát lại 401.129 Return
+# Kiểm: CreateTime phải là 06/2026 (1782…), không phải thời điểm chạy.
+docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic order_snapshots.return_events --from-beginning --max-messages 1 --property print.timestamp=true | cut -c1-40
 ```
 
 **Smoke local 07/11** (cluster Flink 2.2.1 + Kafka thật trong Compose, `flink run -py`): job `ml-sku-return-24h-offline`
 RUNNING, 5 tin vào (có 1 bản trùng) ⇒ file part 51 cửa sổ, **51/51 khớp** phép đếm độc lập cho các cửa sổ đã đóng theo
 watermark; REST/UI hiện `duplicates_dropped`, `offline_rows_written`, `offline_batches_written`, `offline_last_window_end_ms`.
-Hai lỗi gặp khi chạy thật (đã sửa): PyFlink 2.2 cửa sổ/TTL nhận `Time` chứ không nhận `Duration`; `with_idleness` làm mất
-timestamp nên bỏ (parallelism 1, watermark sinh sau khi gộp partition nên không cần).
+Lỗi gặp khi chạy thật (đã sửa): PyFlink 2.2 cửa sổ/TTL nhận `Time` chứ không nhận `Duration`.
+
+**Diễn tập đúng quy mô, 09/11** (401.129 tin, 2.000 SKU, 3 partition, Redis thật, S3 API giả lập bằng moto): bản đầu sinh watermark
+sau khi gộp partition ⇒ partition đọc nhanh làm watermark vượt partition chậm, tin bị coi là trễ và **rớt âm thầm trong khi job vẫn
+RUNNING** (mới đóng tới một phần đã thiếu 1.193 cửa sổ, sai số 37.284 cửa sổ). Sửa: event time là timestamp bản ghi Kafka do
+[`replay_return_events.py`](../../feature_repo/replay_return_events.py) đặt, watermark sinh ở source theo từng partition, có idleness.
 
 **Bằng chứng AWS: chưa chạy.** Cần chụp: Flink UI cổng 8086 có 2 job RUNNING, metric riêng của từng job,
 `/features` trả `approved_returns_24h`, và [`offline_store_proof.sh`](../../scripts/evidence/offline_store_proof.sh) đọc thư mục part trên S3.

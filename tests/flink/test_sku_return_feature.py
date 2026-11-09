@@ -75,7 +75,7 @@ def test_windows_match_independent_count():
     from pyflink.common import Types
 
     stream = env.from_collection(raw, type_info=Types.STRING())
-    with job.build_windows(stream).execute_and_collect() as results:
+    with job.build_windows(stream, assign_event_time=True).execute_and_collect() as results:
         got = Counter({(sku, end): count for sku, end, count in results})
     assert got == oracle(raw)
     assert got[("S1", int((T0 + timedelta(hours=1)).timestamp() * 1000))] == 1

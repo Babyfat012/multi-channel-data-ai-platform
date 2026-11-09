@@ -30,6 +30,12 @@ def to_event(row):
     }
 
 
+def event_ms(event):
+    """Timestamp bản ghi Kafka = event time (mili giây): job PyFlink sinh watermark từ đây, theo từng partition."""
+    at = datetime.strptime(event["effective_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+    return int(at.timestamp() * 1000)
+
+
 def main():
     """Đọc stdin, gửi theo thứ tự, flush rồi in số tin."""
     from confluent_kafka import Producer
@@ -41,7 +47,12 @@ def main():
     for line in sys.stdin:
         if line.strip():
             event = to_event(json.loads(line))
-            producer.produce(TOPIC, key=event["seller_sku"], value=json.dumps(event))
+            producer.produce(
+                TOPIC,
+                key=event["seller_sku"],
+                value=json.dumps(event),
+                timestamp=event_ms(event),
+            )
             producer.poll(0)
             sent += 1
     producer.flush(60)

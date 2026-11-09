@@ -5,7 +5,11 @@ Cùng một file submit HAI job (DataStream API, Flink 2.2), khác nhau ở sink
   --sink offline  Parquet append vào thư mục S3 (offline) job ml-sku-return-24h-offline
 Mỗi job đọc Kafka bằng consumer group riêng, tự tính lại cùng phép đếm.
 
-Submit: scripts/run/run_sku_return_feature.sh (chạy cả hai). Thay cho sku_return_feature_a.sql + feast-pusher.
+Event time = timestamp bản ghi Kafka (replay_return_events.py đặt bằng effective_at): watermark sinh NGAY Ở SOURCE, theo
+từng partition. Sinh sau khi gộp partition thì partition đọc nhanh làm watermark vượt partition chậm ⇒ tin bị coi là trễ và
+rớt âm thầm (diễn tập 401.129 tin 3 partition, 09/11: sai 37.284 cửa sổ). PyFlink from_source bỏ qua TimestampAssigner Python.
+
+Submit: scripts/run/run_stream_feature_jobs.sh (chạy cả hai). Thay cho sku_return_feature_a.sql + feast-pusher.
 """
 
 import argparse
@@ -42,8 +46,11 @@ def to_rows(windows):
     ]
 
 
-def build_windows(raw_stream):
-    """Chuỗi string JSON → (sku, window_end_ms, count) cho mỗi cửa sổ HOP 24h/1h có tin."""
+def build_windows(raw_stream, assign_event_time=False):
+    """Chuỗi string JSON → (sku, window_end_ms, count) cho mỗi cửa sổ HOP 24h/1h có tin.
+
+    Job thật lấy event time và watermark từ source Kafka; `assign_event_time` chỉ cho test với nguồn không có timestamp.
+    """
     from pyflink.common import Duration, Time, Types, WatermarkStrategy
     from pyflink.common.watermark_strategy import TimestampAssigner
     from pyflink.datastream import KeyedProcessFunction
@@ -91,21 +98,22 @@ def build_windows(raw_stream):
         def process(self, key, context, counts):
             yield key, context.window().end, next(iter(counts))
 
-    # Không with_idleness: PyFlink 2.2 làm mất timestamp khi bật (đo 07/11). Không cần: parallelism 1, watermark
-    # sinh sau khi đã gộp 3 partition nên partition rảnh không giữ watermark lại.
-    watermarks = WatermarkStrategy.for_bounded_out_of_orderness(
-        Duration.of_hours(1)
-    ).with_timestamp_assigner(EventTime())
-    return (
+    deduped = (
         raw_stream.map(parse_event, output_type=Types.PICKLED_BYTE_ARRAY())
         .filter(lambda e: e is not None)
         .map(lambda e: e, output_type=event_type)
         .key_by(lambda e: e[0], key_type=Types.STRING())
         .process(DropDuplicates(), output_type=event_type)
         .name("drop-duplicates")
-        # Gán event time SAU bỏ trùng: process function Python không giữ timestamp của bản ghi vào.
-        .assign_timestamps_and_watermarks(watermarks)
-        .key_by(lambda e: e[1], key_type=Types.STRING())
+    )
+    if assign_event_time:
+        deduped = deduped.assign_timestamps_and_watermarks(
+            WatermarkStrategy.for_bounded_out_of_orderness(
+                Duration.of_hours(1)
+            ).with_timestamp_assigner(EventTime())
+        )
+    return (
+        deduped.key_by(lambda e: e[1], key_type=Types.STRING())
         .window(SlidingEventTimeWindows.of(Time.hours(24), Time.hours(1)))
         .aggregate(
             Count(),
@@ -212,7 +220,7 @@ def attach_sink(windows, sink, flush_seconds, offline_path):
 
 def main(argv=None):
     """Đọc cờ, dựng job đúng sink rồi chạy liên tục."""
-    from pyflink.common import WatermarkStrategy
+    from pyflink.common import Duration, WatermarkStrategy
     from pyflink.common.serialization import SimpleStringSchema
     from pyflink.datastream import StreamExecutionEnvironment
     from pyflink.datastream.connectors.kafka import KafkaOffsetsInitializer, KafkaSource
@@ -242,7 +250,11 @@ def main(argv=None):
         .set_value_only_deserializer(SimpleStringSchema())
         .build()
     )
-    raw = env.from_source(source, WatermarkStrategy.no_watermarks(), "return_events")
+    # Watermark theo từng partition, event time = timestamp bản ghi Kafka; idleness: partition hết tin không giữ watermark.
+    watermarks = WatermarkStrategy.for_bounded_out_of_orderness(Duration.of_hours(1)).with_idleness(
+        Duration.of_seconds(10)
+    )
+    raw = env.from_source(source, watermarks, "return_events")
     attach_sink(build_windows(raw), args.sink, flush, args.offline_path)
     env.execute(name)
 

@@ -4,7 +4,13 @@
 # không sinh job trùng. COMPOSE mặc định dùng COMPOSE_FILE của máy (EC2 đặt sẵn overlay AWS).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-read -ra C <<<"${COMPOSE:-docker compose --profile flink-ml}"
+read -ra C <<<"${COMPOSE:-docker compose --profile stream --profile flink-ml}"
+topic=order_snapshots.return_events
+# Bản ghi mang event time (quá khứ): không có retention.ms=-1 thì Kafka xoá ngay theo timestamp.
+"${C[@]}" exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists \
+  --topic "$topic" --partitions 3 --replication-factor 1 --config retention.ms=-1
+"${C[@]}" exec -T kafka /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092 --alter \
+  --entity-type topics --entity-name "$topic" --add-config retention.ms=-1
 rest="http://localhost:${FLINK_ML_UI_PORT:-8086}"
 for sink in online offline; do
   name="ml-sku-return-24h-$sink"

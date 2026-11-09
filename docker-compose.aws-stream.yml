@@ -89,7 +89,7 @@ services:
       - /mnt/platform-data/flink-ml:/opt/flink/output
   flink-ml-taskmanager:
     scale: 1
-    cpus: "2"
+    cpus: "3"   # job Python dùng ~3 core khi phát lại (đo 09/11); Kafka và JobManager gần như rảnh
     environment: *flink-ml-aws-env
     mem_limit: 3584m
     volumes: !override
