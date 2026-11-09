@@ -343,9 +343,14 @@ def test_aws_flink_ml_cluster_uses_iam_and_disk_checkpoints():
     for svc in ("flink-ml-jobmanager", "flink-ml-taskmanager"):
         conf = stream["services"][svc]
         env = conf["environment"]
-        assert not {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "FEAST_S3_ENDPOINT_URL"} & set(env)
+        assert not {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "FEAST_S3_ENDPOINT_URL"} & set(
+            env
+        )
         assert env["FEAST_SKU_RETURN_24H_PATH"].endswith("/feature-store/sku_return_24h/")
-        assert "execution.checkpointing.dir: file:///opt/flink/output/checkpoints" in env["FLINK_PROPERTIES"]
+        assert (
+            "execution.checkpointing.dir: file:///opt/flink/output/checkpoints"
+            in env["FLINK_PROPERTIES"]
+        )
         assert conf["volumes"] == ["/mnt/platform-data/flink-ml:/opt/flink/output"]
     ports = stream["services"]["flink-ml-jobmanager"]["ports"]
     assert ports == ["127.0.0.1:${FLINK_ML_UI_PORT:-8086}:8081"]
