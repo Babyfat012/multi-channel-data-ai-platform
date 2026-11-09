@@ -126,7 +126,7 @@ mapping là phù hợp với phạm vi bảng thử, chưa phải phép đo đ�
 
 ![Airflow Grid bridge nhãn Walmart](../../images/airflow/dp3_walmart_labels-grid-five-channels.png)
 
-## Trên AWS (2026-10-28)
+## Trên AWS
 
 DP2/DP3 chạy Spark Compose EC2, bảng Iceberg ở S3; run_id nằm trong
 [manifest AWS](../../evidence/aws/datahub-validation-aws-20261029.json).

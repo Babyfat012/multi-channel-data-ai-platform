@@ -1,9 +1,9 @@
 <!-- Mục đích: runbook người vận hành triển khai Data Platform batch EC2 + S3, thu proof và dọn tài nguyên. -->
 # Triển khai AWS — Data Platform
 
-Môi trường đã triển khai: Sydney `ap-southeast-2`, EC2 Data Platform/S3 và EKS `platform-apps` cho ML/LLM. Các lần chạy ngày 27–31/10/2026 được đối chiếu tại [Data Platform evidence](../edai-1/evidence.md), [kiểm kê AWS](rubric_cloud_audit.md) và [IaC](../edai-2/iac.md).
+Môi trường đã triển khai: Sydney `ap-southeast-2`, EC2 Data Platform/S3 và EKS `platform-apps` cho ML/LLM. Các lần chạy được đối chiếu tại [Data Platform evidence](../edai-1/evidence.md), [kiểm kê AWS](rubric_cloud_audit.md) và [IaC](../edai-2/iac.md).
 
-Runbook dưới đây tập trung EC2/S3 và thu bằng chứng pipeline. Dựng EKS và phát hành image theo [Cloud setup](cloud_setup.md). Dùng cấu hình máy, region và IP thực của lần chạy; preset cũ trong ví dụ không mô tả toàn bộ môi trường ngày 31/10.
+Runbook dưới đây tập trung EC2/S3 và thu bằng chứng pipeline. Dựng EKS và phát hành image theo [Cloud setup](cloud_setup.md). Dùng cấu hình máy, region và IP thực của lần chạy; preset cũ trong ví dụ không mô tả toàn bộ môi trường.
 
 <a id="chuan-bi"></a>
 ## 1. Máy điều khiển và tài khoản (laptop)
@@ -294,7 +294,7 @@ trang AWS ở thời điểm chạy. Không truy cập mạng trong lượt vi�
 Credit chỉ bù khoản đủ điều kiện, không làm chi phí bằng 0; budget $30 là
 cảnh báo, không tự dừng máy. Chưa có lịch tự động stop.
 
-## Bật lại EKS từ 0 node (đo 09/11/2026)
+## Bật lại EKS từ 0 node
 
 Sau khi đưa node group về 2, làm theo thứ tự rồi mới deploy:
 

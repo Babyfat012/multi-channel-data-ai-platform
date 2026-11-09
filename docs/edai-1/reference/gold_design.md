@@ -1,6 +1,6 @@
 # Thiết kế tầng Gold — các quyết định đã triển khai
 
-Cập nhật 2026-10-14. Tài liệu này ghi các dữ kiện và lựa chọn đã chốt trước khi xây Gold.
+Tài liệu này ghi các dữ kiện và lựa chọn đã chốt trước khi xây Gold.
 Gold fact, Amazon SCD2, feature và bridge nhãn đã được kiểm chứng trong
 [các run ngày 2026-10-14](gold.md). Từ vựng nghiệp vụ giữ ở
 [thuật ngữ và tầng dữ liệu](../../shared/terminology.md).
@@ -22,7 +22,7 @@ Gold fact, Amazon SCD2, feature và bridge nhãn đã được kiểm chứng tr
   xác định duy nhất một dòng sản phẩm phải dùng đồng thời
   `purchase_order_id`, `customer_order_id`, `line_number` (`docs/edai-1/reference/silver.md` mục 3.1).
 
-## ✅ Q1 — Bảng Gold đầu tiên chi tiết đến mức nào? (đã chốt 2026-10-14)
+## ✅ Q1 — Bảng Gold đầu tiên chi tiết đến mức nào? (đã chốt)
 
 | Lựa chọn | Được gì | Đánh đổi |
 |---|---|---|
@@ -51,7 +51,7 @@ chéo USD/VND nếu chưa có bảng tỷ giá.
 - Ground truth chỉ dùng ở DP3 khi tạo tập dữ liệu có nhãn; không đi vào fact.
   `label_available_at` phải nhỏ hơn hoặc bằng mốc chốt dữ liệu của lần chạy.
 
-## ✅ Q2 — DP3 dự đoán vào thời điểm nào? (đã chốt 2026-10-14)
+## ✅ Q2 — DP3 dự đoán vào thời điểm nào? (đã chốt)
 
 | Lựa chọn | Trường được dùng làm đặc trưng | Đánh đổi |
 |---|---|---|
@@ -63,7 +63,7 @@ snapshot mới nhất để báo cáo, nhưng job feature DP3 chỉ chọn các 
 biết được khi đặt hàng. `order_status` cuối cùng và `last_updated_time`
 không được dùng làm đặc trưng.
 
-## ✅ Q3 — Nối nhãn Walmart khi mã đơn bị trùng thế nào? (đã chốt 2026-10-14)
+## ✅ Q3 — Nối nhãn Walmart khi mã đơn bị trùng thế nào? (đã chốt)
 
 Mapping `ground-truth/order_line_keys/walmart` chỉ có
 `channel_order_id` và `channel_line_id`; payload Walmart còn có
@@ -105,7 +105,7 @@ có thể cung cấp thay đổi Order Status thực tế của dữ liệu mô 
 | **B. `dim_sku` từ catalog Seller tĩnh** | Quan hệ SKU xuyên cả năm Channel rõ ràng | Không có thay đổi thuộc tính thật trong nguồn hiện tại; phải bổ sung lịch sử nguồn mới trước khi chứng minh SCD2 |
 
 **Đề xuất A:** có lịch sử nguồn đã được giao cho hệ thống và tránh bịa phiên
-bản SKU. **Người dùng chọn A (2026-10-14).**
+bản SKU. **Người dùng chọn A.**
 
 ## ✅ Q5 — Mốc bắt đầu phiên bản SCD2
 
@@ -120,7 +120,7 @@ Vì vậy có hai mốc nguồn thật để đặt `valid_from_ts`:
 
 **Đề xuất A:** nguồn mô phỏng ghi thời điểm đổi trạng thái trực tiếp. Giữ thêm
 `first_observed_export_date` để phân biệt thời điểm nghiệp vụ và thời điểm quan
-sát. **Người dùng chọn A (2026-10-14).** Các trạng thái không từng xuất hiện
+sát. **Người dùng chọn A.** Các trạng thái không từng xuất hiện
 trong Bronze vẫn không thể phục hồi; không tự lấp bằng lịch sử của generator.
 
 ## ✅ Q6 — Gắn phiên bản chiều với Gold fact
@@ -136,7 +136,7 @@ chốt ở Q5:
 | **B. Giữ fact hiện có, nối bằng mã Order + thời gian trong câu SQL** | Không cần ghi lại fact | Mỗi người viết query phải nhớ điều kiện thời gian; không có khóa phiên bản hiện rõ trong schema |
 
 **Đề xuất A:** quan hệ dim/fact có thể kiểm khóa và thể hiện rõ trong tài liệu
-schema. **Người dùng chọn A (2026-10-14).**
+schema. **Người dùng chọn A.**
 
 ## SCD2 đã triển khai và kiểm chứng
 
@@ -164,9 +164,9 @@ schema. **Người dùng chọn A (2026-10-14).**
   thay cho bằng chứng cũ nếu đầu ra thay đổi. Bảng nhãn Walmart ở riêng và
   không bị đổi schema.
 
-## Trên AWS (2026-10-28)
+## Trên AWS
 
-DP2/DP3 Spark Compose EC2 đã ghi Gold trên S3; [Gold AWS](gold.md#trên-aws-2026-10-28)
+DP2/DP3 Spark Compose EC2 đã ghi Gold trên S3; [Gold AWS](gold.md#trên-aws)
 nhúng log validator và dẫn code fact, SCD2, feature.
 [Manifest AWS](../../evidence/aws/datahub-validation-aws-20261029.json) ghi SCD2 không thiếu phiên bản,
 fact không trùng khóa, feature không sai event time trong các run được ghi.

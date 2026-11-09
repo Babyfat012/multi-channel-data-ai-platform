@@ -2,7 +2,7 @@
 
 Tài liệu thiết kế và triển khai generator dữ liệu giả lập cho dự án. Trạng thái: **đã triển khai trong phạm vi mô tả ở mục 15**. Thuật ngữ (Channel, Storefront, Order Line, ...) xem [Domain.md](../../shared/domain.md). Nguồn và mức tin cậy của dạng dữ liệu từng Channel xem [channel-sources.md](channel_sources.md).
 
-Cập nhật resume 2026-10-18: trước mọi ghi/xóa, Batch so
+Cập nhật resume trước mọi ghi/xóa, Batch so
 `_dataset_identity.json` với config (không gồm output root), thứ tự Storefront,
 SHA-256 mã generator và Python/NumPy/PyArrow/fsspec versions. Checkpoints và
 manifest cùng mang `dataset_version`. Đổi config/code/runtime hoặc root cũ
@@ -717,7 +717,7 @@ gần như không đổi. Chạy lại `uv run python -m generator report` để
 | walmart.orders | PostgreSQL (bảng, gồm index) | heap, cột JSONB |  | 73.61 |
 | seller.skus | PostgreSQL (bảng, gồm index) | heap |  | 0.31 |
 
-## Trên AWS (2026-10-27 đến 2026-10-28)
+## Trên AWS
 
 Generator chạy trên EC2, batch lưu S3/PostgreSQL, stream phát Kafka Compose.
 [Receipt batch](../../evidence/aws/data-platform-aws-20261027.json) ghi 141.774.479.087 byte raw S3;
@@ -728,7 +728,7 @@ Generator chạy trên EC2, batch lưu S3/PostgreSQL, stream phát Kafka Compose
 ![Flink dedup_tiktok_state_proof: cạnh HASH tới Deduplicate, source gửi 93.554 record, job FINISHED](../../evidence/aws/flink-dedup-graph-20261028.png)
 
 Ảnh metadata nguồn S3 và Flink nhận record xác nhận các phần của đường đi dữ liệu;
-số đặc tính AWS và giới hạn được ghi tại [batch AWS](data_quality_report_batch.md#trên-aws-2026-10-27)
-và [stream AWS](data_quality_report_stream.md#trên-aws-2026-10-28).
+số đặc tính AWS và giới hạn được ghi tại [batch AWS](data_quality_report_batch.md#trên-aws)
+và [stream AWS](data_quality_report_stream.md#trên-aws).
 [Code generator](../../../generator/__main__.py), [batch config](../../../configs/scale-100gb.yaml), [stream config](../../../configs/default.yaml).
 Chưa có report AWS riêng về skew/cardinality/schema/duplicate batch; không dùng histogram local thay capture cloud.

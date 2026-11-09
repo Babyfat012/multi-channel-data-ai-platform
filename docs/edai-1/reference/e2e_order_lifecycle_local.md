@@ -79,7 +79,7 @@ Không dùng số đó như peak toàn bộ Spark/executors/container.
 | medium / Q2 | chưa đo — medium chưa tới bước EXPLAIN | — |
 | medium / Q3 | chưa đo — medium chưa tới bước EXPLAIN | — |
 
-Số đo 2026-10-19, local, `--driver-memory 6g`. **small**: chạy sau khi đổi tên và sau ba bản sửa bộ nhớ/hiệu năng; mọi check Gold = 0; số dòng mọi bảng trùng lần chạy trước khi đổi tên. **medium**: lần chạy *trước* các bản sửa: Silver 2.090 s (87% ở `coverage_validity`, đã sửa bằng `collect_set`), `gold_build` qua, `gold_validate` OOM ở oracle feature (đã sửa: gom theo SKU). Chưa chạy lại medium sau sửa. EXPLAIN small: Q1 cửa sổ 30 ngày cuối không có đơn (0 dòng) nên không chứng minh lợi ích index; Q3 giảm 104 → 4 buffer nhờ index; Q2 không đổi (583). Q1/Q2/Q3 là ba truy vấn mẫu của `scripts/evidence/measure_order_lifecycle_warehouse.py`.
+Số đo local, `--driver-memory 6g`. **small**: chạy sau khi đổi tên và sau ba bản sửa bộ nhớ/hiệu năng; mọi check Gold = 0; số dòng mọi bảng trùng lần chạy trước khi đổi tên. **medium**: lần chạy *trước* các bản sửa: Silver 2.090 s (87% ở `coverage_validity`, đã sửa bằng `collect_set`), `gold_build` qua, `gold_validate` OOM ở oracle feature (đã sửa: gom theo SKU). Chưa chạy lại medium sau sửa. EXPLAIN small: Q1 cửa sổ 30 ngày cuối không có đơn (0 dòng) nên không chứng minh lợi ích index; Q3 giảm 104 → 4 buffer nhờ index; Q2 không đổi (583). Q1/Q2/Q3 là ba truy vấn mẫu của `scripts/evidence/measure_order_lifecycle_warehouse.py`.
 
 
 Chưa chạy Docker/Spark/PostgreSQL trong sandbox Codex. Local dùng CPU/đĩa/cache

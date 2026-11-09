@@ -4,21 +4,21 @@ EDAI-2, dòng 15: KServe với model-inside-image.
 
 Code / cấu hình: [InferenceService](../../infra/k8s/ml/return-risk.yaml), [deployment script](../../scripts/run/deploy_return_risk.sh).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên EKS (2026-10-31)
+## Trên EKS
 
 InferenceService [`return-risk`](../../infra/k8s/ml/return-risk.yaml) ở namespace `ml-serving` (model-inside-image: image
 ECR chứa model MLflow `return-risk` v1 `production`, build bằng [`deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh)). Gọi thẳng predictor qua
 port-forward, đơn APP-00042 Amazon US 1 cái 25 USD ⇒ `score` 0,1661, `abstain` false, `model_version` "1" — cùng số
-Feature API `/predict` và model-agent trả (xem [Web API](web_api_mcp.md#trên-eks-2026-10-30)).
+Feature API `/predict` và model-agent trả (xem [Web API](web_api_mcp.md#trên-eks)).
 
 ![KServe trên EKS: inferenceservice return-risk READY True, pod predictor Running, POST :predict trả score 0.1661 model_version 1](../evidence/aws/kserve-pod-predict-20261031.png)
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: phục vụ model return-risk bằng KServe (model-inside-image) -->
 ## Serve model return-risk — KServe
@@ -68,7 +68,7 @@ scripts/run/deploy_return_risk.sh
 
 ## Bằng chứng
 
-Deploy 2026-10-21 (kind, KServe v0.21.0 RawDeployment): `return-risk` READY = True, pod
+Deploy (kind, KServe v0.21.0 RawDeployment): `return-risk` READY = True, pod
 `return-risk-predictor-…` Running, image `platform-return-risk:v3` = MLflow `return-risk` v3 (alias
 `production`, PR-AUC 0,341 vs baseline 0,329 vs prevalence 0,312).
 
@@ -78,7 +78,7 @@ POST /v1/models/return-risk:predict  → sku-00002 0,346 · sku-00099 0,305 · s
 ```
 
 Thứ tự khớp tỷ lệ trả thật trong dữ liệu (sku-00002 ~54%, sku-00003 ~7%). Cả ba `abstain:
-insufficient_history` là **đúng**: Redis giữ ảnh chụp ngày 2026-10-13, còn đơn cuối đặt 2026-02-14 ⇒
+insufficient_history` là **đúng**: Redis giữ ảnh chụp, còn đơn cuối đặt 2026-02-14 ⇒
 cửa sổ 90 ngày không còn line có nhãn. Model vẫn trả score để tham khảo nhưng không khẳng định.
 
 Lỗi gặp khi deploy: client MLflow tải artifact bằng presigned URL trỏ `minio:9000` (tên chỉ có trong

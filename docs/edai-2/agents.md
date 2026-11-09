@@ -13,17 +13,17 @@ Rubric: Agent 2 (online feature + predict + RAG) phải có tài liệu **tươn
 | Hạng mục | Data Agent (Agent 1) | Model Agent (Agent 2) |
 |---|---|---|
 | Tool | `get_sku_features`, `get_policy_chunks` | `get_sku_features` (online feature), `predict_return_risk` (KServe), `search_policy_chunks` (RAG) — [manifest](../../infra/k8s/agents/model-agent.yaml) |
-| Chat gọi tool trên EKS | [ảnh](../evidence/aws/kagent-ui-coordinator-data-agent-20261030.png) | predict: [ảnh](../evidence/aws/kagent-ui-model-agent-tool-20261030.png), RAG: [ảnh](../evidence/aws/rag-model-agent-answer-20261030.png) (30/10) |
-| Multi-replica + KEDA | 2 → 3 → 2 ([log](../evidence/aws/keda-data-agent-20261030.txt)) | min 2 max 3, 2 → 3 → 2: [ảnh apply](../evidence/aws/keda-model-agent-apply.png), [lúc tải](../evidence/aws/keda-scale-up-model-agent-coordinator.png), [sau tải](../evidence/aws/keda-scale-down-model-agent-coordinator.png) (04/11), [log theo pod](../evidence/aws/keda-model-agent.txt) (06/11) |
-| Sandbox gVisor | `data-agent-sandbox` gọi tool ([ảnh](../evidence/aws/substrate-sandbox-agent-ui-20261031.png), 31/10) | `model-agent-sandbox` READY, gọi `search_policy_chunks`, trả lời 15 ngày ([ảnh](../evidence/aws/model-agent-sandbox-chat-20261106.png), 06/11) — [manifest](../../infra/k8s/agents/sandbox/model-agent-sandbox.yaml) |
+| Chat gọi tool trên EKS | [ảnh](../evidence/aws/kagent-ui-coordinator-data-agent-20261030.png) | predict: [ảnh](../evidence/aws/kagent-ui-model-agent-tool-20261030.png), RAG: [ảnh](../evidence/aws/rag-model-agent-answer-20261030.png) |
+| Multi-replica + KEDA | 2 → 3 → 2 ([log](../evidence/aws/keda-data-agent-20261030.txt)) | min 2 max 3, 2 → 3 → 2: [ảnh apply](../evidence/aws/keda-model-agent-apply.png), [lúc tải](../evidence/aws/keda-scale-up-model-agent-coordinator.png), [sau tải](../evidence/aws/keda-scale-down-model-agent-coordinator.png), [log theo pod](../evidence/aws/keda-model-agent.txt) |
+| Sandbox gVisor | `data-agent-sandbox` gọi tool ([ảnh](../evidence/aws/substrate-sandbox-agent-ui-20261031.png)) | `model-agent-sandbox` READY, gọi `search_policy_chunks`, trả lời 15 ngày ([ảnh](../evidence/aws/model-agent-sandbox-chat-20261106.png)) — [manifest](../../infra/k8s/agents/sandbox/model-agent-sandbox.yaml) |
 | Publish registry | [entry](../../infra/k8s/agents/registry/data-agent.yaml) | [entry](../../infra/k8s/agents/registry/model-agent.yaml); UI registry có cả 3 Agent ([ảnh](../evidence/aws/agent-registry-ui-20261030.png)) |
-| Gọi MCP qua gateway | `tools/list`, `get_sku_features` | cả hai tool riêng của Model Agent, smoke EKS 06/11 ([JSON](../evidence/aws/gateway-smoke-20261106.json), bảng dưới) |
-| Backend multi-replica + autoscale | MCP `feature-mcp` 2→3→2 ([log](../evidence/aws/feature-mcp-autoscale.txt)) | KServe `return-risk` 2→3→2 ([ảnh lúc tải](../evidence/aws/return-risk-scale-up-20261109.png), [sau tải](../evidence/aws/return-risk-scale-down-20261109.png), [log](../evidence/aws/return-risk-autoscale.txt), 09/11); MCP `feature-mcp` như cột trái ([Web API và MCP](web_api_mcp.md)) |
+| Gọi MCP qua gateway | `tools/list`, `get_sku_features` | cả hai tool riêng của Model Agent, smoke EKS ([JSON](../evidence/aws/gateway-smoke-20261106.json), bảng dưới) |
+| Backend multi-replica + autoscale | MCP `feature-mcp` 2→3→2 ([log](../evidence/aws/feature-mcp-autoscale.txt)) | KServe `return-risk` 2→3→2 ([ảnh lúc tải](../evidence/aws/return-risk-scale-up-20261109.png), [sau tải](../evidence/aws/return-risk-scale-down-20261109.png), [log](../evidence/aws/return-risk-autoscale.txt)); MCP `feature-mcp` như cột trái ([Web API và MCP](web_api_mcp.md)) |
 
-Eval Model Agent trên EKS 09/11 (Jenkins #13, [chi tiết](agent_evaluation.md)): predict **12/12**, policy **3/5**, dưới ngưỡng 0,95 nên build đỏ: Qwen 1,5B đôi khi viết lệnh gọi tool thành văn bản thay vì gọi thật.
-Smoke chạy lại sau khi tách `feature-mcp`, 09/11: [24/24 PASS](../evidence/aws/gateway-smoke-20261109.json).
+Eval Model Agent trên EKS (Jenkins #13, [chi tiết](agent_evaluation.md)): predict **12/12**, policy **3/5**, dưới ngưỡng 0,95 nên build đỏ: Qwen 1,5B đôi khi viết lệnh gọi tool thành văn bản thay vì gọi thật.
+Smoke chạy lại sau khi tách `feature-mcp`: [24/24 PASS](../evidence/aws/gateway-smoke-20261109.json).
 
-Các check MCP của Model Agent trong smoke 06/11 (`recorded 2026-11-06T10:23:46Z`, tổng 24/24 PASS):
+Các check MCP của Model Agent trong smoke (`recorded 2026-11-06T10:23:46Z`, tổng 24/24 PASS):
 
 | Check | Kết quả |
 |---|---|
@@ -46,7 +46,7 @@ KServe `return-risk` (backend predict): KEDA scale theo `return_risk_predictions
 
 ![agentregistry UI trên EKS: 1 MCP server và 3 agent đã publish, gồm model-agent](../evidence/aws/agent-registry-ui-20261030.png)
 
-## Bằng chứng EKS, 30–31/10/2026
+## Bằng chứng EKS
 
 APP-00042 có 15.306 dòng gắn nhãn, 2.599 Return, tỉ lệ 0,1698. Model Agent gọi prediction tool, score 0,1661; số khớp API trực tiếp.
 
@@ -56,14 +56,14 @@ APP-00042 có 15.306 dòng gắn nhãn, 2.599 Return, tỉ lệ 0,1698. Model Ag
 
 ![Model Agent trả lời theo chính sách RAG](../evidence/aws/rag-model-agent-answer-20261030.png)
 
-KEDA Data Agent: 3 request/giây vào agent card trong 150 giây, pod **2 → 3 → 2**. Script [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh) ghi thêm tên từng pod ở mỗi mốc, và [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh) in ScaledObject/HPA, từng pod Agent chạy ở node nào, WorkerPool và SandboxAgent (04/11/2026, [output](../evidence/aws/eks-runtime-proof-part2.png)). Đây là tải route A2A, không phải tải inference LLM. [Log EKS](../evidence/aws/keda-data-agent-20261030.txt).
+KEDA Data Agent: 3 request/giây vào agent card trong 150 giây, pod **2 → 3 → 2**. Script [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh) ghi thêm tên từng pod ở mỗi mốc, và [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh) in ScaledObject/HPA, từng pod Agent chạy ở node nào, WorkerPool và SandboxAgent ([output](../evidence/aws/eks-runtime-proof-part2.png)). Đây là tải route A2A, không phải tải inference LLM. [Log EKS](../evidence/aws/keda-data-agent-20261030.txt).
 
-### KEDA Model Agent, 04/11 và 06/11/2026 (EKS `platform-apps`)
+### KEDA Model Agent (EKS `platform-apps`)
 
 [ScaledObject](../../infra/k8s/agents/model-agent-keda.yaml) min 2, max 3, ngưỡng 0,5 request/giây mỗi pod theo route `a2a-model-agent`.
 Chạy [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh) (3 request/giây lấy agent card, 150 giây); mỗi mốc ghi **tên đuôi từng pod**.
-Log [keda-model-agent.txt](../evidence/aws/keda-model-agent.txt) là lần **06/11**: pod **2 → 3 → 2**; lên 3 sau 54 giây khi `target=792m/500m` (pod mới `smvxc`),
-về 2 sau 468 giây khi tải đã dừng (pod `gljwt` bị bỏ, `bqckg` và `smvxc` ở lại). Lần 04/11 (ảnh bên dưới) cho kết quả tương tự (lên 3 sau khoảng 27 giây, về 2 sau khoảng 8 phút do HPA chờ ổn định).
+Log [keda-model-agent.txt](../evidence/aws/keda-model-agent.txt) là lần pod **2 → 3 → 2**; lên 3 sau 54 giây khi `target=792m/500m` (pod mới `smvxc`),
+về 2 sau 468 giây khi tải đã dừng (pod `gljwt` bị bỏ, `bqckg` và `smvxc` ở lại). Lần (ảnh bên dưới) cho kết quả tương tự (lên 3 sau khoảng 27 giây, về 2 sau khoảng 8 phút do HPA chờ ổn định).
 Tải là A2A lấy agent card, không phải tải inference LLM. Phần Events của HPA có vài dòng `FailedGetExternalMetric` rải rác trong 45 giờ: thời gian cluster tắt nên Prometheus không trả lời.
 
 ![ScaledObject và HPA Model Agent sau khi áp dụng: READY True, min 2, max 3, 2 pod Running](../evidence/aws/keda-model-agent-apply.png)
@@ -79,7 +79,7 @@ Sandbox dùng Agent Substrate/gVisor; Agent gọi được `get-sku-features`. M
 
 ![Sandbox Agent gọi tool trên EKS](../evidence/aws/substrate-sandbox-agent-ui-20261031.png)
 
-Trạng thái trên EKS (04/11/2026): `workerpool kagent-default` DESIRED 1, REPLICAS 1; sáu SandboxAgent (`data-agent-sandbox` và năm `fleet-*`) đều `READY True`, `ACCEPTED True`;
+Trạng thái trên EKS: `workerpool kagent-default` DESIRED 1, REPLICAS 1; sáu SandboxAgent (`data-agent-sandbox` và năm `fleet-*`) đều `READY True`, `ACCEPTED True`;
 các pod Substrate trong `ate-system` (api server, controller, hai `atelet`, `atenet-router`, DNS, rustfs, sáu `valkey-cluster`) đều Running.
 Kubernetes không có RuntimeClass nào (`No resources found`): gVisor do Substrate áp dụng qua `sandboxClass` của WorkerPool và image `ateom-gvisor`, không qua RuntimeClass.
 
@@ -89,7 +89,7 @@ Kubernetes không có RuntimeClass nào (`No resources found`): gVisor do Substr
 
 Code Sandbox: [deploy_substrate.sh](../../scripts/setup/deploy_substrate.sh), [manifest](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
 
-## Bằng chứng bổ sung cho Model Agent, 06/11/2026 (EKS `platform-apps`)
+## Bằng chứng bổ sung cho Model Agent (EKS `platform-apps`)
 
 - **Probe và health:** [eks-runtime-proof-20261106.txt](../evidence/aws/eks-runtime-proof-20261106.txt). Feature API có Liveness `/healthz`, Readiness `/readyz` và Startup;
   gọi `/healthz` và `/readyz` trong từng pod đều trả 200. Ba Deployment Agent chỉ khai **Readiness** `/.well-known/agent-card.json` (không có Liveness/Startup).

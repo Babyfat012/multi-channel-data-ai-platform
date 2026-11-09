@@ -4,12 +4,12 @@ EDAI-1, dòng 34–38: zones, SCD2, feature, dim–fact và naming.
 
 Code / cấu hình: [SCD2](../../spark_jobs/gold/build_amazon_order_status_scd2.py), [fact](../../spark_jobs/gold/build_order_snapshot_lines.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên AWS (2026-10-28)
+## Trên AWS
 
-DP1/DP2/DP3 chạy Compose EC2, các bảng Iceberg nằm ở S3. [DataHub AWS](data_governance.md#trên-aws-2026-10-28-đến-2026-10-29)
-nhúng lineage raw → stg → fact/dim → feat; [Gold AWS](reference/gold.md#trên-aws-2026-10-28) nhúng log validator.
+DP1/DP2/DP3 chạy Compose EC2, các bảng Iceberg nằm ở S3. [DataHub AWS](data_governance.md#trên-aws)
+nhúng lineage raw → stg → fact/dim → feat; [Gold AWS](reference/gold.md#trên-aws) nhúng log validator.
 [Manifest](../evidence/aws/datahub-validation-aws-20261029.json) giữ tên bảng và run_id.
 
 Các bảng `raw_` giữ payload nguồn, `stg_` chuẩn hóa/dedup, `fact_` giữ Order Line hoặc nhãn,
@@ -18,7 +18,7 @@ Các bảng `raw_` giữ payload nguồn, `stg_` chuẩn hóa/dedup, `fact_` gi�
 Code quan hệ: [SCD2](../../spark_jobs/gold/build_amazon_order_status_scd2.py),
 [fact](../../spark_jobs/gold/build_order_snapshot_lines.py), [feature](../../spark_jobs/gold/build_order_snapshot_return_features.py).
 
-Bảng thật trên AWS, đọc qua Trino EC2 (catalog `lakehouse` = Iceberg S3 qua Lakekeeper), 2026-10-31:
+Bảng thật trên AWS, đọc qua Trino EC2 (catalog `lakehouse` = Iceberg S3 qua Lakekeeper):
 
 ![Trino AWS: schema bronze/silver/gold; bronze 10 bảng raw_*, silver 5 bảng stg_*_order_lines_dp2, gold dim_/fact_/feat_](../evidence/aws/trino-zones-tables-20261031.png)
 
@@ -45,7 +45,7 @@ feature = Gold, 0 thiếu/thừa). Bản dbdiagram: [`gold-erd.dbml`](../diagram
 
 #### Chuẩn bị ảnh DBeaver có đường nối
 
-**Trạng thái:** đã có ảnh DBeaver ER Diagram có đường nối trên AWS (04/11/2026), cùng DBML và ảnh dbdiagram. Ảnh chụp từ Trino 483 trên EC2 qua tunnel `localhost:8083`,
+**Trạng thái:** đã có ảnh DBeaver ER Diagram có đường nối trên AWS, cùng DBML và ảnh dbdiagram. Ảnh chụp từ Trino 483 trên EC2 qua tunnel `localhost:8083`,
 catalog `lakehouse`, schema `gold`; năm bảng được đưa vào sơ đồ, bốn quan hệ vẽ nối vào `fact_order_lines_dp2`:
 
 ![DBeaver ER Diagram schema gold trên AWS: fact_order_lines_dp2 ở giữa, nối tới dim_amazon_order_dp2, fact_return_labels_dp3, fact_walmart_return_labels_dp3 và feat_order_line_return_dp3](../images/schema/gold-erd-dbeaver-aws.png)
@@ -97,11 +97,11 @@ Feast cần.
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 ## Schema ba zone và quan hệ Gold
 
-Kiểm tra trực tiếp bằng Trino `SHOW TABLES` và `DESCRIBE` ngày 2026-10-14. Sơ
+Kiểm tra trực tiếp bằng Trino `SHOW TABLES` và `DESCRIBE`. Sơ
 đồ dưới đây chỉ vẽ các bảng thuộc run DP1/DP2/DP3 của năm Channel; Bronze còn
 có bảng thử/smoke và `raw_walmart_cdc` cho pipeline CDC riêng.
 

@@ -28,10 +28,10 @@ tool ổn định. llm-d để dành cho khi có GPU.
 - `--metrics` mở `/metrics` (token/s, số request) cho Prometheus sau này.
 - Hết việc thì `kubectl -n llm scale deploy/qwen --replicas=0` để trả RAM.
 
-Kiểm 2026-10-21: câu "What is the return rate of SKU sku-00042?" kèm định nghĩa tool →
+Kiểm câu "What is the return rate of SKU sku-00042?" kèm định nghĩa tool →
 `finish_reason: tool_calls`, `get_sku_features({"seller_skus": ["sku-00042"]})`.
 
-### Benchmark và tối ưu, 2026-10-21
+### Benchmark và tối ưu
 
 Script [`scripts/evidence/bench_llm.py`](../../../scripts/evidence/bench_llm.py): request chat kiểu Agent (system prompt + 3 tool,
 ~520 token prompt, tối đa 64 token trả lời), 8 request mỗi mức đồng thời, đo gọi thẳng `qwen.llm:8080`.
@@ -53,7 +53,7 @@ CPU i5-11400H 6 nhân / 12 luồng.
 - Đã chọn B ([`llm.yaml`](../../../infra/k8s/agents/llm.yaml)). Số liệu: [`evidence/llm-benchmark-20261021.jsonl`](../../evidence/llm-benchmark-20261021.jsonl).
 - Khi có GPU: llm-d; cùng script đo lại để so.
 
-### Đo lại trên EKS, 2026-10-30
+### Đo lại trên EKS
 
 Node `r6i.xlarge` chỉ có 4 vCPU, nhưng cấu hình B đặt 6 luồng (theo laptop 6 nhân). Cùng script, gọi qua
 `kubectl port-forward svc/qwen`, chỉ đổi `--threads`:
@@ -92,7 +92,7 @@ agentgateway v1.6.0 (standalone, cấu hình bằng file), một cổng `:3000`:
   `kagent-agw-key` (`AGW_AGENT_KEY` cho model, `AUTH_HEADER` cho MCP).
 - Agent không biết địa chỉ thật của LLM hay Feature API; đổi model/backend chỉ sửa gateway.
 
-Kiểm 2026-10-21 (gọi từ pod trong cụm):
+Kiểm (gọi từ pod trong cụm):
 
 | Thử | Kết quả |
 |---|---|
@@ -117,7 +117,7 @@ bị chặn nếu thiếu key.
 MCP đặt thành route `/mcp` thay vì khối `mcp:` rút gọn: khối rút gọn nhận **mọi** đường dẫn và đứng trước
 các route khác, nên request A2A theo header bị nó bắt (lỗi `mcp: client must accept text/event-stream`).
 
-Kiểm 2026-10-21: card qua header và qua `/a2a/data-agent/` đều 200; MCP không key 401, có key liệt kê tool;
+Kiểm card qua header và qua `/a2a/data-agent/` đều 200; MCP không key 401, có key liệt kê tool;
 LLM `/v1/models` 200.
 
 Giới hạn còn lại: MCP chưa có rate limit ở gateway; rate limit là bộ đếm trong RAM (không chia sẻ giữa replica).
@@ -135,7 +135,7 @@ Mọi Agent tham chiếu cùng tên này; đổi LLM (vd sang llm-d trên GPU) c
 tool lấy từ `RemoteMCPServer feature-tools` trỏ vào gateway `/mcp` kèm header `Authorization` đọc từ Secret.
 System prompt ngắn, buộc gọi tool thay vì đoán số (model 1.5B dễ bịa).
 
-Kiểm 2026-10-21: Agent `READY=True ACCEPTED=True`, pod Running; `RemoteMCPServer` báo
+Kiểm Agent `READY=True ACCEPTED=True`, pod Running; `RemoteMCPServer` báo
 `discoveredTools: get_sku_features` (kagent tự gọi `tools/list` qua gateway bằng API key).
 Chưa chat thử: LLM đang scale 0 để nhường RAM cho Kubeflow.
 
@@ -153,7 +153,7 @@ Số replica: không khai `replicas` trong Agent ⇒ kagent không ghi đè `spe
 - KEDA: [`data-agent-keda.yaml`](../../../infra/k8s/agents/data-agent-keda.yaml) (min 2, max 4, theo tốc độ request
   A2A ở gateway, đọc từ Prometheus [`prometheus-values.yaml`](../../../infra/k8s/observability/prometheus-values.yaml)).
 
-### Chat thử 2026-10-21 (A2A `message/send` qua gateway `/a2a/<agent>/`)
+### Chat thử (A2A `message/send` qua gateway `/a2a/<agent>/`)
 
 | Hỏi | Agent | Tool được gọi | Kết quả |
 |---|---|---|---|
@@ -175,7 +175,7 @@ Gateway ghi nhận A2A coordinator → agent con qua route theo header (`default
 - Kết luận: kiến trúc (routing, tool, gateway) chạy; chất lượng trả lời nhiều bước bị giới hạn bởi model 1,5B.
   Có GPU thì thay bằng model lớn hơn qua llm-d, chỉ đổi gateway/ModelConfig.
 
-### Autoscale bằng KEDA 2026-10-21
+### Autoscale bằng KEDA
 
 Prometheus 29.36.2 (chỉ server) + KEDA 2.20.2. `ScaledObject data-agent`: min 2, max 3 (local), trigger
 Prometheus `sum(rate(agentgateway_requests_total{route="default/a2a-data-agent"}[1m]))`, ngưỡng 0,5 request/giây
@@ -207,7 +207,7 @@ khai trong [`infra/k8s/agents/registry/`](../../../infra/k8s/agents/registry/fea
 | Agent | data-agent, model-agent | image `golang-adk:0.10.3`, protocol A2A, `mcpServers: feature-tools` |
 | Agent | coordinator | image `golang-adk:0.10.3`, protocol A2A |
 
-Kiểm 2026-10-21: `arctl get mcpservers` / `arctl get agents` liệt kê đủ 1 + 3. Lỗi đã gặp: MCPServer không cho khai
+Kiểm `arctl get mcpservers` / `arctl get agents` liệt kê đủ 1 + 3. Lỗi đã gặp: MCPServer không cho khai
 cả `source` lẫn `remote`; `protocol` phải viết hoa `A2A`; `modelProvider/modelName` đã lỗi thời (chỉ cảnh báo) nên
 bỏ, ghi model vào mô tả. Registry không có đăng nhập riêng ⇒ chỉ mở qua ingress có basic auth.
 
@@ -232,7 +232,7 @@ kagent dựng lại config Agent (Secret <agent>/config.json)
 - Dựng + nạp lần đầu: `bash scripts/setup/deploy_kind_langfuse.sh` (prompt gốc ở
   [`infra/k8s/agents/prompts/`](../../../infra/k8s/agents/prompts/README.md), chỉ tạo khi Langfuse chưa có). Khoá API trong
   Secret `kagent/langfuse-api`; mật khẩu admin UI trong Secret `langfuse/langfuse-env`.
-- Kiểm 2026-10-21: nạp 3 prompt (version 1, production). Tạo `platform-coordinator` **version 2** trên Langfuse (thêm
+- Kiểm nạp 3 prompt (version 1, production). Tạo `platform-coordinator` **version 2** trên Langfuse (thêm
   "Always answer in English.") → chạy sync → `config.json` của coordinator chứa câu mới sau ~20 s, không cần deploy lại.
 - Lỗi đã gặp: 2 pod Langfuse chạy migration Prisma cùng lúc ⇒ migration hỏng (P3009). Sửa: `strategy: Recreate`,
   xoá/tạo lại database trống.
@@ -245,7 +245,7 @@ kagent dựng lại config Agent (Secret <agent>/config.json)
 Tải 3 request/giây trong 150 s: **2 → 3 pod** ở giây 45 (0,87/pod), **3 → 2** sau 5 phút hết tải
 ([evidence](../../evidence/keda-coordinator-20261021.txt)). Sau đo: ScaledObject tạm dừng ở 0 để trả RAM.
 
-## Trên EKS, 2026-10-30
+## Trên EKS
 
 Ba Agent chạy trên EKS `platform-apps`, cùng dùng Qwen 2.5 1,5B, vào qua `https://agent.<ip>.sslip.io`
 (basic auth `seller`, mật khẩu ở Vault `secret/platform/agent-ui`).

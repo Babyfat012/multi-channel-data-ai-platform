@@ -4,9 +4,9 @@ EDAI-1, dòng 28–33: lineage và validation của DP1/DP2/DP3.
 
 Code / cấu hình: [Manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên AWS (2026-10-28 đến 2026-10-29)
+## Trên AWS
 
 DataHub 1.7.0.1 chạy Compose trên EC2. Lần publish sáu DAG ghi 22 dataset, 30 job và 16 assertion PASS;
 [manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json) ghi run_id, task_id, rule và metrics của từng check.
@@ -20,7 +20,7 @@ DataHub 1.7.0.1 chạy Compose trên EC2. Lần publish sáu DAG ghi 22 dataset,
 | `dp2_silver` / `manual__2026-10-27T16:05:58+00:00` | Năm `silver.stg_*_order_lines_dp2` qua `build_gold_order_lines` → `gold.fact_order_lines_dp2`; `gold.dim_amazon_order_dp2` giữ SCD2 | `validate_gold_order_lines`: 227.200.303 = Silver, invalid và khóa trùng 0; validator dimension kiểm khóa fact và một bản hiện hành |
 | `dp3_features` / `manual__2026-10-28T00:05:21.167441+00:00` | `gold.fact_order_lines_dp2` qua `build_return_features` → `gold.feat_order_line_return_dp3`: feature lúc đặt Order | `validate_return_features`: 227.200.303 = Gold; missing/extra/wrong event time/trùng khóa/invalid đều 0 |
 
-Code pipeline và vai trò từng task: [Airflow AWS](pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28).
+Code pipeline và vai trò từng task: [Airflow AWS](pipeline_orchestration.md#trên-aws).
 
 ### DP1: nguồn và Bronze
 
@@ -46,7 +46,7 @@ Code pipeline và vai trò từng task: [Airflow AWS](pipeline_orchestration.md#
 
 [DAG CDC](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`:
 Kafka → `ingest_walmart_cdc` → `bronze.raw_walmart_cdc_v2`; validator kiểm 3 offset, không thiếu/thừa/sai payload.
-[Probe và giải thích CDC](reference/cdc.md#trên-aws-2026-10-28).
+[Probe và giải thích CDC](reference/cdc.md#trên-aws).
 
 ![DataHub CDC: Kafka orders qua ingest_walmart_cdc tới raw_walmart_cdc_v2 và validate_walmart_cdc](../evidence/aws/datahub/dp1-cdc-lineage.png)
 
@@ -73,13 +73,13 @@ nhưng các trang dataset/Lineage/Quality trong ảnh mở được.
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 ## DataHub — lineage và data validation của DP1/DP2/DP3
 
 ## Phạm vi bằng chứng
 
-DataHub GMS `v1.7.0.1` đã nhận **21 dataset** (22 sau khi thêm bảng CDC v2 ngày 2026-10-18), **29 Airflow job** và **15 assertion**
+DataHub GMS `v1.7.0.1` đã nhận **21 dataset** (22 sau khi thêm bảng CDC v2), **29 Airflow job** và **15 assertion**
 từ `scripts/run/publish_order_snapshots_datahub.py`. Sáu dataset nguồn gồm JSONL Amazon,
 ba nguồn JSONL Channel nhỏ, bảng PostgreSQL `walmart.orders` và topic Kafka CDC;
 15 dataset đích là các bảng Iceberg Bronze/Silver/Gold. Metadata nối nguồn →
@@ -121,16 +121,16 @@ bằng chứng của các run đã hoàn tất, chưa phải lịch giám sát v
 
 ![Assertion DP3 hiển thị Passing trong DataHub Quality](../images/datahub/dp3-validation.png)
 
-## Bằng chứng chạy lại ngày 2026-10-18
+## Bằng chứng chạy lại
 
-Ngày 2026-10-18 code CDC (bảng mới `raw_walmart_cdc_v2`, boundary theo run,
+Code CDC (bảng mới `raw_walmart_cdc_v2`, boundary theo run,
 source epoch) và validator feature (so tập khóa, event time) đã đổi. Hai
 check này được chạy lại bằng code hiện tại; mười ba check còn lại giữ run cũ vì
 code của chúng không đổi.
 
 | Check | Run mới | Kết quả |
 |---|---|---|
-| DP1 CDC `lakehouse.bronze.raw_walmart_cdc_v2` | `manual__2026-10-18T05:14:10+00:00` | Kafka = Bronze = offset duy nhất **4**; thiếu, thừa, sai payload, lỗi đều **0** ([chi tiết](reference/cdc.md#kết-quả-cdc-v2-ngày-2026-10-18)) |
+| DP1 CDC `lakehouse.bronze.raw_walmart_cdc_v2` | `manual__2026-10-18T05:14:10+00:00` | Kafka = Bronze = offset duy nhất **4**; thiếu, thừa, sai payload, lỗi đều **0** ([chi tiết](reference/cdc.md#kết-quả-cdc-v2)) |
 | DP3 `lakehouse.gold.feat_order_line_return_dp3` | `manual__2026-10-18T05:24:29+00:00` | Gold = feature **10.194.358**; thiếu, thừa, sai event time, khóa trùng, lỗi đều **0** |
 
 Lần DP3 đầu tiên trong ngày (`manual__2026-10-18T05:16:26+00:00`) **thất bại**
@@ -149,8 +149,8 @@ mô tả dataset.
 Ảnh Quality chỉ hiện `1 Passing`, không hiện `run_id`. Vì vậy kết quả assertion
 được đọc thẳng từ GraphQL của DataHub và lưu ở
 [`datahub-assertions-v2-20261018.json`](../evidence/datahub-assertions-v2-20261018.json):
-check DP3 có hai lần SUCCESS, lần mới nhất là run 2026-10-18; check CDC v2 có
-run 2026-10-18; check CDC v1 vẫn là run 2026-10-13.
+check DP3 có hai lần SUCCESS, lần mới nhất là run sau khi đổi code; check CDC v2 có
+run sau khi đổi code; check CDC v1 vẫn là run trước đó.
 
 ![CDC v2: topic Kafka → ingest_walmart_cdc → raw_walmart_cdc_v2 → validate](../images/datahub/v2/dp1-cdc-lineage.png)
 

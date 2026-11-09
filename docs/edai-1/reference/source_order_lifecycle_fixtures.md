@@ -3,7 +3,7 @@
 > **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
 
 Triển khai local của [source contract v2](source_contract_order_lifecycle.md), giữ scope
-Q52–Q61, hạn 31/10. Entry point riêng: [generator/generate_order_lifecycle_fixture.py](../../../generator/generate_order_lifecycle_fixture.py).
+Q52–Q61. Entry point riêng: [generator/generate_order_lifecycle_fixture.py](../../../generator/generate_order_lifecycle_fixture.py).
 Không thay engine Batch/Stream v1 và không dùng root nguồn/evidence lịch sử.
 
 ```bash
@@ -83,7 +83,7 @@ quá ngắn bị reject trước khi tạo root; không truncate rồi cấp com
 công bố counts terminal/maturity-deadline/censored theo cohort, actual max delay,
 tail bytes và runtime. Counts maturity không phải label eligibility.
 
-## Artifact bàn giao ngày 18/10
+## Artifact bàn giao
 
 Root mới: `out/source-v2-b-final-20261018-051930425055/`, xem
 [index `out/source-v2-b-final-20261018-051930425055/index.json` (local, không commit).

@@ -4,9 +4,9 @@ EDAI-2, dòng 46–51: API, hạ tầng, log, trace, LLM và Agent telemetry.
 
 Code / cấu hình: Các dashboard và metric được dẫn cùng ảnh EKS dưới đây.
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên EKS, 2026-10-30
+## Trên EKS
 
 Grafana `https://grafana.<ip>.sslip.io` (basic auth `ops` rồi tài khoản admin Grafana), dashboard
 "Agents, LLM, MCP", 3 giờ gồm benchmark Qwen, [`gateway_smoke`](../evidence/aws/gateway-smoke-20261030.json) (17/17),
@@ -21,7 +21,7 @@ chat Coordinator và đợt tải KEDA.
 ![TTFT, thời gian mỗi token, guardrail PII theo kết quả gồm Response Mask](../evidence/aws/grafana-llm-ttft-pii-20261030.png)
 
 Panel guardrail có "Response Mask": chính lần gateway che nhầm tỉ lệ Return thành `<PHONE_NUMBER>`
-(xem [LLM và agent](reference/llm_platform_agents.md#trên-eks-2026-10-30)).
+(xem [LLM và agent](reference/llm_platform_agents.md#trên-eks)).
 
 Jaeger nhận trace OTLP của agentgateway; một trace MCP `tools/list` có span con tới backend `features`:
 
@@ -42,12 +42,12 @@ liệu), network nhận byte/giây (bỏ `lo`, veth, docker, bridge).
 
 ![Grafana Explore EC2: CPU giảm từ ~75% về ~17% sau đợt Flink, RAM ~31%, disk / 12% và /mnt/platform-data 31%, network nhận](../evidence/aws/grafana-ec2-compute-20261031.png)
 
-Khung 15 phút, đồ thị chỉ có từ 00:01: trước đó Prometheus vẫn scrape IP EC2 **cũ** (`10.42.0.12`, máy bị thay hôm 30/10) dù
+Khung 15 phút, đồ thị chỉ có từ 00:01: trước đó Prometheus vẫn scrape IP EC2 **cũ** (`10.42.0.12`, máy đã bị thay) dù
 ConfigMap đã trỏ `10.42.0.151`, vì sidecar nạp lại config bị tắt và pod chạy 13 giờ không khởi động lại.
 Sửa: [`prometheus-values.yaml`](../../infra/k8s/observability/prometheus-values.yaml) bật `configmapReload`, test
 `test_prometheus_reloads_config_when_targets_change`.
 
-### Telemetry LLM và Agent theo từng request (2026-10-31)
+### Telemetry LLM và Agent theo từng request
 
 **Token mỗi request.** kagent (ADK) ghi span OpenTelemetry `generate_content` cho từng lượt gọi LLM, gửi Jaeger qua
 OTLP. Một câu hỏi chính sách gửi coordinator ⇒ trace 13 span qua 3 service: coordinator gọi LLM, gọi tool A2A
@@ -78,7 +78,7 @@ Số lượt gọi mỗi Agent (A2A theo route) và mỗi tool qua gateway: ản
 có thêm ba panel theo `route` của từng Agent (`a2a-data-agent`, `a2a-model-agent`, `a2a-coordinator`): số request thành công (2xx),
 số request thất bại theo `status`, và tỷ lệ thành công. Số liệu là mã HTTP qua gateway (401 thiếu key, 429, 5xx…), không phải
 trạng thái task A2A bên trong Agent. Tải sinh bằng `gateway_smoke.py` (mỗi Agent một cặp có key / không key) và bài tải KEDA. Dashboard đã áp dụng vào ConfigMap `grafana-dashboards-platform` trên EKS; ảnh dưới
-chụp ngày 04/11/2026, khoảng **Last 6 hours**, múi giờ của trình duyệt (UTC+7):
+chụp, khoảng **Last 6 hours**, múi giờ của trình duyệt (UTC+7):
 
 ![Grafana EKS: hàng Agent thành công/thất bại theo từng Agent — 2xx mỗi route, non-2xx theo status (401 trên route -path), tỷ lệ thành công](../evidence/aws/grafana-agent-success-fail.png)
 
@@ -89,7 +89,7 @@ chụp ngày 04/11/2026, khoảng **Last 6 hours**, múi giờ của trình duy�
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: bộ quan sát (metrics, logs, traces, LLM/agent telemetry) trong kind, -->
 ## Observability — ML Platform / LLM Platform
@@ -133,7 +133,7 @@ Nguồn dữ liệu:
 | MCP tool | lượt gọi theo tool + kết quả; tổng lỗi mỗi tool |
 | Gateway / Web API | request/giây theo route; request lỗi theo status; Feature API request/giây + 5xx; độ trễ p95 theo handler |
 
-## Kiểm 2026-10-21
+## Kiểm
 
 - Prometheus: sau 60 request thử, `http_requests_total` của Feature API ghi `/features 200 = 30`, `/features 422 = 30`.
 - Loki: `count_over_time({job="fluent-bit"}[10m])` có log của mọi namespace (agentgateway, feature-store, kagent…).
@@ -147,7 +147,7 @@ Lỗi đã gặp:
   `grafana.ini: auth.basic.enabled=false`.
 - Panel "pod data-agent" cần kube-state-metrics (đã tắt cho nhẹ) ⇒ bỏ.
 
-Kiểm PII/TTFT 2026-10-21 (gọi `/v1/chat/completions` qua gateway): "Email the refund to jane.doe@example.com" → 403
+Kiểm PII/TTFT (gọi `/v1/chat/completions` qua gateway): "Email the refund to jane.doe@example.com" → 403
 `pii_detected`; "My card is 4111 1111 1111 1111" → 403; "Return risk of 2 units of sku-00003 for 4500 cents?" → 200;
 request `stream: true` → có `time_to_first_token`. `guardrail_checks_total`: Request/Allow 2, Request/Reject 2,
 Response/Allow 1. Tool: gọi `get_sku_features` qua gateway khi MinIO đang tắt → `mcp_tool_calls_total{outcome="error"}`

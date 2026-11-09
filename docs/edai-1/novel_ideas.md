@@ -2,7 +2,7 @@
 
 EDAI-1, dòng 39–40: ý tưởng, triển khai và proof hoạt động. Trino đối chiếu Iceberg S3/PostgreSQL; Debezium giữ create/update/delete qua Kafka.
 
-## Trên AWS (2026-10-29)
+## Trên AWS
 
 Trino 483 chạy trên EC2 (profile `query`, loopback 8083), catalog [`trino/catalog-aws/lakehouse.properties`](../../trino/catalog-aws/lakehouse.properties):
 `lakehouse` = Iceberg REST (Lakekeeper) + S3 thật qua IAM role của EC2 (không access key), `postgres` =
@@ -42,7 +42,7 @@ Số 4.517 và 49.632.312,55 lấy từ [receipt](../evidence/aws/data-platform-
 (`novel_trino_federation`); ảnh UI cho thấy SQL hai catalog và FINISHED, không hiển thị bảng kết quả CLI.
 Catalog PostgreSQL: [postgres.properties](../../trino/catalog-aws/postgres.properties).
 
-## Trên AWS (2026-10-28)
+## Trên AWS
 
 Debezium 3.4.3, PostgreSQL, Kafka, Airflow và Spark chạy Compose trên EC2 Sydney; Bronze Iceberg ghi S3.
 Ý tưởng: bắt WAL để giữ create/update/delete sau lần nạp batch, không phải quét lại toàn bảng nguồn.

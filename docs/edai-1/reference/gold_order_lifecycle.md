@@ -2,7 +2,7 @@
 
 > **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
 
-Gold mới dùng namespace `build_gold` và **chỉ đọc Silver v2** (từ 2026-10-19; trước đó đọc thêm Bronze). Không dùng ground truth, probe hoặc nhãn v1. Policy duy nhất nằm ở
+Gold mới dùng namespace `build_gold` và **chỉ đọc Silver v2** (bản đầu đọc thêm Bronze). Không dùng ground truth, probe hoặc nhãn v1. Policy duy nhất nằm ở
 [`spark_jobs/lib/return_label.py`](../../../spark_jobs/lib/return_label.py), theo
 [hợp đồng Return v2](return_label_contract.md) và ADR-0010.
 Đây là fixture nhỏ, chưa phải bằng chứng chạy 100 GB.
@@ -12,8 +12,8 @@ Gold mới dùng namespace `build_gold` và **chỉ đọc Silver v2** (từ 202
 | Bảng | Grain | Nội dung |
 |---|---|---|
 | `fact_order_lines` | dataset × Order Line | Identity đầy đủ của Channel/account/Order/line, seller_sku native, created_at, lượng đặt/hủy/giao, headline và product refund success tách riêng, currency; tiền minor bigint |
-| `label_return` | dataset × Order Line × cutoff × generation | state, label nullable, cohort_date, maturity_end, qualifying_event_id, `positive_kind` (return_and_refund / refund_only / return_only khi label = 1 — xem [Return ≠ Refund](return_label_contract.md#return--refund--ba-ca-và-cách-nhãn-xử-lý-chốt-2026-10-19)), reasons, label_version, cutoff, generation_id, computed_at; bằng chứng gồm source_event_refs, decision_observed_at và input_json bất biến |
-| `feat_sku_return_rate_90d` (tên bảng giữ nguyên; cột đổi thành `return_or_refund_rate_90d` 2026-10-19) | dataset × Order Line | event_timestamp = created_at, created = lúc tính, labeled_count_90d, positive_count_90d, return_or_refund_rate_90d, label_version, generation_id |
+| `label_return` | dataset × Order Line × cutoff × generation | state, label nullable, cohort_date, maturity_end, qualifying_event_id, `positive_kind` (return_and_refund / refund_only / return_only khi label = 1 — xem [Return ≠ Refund](return_label_contract.md#return--refund--ba-ca-và-cách-nhãn-xử-lý-chốt)), reasons, label_version, cutoff, generation_id, computed_at; bằng chứng gồm source_event_refs, decision_observed_at và input_json bất biến |
+| `feat_sku_return_rate_90d` (tên bảng giữ nguyên; cột đổi thành `return_or_refund_rate_90d`) | dataset × Order Line | event_timestamp = created_at, created = lúc tính, labeled_count_90d, positive_count_90d, return_or_refund_rate_90d, label_version, generation_id |
 | `label_segments` | dataset × Order Line × đoạn cutoff | Mỗi đoạn `(start_exclusive, end_inclusive]` trên đó line ở trạng thái `labeled`: label, cohort_date, maturity_end, decision_observed_at. Feature PIT đọc bảng này |
 | `label_inputs` | dataset × Order Line | Input quan sát được, chuẩn hóa; phục vụ đối chiếu Python/Spark |
 
@@ -35,7 +35,7 @@ lúc quan sát; cancellation/reversal nghiệp vụ giữ historical event. Xem 
 và định nghĩa chính thức tại hợp đồng, không dùng ngày giao cuối để thay cửa sổ
 riêng của từng allocation.
 
-**Chỉ đọc Silver, gom bằng chứng theo khóa (refactor 2026-10-19).** Bản đầu đọc thêm
+**Chỉ đọc Silver, gom bằng chứng theo khóa (refactor).** Bản đầu đọc thêm
 `bronze.lifecycle_raw_records`, gửi **toàn bộ** bằng chứng của dataset cho **từng** line và tính nhãn lại cho mọi cặp
 (line lịch sử × thời điểm đặt đơn) — đúng trên fixture nhưng bậc hai, không chạy nổi nguồn lớn (OOM ngay cả ở
 nguồn scale nhỏ). Bản hiện tại:
@@ -49,7 +49,7 @@ nguồn scale nhỏ). Bản hiện tại:
   maturity ⇒ mỗi line chấm O(số bản ghi) lần; đếm theo SKU bằng sweep trên cửa sổ nửa mở `[a, b)`.
 - Bằng chứng tương đương: `tests/unit/spark_jobs/lib/test_return_label_segments.py` (so `label_line` ở mọi biên ±1µs) và
   `tests/spark/check_order_lifecycle_gold_equivalence.py` (fact/nhãn/feature **bằng hệt** bản cũ — bản chụp ở
-  `tests/spark/reference_order_lifecycle_gold.py`). Kết quả 2026-10-19: diff = 0 ở fact/nhãn/feature trên fixture và nguồn scale 60 ngày, cả trước và sau đổi tên (196 s). Bản tham chiếu cũ hết bộ nhớ ở nguồn 90 ngày nên phép so dừng ở 60 ngày; feature khác 0 được kiểm riêng bằng `tests/spark/check_order_lifecycle_weekly_gold.py`.
+  `tests/spark/reference_order_lifecycle_gold.py`). Kết quả diff = 0 ở fact/nhãn/feature trên fixture và nguồn scale 60 ngày, cả trước và sau đổi tên (196 s). Bản tham chiếu cũ hết bộ nhớ ở nguồn 90 ngày nên phép so dừng ở 60 ngày; feature khác 0 được kiểm riêng bằng `tests/spark/check_order_lifecycle_weekly_gold.py`.
 - Job `spark_jobs/gold/build_order_lifecycle.py` chỉ chạy khi `silver.lifecycle_stg_build_info.as_of` = cutoff (job `spark_jobs/silver/build_order_lifecycle.py` ghi) và không có bằng chứng quan sát
   ≥ cutoff; sai thì dừng trước khi ghi.
 
@@ -80,7 +80,7 @@ không có `coverage_status`, trong khi Gold luôn truyền map `coverage_status
 Silver. Test thuần Python: `tests/unit/spark_jobs/lib/test_return_label_keyless.py` so toàn bộ kết quả
 `label_line` khi coverage có/không có trường này, cùng trạng thái Silver.
 
-Số e2e sau sửa OOM (2026-10-20, local, 6g, coverage theo tuần): small 45 ngày × 50 đơn — 3.631 line, `gold_build` 13,7 s, `gold_validate` 13,9 s, mọi check = 0, 357 bản ghi `coverage_validity` (15 trước khi chia tuần). Ca Gold riêng 60 ngày × 4 đơn × 3 SKU: **131 line do generator sinh có `labeled_count_90d > 0`** (85 s), khớp số Python thuần. Medium (48.874 line) chưa chạy lại sau sửa — chạy trên GCP.
+Số e2e sau sửa OOM (local, 6g, coverage theo tuần): small 45 ngày × 50 đơn — 3.631 line, `gold_build` 13,7 s, `gold_validate` 13,9 s, mọi check = 0, 357 bản ghi `coverage_validity` (15 trước khi chia tuần). Ca Gold riêng 60 ngày × 4 đơn × 3 SKU: **131 line do generator sinh có `labeled_count_90d > 0`** (85 s), khớp số Python thuần. Medium (48.874 line) chưa chạy lại sau sửa — chạy trên GCP.
 
 ## Point-in-time
 
@@ -201,7 +201,7 @@ một Order quan sát sau follow-up để feature có lịch sử thực sự (1
 chèn nhãn snapshot June vào feature April để buộc PIT check bắt lỗi. Có cả ca fan-out,
 unknown có label và labeled chưa mature.
 
-Kết quả Spark (người vận hành, 2026-10-19): **`Ran 5 tests in 587.128s — OK`** (`tests/spark/check_order_lifecycle_gold.py`, image
+Kết quả Spark (người vận hành): **`Ran 5 tests in 587.128s — OK`** (`tests/spark/check_order_lifecycle_gold.py`, image
 `platform-airflow:2.10.5-spark3.5.3`, `--network none --read-only`, driver 3 GB). Gồm: số chính thức fixture + lịch sử rỗng;
 PIT có lịch sử dương và bắt nhãn biết muộn được tiêm vào; validate bắt fan-out; validate bắt `unknown` có label và
 `labeled` chưa mature. Driver 1 GB từng `OutOfMemoryError` ở bước Gold → warehouse.

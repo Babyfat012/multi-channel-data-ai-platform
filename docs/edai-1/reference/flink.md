@@ -24,14 +24,14 @@ phát watermark đầu tiên; điều kiện của job late chỉ chọn tin có
 generator, vì phép đếm generator là một thứ tự gửi toàn cục còn Flink phát
 watermark theo partition và theo chu kỳ.
 
-## Số đo lần chạy (2026-10-13, tin muộn đo lại 2026-10-14)
+## Số đo lần chạy, tin muộn đo lại
 
 | Đo | Kết quả | Đối chiếu |
 |---|---:|---|
 | Amazon baseline | 399.410 dòng / 3,0 giây | khớp tổng Kafka |
 | Amazon late, mặc định 200 ms | 242 dòng | tiến độ watermark còn phụ thuộc lịch phát |
 | Amazon late, `0ms` | 0 dòng | không dùng làm proof; chưa có watermark thỏa filter trong lần chạy bounded này |
-| Amazon late, `1ms` | 9.143 dòng / 3,6 giây | 2,29% của 399.410; thấp hơn phép đếm toàn cục generator 19.729. Lần đo 2026-10-13 ra 6.310 dòng: số này phụ thuộc lịch phát watermark so với vận tốc đọc bounded, không cố định |
+| Amazon late, `1ms` | 9.143 dòng / 3,6 giây | 2,29% của 399.410; thấp hơn phép đếm toàn cục generator 19.729. Một lần đo ra 6.310 dòng: số này phụ thuộc lịch phát watermark so với vận tốc đọc bounded, không cố định |
 | TikTok dedup | 92.157 từ 93.554 | bỏ 1.397, đúng với manifest Kafka |
 | Tumbling 5 phút | 7.555 cửa sổ | mỗi cửa sổ phát một lần |
 | Sliding 5 phút, bước 1 phút | 37.870 cửa sổ | xấp xỉ năm lần cửa sổ do chồng lấn |
@@ -53,7 +53,7 @@ tin mà watermark đã vượt qua (trễ hơn một giờ so với mốc nướ
 `out/flink/late-amazon-1ms`. Vì thế phép đo này không đếm mọi bản tin trễ, mà
 đếm phần đã bị watermark vượt qua.
 
-Lần chạy 2026-10-14 phát lại đúng lô 399.410 notification; job
+Lần chạy phát lại đúng lô 399.410 notification; job
 `b903a3491a21b1bd0c48a1252f3ee78a` hoàn tất sau 3,648 giây và ghi **9.143 dòng**
 (xem bảng số đo ở trên). Số này không cố định vì phụ thuộc lịch phát watermark
 (`pipeline.auto-watermark-interval`) so với vận tốc đọc bounded.
@@ -116,7 +116,7 @@ job `baseline_amazon` ở trạng thái `FINISHED`. File
 
 ## Bằng chứng keyed state cho TikTok dedup
 
-Ngày 2026-10-14 chạy lại cùng phép dedup với
+Chạy lại cùng phép dedup với
 `flink_jobs/order_snapshots/dedup_state_proof.sql`, ghi đích riêng
 `out/flink/unique-tiktok-state-proof/` để giữ lần chạy cũ. Job ID
 `a1ee19976c64cee653614ffdbef6aafe` hoàn tất sau 2,531 giây. Flink REST
@@ -136,7 +136,7 @@ giảm **1.397** webhook trùng. Số liệu job, plan và metrics giữ trong
 được Flink thực thi; vì job đọc bounded và kết thúc sau vài giây, phép đo này
 không phải bằng chứng về kích thước state dài hạn hay checkpoint phục hồi.
 
-## Trên AWS (2026-10-28)
+## Trên AWS
 
 Flink 1.20.3 và Kafka chạy Compose trên EC2; đầu ra bounded ở EBS `/mnt/platform-data/flink`.
 [Manifest AWS](../../evidence/aws/stream-manifest-20261028.json) ghi job_id, số đầu vào/đầu ra và cấu hình generator.

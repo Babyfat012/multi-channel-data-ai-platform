@@ -20,7 +20,7 @@ docker compose --env-file .env.example --profile query exec -T trino trino --exe
 docker compose --env-file .env.example --profile query exec -T trino trino --execute 'SHOW SCHEMAS FROM postgres'
 ```
 
-Lần chạy 2026-10-14: Trino 483 ở trạng thái `ACTIVE`. Trino nhìn thấy
+Lần chạy Trino 483 ở trạng thái `ACTIVE`. Trino nhìn thấy
 `lakehouse.bronze`, `lakehouse.silver`, `postgres.seller` và `postgres.walmart`.
 Truy vấn sau đọc **đồng thời** bảng Iceberg và bảng PostgreSQL:
 
@@ -46,7 +46,7 @@ Novel #1 còn cần phép so sánh thời gian trên cùng câu hỏi và cùng 
 
 ## Đối chiếu Gold với warehouse trên cùng Order Line
 
-Ngày 2026-10-14, sau khi Gold năm Channel và lát warehouse Walmart đã được
+Sau khi Gold năm Channel và lát warehouse Walmart đã được
 ghi, một câu SQL Trino đọc **cả hai catalog** cho cùng SKU:
 
 ```sql
@@ -77,7 +77,7 @@ lượt chạy trên cache hiện tại, không suy ra cải thiện hiệu năn
 và bước ghép kết quả thủ công. Phép đo Novel #1 ở
 [`data-integration.md`](data_integration.md).
 
-Ảnh lần chạy 2026-10-14:
+Ảnh lần chạy:
 
 ![Trino UI: danh sách truy vấn, JOIN Iceberg Silver với bảng PostgreSQL và UNION ALL đối chiếu Gold/warehouse đều FINISHED](../../images/novel/trino-federation-query-overview.png)
 
@@ -96,7 +96,7 @@ Cấu hình theo tài liệu chính thức của
 [S3-compatible storage](https://trino.io/docs/current/object-storage/file-system-s3.html)
 và [PostgreSQL connector](https://trino.io/docs/current/connector/postgresql.html).
 
-## Trên AWS (2026-10-29)
+## Trên AWS
 
 Trino 483 chạy trên EC2 (profile `query`, loopback 8083), catalog [`trino/catalog-aws/lakehouse.properties`](../../../trino/catalog-aws/lakehouse.properties):
 `lakehouse` = Iceberg REST (Lakekeeper) + S3 thật qua IAM role của EC2 (không access key), `postgres` =

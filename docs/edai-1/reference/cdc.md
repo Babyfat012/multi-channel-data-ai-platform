@@ -45,23 +45,23 @@ retry không chốt lại latest. V2 ghi `(source_epoch, topic, partition, offse
 epoch gồm cluster ID/topic UUID, và dùng `read_committed`. Validator đọc
 đúng range, kiểm thiếu/thừa/trùng, payload, loại thay đổi, mã đơn và LSN.
 
-Cập nhật 2026-10-18: mặc định setup chọn bảng **`raw_walmart_cdc_v2`** mới;
+Cập nhật mặc định setup chọn bảng **`raw_walmart_cdc_v2`** mới;
 bảng legacy thiếu epoch bị từ chối, không tự migrate hoặc ghi đè proof cũ.
 Cả hai CLI cần `--run-id` và `--boundary-dir`. Phải giữ/mount cùng POSIX
 control directory cho các driver; mất boundary thì validator fail.
 Manifest có checksum/atomic first-writer và không chứa credentials.
 Retention/truncation hoặc đổi source incarnation sẽ fail trước replay.
 
-Helper đã có unit regression, và ngày 2026-10-18 đã chạy được **một lượt
-Kafka–Spark–Iceberg v2 thành công** (mục [Kết quả CDC v2](#kết-quả-cdc-v2-ngày-2026-10-18)).
+Helper đã có unit regression, và đã chạy được **một lượt
+Kafka–Spark–Iceberg v2 thành công** (mục [Kết quả CDC v2](#kết-quả-cdc-v2)).
 Lượt đó chỉ là đường đi bình thường. Retry giữa hai task, topic bị
 recreate/reset, retention cắt offset và producer ghi thêm trong lúc đọc
 **chưa được thử**. Kiểm UUID trước/sau không phải broker lock: cấm admin
 recreate/reset topic đồng thời task đang đọc/ghi. Hiện nhánh local PLAINTEXT,
-chưa là adapter Kafka bảo mật cho Cloud. Các kết quả từ mục "Kết quả chạy ngày
-2026-10-14" trở xuống là proof **legacy** của bảng `raw_walmart_cdc`.
+chưa là adapter Kafka bảo mật cho Cloud. Các kết quả từ mục "Kết quả chạy"
+trở xuống là proof **legacy** của bảng `raw_walmart_cdc`.
 
-## Kết quả CDC v2 ngày 2026-10-18
+## Kết quả CDC v2
 
 Chạy lại bằng code hiện tại (job `spark_jobs/cdc/ingest_walmart_order_changes.py`, `spark_jobs/cdc/validate_walmart_order_changes.py`, DAG `dp1_cdc`, setup chọn
 `raw_walmart_cdc_v2`). Kafka được tạo mới vì container cũ đã bị xóa khi dọn
@@ -71,7 +71,7 @@ Chạy lại bằng code hiện tại (job `spark_jobs/cdc/ingest_walmart_order_
 
 | Offset | Thay đổi | Đơn |
 |---:|---|---|
-| 0 | Xóa | `CDC-DEMO-8383d4cfe5a7` (probe ngày 2026-10-14) |
+| 0 | Xóa | `CDC-DEMO-8383d4cfe5a7` (probe) |
 | 1 | Thêm | `CDC-DEMO-24f0630c0caa` |
 | 2 | Cập nhật | `CDC-DEMO-24f0630c0caa` |
 | 3 | Xóa | `CDC-DEMO-24f0630c0caa` |
@@ -93,7 +93,7 @@ Ingest và Validate dùng chung một boundary JSON trong
 dòng Bronze có đúng `source_epoch` (cluster ID/topic UUID) và nằm trong khoảng
 offset đã đóng băng. Manifest kiểm ở
 [`datahub-validation-v2.json`](../../evidence/datahub-validation-v2.json), lineage và
-Quality trên DataHub ở [DataHub](../data_governance.md#bằng-chứng-chạy-lại-ngày-2026-10-18).
+Quality trên DataHub ở [DataHub](../data_governance.md#bằng-chứng-chạy-lại).
 
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile spark up -d spark-master spark-worker-1 spark-worker-2
@@ -105,7 +105,7 @@ env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflo
 Bằng chứng **commit → Bronze** cần thời điểm hoàn tất task ingest cho cùng lần
 probe; không suy diễn thời gian đó từ phép đo commit → Kafka.
 
-## Kết quả chạy ngày 2026-10-14
+## Kết quả chạy
 
 Connector `platform-walmart-orders` và task 0 ở trạng thái `RUNNING` trên Debezium
 3.4.3.Final. Lần probe `CDC-DEMO-783bee6f9cad` tạo đúng ba sự kiện:
@@ -153,7 +153,7 @@ Một lượt Batch đọc toàn bộ bảng để phát hiện ba thay đổi s
 này; CDC phát đúng ba thông điệp mới. Lịch Batch một lần/ngày là chính sách của
 bài toán, nên độ chờ 0–24 giờ do lịch chạy, không phải giới hạn tốc độ của SQL.
 
-## Xác nhận trên kafka-ui (chạy lại 2026-10-14)
+## Xác nhận trên kafka-ui (chạy lại)
 
 Service `kafka-ui` (image `kafbat/kafka-ui:v1.5.0`, profile `cdc`, cổng 8085)
 cho xem trực tiếp topic mà Debezium ghi vào, thay vì chỉ đọc số offset bằng CLI:
@@ -190,7 +190,7 @@ cũng là lý do probe luôn ghi offset thật thay vì giả định bắt đ�
 Trạng thái connector và task 0 đều `RUNNING` trên Debezium 3.4.3.Final, lưu ở
 [`docs/evidence/debezium-connector-status.json`](../../evidence/debezium-connector-status.json).
 
-## Trên AWS (2026-10-28)
+## Trên AWS
 
 Debezium 3.4.3, PostgreSQL, Kafka, Airflow và Spark chạy Compose trên EC2 Sydney; Bronze Iceberg ghi S3.
 Ý tưởng: bắt WAL để giữ create/update/delete sau lần nạp batch, không phải quét lại toàn bảng nguồn.

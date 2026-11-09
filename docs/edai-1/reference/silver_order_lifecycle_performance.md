@@ -2,7 +2,7 @@
 
 > **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
 
-Phân tích hiệu năng Silver, ngày 2026-10-19. Chỉ tài liệu và diff đề xuất, chưa áp dụng thay đổi Spark.
+Phân tích hiệu năng Silver. Chỉ tài liệu và diff đề xuất, chưa áp dụng thay đổi Spark.
 
 ## Kết luận và phạm vi bằng chứng
 
@@ -75,9 +75,9 @@ vị trí, chưa có physical plan để khẳng định từng root là `cov`/`
 | 4 | 82 / Sh | V: đọc/gate/dedup nhánh coverage / C | 38.178 | 14 | 8405:8627 | 85: 4.992 / 6 / 6531:6720 | Không có metric gắn stage |
 | 5 | 23 / Sh | L: materialize cache events / C | 29.102 | 13 | 5358:5454 | 23: 5.065 / 6 / 4177:4233 | Không có metric gắn stage |
 | 6 | 17 / Sh | D: collect conflict IDs / P | 25.699 | 13 | 5068:5154 | 17: 4.709 / 6 / 3967:4026 | Không có metric gắn stage |
-| 7 | 11 / Sh | D: unique.count() / K | 25.087 | 13 | 4819:4922 | 11: 4.497 / 6 / 3786:3847 | Không có metric gắn stage |
-| 8 | 5 / Sh | D: ops.count() lần đầu / K | 24.986 | 13 | 4510:4602 | 5: 5.478 / 6 / 3542:3598 | Không có metric gắn stage |
-| 9 | 8 / Sh | D: ops.count() lần hai / K | 24.491 | 13 | 4669:4752 | 8: 4.327 / 6 / 3667:3719 | Không có metric gắn stage |
+| 7 | 11 / Sh | D: unique.count / K | 25.087 | 13 | 4819:4922 | 11: 4.497 / 6 / 3786:3847 | Không có metric gắn stage |
+| 8 | 5 / Sh | D: ops.count lần đầu / K | 24.986 | 13 | 4510:4602 | 5: 5.478 / 6 / 3542:3598 | Không có metric gắn stage |
+| 9 | 8 / Sh | D: ops.count lần hai / K | 24.491 | 13 | 4669:4752 | 8: 4.327 / 6 / 3667:3719 | Không có metric gắn stage |
 | 10 | 76 / Sh | E: đọc/gate/dedup evidence / C | 23.235 | 14 | 7981:8108 | 79: 3.521 / 6 / 6180:6237 | Không có metric gắn stage |
 | 11 | 87 / Sh | V: aggregate/shuffle trung gian / C | 20.134 | 8 | 8707:8920 | V trung gian: 89/91/93, xem dưới; chưa ghép duy nhất | Không có metric gắn stage |
 | 12 | 86 / Sh | V: aggregate/shuffle trung gian / C | 19.328 | 8 | 8655:8798 | V trung gian: 89/91/93, xem dưới; chưa ghép duy nhất | Không có metric gắn stage |

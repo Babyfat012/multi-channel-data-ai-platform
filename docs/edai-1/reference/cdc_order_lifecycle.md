@@ -155,7 +155,7 @@ xuất chưa benchmark, chưa cấu hình bảo mật production hay thay compos
 
 ## Số đo nghiệm thu
 
-người vận hành chạy `bash tests/harness/run_order_lifecycle_cdc.sh` ngày 2026-10-19 (container tạm postgres:15, Kafka 3.9.1, Debezium 3.4,
+người vận hành chạy `bash tests/harness/run_order_lifecycle_cdc.sh` (container tạm postgres:15, Kafka 3.9.1, Debezium 3.4,
 Spark trong `platform-airflow:2.10.5-spark3.5.3`): **`CDC v2 harness PASS`**, 58 s. Receipt:
 [`evidence/cdc-v2-local-20261019.json`](../../evidence/cdc-v2-local-20261019.json).
 

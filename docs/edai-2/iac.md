@@ -1,10 +1,10 @@
 # Infrastructure as Code trên AWS
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
 ## Phạm vi triển khai
 
-Hạ tầng đã ghi nhận tại Sydney (`ap-southeast-2`): EC2 Data Platform, S3 raw/lakehouse, ECR và EKS `platform-apps`. Ngày 31/10, EC2 và hai EKS worker dùng `r6i.xlarge`; các lần chạy cũ giữ đúng cấu hình máy tại thời điểm đo.
+Hạ tầng đã ghi nhận tại Sydney (`ap-southeast-2`): EC2 Data Platform, S3 raw/lakehouse, ECR và EKS `platform-apps`. EC2 và hai EKS worker dùng `r6i.xlarge`; các lần chạy cũ giữ đúng cấu hình máy tại thời điểm đo.
 
 | Thành phần | Code và nhiệm vụ |
 |---|---|
@@ -14,15 +14,15 @@ Hạ tầng đã ghi nhận tại Sydney (`ap-southeast-2`): EC2 Data Platform, 
 
 Workload EC2 dùng IAM role, workload EKS dùng Pod Identity; secret không đặt trong repository. Trình tự chạy: [Cloud setup](../shared/cloud_setup.md), [AWS runbook](../shared/aws_deploy.md).
 
-## Terraform đã chạy (2026-10-31)
+## Terraform đã chạy
 
 `terraform plan` trên hạ tầng đang chạy: Terraform đọc lại từng tài nguyên thật (VPC, subnet, SG, EC2, EBS, S3 raw/lakehouse,
 IAM role + policy `platform-ci-ecr`, ECR repo, budget) và so với code ⇒ **No changes**: hạ tầng khớp code, kể cả sau
-sự cố 30/10 (EC2 bị thay khi stop, đã sửa bằng `lifecycle.ignore_changes`).
+sự cố (EC2 bị thay khi stop, đã sửa bằng `lifecycle.ignore_changes`).
 
 ![terraform plan: refresh từng tài nguyên AWS, No changes](../evidence/aws/terraform-plan-no-changes-20261031.png)
 
-## Ansible đã chạy (2026-10-31)
+## Ansible đã chạy
 
 Playbook đầy đủ `site.yml` trên EC2 qua SSM, truyền IP node EKS hiện tại cho Redis/pgvector (`-e feast_redis=…
 -e rag_pg=…`; thiếu thì `.env` về IP mặc định cũ). Task theo role `app` (checksum Dockerfile, Fernet, compose up,
@@ -38,7 +38,7 @@ MLflow, Lakekeeper, Variable Airflow) và `datahub`; trong ảnh thấy 2 trong 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: mô tả Terraform/Ansible AWS, quyết định bảo mật và vị trí proof IaC cho phép đo. -->
 ## Terraform tạo gì và vì sao

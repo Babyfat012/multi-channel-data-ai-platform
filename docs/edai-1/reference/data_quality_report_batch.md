@@ -199,7 +199,7 @@ Khoảng một nửa bản trùng của Amazon là bản cũ hơn, mang Order St
 
 Ba dòng `tiktok_shop.orders` / `shopify.orders` / `shopee.orders` (1.810 / 910 / 354) khớp đúng số dòng mà các job validate Bronze/Silver đếm được ở DP1/DP2, nên đường ống cho ba Channel mới được kiểm bằng số của chính nguồn nhỏ này. Đây là nguồn **nhỏ có chủ đích** để kiểm cấu trúc và đường ống, không phải bằng chứng đạt ngưỡng 100 GB; ngưỡng 100 GB chỉ dựa trên Amazon + Walmart ở `/data/raw`.
 
-## Trên AWS (2026-10-27)
+## Trên AWS
 
 Nguồn batch nằm trên S3 và PostgreSQL EC2; [receipt AWS](../../evidence/aws/data-platform-aws-20261027.json)
 ghi `raw_s3` 17.393 object, 141.774.479.087 byte, khớp byte trên đĩa EC2.
@@ -214,7 +214,7 @@ thuộc báo cáo local. Mục dưới đo lại bốn đặc tính đó **trên
 [Code generator](../../../generator/__main__.py), [cấu hình 100 GB](../../../configs/scale-100gb.yaml),
 [manifest local để đối chiếu](../../evidence/batch-100gb-manifest.json).
 
-### Đặc tính dữ liệu đo trên AWS (2026-10-31)
+### Đặc tính dữ liệu đo trên AWS
 
 Đo bằng Trino trên EC2 (catalog `lakehouse` = Iceberg S3) trên bảng Amazon 100 GB đã nạp: Bronze
 `raw_amazon_orders_dp1` (payload gốc) và Silver `stg_amazon_order_lines_dp2` (đã tách Order Line, chuẩn hoá schema).

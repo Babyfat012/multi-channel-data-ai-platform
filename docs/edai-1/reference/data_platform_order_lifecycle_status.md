@@ -2,7 +2,7 @@
 
 > **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
 
-Đích cloud cập nhật **2026-10-22**; bằng chứng giữ mốc **2026-10-20**, gồm kết quả local có receipt không đính kèm repo.
+Bằng chứng gồm kết quả local có receipt không đính kèm repo.
 Tổng hợp artifact công khai tại [evidence](../evidence.md).
 Đích triển khai: **AWS**, region `ap-southeast-1`, Data Platform batch trên EC2 + S3 (người vận hành chạy theo [runbook](../../shared/aws_deploy.md)).
 "Local" = đã kiểm trên máy dev, fixture/harness/container tạm; **chưa** phải bằng chứng AWS.
@@ -16,7 +16,7 @@ Một gói có kiểm local không đồng nghĩa đã kiểm chứng ở full-s
 | Data contract + cổng cách ly | [data contracts](data_contracts.md) | ✅ Spark 32/32 sau sửa identity_path; registry file Git | ⏳ |
 | Iceberg maintenance | [Iceberg maintenance](iceberg_maintenance.md), [evidence](../../evidence/de-n2-maintenance-local-20261018.json) | ✅ Spark 3/3 trên bảng demo; chưa chạy lịch/bảng nghiệp vụ thật | ⏳ bảng thật |
 | Nhãn Return v2 (L01–L17) + Gold + feature PIT | [gold-v2](gold_order_lifecycle.md) | ✅ Spark fixture 5/5; Gold chỉ đọc Silver history, đã sửa OOM keyless | ⏳ |
-| Gold-equivalence sau refactor | [gold-v2](gold_order_lifecycle.md) | ✅ diff fact/nhãn/feature = 0 fixture và nguồn scale 60 ngày, trước/sau đổi tên; feature PIT có tín hiệu sau khi generator phát coverage theo tuần (ADR-0013): ca Gold 60 ngày có **131 line** `labeled_count_90d > 0`, Spark khớp Python thuần (2026-10-20) | ⏳ |
+| Gold-equivalence sau refactor | [gold-v2](gold_order_lifecycle.md) | ✅ diff fact/nhãn/feature = 0 fixture và nguồn scale 60 ngày, trước/sau đổi tên; feature PIT có tín hiệu sau khi generator phát coverage theo tuần (ADR-0013): ca Gold 60 ngày có **131 line** `labeled_count_90d > 0`, Spark khớp Python thuần | ⏳ |
 | Warehouse v2 PostgreSQL, publish an toàn | [warehouse-v2](warehouse_order_lifecycle.md) | ✅ PostgreSQL thật; warehouse-checks PASS 116 s trước đổi tên; chưa kết luận lợi ích index scale | ⏳ EXPLAIN scale |
 | DAG dp_order_lifecycle / dp_order_lifecycle_cdc / dp_order_lifecycle_warehouse + DataHub dry-run + ERD | [airflow-v2](airflow_order_lifecycle.md), [datahub-v2](datahub_order_lifecycle.md), [ERD](../../diagrams/schema-order-lifecycle.md) | ✅ DagBag 10 DAG / 0 lỗi; dry-run không phải publish thật | ⏳ |
 | Nguồn → Bronze → Silver → Gold → PostgreSQL → EXPLAIN | [e2e-v2-local](e2e_order_lifecycle_local.md) | ✅ small 45 ngày × 50 đơn, 100 SKU, 3.631 fact: PASS 92 s sau sửa và đổi tên; mọi check = 0 | ⏳ |
@@ -30,17 +30,17 @@ Một gói có kiểm local không đồng nghĩa đã kiểm chứng ở full-s
 
 ✅ đã kiểm trong phạm vi ghi · ⏳ chờ chạy · 🔨 đang chạy · — ngoài mốc 1 AWS batch
 
-## Số đo và giới hạn ngày 2026-10-19
+## Số đo và giới hạn
 
 Gold v2 từng **OOM ở small 3.631 line** vì coverage keyless bị nhân bản theo line.
 Đã sửa; **e2e small PASS 92 s** sau đổi tên, `gold_build` **7,6 s**, mọi check **= 0**;
 chi tiết và EXPLAIN tại [e2e local](e2e_order_lifecycle_local.md). Q3 giảm **104 → 4** buffer,
 Q2 **583 → 583**; Q1 **173 → 2** nhưng **0 dòng**, không chứng minh lợi ích index.
 Gold-equivalence fact/nhãn/feature **diff = 0** trên fixture và nguồn scale **60 ngày**,
-cả trước và sau đổi tên; feature từng luôn **= 0**; sau ADR-0013 ca Gold 60 ngày có **131 line** feature > 0, khớp Python thuần (2026-10-20).
+cả trước và sau đổi tên; feature từng luôn **= 0**; sau ADR-0013 ca Gold 60 ngày có **131 line** feature > 0, khớp Python thuần.
 **warehouse-checks PASS 116 s trước đổi tên**; **DagBag 10 DAG / 0 lỗi** gồm
 `dp_order_lifecycle`, `dp_order_lifecycle_cdc`, `dp_order_lifecycle_warehouse` và bảy DAG snapshots giữ tên,
-chỉ là kiểm import. Pytest unit do người vận hành xác nhận: **718 pass** (2026-10-20).
+chỉ là kiểm import. Pytest unit do người vận hành xác nhận: **718 pass**.
 Medium chưa chạy lại sau ba bản sửa Gold keyless, oracle validate gom theo SKU và
 Silver `collect_set`; kết quả OOM trong bảng là lần trước sửa.
 

@@ -4,9 +4,9 @@ EDAI-2, dòng 11: incremental materialize offline → online.
 
 Code / cấu hình: [DAG](../../dags/ml_feature_materialize.py), [Feast](../../feature_repo/feature_store.yaml).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-### Trên AWS, 2026-10-30
+### Trên AWS
 
 DAG `ml_feature_materialize` trên Airflow EC2 hỏng ở `feast_apply`: `feast apply` import mọi `.py` trong
 `feature_repo/`, kể cả `replay_return_events.py` (dùng `datetime.UTC`, chỉ có từ Python 3.11) trong venv Feast
@@ -19,7 +19,7 @@ test `test_feast_apply_skips_helper_scripts`. Chạy lại: bốn task xanh, Red
 
 ![ml_feature_materialize: export_sku_daily, export_training_lines, feast_apply, materialize_incremental đều success](../evidence/aws/airflow-ml-feature-materialize-success-20261030.png)
 
-## Trên AWS (2026-10-29)
+## Trên AWS
 
 Airflow/Spark chạy Compose EC2, offline Parquet và registry ở S3; online Redis ở EKS qua NodePort 30379.
 Run `manual__2026-10-29T00:30:43+00:00` của [DAG ml_feature_materialize](../../dags/ml_feature_materialize.py)
@@ -43,9 +43,9 @@ apply thành công không chứng minh stream pusher đã ghi dữ liệu. Lần
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
-### Công bố batch A/B (thiết kế đã code ngày 02/11, chưa chạy trên AWS)
+### Công bố batch A/B (thiết kế đã code, chưa chạy trên AWS)
 
 Mục này mô tả code và test đã có trong repo; chưa có lần chạy AWS nào, nên không dùng làm bằng chứng cloud.
 
@@ -95,7 +95,7 @@ release cũ giữ trên S3 để truy vết; chính sách dọn S3 và ngưỡng
 ## Kho feature (Feast) — ML Platform bước 2
 
 Pipeline Airflow tạo feature OFFLINE, nạp một bản batch ONLINE riêng, đối soát rồi công bố.
-Phần bằng chứng tháng 10 bên dưới ghi lại luồng incremental cũ, có trước publication A/B (code ngày 02/11, chưa chạy trên AWS).
+Phần bằng chứng bên dưới ghi lại luồng incremental cũ, có trước publication A/B (code, chưa chạy trên AWS).
 
 ## Đường đi của dữ liệu
 
@@ -140,7 +140,7 @@ số của ảnh chụp ngày đó (train và serve cùng định nghĩa). Trễ
 Manifest Redis dùng một PVC `redis-data` 2 GiB, gắn tại `/data`; Redis ghi AOF vào
 chính thư mục đó với `appendonly yes`, `appendfsync everysec`. PVC dùng StorageClass
 mặc định của cụm (AWS hiện dùng gp3). Pod thay thế dùng lại PVC, đọc AOF để phục hồi RAM.
-### Kiểm chứng trên EKS, 04/11/2026
+### Kiểm chứng trên EKS
 
 Redis trên EKS từng chạy bản manifest cũ (`--save "" --appendonly no`, không PVC, chỉ lưu trong RAM). Khi node EKS được đưa về 0 rồi bật lại, pod Redis mất sạch dữ liệu
 (`dbsize = 0`) và smoke của gateway báo `FAIL` đúng một dòng: `get_sku_features APP-00042` trả toàn `null`. Cách xử lý:
@@ -157,7 +157,7 @@ Redis trên EKS từng chạy bản manifest cũ (`--save "" --appendonly no`, k
 
    ![Xóa pod Redis: dbsize 2000 trước và sau, aof_enabled 1, PVC redis-data Bound](../evidence/aws/redis-persistence-pod-replace.png)
 
-**Thử thêm: tắt cả node rồi bật lại (04/11/2026, 19:53).** Node group EKS được đưa về 0 (17:43) rồi bật lại 2 node mới (19:49; IP node khác hẳn lần trước). Sau khi cụm khởi động lại, pod Redis được tạo lại trên node mới,
+**Thử thêm: tắt cả node rồi bật lại (19:53).** Node group EKS được đưa về 0 (17:43) rồi bật lại 2 node mới (19:49; IP node khác hẳn lần trước). Sau khi cụm khởi động lại, pod Redis được tạo lại trên node mới,
 gắn lại **cùng PVC** `redis-data` (`pvc-7069083e…`, `Bound`), và `dbsize` vẫn là **2000**, `aof_enabled 1`, `loading 0`, `aof_last_write_status ok`
 ([output](../evidence/aws/redis-after-node-restart.txt)). Không phải nạp lại từ Airflow như lần đầu.
 
@@ -239,7 +239,7 @@ docker compose --profile spark --profile airflow down
 
 ## Bằng chứng
 
-Lần chạy local 2026-10-21 (fixture 15 đơn / 2 SKU, cutoff 2026-06-01):
+Lần chạy local (fixture 15 đơn / 2 SKU, cutoff 2026-06-01):
 
 | Run | `end` | Log `materialize_incremental` | Kết quả |
 |---|---|---|---|

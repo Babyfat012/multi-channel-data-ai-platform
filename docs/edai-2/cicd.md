@@ -4,9 +4,9 @@ EDAI-2, dòng 33–36: CI/CD RAG, MCP/Agent, Coordinator và stream feature.
 
 Code / cấu hình: [RAG Jenkinsfile](../../ci/jenkins/rag-pipeline.Jenkinsfile), [Agent Jenkinsfile](../../ci/jenkins/feature-api-agents.Jenkinsfile).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên AWS (2026-10-31)
+## Trên AWS
 
 Jenkins chạy trên EC2 `i-0d657089ba4a4ea7e` (IP riêng `10.42.0.151`), UI chỉ nghe `127.0.0.1:8090`.
 Code lấy từ git bundle; image đẩy lên ECR
@@ -15,10 +15,10 @@ Code lấy từ git bundle; image đẩy lên ECR
 
 | Pipeline / code | Các bước và kết quả |
 |---|---|
-| [feature-api-agents](../../ci/jenkins/feature-api-agents.Jenkinsfile) #8 | Test → Build → Push ECR → Deploy MCP server → Sync prompts từ Langfuse → Deploy Agent → Eval agent → Smoke: xanh. Gate đạt **12/12 = 1,00 ≥ 0,95**; [JSONL và giới hạn PII](agent_evaluation.md#trên-aws-2026-10-31). |
-| [rag-pipeline](../../ci/jenkins/rag-pipeline.Jenkinsfile) #2 | Test → Build → Push → Release config → Deploy → DAG import → Run DAG: xanh. Lineage DataHub đã có ảnh AWS ngày 31/10: [RAG Pipeline](rag_pipeline.md). |
+| [feature-api-agents](../../ci/jenkins/feature-api-agents.Jenkinsfile) #8 | Test → Build → Push ECR → Deploy MCP server → Sync prompts từ Langfuse → Deploy Agent → Eval agent → Smoke: xanh. Gate đạt **12/12 = 1,00 ≥ 0,95**; [JSONL và giới hạn PII](agent_evaluation.md#trên-aws). |
+| [rag-pipeline](../../ci/jenkins/rag-pipeline.Jenkinsfile) #2 | Test → Build → Push → Release config → Deploy → DAG import → Run DAG: xanh. Lineage DataHub đã có ảnh AWS: [RAG Pipeline](rag_pipeline.md). |
 | [stream-features](../../ci/jenkins/stream-features.Jenkinsfile) #2 | Test → Build → Push → Release config → Deploy → Verify: xanh. |
-| [coordinator](../../ci/jenkins/coordinator.Jenkinsfile) | 31/10 (#2): Validate / Sync / Deploy xanh, **Eval agent đỏ** sau 15 phút 6 giây. 04/11 (#4): Validate / Sync / Deploy xanh, **Eval agent chạy hơn 20 phút chưa xong** nên không đạt cổng. Chưa có build xanh cho pipeline này. Chi tiết và số liệu LLM: [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026) |
+| [coordinator](../../ci/jenkins/coordinator.Jenkinsfile) | #2: Validate / Sync / Deploy xanh, **Eval agent đỏ** sau 15 phút 6 giây. #4: Validate / Sync / Deploy xanh, **Eval agent chạy hơn 20 phút chưa xong** nên không đạt cổng. #9: Eval agent đạt 12/12, cổng chỉ chấm định tuyến. Chi tiết và số liệu LLM: [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026) |
 
 ![Jenkins EC2 feature-api-agents #8: các stage xanh, gồm Push, Sync prompts và Eval agent](../evidence/aws/jenkins-feature-api-agents-20261031.png)
 
@@ -42,7 +42,7 @@ Gate hiện chặn pipeline sau deploy, chưa tự rollback Agent khi eval thấ
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: Jenkins CI/CD local cho phần ML Platform / LLM Platform: dựng, cấu hình, job, secret. -->
 ## CI/CD — Jenkins
@@ -75,13 +75,13 @@ scripts/setup/setup_jenkins.sh    # UI http://localhost:8090, user admin, mật 
   của host; bind mount tương đối trong workspace phải tồn tại trên host ở đúng đường dẫn đó.
 - Build chạy trên controller (1 executor) — đủ cho local; trên GKE tách agent.
 
-## Bằng chứng (2026-10-21)
+## Bằng chứng
 
 - Jenkins `Up`, `/login` 200; API liệt kê job `coordinator`, `feature-api-agents`, `rag-pipeline`,
   `stream-features` và credential `vault-ci-token`, `kind-kubeconfig` — đều do JCasC tạo.
 - Đổi mật khẩu admin: xoá `secret/platform/jenkins` rồi chạy lại `setup_jenkins.sh` (đã làm một lần, login
   bằng mật khẩu mới OK).
-- **Chưa build** (ghi nhận local 2026-10-21): các Jenkinsfile chưa được commit lên `main`. Trạng thái này đã được thay thế bởi kết quả AWS ngày 2026-10-31 ở mục dưới.
+- **Chưa build** (ghi nhận local): các Jenkinsfile chưa được commit lên `main`. Trạng thái này đã được thay thế bởi kết quả AWS ở mục dưới.
 
 ## Phát hành image qua registry local
 
@@ -127,8 +127,8 @@ Tag SHA giả định working tree sạch; thay code chưa commit thì đặt `T
 
 Stage **Eval agent** đã nối cho Feature API + coordinator, xem [cổng eval](agent_evaluation.md#dùng-trong-ci).
 Dưới ngưỡng hoặc không có dữ liệu chấm ⇒ build đỏ; gate này chưa tự rollback agent đã apply.
-Ghi nhận local 2026-10-22: **Chưa có bằng chứng Jenkins chạy thật** cho thay đổi registry/gate mới.
-Trạng thái này đã được thay thế bởi kết quả AWS ngày 2026-10-31 dưới đây.
+Ghi nhận local **Chưa có bằng chứng Jenkins chạy thật** cho thay đổi registry/gate mới.
+Trạng thái này đã được thay thế bởi kết quả AWS dưới đây.
 
 </details>
 

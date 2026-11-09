@@ -1,6 +1,6 @@
 # Contract Return Label v2 — Q56/Q57
 
-Đã chốt policy ngày 2026-10-18. ID: **`return-or-refund-line-v2`**.
+Đã chốt policy. ID: **`return-or-refund-line-v2`**.
 ADR-0010 ghi trade-off;
 file này quy định expected behavior để viết nguồn/transform/validation.
 Chưa thay code generator hay label bridge hiện tại.
@@ -23,7 +23,7 @@ Chưa thay code generator hay label bridge hiện tại.
   Refund thành công**; không dùng request creation/pending time thay thế.
   Việc nhận Return vật lý, kiểm hàng và restock là các sự kiện riêng.
 
-## Return ≠ Refund — ba ca và cách nhãn xử lý (chốt 2026-10-19)
+## Return ≠ Refund — ba ca và cách nhãn xử lý (chốt)
 
 Ngoài đời Return (hàng gửi về) và Refund (tiền về) là **hai sự kiện độc lập**:
 

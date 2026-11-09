@@ -139,7 +139,7 @@ không diễn giải shared read giảm là toàn bộ lợi ích index. Không 
 proof chính. Fixture nhỏ, range ít chọn lọc hoặc query trả 0 dòng có thể dùng
 Seq Scan ở cả hai pha; ghi đúng kết quả, không khẳng định index luôn nhanh hơn.
 
-Số đo **e2e small local ngày 2026-10-19**, sau sửa và đổi tên; nguồn 45 ngày ×
+Số đo **e2e small local**, sau sửa và đổi tên; nguồn 45 ngày ×
 50 đơn, 100 SKU, PASS 92 s. Nguồn số và chi tiết run tại [e2e local](e2e_order_lifecycle_local.md),
 được người vận hành xác nhận trong ghi nhận local (receipt không đính kèm repo).
 Warehouse-checks trên PostgreSQL thật **PASS 116 s trước đổi tên**: load, chặn lệch

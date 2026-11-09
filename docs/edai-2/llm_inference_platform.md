@@ -101,7 +101,7 @@ unset agw_key
 
 Các bước trên là hướng dẫn tái lập từ cấu hình repo. Số liệu đã đo trên AWS nằm ở phần dưới.
 
-## Kiểm tra triển khai trên EKS, 04/11/2026
+## Kiểm tra triển khai trên EKS
 
 Namespace `llm` trên cluster `platform-apps`: Deployment `qwen` (1,5B) và `qwen-small` (0,5B, nhánh B của A/B), mỗi pod `1/1 Running`,
 PVC `models` 3 GiB và `models-small` 1 GiB `Bound` (gp3, model nằm trên PVC nên pod khởi động lại không phải tải lại), Service `ClusterIP` cổng 8080.
@@ -123,7 +123,7 @@ Workload: [`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-i
 của llm-d-benchmark, giảm cỡ cho CPU: ba mức 0,1 / 0,2 / 0,4 request/giây, mỗi mức 60 s, prompt ~128 token, sinh ~32 token.
 Lệnh chạy và cách cài (Python 3.14, commit cố định): [`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh).
 
-**Kiểm tương thích với llama.cpp (04/11/2026, local, trước khi chạy EKS).** Tài liệu llm-d-benchmark và inference-perf không nêu llama.cpp là
+**Kiểm tương thích với llama.cpp (local, trước khi chạy EKS).** Tài liệu llm-d-benchmark và inference-perf không nêu llama.cpp là
 engine được hỗ trợ (chỉ ghi vLLM, SGLang, TGI), nên đã thử thật: chạy container llama.cpp cùng image đã ghim như EKS
 (Qwen2.5-0.5B Q4_K_M thay cho 1,5B vì máy local, `--alias qwen2.5-1.5b-instruct`), rồi chạy `inference-perf` (harness lõi mà
 llm-d-benchmark triển khai) với workload của repo, một mức 0,5 request/giây trong 20 s.
@@ -139,7 +139,7 @@ llm-d-benchmark triển khai) với workload của repo, một mức 0,5 request
 Kết quả đầy đủ: [`llmd-inference-perf-llamacpp-local-20261104.json`](../evidence/llmd-inference-perf-llamacpp-local-20261104.json).
 Số này đo trên model 0,5B ở máy local, **không phải số EKS** và không dùng để so với bảng đo bên dưới.
 
-**Chạy thật trên EKS bằng llm-d-benchmark, 04/11/2026.** Chế độ run-only trỏ vào Service `qwen.llm:8080` (llama.cpp, Qwen2.5-1.5B), harness `inference-perf`, workload
+**Chạy thật trên EKS bằng llm-d-benchmark.** Chế độ run-only trỏ vào Service `qwen.llm:8080` (llama.cpp, Qwen2.5-1.5B), harness `inference-perf`, workload
 [`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), chạy từ máy quản trị bằng
 [`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh). Công cụ tạo pod kiểm tra model (`smoketest`, đọc `/v1/models` thành công) rồi pod harness; pod tải tokenizer từ Hugging Face,
 chạy ba mức tải và kết thúc với `harness_rc: 0` (3 phút 52 giây). Kết quả đầy đủ trong [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
@@ -159,7 +159,7 @@ Hai điều chỉnh bắt buộc để llm-d-benchmark chạy trên EKS này (đ
 (`Volume capabilities not supported`); (2) hạ tài nguyên pod harness từ mặc định 16 CPU / 32 GiB xuống 1 CPU / 2 GiB, nếu không pod kẹt `Pending` (`Insufficient cpu/memory`) trên node 4 vCPU.
 Số trong bảng đo ở mục dưới do [`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, đo trên cấu hình khác (số luồng, mức đồng thời), không so trực tiếp.
 
-## Đo lại trên EKS, 2026-10-30
+## Đo lại trên EKS
 
 Node `r6i.xlarge` chỉ có 4 vCPU, nhưng cấu hình B đặt 6 luồng (theo laptop 6 nhân). Cùng script, gọi qua
 `kubectl port-forward svc/qwen`, chỉ đổi `--threads`:

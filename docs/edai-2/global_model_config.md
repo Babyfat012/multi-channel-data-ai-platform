@@ -43,11 +43,11 @@ Mọi lượt gọi LLM của cả ba Agent đi qua cùng một cửa nên telem
 
 ## Bằng chứng
 
-Ảnh EKS ngày 30/10/2026 thể hiện ba Agent dùng chung model:
+Ảnh EKS thể hiện ba Agent dùng chung model:
 
 ![kagent UI EKS: ba Agent dùng qwen2.5-1.5b-instruct](../evidence/aws/kagent-ui-agents-20261030.png)
 
-Kiểm tra bằng lệnh trên EKS (04/11/2026): hai ModelConfig `default-model-config` (1,5B) và `ab-small-model-config` (0,5B); ba Agent `coordinator`, `data-agent`, `model-agent` dùng `default-model-config`, còn `data-agent-b` của A/B dùng `ab-small-model-config`. `status` là `Accepted`, khóa API chỉ ghi tên Secret `kagent-agw-key`.
+Kiểm tra bằng lệnh trên EKS: hai ModelConfig `default-model-config` (1,5B) và `ab-small-model-config` (0,5B); ba Agent `coordinator`, `data-agent`, `model-agent` dùng `default-model-config`, còn `data-agent-b` của A/B dùng `ab-small-model-config`. `status` là `Accepted`, khóa API chỉ ghi tên Secret `kagent-agw-key`.
 
 ![kubectl get modelconfig, default-model-config -o yaml và model của từng Agent](../evidence/aws/modelconfig-default-agents.png)
 

@@ -4,10 +4,10 @@ EDAI-2, dòng 57: novel idea — drift theo Channel.
 
 Code / cấu hình: Job Evidently chạy EKS; kết quả là kiểm chứng theo yêu cầu, chưa tự động retrain.
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
 <a id="trên-aws-pipeline-a--2026-10-31"></a>
-## Drift trên EKS, 31/10/2026
+## Drift trên EKS
 
 - Dữ liệu: `training_lines` trên S3 của môi trường AWS (`s3://platform-665116832975-lakehouse/feature-store/training_lines`, mẫu 2‰).
 - Hai phép so: `stable` (30 ngày đầu vs phần sau) và `channel_shift` (30 ngày đầu vs phần sau **chỉ kênh Shopee**:
@@ -46,10 +46,10 @@ Quy trình có bốn bước; ảnh dưới đây chạy **local trên dữ li�
 
    ![Bảng JS theo cột: stable ổn định, channel_shift alert](../evidence/drift-summary-local-20261104.png)
 
-**Báo cáo Evidently từ EKS (04/11/2026).** Chạy lại Job [`mle-drift`](../../infra/k8s/ml/drift-job.yaml) (ns `kubeflow`, đầu vào là `training_lines` trên S3 như lần 31/10).
+**Báo cáo Evidently từ EKS.** Chạy lại Job [`mle-drift`](../../infra/k8s/ml/drift-job.yaml) (ns `kubeflow`, đầu vào là `training_lines` trên S3 như lần trước).
 Pod giữ 15 phút sau khi chạy xong để lấy HTML bằng `kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks`, rồi chụp bằng
 [`capture_drift_evidence.py`](../../scripts/evidence/capture_drift_evidence.py) (`--html-dir drift-eks --summary drift-eks/summary.json`). Kết quả lần chạy lại **trùng đến chữ số thập phân
-với lần 31/10** ([drift-summary-eks.json](../evidence/aws/drift-summary-eks.json)): phép đo ổn định, tái lập được.
+với lần trước** ([drift-summary-eks.json](../evidence/aws/drift-summary-eks.json)): phép đo ổn định, tái lập được.
 
 **Bước 1 trên EKS: dữ liệu tham chiếu và hiện tại.** Ảnh dưới dựng từ chính tập `training_lines` trên S3 (đầu vào của Job, 359.457 dòng) bằng `ml.drift.comparisons` với `--reference-days 30`.
 Số dòng ra **đúng bằng** `reference_rows`/`current_rows` trong summary của Job (stable 72.109 / 287.348; channel_shift 72.109 / 8.320), nên ảnh mô tả đúng hai cửa sổ mà Evidently đã so:
@@ -69,7 +69,7 @@ Lưu ý khi đọc ảnh `channel_shift`: biểu đồ phân phối của `selle
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: theo dõi data drift đầu vào model bằng Evidently, có proof chạy được. -->
 ## ML-N2: theo dõi data drift (Evidently)
@@ -96,7 +96,7 @@ Jensen-Shannon (khoảng cách, **lớn** = drift). Bản đầu đọc mọi s�
 (báo `label` drift, bỏ sót `seller_sku`). Đã đối chiếu bằng scipy chi-square rồi sửa: chiều so lấy
 theo tên phương pháp trong metric; test phủ cả hai chiều và biên ngưỡng.
 
-## Proof (2026-10-21)
+## Proof
 
 | Lô so với tham chiếu (30 ngày đầu, 2.307 line) | `seller_sku` | `label` | alert |
 |---|---|---|---|

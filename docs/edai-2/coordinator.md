@@ -4,7 +4,7 @@ EDAI-2, dòng 25–26: điều phối hai Agent, multi-replica, autoscale và pu
 
 Coordinator gọi Data Agent và Model Agent qua A2A gateway, tổng hợp feature và prediction. Code: [coordinator.yaml](../../infra/k8s/agents/coordinator.yaml), [KEDA](../../infra/k8s/agents/coordinator-keda.yaml).
 
-## Bằng chứng EKS, 30/10/2026
+## Bằng chứng EKS
 
 Câu hỏi APP-00042, Amazon US, 1 sản phẩm giá 25 USD: trả tỉ lệ Return **0,1698** và điểm rủi ro **0,1661**, khớp API.
 
@@ -14,11 +14,11 @@ Coordinator đã publish trong [Registry](agent_registry.md). Prompt `platform-c
 
 ![Langfuse AWS: prompt của Coordinator và Agent](../evidence/aws/langfuse-prompts-20261030.png)
 
-## Autoscale trên EKS, 04/11/2026
+## Autoscale trên EKS
 
 [KEDA Coordinator](../../infra/k8s/agents/coordinator-keda.yaml) min 2, max 3, ngưỡng 0,5 request/giây mỗi pod theo route `a2a-coordinator`.
 Chạy [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh), log [keda-coordinator.txt](../evidence/aws/keda-coordinator.txt): pod **2 → 3 → 2**
-(lên 3 sau khoảng 55 giây, về 2 sau khoảng 8 phút). Cùng bài chạy với Model Agent; ảnh pod ở [Agents](agents.md#keda-model-agent-04112026-eks-platform-apps).
+(lên 3 sau khoảng 55 giây, về 2 sau khoảng 8 phút). Cùng bài chạy với Model Agent; ảnh pod ở [Agents](agents.md#keda-model-agent-eks-platform-apps).
 Phần `Events` trong log có một cảnh báo `FailedGetExternalMetric` cũ (hàng chục nghìn lần trong 2 ngày): lúc đó node EKS đang scale về 0 nên API metric
 của KEDA không trả lời; cảnh báo không xuất hiện trong lần scale này (các sự kiện `SuccessfulRescale` bên dưới là của lần chạy).
 
@@ -28,6 +28,6 @@ của KEDA không trả lời; cảnh báo không xuất hiện trong lần scal
 
 ## Giới hạn
 
-CI deploy thành công nhưng cổng `Eval agent` chưa đạt (31/10 đỏ sau 15 phút; 04/11 chạy hơn 20 phút chưa xong); chưa tính pipeline hoàn tất. [CI/CD](cicd.md), [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026).
+Cổng `Eval agent` đạt 12/12 (Jenkins #9) nhưng chỉ chấm định tuyến, không chấm số; hai lần đầu đỏ hoặc chưa xong do LLM CPU chậm khi tải chồng. [CI/CD](cicd.md), [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026).
 
 [Mục lục phần này](README.md) · [Mục lục chung](../README.md)

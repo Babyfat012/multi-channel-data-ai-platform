@@ -4,9 +4,9 @@ EDAI-1, dòng 22–27: ingest/validate của DP1, DP2 và DP3.
 
 Code / cấu hình: [DP1](../../dags/dp1_bronze.py), [DP2](../../dags/dp2_silver.py), [DP3](../../dags/dp3_features.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên AWS (2026-10-27 đến 2026-10-28)
+## Trên AWS
 
 Airflow và Spark chạy bằng Compose trên EC2 Sydney, đọc raw S3 và PostgreSQL EC2.
 [Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) và
@@ -39,7 +39,7 @@ Ví dụ, `AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS=0` của container AWS c�
 sửa giá trị trong UI cũng không thay giá trị môi trường đang được ưu tiên. Vì vậy cần đối chiếu cả
 Compose và giá trị được Airflow resolve khi kiểm tra cấu hình thực tế.
 
-**Bằng chứng trên AWS (04/11/2026, Airflow trên EC2, qua tunnel `127.0.0.1:8081`).**
+**Bằng chứng trên AWS (Airflow trên EC2, qua tunnel `127.0.0.1:8081`).**
 
 Admin → Connections có `spark_default` (loại `spark`, `spark://spark-master`, cổng 7077) và `platform_postgres` (loại `postgres`, host `postgres`, cổng 5432);
 danh sách không hiện mật khẩu.
@@ -57,7 +57,7 @@ nhưng container được cấp `AIRFLOW_VAR_PLATFORM_FEAST_REDIS=10.42.0.208:30
 
 ![Terminal EC2: airflow variables get platform_feast_redis = 10.42.0.208:30379, các container Airflow/Spark Healthy](../evidence/aws/airflow-variable-feast-redis-resolved.png)
 
-Kiểm chứng lookup Connection/Variable ngày 15/10 trong mục tham khảo là **local**.
+Kiểm chứng lookup Connection/Variable trong mục tham khảo là **local**.
 
 ### DP1: nguồn → Bronze
 
@@ -120,11 +120,11 @@ lâu hơn build vì đối chiếu từng dòng; đây chưa phải chứng minh
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 ## Airflow DP1 — nguồn sang Bronze, rồi Validate
 
-## Xác minh Connection/Variable và Spark runtime ngày 2026-10-15
+## Xác minh Connection/Variable và Spark runtime
 
 DAG `platform_runtime_config_check`, run `de_runtime_20261015`, hoàn tất **2/2
 task success** từ 14:41:51 đến 14:42:02 UTC sau khi nạp lại cấu hình bằng
@@ -294,8 +294,8 @@ env -u POSTGRES_PASSWORD bash scripts/setup/setup_dp2_silver.sh
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec airflow airflow dags trigger dp2_silver
 ```
 
-Ghi chú lịch sử: đoạn run bên dưới là **chặng Silver** của lần chạy ngày 2026-10-13;
-DP2 hiện đã có Gold, SCD2 và Validate trong lần chạy 2026-10-14 được ghi ở phần sau.
+Ghi chú lịch sử: đoạn run bên dưới là **chặng Silver** của lần chạy;
+DP2 hiện đã có Gold, SCD2 và Validate trong lần chạy được ghi ở phần sau.
 Điều kiện `Order Line ≥ Order` chỉ hợp lệ với dữ liệu generator hiện tại,
 nơi mỗi Order có ít nhất một dòng hàng; nó không chứng minh phép chuyển đổi từng dòng đúng.
 

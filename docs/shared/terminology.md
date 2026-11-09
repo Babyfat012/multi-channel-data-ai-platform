@@ -2,7 +2,7 @@
 
 Nền tảng dữ liệu phía seller, gom dữ liệu bán hàng từ nhiều nền tảng thương mại điện tử bên ngoài (Amazon, TikTok Shop, Shopify, Walmart, Shopee) vào một lakehouse. Dữ liệu hoàn toàn được sinh giả lập, lấy Amazon làm mô hình tham chiếu.
 
-Q52–Q55 (2026-10-18) mở rộng nguồn partial lifecycle, Listing history,
+Q52–Q55 mở rộng nguồn partial lifecycle, Listing history,
 inventory nhỏ và hàng đợi kiểm tra. Thuật ngữ inventory bổ sung ở
 [GLOSSARY.md](../../GLOSSARY.md). Q56–Q59 đã chốt label v2, pool topology và
 queue ba nhóm. Định nghĩa hiện hành theo [contract nhãn](../edai-1/reference/return_label_contract.md)

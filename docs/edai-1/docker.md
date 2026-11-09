@@ -4,12 +4,12 @@ EDAI-1, dòng 3–4: Docker/Compose và tối ưu Dockerfile.
 
 Code / cấu hình: [Dockerfile](../../Dockerfile), [Compose AWS](../../docker-compose.aws.yml).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên AWS (2026-10-27)
+## Trên AWS
 
 [Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) ghi workload Compose trên EC2 Sydney;
-[Airflow AWS](pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28) nhúng Graph/Gantt của các pipeline đã chạy.
+[Airflow AWS](pipeline_orchestration.md#trên-aws) nhúng Graph/Gantt của các pipeline đã chạy.
 Cấu hình triển khai: [Compose AWS](../../docker-compose.aws.yml).
 
 Các kỹ thuật tối ưu trong [`Dockerfile`](../../Dockerfile), đối chiếu với bản
@@ -23,7 +23,7 @@ Các kỹ thuật tối ưu trong [`Dockerfile`](../../Dockerfile), đối chi�
 | Tách lớp thư viện và code | Copy `pyproject.toml` và `uv.lock`, cài thư viện trước khi copy generator; sửa code vẫn tận dụng cache lớp thư viện |
 | Giảm build context | [`.dockerignore`](../../.dockerignore) loại dữ liệu sinh, môi trường ảo, Git và tài liệu; áp dụng cho cả hai image |
 
-Đo lại trên chính EC2 (2026-10-31) bằng [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh):
+Đo lại trên chính EC2 bằng [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh):
 build [`docker/Dockerfile.naive`](../../docker/Dockerfile.naive) và [`Dockerfile`](../../Dockerfile) từ cùng code, liệt kê
 thư viện trong từng image bằng `importlib.metadata` rồi `diff` ⇒ **cùng 27 package** (cùng `requirements.lock`), nên phần
 giảm là nhờ cách build, không phải bỏ bớt thư viện.
@@ -40,7 +40,7 @@ Giảm **70,9%** dung lượng trên đĩa và **74,3%** dung lượng đẩy re
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 ## Docker và Docker Compose
 
@@ -153,7 +153,7 @@ docker images data-generator
 ## 3. Đo lại 2026-10 — cùng bộ thư viện
 
 Phép đo ở mục 2 là **lịch sử**: khi đó `Dockerfile.naive` cài `pip install .` (không khóa phiên bản), nên câu "cùng
-thư viện, chỉ khác cách build" chưa được chứng minh. Từ 2026-10-19, image naive cài từ `requirements.lock` (xuất từ
+thư viện, chỉ khác cách build" chưa được chứng minh. Hiện tại image naive cài từ `requirements.lock` (xuất từ
 `uv.lock` bằng `scripts/setup/export_requirements_lock.sh`, có hash) rồi `pip install --no-deps .`. `scripts/evidence/compare_docker_dependencies.sh`
 build cả hai từ cùng working tree, liệt kê package bằng `importlib.metadata` trong từng image và **fail nếu khác nhau**.
 

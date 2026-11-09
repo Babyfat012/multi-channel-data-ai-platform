@@ -4,9 +4,9 @@ EDAI-1, dòng 20–21: tối ưu lakehouse và warehouse.
 
 Code / cấu hình: [Partition rewrite](../../spark_jobs/maintenance/repartition_small_channel.py), [export warehouse](../../spark_jobs/warehouse/export_order_snapshot_lines.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Lakehouse trên AWS: gộp file nhỏ bằng partition evolution (2026-10-29)
+## Lakehouse trên AWS: gộp file nhỏ bằng partition evolution
 
 `maintenance_iceberg` trên `bronze.raw_shopee_orders_dp1` ra **no-op**: bảng chia theo ngày, mỗi ngày đúng
 1 file ~2,4 MB, nên `rewrite_data_files` (gộp trong từng partition) không có gì để gộp. Nguyên nhân là
@@ -31,7 +31,7 @@ Giới hạn: job Bronze `dp1` ghi `createOrReplace … partitionedBy("export_da
 về chia theo ngày; đóng hẳn gap #16 cần cho ingest chọn spec theo kênh. Lùi về spec cũ:
 `CALL lakehouse.system.rollback_to_snapshot(...)` với `snapshot_before` trong biên lai.
 
-## Warehouse trên AWS: 30 ngày, năm Channel (2026-10-29)
+## Warehouse trên AWS: 30 ngày, năm Channel
 
 DAG [`dp4_warehouse`](../../dags/dp4_warehouse.py) chép 30 ngày trước cutoff (2026-05-31 → 2026-06-30) của
 `lakehouse.gold.fact_order_lines_dp2` sang `warehouse.fact_order_lines_30d_dp2` trên PostgreSQL EC2
@@ -56,21 +56,21 @@ SKU bị skew mạnh: nhiều nhất `ELE-01103` 2.011.389 dòng (5,4%), ít nh�
   lạnh trên EBS). Muốn nhanh hơn: `CLUSTER … USING` index, hoặc index bao (`INCLUDE (line_net_amount)`)
   để chỉ đọc index.
 
-Ảnh EXPLAIN và log được nhúng ở [mục AWS](#trên-aws-2026-10-29).
+Ảnh EXPLAIN và log được nhúng ở [mục AWS](#trên-aws).
 
-## Trên AWS (2026-10-29)
+## Trên AWS
 
 Spark/Iceberg và PostgreSQL chạy Compose trên EC2, dữ liệu lakehouse ở S3.
 [Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) có `lakehouse_repartition_shopee` và `airflow_dp4_warehouse`;
-chi tiết phép đo ở [Lakehouse](#lakehouse-trên-aws-gộp-file-nhỏ-bằng-partition-evolution-2026-10-29)
-và [Warehouse](#warehouse-trên-aws-30-ngày-năm-channel-2026-10-29).
+chi tiết phép đo ở [Lakehouse](#lakehouse-trên-aws-gộp-file-nhỏ-bằng-partition-evolution)
+và [Warehouse](#warehouse-trên-aws-30-ngày-năm-channel).
 
 Với Shopee, [job partition evolution](../../spark_jobs/maintenance/repartition_small_channel.py) đổi ngày → tháng,
 rewrite-all: 180 → 6 file; 4.689.957 dòng và fingerprint `-2551885948954549477803` giữ nguyên.
 Trung vị ba lần `count(*)` 1,040 → 0,286 s; lọc 30 ngày 7,943 → 0,968 s. Đây là số trong receipt;
 ảnh AWS chụp riêng trước/sau compaction nằm ngay dưới. Maintenance trước đó no-op vì mỗi partition ngày chỉ một file.
 
-Để chụp trước/sau mà không chạy lại job, đọc cùng bảng ở hai snapshot qua Trino (chỉ đọc; đã chạy trên EC2 ngày 04/11/2026, kết quả ở dưới):
+Để chụp trước/sau mà không chạy lại job, đọc cùng bảng ở hai snapshot qua Trino (chỉ đọc; đã chạy trên EC2, kết quả ở dưới):
 
 ```sql
 -- 1. snapshot trước khi viết lại: snapshot cuối cùng có operation = append/overwrite trước lần replace
@@ -84,13 +84,13 @@ SELECT count(DISTINCT "$path") AS files, count(*) AS rows
 FROM lakehouse.bronze.raw_shopee_orders_dp1;
 ```
 
-**Kết quả trên AWS (04/11/2026, Trino 483 trên EC2).** Bảng `bronze.raw_shopee_orders_dp1` có đúng hai snapshot: `564699590744609361` (`append`, 27/10 15:51 UTC) và
-`2727359824964749759` (`replace`, 29/10 09:36 UTC, lần viết lại của job `repartition_small_channel`). Snapshot cũ chưa bị `expire_snapshots` xóa nên đọc lại được:
+**Kết quả trên AWS (Trino 483 trên EC2).** Bảng `bronze.raw_shopee_orders_dp1` có đúng hai snapshot: `564699590744609361` (`append`) và
+`2727359824964749759` (`replace`, lần viết lại của job `repartition_small_channel`). Snapshot cũ chưa bị `expire_snapshots` xóa nên đọc lại được:
 
 | Trạng thái | Số file dữ liệu | Số dòng |
 |---|---:|---:|
-| Trước: `FOR VERSION AS OF 564699590744609361` (append 27/10, chia theo ngày) | **180** | **4.689.957** |
-| Sau: hiện tại (replace 29/10, chia theo tháng) | **6** | **4.689.957** |
+| Trước: `FOR VERSION AS OF 564699590744609361` (append, chia theo ngày) | **180** | **4.689.957** |
+| Sau: hiện tại (replace, chia theo tháng) | **6** | **4.689.957** |
 
 Số dòng bằng nhau ở hai phía (dữ liệu không đổi) và khớp receipt (180 → 6 file; fingerprint giữ nguyên).
 
@@ -120,11 +120,11 @@ phần lớn trang. Đây là các lượt EXPLAIN quan sát trên EBS, chưa t�
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 ## Data Storage — compaction Iceberg
 
-Cập nhật 2026-10-14. Phần này ghi bằng chứng thực chạy cho `rewrite_data_files`
+Phần này ghi bằng chứng thực chạy cho `rewrite_data_files`
 trên bảng Amazon Bronze toàn kỳ. Code đo và chạy: `spark_jobs/maintenance/inspect_iceberg_storage.py`
 và `spark_jobs/maintenance/compact_amazon_order_snapshots.py`. Tài liệu API tương ứng là
 [Apache Iceberg 1.11 Spark procedures](https://iceberg.apache.org/docs/1.11.0/spark-procedures/)

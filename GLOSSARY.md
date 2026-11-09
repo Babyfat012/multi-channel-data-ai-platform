@@ -49,7 +49,7 @@ _Avoid_: Coi mọi Refund là có hàng gửi về
 không có tiền về). Return và Refund là **hai sự kiện độc lập**; "đi cùng nhau" = cùng Order Line và cùng nằm
 trong cửa sổ 30 ngày, chưa bắt buộc nối theo `return_id` (không phải Channel nào cũng gửi liên kết đó).
 
-**Tỷ lệ Return-hoặc-Refund lịch sử** (`return_or_refund_rate_90d`; trước 2026-10-19 tên `return_rate_90d`):
+**Tỷ lệ Return-hoặc-Refund lịch sử** (`return_or_refund_rate_90d`; tên cũ `return_rate_90d`):
 Tỷ lệ Order Line có nhãn v2 dương trong nhóm đã chốt giao/hủy, đủ maturity
 của mọi phần giao và đủ coverage tại cutoff. Luôn đi kèm tử/mẫu số, cohort
 theo lần giao cuối phần thực giao và phiên bản nhãn. Đếm cả refund-only, nên **không** phải tỷ lệ hàng

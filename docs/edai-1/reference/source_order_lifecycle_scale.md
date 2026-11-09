@@ -1,4 +1,4 @@
-# Nguồn v2 ở quy mô lớn — gói B+ (2026-10-19)
+# Nguồn v2 ở quy mô lớn — gói B+
 
 > **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
 
@@ -25,7 +25,7 @@ bản ghi/byte dự kiến và trần worst case. Chỉ stdlib, RNG riêng `rand
 | `lines_per_order` | (0,55; 0,30; 0,12; 0,03) | Trọng số cho 1, 2, 3, 4 line, cấu hình qua API |
 | `followup_days` | 270 | Mốc từ start, ≥ days + 50 |
 | `observation_days` | 285 | Mốc từ start, ≥ followup_days + 9 |
-| `native_schemas` | () | Tuple `(Channel, version)`; override giống fixture |
+| `native_schemas` |  | Tuple `(Channel, version)`; override giống fixture |
 
 Ba horizon có cùng ngữ nghĩa với fixture. Mặc định 270/285 thay 90/105 để
 bao phủ cả miền 180 ngày. Thời gian tạo đơn rải tới microsecond trong ngày;
@@ -167,7 +167,7 @@ Spark: **chưa chạy trong sandbox**. Bộ unittest tại
 `contracts_dir="/workspace/contracts"`; kiểm mọi reconcile check bằng 0,
 quarantine bằng 0 và tập line Silver bằng truth.
 
-Kết quả (người vận hành, 2026-10-19): **`Ran 3 tests in 980.842s — OK`** (`tests/spark/check_order_lifecycle_silver_scale.py`, 200 đơn/ngày ×
+Kết quả (người vận hành): **`Ran 3 tests in 980.842s — OK`** (`tests/spark/check_order_lifecycle_silver_scale.py`, 200 đơn/ngày ×
 10 ngày, image `platform-airflow:2.10.5-spark3.5.3`, `--network none --read-only`, driver 3 GB): mọi check `reconcile` = 0,
 quarantine = 0, tập line Silver = `_truth`. Thời gian dài vì máy chạy song song job khác; không dùng làm số hiệu năng.
 

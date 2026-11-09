@@ -29,7 +29,7 @@ Các giới hạn của cấu hình hiện hành:
 - PII dựa trên mẫu có thể che nhầm số đếm dài trong câu trả lời: [giới hạn đã ghi nhận](agent_evaluation.md).
   Việc mask không bảo đảm số liệu đầu ra còn đúng; các policy trên mô tả cấu hình hiện có.
 
-## Bằng chứng EKS, 30/10/2026
+## Bằng chứng EKS
 
 [Gateway smoke](../evidence/aws/gateway-smoke-20261030.json) đạt **17/17** kiểm tra; [script](../../scripts/evidence/gateway_smoke.py). Grafana ghi nhận route Agent/MCP:
 
@@ -62,7 +62,7 @@ Các route còn lại: `a2a-model-agent` và `a2a-coordinator` (theo header `x-k
 
 [`gateway_smoke.py`](../../scripts/evidence/gateway_smoke.py) in bảng policy → request → ALLOW/DENY kỳ vọng và thực tế
 (API key, PII request, rate limit, `mcpAuthorization`, A2A của từng Agent: `data-agent`, `model-agent`, `coordinator`).
-Kết quả trên EKS ngày 04/11/2026 (`platform-apps`): **22/22** kiểm tra đạt (16 dòng policy ở bảng dưới và 6 kiểm số liệu Prometheus), receipt
+Kết quả trên EKS (`platform-apps`): **22/22** kiểm tra đạt (16 dòng policy ở bảng dưới và 6 kiểm số liệu Prometheus), receipt
 [gateway-smoke.json](../evidence/aws/gateway-smoke.json).
 
 ![Bảng policy trên EKS: API key 401/200, PII 403, MCP tools/list và get_sku_features, A2A có/không key cho data-agent, model-agent, coordinator, tool ngoài danh sách bị chặn, rate limit 429](../evidence/aws/gateway-smoke-policy-table.png)

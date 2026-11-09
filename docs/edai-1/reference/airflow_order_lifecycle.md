@@ -96,7 +96,7 @@ Dùng `run_id` mới cho mỗi lần công bố Gold. Nhãn append theo generati
 cùng generation; clear/retry Gold sau khi đã append có thể lỗi vì generation đã có.
 `max_active_runs=1` chỉ khóa DAG này; không bảo vệ trước job Spark chạy tay cùng bảng.
 
-Import thật trong image đã được người vận hành xác nhận ngày 2026-10-19:
+Import thật trong image đã được người vận hành xác nhận:
 **10 DAG, 0 lỗi**, gồm `dp_order_lifecycle`, `dp_order_lifecycle_cdc`,
 `dp_order_lifecycle_warehouse` và bảy DAG snapshots giữ tên
 (ghi nhận local (receipt không đính kèm repo)). Đây là kiểm import;

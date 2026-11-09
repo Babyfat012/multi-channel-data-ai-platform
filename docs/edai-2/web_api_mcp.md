@@ -4,19 +4,19 @@ EDAI-2, dòng 16–18: FastAPI/Pydantic, healthcheck, async, MCP và Helm rollin
 
 Code / cấu hình: [API](../../serving/app.py), [Helm values](../../infra/helm/feature-api/values.yaml). [Kiểm thử API và tải EKS](validation_verification.md).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-### Trên EKS, 2026-10-30
+### Trên EKS
 
 Feature API (helm, 2 replica) sau ingress HTTPS `https://api.<ip>.sslip.io` (cert Let's Encrypt). `helm upgrade` lên
-image `813627b-pii1` (làm tròn số, xem [LLM và agent](reference/llm_platform_agents.md#trên-eks-2026-10-30)) là revision 2,
+image `813627b-pii1` (làm tròn số, xem [LLM và agent](reference/llm_platform_agents.md#trên-eks)) là revision 2,
 rolling không gián đoạn.
 
 ![Swagger /features APP-00042: 15306 dòng có nhãn, 2599 Return, tỉ lệ 0.1698](../evidence/aws/feature-api-swagger-features-20261030.png)
 
 ![Swagger /predict APP-00042 amazon US 1 cái 25 USD: score 0.1661, abstain false, model_version 1](../evidence/aws/feature-api-swagger-predict-20261030.png)
 
-Ảnh Swagger ở trên chỉ thấy `/features` và `/predict`; probe và health có bằng chứng riêng (04/11/2026, cluster `platform-apps`).
+Ảnh Swagger ở trên chỉ thấy `/features` và `/predict`; probe và health có bằng chứng riêng (cluster `platform-apps`).
 
 **Probe cấu hình trong Deployment** (output [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh), file [eks-runtime-proof.txt](../evidence/aws/eks-runtime-proof.txt)):
 Deployment `feature-api` 2/2 pod chạy ở hai node khác nhau, `RollingUpdate` với `0 max unavailable, 1 max surge`;
@@ -31,7 +31,7 @@ Lệnh gọi `/healthz` và `/readyz` **trong từng pod** đều trả `200`.
 
 ![Swagger GET /readyz: 200, status ready](../evidence/aws/feature-api-readyz-swagger.png)
 
-**Swagger 06/11/2026 (EKS, port-forward `svc/feature-api`):** ảnh tổng quan liệt kê sáu endpoint (`/healthz`, `/readyz`, `/features`, `/chunks`, `/predict`, `/chunks/by-id`);
+**Swagger (EKS, port-forward `svc/feature-api`):** ảnh tổng quan liệt kê sáu endpoint (`/healthz`, `/readyz`, `/features`, `/chunks`, `/predict`, `/chunks/by-id`);
 `/metrics` cố ý ẩn khỏi schema (`include_in_schema=False`), Prometheus lấy số đo ở đó. Hai ảnh sau gọi trực tiếp từ Swagger.
 
 ![Swagger Feature API: sáu endpoint gồm /healthz, /readyz, /features, /chunks, /predict, /chunks/by-id](../evidence/aws/feature-api-swagger-overview-20261106.png)
@@ -55,7 +55,7 @@ Hai release Helm (`feature-api`, `feature-mcp`) dùng chung chart [`infra/helm/f
 Mỗi release có Deployment, probe, Helm `--atomic` và ScaledObject riêng ⇒ MCP scale và rollback độc lập với REST.
 Test: `test_surface_splits_rest_and_mcp_pods` (pod REST trả 404 ở `/mcp/`, pod MCP trả 404 ở `/features`).
 
-Chạy thật sau khi tách, EKS 09/11/2026: `feature-api` trả 200 ở `/features`, 404 ở `/mcp/`; `feature-mcp` ngược lại; `helm list` có hai release cùng image `4cc4502`; gateway trỏ `feature-mcp`. Ảnh Registry và Grafana bên dưới chụp 30–31/10, trước khi tách.
+Chạy thật sau khi tách, EKS `feature-api` trả 200 ở `/features`, 404 ở `/mcp/`; `feature-mcp` ngược lại; `helm list` có hai release cùng image `4cc4502`; gateway trỏ `feature-mcp`. Ảnh Registry và Grafana bên dưới chụp trước khi tách.
 
 Bốn tool dùng chung code với REST:
 
@@ -67,7 +67,7 @@ Bốn tool dùng chung code với REST:
 | `get_policy_chunks(chunk_ids)` | lấy chunk theo id | `POST /chunks/by-id` |
 
 Agent không gọi thẳng pod mà đi qua route `/mcp` của [agentgateway](agent_gateways.md) (API key, chỉ cho phép bốn tool trên).
-Smoke trên EKS sau khi tách, 09/11 ([gateway-smoke-20261109.json](../evidence/aws/gateway-smoke-20261109.json), **24/24 PASS**):
+Smoke trên EKS sau khi tách ([gateway-smoke-20261109.json](../evidence/aws/gateway-smoke-20261109.json), **24/24 PASS**):
 MCP không key → 401; `initialize` có key → 200; `tools/list` trả đủ bốn tool;
 `get_sku_features` có giá trị, `predict_return_risk` có `score` và `model_version`, `search_policy_chunks` trả ≥ 1 chunk; tool ngoài danh sách bị chặn.
 
@@ -81,9 +81,9 @@ MCP server đã đăng ký trong Agent Registry, và Grafana đếm từng lư�
 
 Agent dùng các tool này: [Data Agent / Model Agent](agents.md), cấu hình route và backend MCP: [Agent Gateways](agent_gateways.md).
 
-Tại ảnh API ngày 30/10, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
+Tại ảnh API, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
 
-#### Helm rolling update và tự rollback trên EKS, 04/11/2026
+#### Helm rolling update và tự rollback trên EKS
 
 Chạy [`helm_rollout_fallback_test.sh`](../../scripts/evidence/helm_rollout_fallback_test.sh) trên cluster `platform-apps` (release `feature-api`, namespace `feature-store`): một pod probe **trong cluster** gửi `POST /features`
 mỗi 0,2 giây suốt hai lần `helm upgrade --atomic`. Log đầy đủ: [feature-api-helm-rollout.txt](../evidence/aws/feature-api-helm-rollout.txt).
@@ -96,7 +96,7 @@ mỗi 0,2 giây suốt hai lần `helm upgrade --atomic`. Log đầy đủ: [fea
 | Tải liên tục trong cả hai lần upgrade | **763 request, 763 trả 200**, không có lỗi |
 
 `helm history` sau cùng: 13 `superseded`, 14 `failed`, 15 `deployed` (`Rollback to 13`). Đây là bằng chứng cho cả hai yêu cầu: rolling update không gián đoạn và tự fallback khi bản mới không khởi động được.
-Ghi nhận cũ của lần chạy local ngày 21/10 (583/583 request, rollback revision 12 → 13) vẫn ở mục tham khảo bên dưới.
+Ghi nhận cũ của lần chạy local (583/583 request, rollback revision 12 → 13) vẫn ở mục tham khảo bên dưới.
 
 #### Autoscale Feature API và MCP server (KEDA)
 
@@ -107,7 +107,7 @@ mỗi pod — cùng cách với Agent, không tính probe nên khi rảnh về 2
 (MCP) scale độc lập. Đo: [`feature_api_scale_test.sh`](../../scripts/evidence/feature_api_scale_test.sh) tạo tải
 `POST /features` từ pod trong cluster, ghi target/pod theo thời gian tới khi về lại 2.
 
-**Trên EKS 09/11/2026** (4 luồng `curl` trong cluster, 150 giây, chạy song song hai release):
+**Trên EKS** (4 luồng `curl` trong cluster, 150 giây, chạy song song hai release):
 
 | Release | Tải vào | Lên 3 pod | Về 2 pod | Log |
 |---|---|---:|---:|---|
@@ -143,7 +143,7 @@ bởi API. 0 lỗi.
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: Web API kéo feature SKU từ kho ONLINE, -->
 ## Web API kéo feature — ML Platform / LLM Platform
@@ -183,7 +183,7 @@ uv run --no-project --python 3.12 --with-requirements serving/requirements-dev.t
   pytest serving/tests -o pythonpath=. --cov=serving --cov-report=term-missing
 ```
 
-Kết quả 2026-10-21: 84 pass, coverage `serving/app.py` 98% (chỉ thiếu `load_store`, phần nạp Feast thật).
+Kết quả 84 pass, coverage `serving/app.py` 98% (chỉ thiếu `load_store`, phần nạp Feast thật).
 
 | Kỹ thuật | Ở đâu |
 |---|---|
@@ -202,7 +202,7 @@ UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements ser
 UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements serving/requirements-dev.txt mutmut results
 ```
 
-Lần chạy 2026-10-31 (laptop, 4 tiến trình, ~2,5 phút): **171 mutant** trên `serving/app.py`.
+Lần chạy (laptop, 4 tiến trình, ~2,5 phút): **171 mutant** trên `serving/app.py`.
 
 | Kết quả | Số | Nghĩa |
 |---|---:|---|
@@ -235,7 +235,7 @@ sau, dùng `git diff --name-only <base> -- '*.py'` lấy danh sách file đổi,
 ## Load test (locust)
 
 Chạy API thật (uvicorn, 1 worker) nối Feast registry trên MinIO + Redis trong kind, trong image `platform-feast:0.66.0`;
-20 user, 60 s, tỷ lệ 4 : 1 : 1 = một SKU / lô 10 SKU / `healthz`. File: [`serving/locustfile.py`](../../serving/locustfile.py).
+20 user, 60 s, tỷ lệ 4: 1: 1 = một SKU / lô 10 SKU / `healthz`. File: [`serving/locustfile.py`](../../serving/locustfile.py).
 
 | Request | Số | Lỗi | p50 | p95 | p99 | req/s |
 |---|---:|---:|---:|---:|---:|---:|
@@ -250,7 +250,7 @@ nên mỗi request chỉ thật sự đọc Redis một lần; số này là m�
 
 ## MCP tool
 
-Cùng app phơi thêm MCP server (thư viện `mcp` 2.3.0) tại `/mcp/`. Bản đầu (21/10) có một tool `get_sku_features(seller_skus)`
+Cùng app phơi thêm MCP server (thư viện `mcp` 2.3.0) tại `/mcp/`. Bản đầu có một tool `get_sku_features(seller_skus)`
 dùng chung `fetch_features` với REST; bản hiện tại có bốn tool, xem [MCP server trên EKS](#mcp-server-trên-eks). Chế độ **stateless + JSON**: request MCP nào tới replica nào cũng được,
 không cần sticky session, nên scale nhiều replica như API thường. Input sai hoặc Redis lỗi → `isError: true`
 kèm lời nhắn rõ (`ToolError`) để LLM tự sửa lại lời gọi. Test: `test_mcp_*` trong
@@ -281,11 +281,11 @@ bash scripts/setup/deploy_kind_feature_api.sh [tag]
   revision trước.
 - Probe: `startupProbe` + `livenessProbe` gọi `/healthz`, `readinessProbe` gọi `/readyz`.
 - Secret `feature-api-env` (khóa MinIO, registry, Redis) tạo lúc chạy script từ `.env`, không nằm trong Git.
-- Pod phân giải được `minio` (172.23.0.3) vì node kind nối vào mạng `platform_default` (kiểm 2026-10-21).
+- Pod phân giải được `minio` (172.23.0.3) vì node kind nối vào mạng `platform_default`.
   Redis gọi qua Service trong cụm `redis.feature-store.svc.cluster.local:6379`.
 - Request: 50m CPU / 128Mi RAM, limit 384Mi.
 
-### Kiểm 2026-10-21
+### Kiểm
 
 Một container gửi `POST /features` mỗi 0,2 s suốt lúc chạy: 3 lần rolling update (v1 → v2 → v1 → v2), rồi một
 bản cố tình hỏng (`envSecret=does-not-exist` ⇒ pod mới không khởi động được, `--timeout 45s`).
@@ -298,7 +298,7 @@ bản cố tình hỏng (`envSecret=does-not-exist` ⇒ pod mới không khởi 
 Log: [`evidence/feature-api-helm-rollout-20261021.txt`](../evidence/feature-api-helm-rollout-20261021.txt).
 Giá trị feature lúc đó là `null` vì Redis vừa khởi động lại, chưa materialize.
 
-### Bản v3 (2026-10-21): thêm tìm chunk RAG
+### Bản v3: thêm tìm chunk RAG
 
 Image v3 có thêm `feast[postgres]`, `fastembed` và model `BAAI/bge-small-en-v1.5` nằm sẵn trong image
 (`RAG_MODEL_CACHE=/opt/models`); Secret thêm `FEAST_RAG_REGISTRY`, `RAG_PG_*`. Helm revision 14, 1 replica

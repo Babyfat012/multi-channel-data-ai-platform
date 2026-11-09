@@ -2,17 +2,17 @@
 
 EDAI-2, dòng 28–32: coverage >90%, EP/BVA, mutation >80%, property-based và Locust.
 
-## Kiểm chứng code, 31/10/2026
+## Kiểm chứng code
 
 PR testing chạy trên máy phát triển, không gắn nhãn test chạy AWS. `serving/app.py` đạt **98%**, tổng **96%**, 86 test pass. [Test API](../../serving/tests/test_app.py) dùng fixture, MagicMock/AsyncMock và httpx MockTransport. EP/BVA kiểm số SKU 0/1/50/100/101 và độ dài 0/1/64/65; Hypothesis kiểm idempotency khi gọi lại request hoặc gửi SKU lặp. [Model properties](../../tests/unit/test_model_properties.py) kiểm prediction/training nhất quán và split theo thời gian.
 
 ![Coverage: 86 pass, app.py 98%, tổng 96%](../evidence/serving-coverage-20261031.png)
 
-### Ảnh từng loại kiểm thử, 04/11/2026
+### Ảnh từng loại kiểm thử
 
-Các ảnh dưới là **output terminal thật** của lần chạy ngày 04/11 trên máy phát triển, do
-[`capture_testing_evidence.py`](../../scripts/evidence/capture_testing_evidence.py) chạy rồi chụp (kèm file `.txt` cùng tên). Sau 31/10 test và code đã đổi
-nên số khác ảnh coverage 31/10 ở trên: **90 test pass, `serving/app.py` 96%, tổng 96%** (vẫn trên ngưỡng 90%).
+Các ảnh dưới là **output terminal thật** của lần chạy trên máy phát triển, do
+[`capture_testing_evidence.py`](../../scripts/evidence/capture_testing_evidence.py) chạy rồi chụp (kèm file `.txt` cùng tên). Sau đó test và code đã đổi
+nên số khác ảnh coverage ở trên: **90 test pass, `serving/app.py` 96%, tổng 96%** (vẫn trên ngưỡng 90%).
 
 **Coverage** (`pytest --cov=serving`): [`testing-coverage-20261104.txt`](../evidence/testing-coverage-20261104.txt)
 
@@ -32,7 +32,7 @@ Mutation (mutmut) có ảnh ở mục dưới; **Locust** chạy trên EKS, ản
 
 ## Mutation testing (mutmut)
 
-### Kết quả lịch sử 31/10: toàn bộ file
+### Kết quả lịch sử: toàn bộ file
 
 Cấu hình [`[tool.mutmut]`](../../pyproject.toml) chọn `serving/app.py`, dùng bộ test
 [`serving/tests/test_app.py`](../../serving/tests/test_app.py) và sao chép `rag` để test các nhánh RAG.
@@ -43,7 +43,7 @@ UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements ser
 UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements serving/requirements-dev.txt mutmut results
 ```
 
-Lần chạy 2026-10-31 (laptop, 4 tiến trình, ~2,5 phút): **171 mutant** trên `serving/app.py`.
+Lần chạy (laptop, 4 tiến trình, ~2,5 phút): **171 mutant** trên `serving/app.py`.
 
 | Kết quả | Số | Nghĩa |
 |---|---:|---|
@@ -67,7 +67,7 @@ Lần chạy 2026-10-31 (laptop, 4 tiến trình, ~2,5 phút): **171 mutant** tr
 timeout/no tests trong ảnh cho gọn. Lần chạy đầu trong sandbox của công cụ AI bị treo vì sandbox chặn socket nội bộ
 (`TestClient` cần), không phải lỗi test.
 
-Lần 31/10 mutate toàn bộ `serving/app.py`; chưa có bước chọn file từ Git diff. Kết quả đó giữ nguyên
+Lần mutate toàn bộ `serving/app.py`; chưa có bước chọn file từ Git diff. Kết quả đó giữ nguyên
 là bằng chứng lịch sử, không dùng để chứng minh chỉ mutate code thay đổi.
 
 ### Chọn file thay đổi theo Git
@@ -107,7 +107,7 @@ Ngưỡng pass của script là **killed / tổng mutant >80%**, tính cả `no 
 vào killed. Manifest ghi thêm hai cách tính có loại `no tests` để đối chiếu với báo cáo lịch sử.
 Mutant chưa kiểm, lỗi chạy, kết quả rỗng hoặc score không đạt làm script trả lỗi; skip không phải kết quả đạt rubric.
 
-### Kết quả local 03/11/2026: file được chọn từ Git diff
+### Kết quả local: file được chọn từ Git diff
 
 So base `3cd3fcd` (`89cd44e^`) với head `89cd44e`: có 11 file Python thêm/sửa trong toàn commit,
 nhưng giao với scope Web API chỉ chọn **`serving/app.py`**. Test API và các module ngoài scope được liệt kê
@@ -132,7 +132,7 @@ Bằng chứng: [manifest và SHA code](../evidence/mutation-changed-serving-202
 [cấu hình thực chạy](../evidence/mutation-changed-serving-config-20261103.toml).
 Đây là kiểm chứng local, giới hạn theo file thay đổi trong scope Web API, không phải theo dòng và không phải run Jenkins/AWS.
 
-**Chạy lại 04/11/2026, có ảnh.** Cùng lệnh và cùng hai mốc (`89cd44e^` .. `89cd44e`), hoàn tất trong 2 phút 20 giây, exit code 0. Kết quả **trùng hệt lần 03/11**:
+**Chạy lại, có ảnh.** Cùng lệnh và cùng hai mốc (`89cd44e^` .. `89cd44e`), hoàn tất trong 2 phút 20 giây, exit code 0. Kết quả **trùng hệt lần trước**:
 245 mutant, 219 killed, 14 no tests, 12 survived, 0 timeout (score 89,4%; loại no tests 94,8%), cùng SHA code
 ([manifest](../evidence/mutation-changed-serving-20261104.json), [log](../evidence/mutation-changed-serving-20261104.txt), [từng mutant](../evidence/mutation-changed-serving-results-20261104.txt)).
 Chạy lại ra cùng kết quả nghĩa là phép kiểm tái lập được. Ghi chú: SHA cấu hình runner trong manifest khác giữa hai lần dù file cấu hình lưu lại giống hệt; chưa xác định nguyên nhân.
@@ -157,7 +157,7 @@ Locust chạy trên laptop (Việt Nam), đi qua `kubectl port-forward svc/featu
 
 Báo cáo HTML: [`evidence/aws/load-test-feature-api-20261030.html`](../evidence/aws/load-test-feature-api-20261030.html).
 
-**Chạy lại ngày 04/11/2026** (cùng cấu hình, sau khi node EKS được bật lại): 59 giây, 20 user, đi qua `kubectl port-forward svc/feature-api` (host `127.0.0.1:8000`),
+**Chạy lại** (cùng cấu hình, sau khi node EKS được bật lại): 59 giây, 20 user, đi qua `kubectl port-forward svc/feature-api` (host `127.0.0.1:8000`),
 báo cáo HTML [locust-feature-api-eks.html](../evidence/aws/locust-feature-api-eks.html), số liệu [locust-feature-api-eks_stats.csv](../evidence/aws/locust-feature-api-eks_stats.csv).
 
 | Request | Số | Lỗi | p50 | p95 | p99 | req/s |
@@ -169,7 +169,7 @@ báo cáo HTML [locust-feature-api-eks.html](../evidence/aws/locust-feature-api-
 
 ![Báo cáo Locust trên EKS ngày 04/11: 3.065 request, 0 lỗi, p50 250 ms, RPS ổn định khoảng 53, 20 user](../evidence/aws/locust-feature-api-eks.png)
 
-Hai lần chạy (30/10 và 04/11) cho kết quả gần như trùng nhau (3.004 và 3.065 request, đều 0 lỗi, p50 250 ms): hiệu năng ổn định giữa hai lần bật cụm.
+Hai lần chạy cho kết quả gần như trùng nhau (3.004 và 3.065 request, đều 0 lỗi, p50 250 ms): hiệu năng ổn định giữa hai lần bật cụm.
 Dòng đầu của biểu đồ thời gian phản hồi có p95 khoảng 800 ms ở giây đầu tiên (làm nóng kết nối) rồi về mức ổn định khoảng 260 ms.
 
 Đọc số: `/healthz` không làm gì cũng mất ~250 ms ⇒ gần hết là đường mạng laptop → Sydney, không phải API.

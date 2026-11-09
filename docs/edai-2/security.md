@@ -4,12 +4,12 @@ EDAI-2, dòng 54: quản lý secret tập trung với Vault.
 
 Code / cấu hình: [Vault setup](../../scripts/setup/setup_vault.sh); secret dùng cho CI và ingress.
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên AWS (2026-10-31)
+## Trên AWS
 
 Vault 2.1.1 chạy trên EC2 (Docker Compose, dữ liệu trên EBS `/mnt/platform-data/vault`, chỉ nghe loopback 8200, vào
-qua SSM). Khởi tạo lại 30/10 sau sự cố thay EC2 ([`setup_vault.sh`](../../scripts/setup/setup_vault.sh)). KV v2
+qua SSM). Khởi tạo lại sau sự cố thay EC2 ([`setup_vault.sh`](../../scripts/setup/setup_vault.sh)). KV v2
 `secret/platform/*` là nơi duy nhất giữ secret dùng chung:
 
 | Secret | Ai đọc |
@@ -19,7 +19,7 @@ qua SSM). Khởi tạo lại 30/10 sau sự cố thay EC2 ([`setup_vault.sh`](..
 | `minio` | bản local (trên AWS dùng IAM role, không có MinIO) |
 
 Ảnh dưới chỉ in trạng thái, tên secret và metadata phiên bản, **không in giá trị**: `Sealed false`, 4 key dưới
-`secret/platform`, `agent-ui` version 1 tạo 2026-10-30 08:54 UTC — đúng lúc `setup_ingress.sh` chạy lần đầu sau khi
+`secret/platform`, `agent-ui` version 1 tạo đúng lúc `setup_ingress.sh` chạy lần đầu sau khi
 khởi tạo lại Vault.
 
 ![Vault trên EC2: status unsealed 2.1.1, kv list secret/platform (agent-ui, minio, ops-ui, postgres), metadata agent-ui version 1](../evidence/aws/vault-status-kv-20261031.png)
@@ -27,7 +27,7 @@ khởi tạo lại Vault.
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: quản lý secret tập trung bằng HashiCorp Vault -->
 ## Secret tập trung — HashiCorp Vault
@@ -65,11 +65,11 @@ Secret nằm ở **một chỗ** (Vault) để cả tổ chức dùng chung, kh�
 ## Sau khi máy restart
 
 `scripts/setup/up_ml_base.sh` dựng lại phần nền dùng chung một lệnh: MinIO + PostgreSQL + Lakekeeper,
-unseal Vault, Jenkins, và materialize lại Redis nếu trống (Redis trong kind không lưu đĩa; trên EKS Redis có PVC và AOF từ 04/11, xem [Feature Store](feature_store.md#kiểm-chứng-trên-eks-04112026)). Không bật
+unseal Vault, Jenkins, và materialize lại Redis nếu trống (Redis trong kind không lưu đĩa; trên EKS Redis có PVC và AOF, xem [Feature Store](feature_store.md#kiểm-chứng-trên-eks)). Không bật
 LLM/agent. Dừng service Compose thì **luôn ghi tên service** — `docker compose --profile X stop` không
 tên sẽ dừng cả MinIO/PostgreSQL mà Feast, MLflow, Vault phụ thuộc.
 
-## Bằng chứng (2026-10-21)
+## Bằng chứng
 
 ```text
 eval "$(scripts/setup/vault_env.sh postgres)"  → POSTGRES_USER=platform POSTGRES_DB=sources (password 18 ký tự)

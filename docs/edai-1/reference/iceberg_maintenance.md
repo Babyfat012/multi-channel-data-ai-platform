@@ -126,7 +126,7 @@ report (ghi chú nội bộ, không nằm trong repo). Tracer đầu đỏ do mo
 các vòng bổ sung có đỏ do thiếu config/hàm probe và một lỗi so timestamp ISO,
 sau đó đều xanh.
 
-**Spark local: đã chạy (người vận hành, 2026-10-19) — `Ran 3 tests in 39.176s OK`.**
+**Spark local: đã chạy (người vận hành) — `Ran 3 tests in 39.176s OK`.**
 Receipt đầy đủ: [`docs/evidence/de-n2-maintenance-local-20261018.json`](../../evidence/de-n2-maintenance-local-20261018.json)
 (sha256 hai file code trong receipt khớp file trong repo lúc lưu).
 
@@ -184,7 +184,7 @@ không chạm Lakekeeper/MinIO và không kích hoạt DAG.
 
 **Chạy trên bảng thật: chưa chạy — người vận hành chạy sau.**
 
-## Trên AWS (2026-10-27 đến 2026-10-29)
+## Trên AWS
 
 DAG [maintenance_iceberg](../../../dags/maintenance_iceberg.py) chạy Compose EC2 trên bảng S3
 `bronze.raw_shopee_orders_dp1`, run `scheduled__2026-10-27T00:00:00+00:00`.
@@ -193,5 +193,5 @@ DAG [maintenance_iceberg](../../../dags/maintenance_iceberg.py) chạy Compose E
 
 [Job maintenance](../../../spark_jobs/maintenance/maintain_iceberg_tables.py) không gộp qua ranh giới partition ngày.
 Lần optimize riêng ngày 29 dùng [partition evolution + rewrite-all](../../../spark_jobs/maintenance/repartition_small_channel.py),
-180 → 6 file và giữ fingerprint. [Storage AWS](../data_storage.md#trên-aws-2026-10-29) ghi số đo và giới hạn;
+180 → 6 file và giữ fingerprint. [Storage AWS](../data_storage.md#trên-aws) ghi số đo và giới hạn;
 chưa có ảnh riêng chụp compaction AWS trước/sau, không gọi no-op là optimize thành công.

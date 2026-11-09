@@ -4,7 +4,7 @@ EDAI-2, dòng 37–43: ingress, UI, auth/rate limit, domain và HTTPS.
 
 Code / cấu hình: Cấu hình và ảnh từng route được dẫn trong kết quả EKS dưới đây.
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
 ## Trên EKS (2026-10-30/31)
 
@@ -37,13 +37,13 @@ Các UI sau gateway (đã đăng nhập qua basic auth, HTTPS):
 
 ![agentregistry UI qua https://registry.…sslip.io: 1 MCP server và 3 agent đã publish](../evidence/aws/agent-registry-ui-20261030.png)
 
-Log xem trong Grafana (Explore → Loki): [Observability](observability.md#trên-eks-2026-10-30).
-Web API HTTPS: [Swagger qua `api.`](web_api_mcp.md#trên-eks-2026-10-30).
+Log xem trong Grafana (Explore → Loki): [Observability](observability.md#trên-eks).
+Web API HTTPS: [Swagger qua `api.`](web_api_mcp.md#trên-eks).
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: NGINX Ingress cho các service LLM Platform — HTTPS, basic auth, rate limit -->
 ## Gateway — NGINX Ingress, HTTPS, auth
@@ -80,7 +80,7 @@ scripts/setup/setup_ingress.sh
 - **Mật khẩu UI** sinh ngẫu nhiên, cất ở Vault `secret/platform/agent-ui` (UI agent) và `secret/platform/ops-ui` (UI vận hành); secret htpasswd trong k8s tạo
   từ đó (`setup_ingress.sh`), không nằm trong repo.
 
-## Bằng chứng (2026-10-21, từ máy host)
+## Bằng chứng (từ máy host)
 
 ```text
 GET http://api.172-25-0-2.sslip.io:30080/            → 301 → https://…

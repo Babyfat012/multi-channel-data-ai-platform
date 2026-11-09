@@ -6,7 +6,7 @@ liệu chưa hỗ trợ trước khi parse. Màn trình diễn dùng fixture nh�
 
 ## Vấn đề nguồn và mục tiêu
 
-Ba lỗ hổng được ghi trong lượt rà soát ngày 2026-10-18:
+Ba lỗ hổng được ghi trong lượt rà soát:
 
 1. Payload đơn native không mang `schema_id`; nhãn nằm trong
    `manifest.native_sources[channel]`. Nếu chỉ đọc envelope thì mất nhãn nguồn.
@@ -110,7 +110,7 @@ Ca producer giữ nhãn Shopee v1 nhưng đổi tên `order_sn` cũng không đ�
 soát native↔OMS. Các Channel khác vẫn phải đối soát sạch. Đây là **kỳ vọng test
 Spark sau sửa**, chưa phải số đo chạy mới.
 
-## Kết quả Python đo lại ngày 2026-10-19
+## Kết quả Python đo lại
 
 Chạy `scripts/run/run_data_contracts_demo.sh`, không Docker:
 
@@ -137,7 +137,7 @@ báo cáo (ghi chú nội bộ, không nằm trong repo).
 
 Lượt chạy trước sửa `identity_path` bị người vận hành dừng vì đã lỗi thời (không dùng làm bằng chứng).
 
-**Sau sửa (người vận hành, 2026-10-19): `Ran 32 tests in 2749.990s — OK`** — 27 ca Silver v2 cũ + 5 ca hợp đồng, chạy
+**Sau sửa (người vận hành): `Ran 32 tests in 2749.990s — OK`** — 27 ca Silver v2 cũ + 5 ca hợp đồng, chạy
 `tests/spark/check_order_lifecycle_silver.py` trong `platform-airflow:2.10.5-spark3.5.3`, `--network none --read-only`,
 `PYSPARK_SUBMIT_ARGS='--driver-memory 3g pyspark-shell'`. Thời gian dài vì máy chạy song song nhiều job (bản cũ 27 ca
 chạy riêng mất 258 s); 1 GB driver từng gây `UNABLE_TO_ACQUIRE_MEMORY` khi chạy chồng nên đã nâng 3 GB.

@@ -5,11 +5,11 @@ EDAI-2, dòng 12: push streaming feature vào offline và online store.
 Code / cấu hình: [job PyFlink](../../flink_jobs/ml/sku_return_feature.py), [submit 2 job](../../scripts/run/run_stream_feature_jobs.sh),
 [image Flink ML](../../docker/Dockerfile.flink-ml), [CI](../../ci/jenkins/stream-features.Jenkinsfile).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Hai job PyFlink: online và offline (bản hiện tại, 07/11/2026)
+## Hai job PyFlink: online và offline (bản hiện tại)
 
-Thay cho Flink SQL + `feast-pusher` (bản 30–31/10 bên dưới). Một file PyFlink DataStream submit **hai job**, mỗi job đọc
+Thay cho Flink SQL + `feast-pusher` (bản bên dưới). Một file PyFlink DataStream submit **hai job**, mỗi job đọc
 Kafka bằng consumer group riêng và tự ghi vào kho của mình:
 
 ```text
@@ -54,17 +54,17 @@ docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-console-consu
   --topic order_snapshots.return_events --from-beginning --max-messages 1 --property print.timestamp=true | cut -c1-40
 ```
 
-**Smoke local 07/11** (cluster Flink 2.2.1 + Kafka thật trong Compose, `flink run -py`): job `ml-sku-return-24h-offline`
+**Smoke local** (cluster Flink 2.2.1 + Kafka thật trong Compose, `flink run -py`): job `ml-sku-return-24h-offline`
 RUNNING, 5 tin vào (có 1 bản trùng) ⇒ file part 51 cửa sổ, **51/51 khớp** phép đếm độc lập cho các cửa sổ đã đóng theo
 watermark; REST/UI hiện `duplicates_dropped`, `offline_rows_written`, `offline_batches_written`, `offline_last_window_end_ms`.
 Lỗi gặp khi chạy thật (đã sửa): PyFlink 2.2 cửa sổ/TTL nhận `Time` chứ không nhận `Duration`.
 
-**Diễn tập đúng quy mô, 09/11** (401.129 tin, 2.000 SKU, 3 partition, Redis thật, S3 API giả lập bằng moto): bản đầu sinh watermark
+**Diễn tập đúng quy mô** (401.129 tin, 2.000 SKU, 3 partition, Redis thật, S3 API giả lập bằng moto): bản đầu sinh watermark
 sau khi gộp partition ⇒ partition đọc nhanh làm watermark vượt partition chậm, tin bị coi là trễ và **rớt âm thầm trong khi job vẫn
 RUNNING** (mới đóng tới một phần đã thiếu 1.193 cửa sổ, sai số 37.284 cửa sổ). Sửa: event time là timestamp bản ghi Kafka do
 [`replay_return_events.py`](../../feature_repo/replay_return_events.py) đặt, watermark sinh ở source theo từng partition, có idleness.
 
-### Trên AWS, 09/11/2026
+### Trên AWS
 
 Jenkins `stream-features` (commit `4cc4502`, `DATA_STORAGE=s3`) dựng cluster Flink ML trên EC2 và submit 2 job. Phát lại **401.129** Return vào 3 partition
 (151.254 + 117.583 + 132.292), bản ghi đầu `CreateTime:1782518400289` là event time tháng 6/2026.
@@ -95,7 +95,7 @@ tới cửa sổ 06-27 11:00, **20.316/20.316 cửa sổ** trên S3 đúng, **1.
 **Chưa có số cuối: replay trên AWS đang chạy.**
 
 <a id="trên-aws-pipeline-a-2026-10-30"></a>
-## Bản trước: Flink SQL + pusher trên AWS, 30–31/10/2026
+## Bản trước: Flink SQL + pusher trên AWS
 
 Stream đơn hàng đã triển khai (thông báo Amazon, webhook TikTok) không có sự kiện Return, chỉ có trạng thái đơn.
 Nên trên AWS phát **lại** Return đã duyệt từ Gold vào Kafka, theo đúng thứ tự thời điểm biết Return (giới hạn:
@@ -154,8 +154,8 @@ Sau khi sửa, job mới chạy hết 3 ngày phát lại: 401.129 sự kiện v
 **Online và offline từ cùng một lần push.** Pusher gọi `store.push(..., to=PushMode.ONLINE_AND_OFFLINE)` một lần cho mỗi lô:
 Feast ghi giá trị mới nhất vào **Redis** (ảnh `/features` ở trên) và nối lịch sử vào **Parquet trên S3**
 (`feature-store/sku_return_24h.parquet`). Bản này một job Flink SQL, online và offline đi chung một lần push; bản hiện tại tách thành hai job PyFlink ở mục trên.
-Đọc lại file offline trên S3 ngày 07/11 bằng [`offline_store_proof.sh`](../../scripts/evidence/offline_store_proof.sh)
-(file ghi lúc 31/10 20:13, 3,0 MiB): **1.142.557 dòng, 2.000 SKU**, từ 06-27 01:00 tới 06-29 22:00 UTC; giá trị cuối
+Đọc lại file offline trên S3 bằng [`offline_store_proof.sh`](../../scripts/evidence/offline_store_proof.sh)
+(3,0 MiB): **1.142.557 dòng, 2.000 SKU**, từ 06-27 01:00 tới 06-29 22:00 UTC; giá trị cuối
 BEA-01708 = 39, ELE-01084 = 38, APP-00042 = 23, **khớp Redis**. Offline giữ từng giờ (BEA-01708: 36 → 38 → 39 → 40 → 43 → 43 → 40 → 39)
 để train lấy đúng giá trị tại thời điểm đặt đơn (point-in-time join). Số dòng lớn hơn số cửa sổ đối chiếu vì pusher là
 at-least-once và có tin của job hỏng trước đó; các dòng trùng cùng giá trị nên PIT join không đổi. Output: [stream-offline-parquet-s3-20261107.txt](../evidence/aws/stream-offline-parquet-s3-20261107.txt).
@@ -163,7 +163,7 @@ at-least-once và có tin của job hỏng trước đó; các dòng trùng cùn
 ![Offline store trên S3: sku_return_24h.parquet 1.142.557 dòng, 2.000 SKU; giá trị cuối khớp Redis; lịch sử từng giờ của BEA-01708](../evidence/aws/stream-offline-parquet-s3-20261107.png)
 
 Cửa sổ cuối dừng ở 06-29 22:00 (không tới 06-30 00:00) vì watermark trễ 1 giờ sau sự kiện cuối, luồng không tự kết
-thúc . Code job: [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql),
+thúc. Code job: [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql),
 phát lại: [`replay_return_events.py`](../../feature_repo/replay_return_events.py),
 [`return_events_replay.sql`](../../sql/ml/return_events_replay.sql), pusher:
 [`push_stream_features.py`](../../feature_repo/push_stream_features.py).
@@ -171,7 +171,7 @@ phát lại: [`replay_return_events.py`](../../feature_repo/replay_return_events
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: job đẩy stream feature vào kho OFFLINE và ONLINE của Feast, -->
 ## Stream feature vào Feast — ML Platform bước 3
@@ -260,11 +260,11 @@ Feast) → **Deploy** (Kafka + Flink, `feast apply`, recreate pusher, huỷ job 
 
 Secret không nằm trong repo: Jenkins credential `platform-postgres` và `platform-minio` (username/password),
 truyền vào bằng `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh)
-chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 ngày 31/10 (`stream-features` #2 xanh), xem [CI/CD](cicd.md#trên-aws-2026-10-31).
+chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 (`stream-features` #2 xanh), xem [CI/CD](cicd.md#trên-aws).
 
 ## Bằng chứng
 
-Lần chạy local 2026-10-21 (fixture 15 đơn / 2 SKU):
+Lần chạy local (fixture 15 đơn / 2 SKU):
 
 - Warehouse: 30 line `line_id → sku-A/sku-B` trong `warehouse_lifecycle.fact_order_lines`.
 - Flink job `ml-sku-return-24h`: **RUNNING** (streaming, không tự dừng).

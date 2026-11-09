@@ -3,7 +3,7 @@
 
 EDAI-2, dòng 52–53: A/B cho Agent và các bản LLM.
 
-Code / cấu hình: bảng thiết kế bên dưới. Kết quả AWS ngày 31/10 ở mục riêng; số local ngày 21/10 giữ để đối chiếu, không thay bằng chứng AWS.
+Code / cấu hình: bảng thiết kế bên dưới. Kết quả AWS ở mục riêng; số local giữ để đối chiếu, không thay bằng chứng AWS.
 
 không thay model cũ trực tiếp; chạy song song, chia traffic, theo dõi rồi mới
 quyết định. 52 = A/B giữa Agent khác model config; 53 = A/B giữa hai bản LLM trên inference platform.
@@ -25,7 +25,7 @@ Chia traffic ở **agentgateway** ([`agentgateway.yaml`](../../infra/k8s/agents/
 Theo dõi: dashboard Grafana **Data & AI Platform — A/B LLM + Agent** ([`platform-ab-llm.json`](../../infra/k8s/observability/dashboards/platform-ab-llm.json)):
 tỷ lệ chia, request/giây, p95 độ trễ, token output/giây, token/request theo nhánh, request theo backend agent.
 
-## Kết quả trên AWS (2026-10-31, EKS `platform-apps`)
+## Kết quả trên AWS (EKS `platform-apps`)
 
 Cùng thiết kế ở trên, chạy trên EKS: nhánh A `qwen` (1,5B), nhánh B `qwen-small` (0,5B), chia ở agentgateway.
 
@@ -35,7 +35,7 @@ p95 khoảng 10 s (1,5B) so 80 s (0,5B) trong khung thời gian của ảnh.
 
 ![Grafana AWS: A/B LLM, request và p95 theo gen_ai_response_model của hai nhánh 1,5B và 0,5B](../evidence/aws/grafana-ab-llm-20261031.png)
 
-**Dashboard A/B trên EKS, 04/11/2026.** Tải sinh bằng `bench_llm.py --model platform-chat --concurrency 2 --requests 40 --max-tokens 48` (model ảo `platform-chat`, gateway chia giữa hai nhánh).
+**Dashboard A/B trên EKS.** Tải sinh bằng `bench_llm.py --model platform-chat --concurrency 2 --requests 40 --max-tokens 48` (model ảo `platform-chat`, gateway chia giữa hai nhánh).
 Dashboard **A/B LLM + Agent**, khoảng **Last 30 minutes**, biến `model = All`:
 
 ![Grafana EKS A/B LLM: tỷ lệ chia 26,0 (0,5B) so 14,1 (1,5B); request/giây, p95, token output/giây và token trung bình mỗi request theo từng nhánh](../evidence/aws/grafana-ab-llm-5-panels.png)
@@ -77,12 +77,12 @@ data-agent, coordinator và sandbox.
 
 Ảnh trên là bảng dựng lại từ hai file JSONL eval ở trên bằng [`render_ab_comparison.py`](../../scripts/evidence/render_ab_comparison.py), **không phải ảnh chụp Grafana**.
 Dashboard Grafana so hai cấu hình model (tỷ lệ chia, p95, token/giây, request theo backend agent) cần chụp đủ cả sáu panel
-khi có tải đủ dài; ảnh 31/10 ở trên mới thấy hai panel request và p95.
+khi có tải đủ dài; ảnh ở trên mới thấy hai panel request và p95.
 
 Giới hạn: bench LLM ngắn (cắt ở 900 s, chỉ khoảng 9 và 8 request theo Grafana), không tính khoảng tin cậy; 12 SKU là tập nhỏ; kết quả route chia
 phản ánh trộn hai nhánh, không phải thước đo riêng của B.
 
-## Kết quả local (2026-10-21, kind) — ghi nhận trước AWS
+## Kết quả local (kind) — ghi nhận trước AWS
 
 **LLM** — 40 request, 2 đồng thời, `max_tokens` 48 ([`ab-llm-20261021.jsonl`](../evidence/ab-llm-20261021.jsonl)):
 

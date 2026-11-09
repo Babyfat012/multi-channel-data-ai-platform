@@ -4,9 +4,9 @@ EDAI-2, dòng 9–10: pipeline text/chunk/embedding và governance.
 
 Code / cấu hình: [DAG](../../dags/ml_rag_ingest.py), [pipeline](../../rag/pipeline.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Kết quả hoàn tất trên AWS, 31/10/2026
+## Kết quả hoàn tất trên AWS
 
 [DAG ml_rag_ingest](../../dags/ml_rag_ingest.py) chạy **6/6 task thành công**, gồm `publish`. Luồng: text → chunk → embedding → pgvector → validate → publish DataHub; raw/chunk/embedding ở S3, pgvector trên EKS, Airflow và DataHub trên EC2.
 
@@ -16,7 +16,7 @@ Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày,
 
 Hai ảnh chứng minh pipeline và lineage RAG đã chạy trên AWS. Bước publish đã sửa escape ASCII của value aspect và union `DataJobInfo.type`. Code xử lý và governance: [rag/pipeline.py](../../rag/pipeline.py); feature store: [Feast RAG](../../rag/feature_repo/feature_store.yaml).
 
-## Trên AWS, 2026-10-30
+## Trên AWS
 
 DAG `ml_rag_ingest` chạy trên Airflow EC2, chunk + embedding ghi S3, online store là pgvector trên EKS (NodePort
 30432). Lần đầu `load` hỏng: `type "vector" does not exist`. PVC `pgdata` vừa tạo lại nên database mới chưa bật
@@ -26,7 +26,7 @@ ConfigMap initdb `CREATE EXTENSION IF NOT EXISTS vector` (chạy khi PVC mới),
 
 ![ml_rag_ingest trên AWS: upload, chunk, embed, load, validate xanh; publish skipped vì DataHub không chạy](../evidence/aws/airflow-ml-rag-ingest-20261030.png)
 
-Tại lần chạy ngày 30/10, `publish` bỏ qua vì chưa đặt Variable `platform_datahub_gms_url`; lần chạy ngày 31/10 phía trên đã hoàn tất publish.
+Tại lần chạy, `publish` bỏ qua vì chưa đặt Variable `platform_datahub_gms_url`; lần chạy phía trên đã hoàn tất publish.
 
 ### Feature API phục vụ RAG trên EKS
 
@@ -57,7 +57,7 @@ Câu trả lời thêm ý Shopee 15 ngày (chunk thứ 3) dù không được h�
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: pipeline RAG text → chunk → embedding → Feast (pgvector), -->
 ## RAG pipeline — LLM Platform
@@ -118,7 +118,7 @@ ghi đè đúng dòng cũ, không nhân bản (kiểm: chạy `load` 2 lần, on
 Receipt ghi vào `out/receipts/rag/<run_id>/validate.json`; bước `publish` biến mỗi check thành assertion
 DataHub, kèm dataset (S3 raw, Parquet, bảng pgvector), job theo task DAG và cạnh lineage.
 
-## Kết quả local 2026-10-21
+## Kết quả local
 
 Chạy từng bước trong container Python 3.10 (cùng phiên bản với Airflow) nối MinIO + pgvector thật:
 29 chunk từ 6 tài liệu, **6/6 check = 0**, 3 câu hỏi mẫu ra đúng tài liệu
@@ -133,7 +133,7 @@ Lỗi đã gặp và sửa:
 - `retrieve_online_documents_v2` của Postgres chọn đúng top_k nhưng trả về không theo thứ tự ⇒
   `search()` tự sắp theo `distance`.
 
-## Chạy qua Airflow 2026-10-21
+## Chạy qua Airflow
 
 Image Airflow build lại: feast-venv thêm `feast[postgres]` + `fastembed==0.8.1` (cài bằng uv; pip mất >10 phút giải phụ
 thuộc), Python giữ 3.10 cho Spark. `scripts/setup/setup_airflow.sh` nạp Connection `platform_rag_pg` và Variable `platform_rag_root`.

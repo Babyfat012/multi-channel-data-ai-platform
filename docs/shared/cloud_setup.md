@@ -2,7 +2,7 @@
 
 Đích triển khai là AWS cho cả Data Platform, ML Platform và LLM Platform. Người vận hành trực tiếp chạy các lệnh AWS, Terraform plan/apply và Ansible. Những kiểm tra offline của repo không xác nhận đã có tài nguyên hoặc workload chạy trên AWS.
 
-Cấu hình demo và ngân sách ghi các preset tài nguyên và lịch bật/tắt. Cấu hình đã ghi nhận ngày 31/10: EC2 Data Platform và hai EKS worker `r6i.xlarge`, tổng 12 vCPU; xem [kiểm kê AWS](rubric_cloud_audit.md).
+Cấu hình demo và ngân sách ghi các preset tài nguyên và lịch bật/tắt. Cấu hình đã ghi nhận: EC2 Data Platform và hai EKS worker `r6i.xlarge`, tổng 12 vCPU; xem [kiểm kê AWS](rubric_cloud_audit.md).
 
 ## 1. Kiểm tài khoản trước khi tạo tài nguyên
 

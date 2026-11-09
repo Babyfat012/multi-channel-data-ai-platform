@@ -76,7 +76,7 @@ Webhook trùng: có thảo luận cộng đồng về việc Shopify gọi webho
 
 **Buyer.** `customer` có thể null với khách không đăng nhập.
 
-**Renderer Batch trong repo (2026-10-13).** `generator/channels/shopify.py` xuất một
+**Renderer Batch trong repo.** `generator/channels/shopify.py` xuất một
 response REST `order` trên mỗi dòng JSONL, gồm `line_items` và `customer=null` cho
 khách guest. Nó giữ `price` trước giảm giá và `total_discount` của từng dòng;
 `fulfillment_status` chỉ nói hàng đã được fulfillment, không suy ra ngày giao
@@ -160,7 +160,7 @@ Nguồn: trang tài liệu chính thức `partner.tiktokshop.com`, đọc qua tr
 
 **Buyer.** `user_id` ở cấp đơn là mã buyer trong phạm vi TikTok Shop, không dùng xuyên Channel được.
 
-**Renderer Batch trong repo (2026-10-13).** `generator/channels/tiktok_batch.py` vẽ
+**Renderer Batch trong repo.** `generator/channels/tiktok_batch.py` vẽ
 Get Order Detail 202309 thành một response `data.orders` chứa một Order trên mỗi
 dòng JSONL. Cùng một Order dùng chung ID với webhook TikTok Shop đã có. Snapshot
 giữ trạng thái API `CANCELLED`; webhook vẫn giữ chữ `CANCEL`. `payment.seller_discount`
@@ -190,7 +190,7 @@ Nguồn: trang tài liệu chính thức `open.shopee.com`, đọc qua trình du
 
 **Push (webhook) của Shopee: không cần.** Thiết kế của dự án giả định Shopee đến theo polling (xem [Domain.md](../../shared/domain.md)), nên payload push không cần cho generator. Push code 3 (cập nhật trạng thái đơn) chỉ từng thấy qua thảo luận nhà phát triển, mức **Thấp**, không dùng.
 
-**Renderer Batch trong repo (2026-10-13).** `generator/channels/shopee.py` xuất
+**Renderer Batch trong repo.** `generator/channels/shopee.py` xuất
 `response.order_list` gồm một Order trên mỗi dòng JSONL, có `item_list`, giá
 VND dạng số nguyên và `order_item_id` để nối ground truth. Vì schema Order chưa có
 ngày giao thật, renderer chiếu cả trạng thái lõi `DELIVERED` và `COMPLETED` sang

@@ -2,7 +2,7 @@
 
 Tài liệu này ghi lại **thiết kế đã chốt** của tầng Silver: hai bảng `stg_*` theo kênh, độ
 hạt Order Line, khoá dedup, kiểu dữ liệu, và cách xử lý khác biệt giữa hai dạng schema của
-Amazon. Cập nhật **2026-10-12**.
+Amazon. 
 
 Mọi số ở đây lấy từ một dòng code (ghi `file.py:dòng`) hoặc ghi rõ **"đã đo"** / **"chưa đo"**.
 Chỗ nào chưa đo thì không suy đoán.
@@ -15,7 +15,7 @@ Chỗ nào chưa đo thì không suy đoán.
   `spark_jobs/silver/build_walmart_order_snapshots.py`. Bảng ánh xạ tách ra `spark_jobs/lib/order_snapshot_mapping.py`
   (không import pyspark nên test được trên máy host). Mục 10 ghi số đo lần chạy thật.
 - Tài liệu tả *quyết định, lý do, và giá* — không phải hướng dẫn chạy.
-- Mục 8 ghi **ba khoản cuối đã chốt** (2026-10-12). Mục 9 ghi quyết định Gold đã triển khai sau hệ quả đó.
+- Mục 8 ghi **ba khoản cuối đã chốt**. Mục 9 ghi quyết định Gold đã triển khai sau hệ quả đó.
 - Mục 10 ghi **số đo lần chạy thật** và **hai khoản mới mở ra khi chạy**.
 - Đọc kèm: [thuật ngữ và tầng dữ liệu](../../shared/terminology.md) (định nghĩa Bronze/Silver/Gold), `docs/edai-1/reference/spark.md` (Bronze đã xong).
 
@@ -254,7 +254,7 @@ giao vẫn là `Shipped`). Walmart có `Delivered` thật kèm `statusDate`, **n
 
 ---
 
-## 8. Ba khoản cuối: ĐÃ QUYẾT (2026-10-12)
+## 8. Ba khoản cuối: ĐÃ QUYẾT
 
 Ba khoản này từng nằm ở mục "chưa quyết". Đã chốt, kèm lý do và giá.
 
@@ -323,7 +323,7 @@ grep `fulfill` trong `generator/channels/walmart.py` ra **rỗng** — kênh nà
 
 ---
 
-## 9. Hệ quả chuyển sang Gold — đã chốt ngày 2026-10-14
+## 9. Hệ quả chuyển sang Gold — đã chốt
 
 Silver giữ snapshot mới nhất nên `statusDate` của Walmart không chứng minh
 được thời điểm giao thật. Renderer chiếu cả `DELIVERED` và `COMPLETED` thành
@@ -335,13 +335,13 @@ Quyết định đã triển khai: Gold fact **không có `delivered_at`**; feat
 chỉ dùng thông tin biết tại lúc đặt Order. Nhãn Walmart cùng thời điểm giao
 và thời điểm có nhãn được nối từ ground truth trong bảng riêng, qua đầy đủ
 `purchase_order_id`, `customer_order_id`, `line_number` để tránh va chạm mã.
-Bridge đã ghi 1.319.345 Order Line có nhãn, không lỗi/khóa trùng trong run
-ngày 2026-10-14. Xem [quyết định Gold](gold_design.md) và
+Bridge đã ghi 1.319.345 Order Line có nhãn, không lỗi/khóa trùng trong run đó.
+Xem [quyết định Gold](gold_design.md) và
 [bằng chứng Gold/DP3](gold.md). Không cần bổ sung cột giao suy diễn vào Silver.
 
 ---
 
-## 10. Số đo lần chạy thật (2026-10-12)
+## 10. Số đo lần chạy thật
 
 Chạy trên hai bảng Bronze NHỎ đã có sẵn, không đụng bảng thật. Hai bảng Silver thử nghiệm đã
 `DROP ... PURGE` sau khi đo.
@@ -416,10 +416,10 @@ Hệ quả cho công cụ: `spark_jobs/lib/day_selection.py` nay có **hai** cá
 `spark_jobs/bronze/ingest_amazon_order_snapshots.py` có cờ `--window-days N` và `--window-start YYYY-MM-DD`; truyền cả
 `--sample-days` lẫn `--window-days` thì job dừng với mã 2 chứ không tự chọn một cái.
 
-### 10.4 ĐÃ CHỐT (2026-10-13): cột partition của hai bảng Silver = `days(created_at)`
+### 10.4 ĐÃ CHỐT: cột partition của hai bảng Silver = `days(created_at)`
 
 Hai job ghi `partitionedBy(days(created_at))` — chia theo **ngày đặt hàng**. Đây từng là
-"khoản mở số 2"; **operator đã chốt 2026-10-13**, giữ đúng cột code đang dùng nên không phải
+"khoản mở số 2"; **operator đã chốt**, giữ đúng cột code đang dùng nên không phải
 sửa job.
 
 Lý do đề xuất: sau dedup thì `export_date` (Amazon) và `fetched_at` (Walmart) chỉ còn nghĩa
@@ -449,7 +449,7 @@ giây. Chưa rõ nguyên nhân, chưa điều tra.
 
 ---
 
-## 10.6 ĐÃ CHỨNG MINH: dedup trên 10 ngày liền nhau (2026-10-12)
+## 10.6 ĐÃ CHỨNG MINH: dedup trên 10 ngày liền nhau
 
 Cửa sổ chọn **2026-04-05 .. 2026-04-14**, không chọn bừa: `docs/edai-1/reference/silver.md` mục 3.2 đã đo
 rằng hai dạng schema chồng nhau ở `export_date` **2026-04-07..04-12**. Lấy cửa sổ trùm lên
@@ -520,7 +520,7 @@ khớp số đo 1,5976%.
 => Muốn đo tỉ lệ trùng ĐÚNG bằng manifest thì phải nạp cả 180 ngày. **Chưa đo.** Số 1,5976%
 là cận dưới, và nó đủ để chứng minh dedup làm việc.
 
-## Trên AWS (2026-10-28)
+## Trên AWS
 
 DP2 chạy Spark Compose trên EC2, Bronze/Silver/Gold ở S3;
 run `manual__2026-10-27T16:05:58+00:00` trong [receipt](../../evidence/aws/data-platform-aws-20261027.json).
@@ -534,4 +534,4 @@ Window theo khóa giữ revision mới nhất; [DAG](../../../dags/dp2_silver.py
 Receipt ghi Silver Amazon 153.849.901, Walmart 15.562.675, TikTok Shop 33.338.110,
 Shopify 17.782.786, Shopee 6.666.831 dòng; Gold khớp từng kênh, lỗi và khóa Order Line trùng 0.
 Ảnh chứng minh trạng thái DAG và kết quả validator. Chưa có Spark UI AWS mở execution plan Union/schema và Window dedup,
-nên chưa thay được proof xử lý chi tiết DE13–14. [Airflow AWS](../pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28).
+nên chưa thay được proof xử lý chi tiết DE13–14. [Airflow AWS](../pipeline_orchestration.md#trên-aws).

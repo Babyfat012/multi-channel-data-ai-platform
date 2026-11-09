@@ -4,9 +4,9 @@ EDAI-2, dòng 13–14: training ≥4 bước, version model/data và tag.
 
 Code / cấu hình: [Pipeline](../../ml/training_pipeline.py), [train logic](../../ml/train_lib.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS được ghi ngày, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
 
-## Trên AWS (2026-10-29)
+## Trên AWS
 
 KFP 2.17.2 chạy EKS; MLflow 3.17.0 chạy EC2, artifacts ở S3.
 Run KFP `train-aws-3`, ID `0485ebd9-d74f-4db9-9b70-aaac07e5cb24`, SUCCEEDED 5 bước trong 10:42;
@@ -38,7 +38,7 @@ Registry có tags `latest=true`, `production=true` và alias `production` cho v1
 
 Version dữ liệu trong code `register`: tags `data.dataset_version`, `data.generation_id`,
 `data.train_sha256`, `data.test_sha256`, `data.entity_path`; artifacts `data/train`, `data/test` và dataset input train.
-Bằng chứng trên AWS (04/11/2026, MLflow 3.17.0 trên EC2, [`mlflow_run_data_proof.py`](../../scripts/evidence/mlflow_run_data_proof.py), mã thoát 0):
+Bằng chứng trên AWS (MLflow 3.17.0 trên EC2, [`mlflow_run_data_proof.py`](../../scripts/evidence/mlflow_run_data_proof.py), mã thoát 0):
 script gọi REST của MLflow, tìm run `mysterious-flea-253` (`run_id adba2b9f197e4e60a141acaf19682a61`), tải hai artifact, tính SHA-256 rồi so với tag của chính run đó.
 Kết quả đầy đủ: [mlflow-run-data-proof.json](../evidence/aws/mlflow-run-data-proof.json).
 
@@ -52,7 +52,7 @@ Tag của run: `data.dataset_version = order_snapshots`, `data.entity_path = s3:
 `test_rows = 16411`, `pr_auc_model = 0,2520` so với `pr_auc_baseline = 0,2472`, `lift_model = 2,247`, `beats_baseline = 1`.
 Giao diện MLflow của chính run này: Tags (`data.dataset_version`, `data.generation_id`, `data.train_sha256`, `data.test_sha256`, `data.entity_path`), dataset input `train (a1f3e3b9)`, và model đã đăng ký `return-risk v1`.
 
-### Kiểm tra thống kê của kết quả (notebook, 04/11/2026)
+### Kiểm tra thống kê của kết quả (notebook)
 
 Notebook [`05_retrain_and_bootstrap`](../../notebooks/05_retrain_and_bootstrap.ipynb) huấn luyện lại bằng đúng `ml/train_lib.py` trên tập train/test của run (SHA-256 khớp tag MLflow):
 
@@ -78,7 +78,7 @@ registry, đi tới run đã đăng ký nó (`run_id`, tên run, thời điểm,
 run MLflow với run KFP dựa vào ảnh KFP cùng ngày ([`kfp-runs-20261029.png`](../evidence/aws/kfp-runs-20261029.png)) và thời điểm run, vì code
 `register` chưa ghi mã run KFP thành tag MLflow.
 
-Kết quả trên AWS (04/11/2026, [mlflow-model-lineage.json](../evidence/aws/mlflow-model-lineage.json)):
+Kết quả trên AWS ([mlflow-model-lineage.json](../evidence/aws/mlflow-model-lineage.json)):
 
 | Bước truy ngược | Giá trị |
 |---|---|
@@ -99,7 +99,7 @@ Receipt ghi các lần chạy lỗi trước do OOM/đọc file store và port-f
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
-Các ghi nhận local giữ nguyên ngày và môi trường, không dùng thay bằng chứng cloud.
+Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
 
 <!-- Mục đích: pipeline train model return-risk trên Kubeflow + version ở MLflow -->
 ## Train model return-risk — Kubeflow Pipelines + MLflow
@@ -162,7 +162,7 @@ scripts/run/run_training_pipeline.sh train-N                 # UI KFP: kubectl p
 
 ## Bằng chứng
 
-Run `train-3` (KFP 2.17.2 trong kind, 2026-10-21): **SUCCEEDED** cả 5 bước.
+Run `train-3` (KFP 2.17.2 trong kind): **SUCCEEDED** cả 5 bước.
 
 | Mục | Giá trị |
 |---|---|

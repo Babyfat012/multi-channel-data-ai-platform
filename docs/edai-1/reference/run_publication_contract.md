@@ -1,6 +1,6 @@
 # Contract run, publication và serving — thiết kế triển khai bộ nhỏ
 
-Ngày 2026-10-18. Đây là thiết kế kỹ thuật trong Q1–Q61 đã được người dùng
+Đây là thiết kế kỹ thuật trong Q1–Q61 đã được người dùng
 chấp thuận; Q60 dùng sales current non-canceled, Q61 bổ sung feed Seller có
 provenance. Không đổi target `return-or-refund-line-v2`, quyền sản phẩm hoặc
 phạm vi Cloud. Chưa triển khai protocol này và chưa có POC đạt. Những ví dụ

@@ -176,7 +176,7 @@ thay checklist triển khai riêng.
 
 ## Số đo
 
-người vận hành chạy `bash tests/harness/run_order_lifecycle_stream.sh` ngày 2026-10-19 (Kafka 3.9.1 + Flink 1.20.3 trong container tạm,
+người vận hành chạy `bash tests/harness/run_order_lifecycle_stream.sh` (Kafka 3.9.1 + Flink 1.20.3 trong container tạm,
 nguồn `generator.generate_order_lifecycle` 200 đơn/ngày × 10 ngày, seed 7): **exit 0, cả 2 epoch `passed`, 190 s**. Receipt:
 [`evidence/stream-v2-local-20261019.json`](../../evidence/stream-v2-local-20261019.json).
 

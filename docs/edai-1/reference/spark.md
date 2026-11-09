@@ -2,7 +2,7 @@
 
 Tài liệu này ghi lại **cách tối ưu job Spark đầu tiên của lakehouse**: từ baseline cố tình
 xấu, qua một giả định bị số đo bác bỏ, tới nguyên nhân thật và kết quả ở quy mô đầy đủ.
-Cập nhật **2026-10-15**; số đo Bronze lịch sử giữ theo ngày của từng run.
+Số đo Bronze giữ theo từng run.
 
 Số đo benchmark và App ID được ghi trong [chỉ mục bằng chứng Spark UI](../../evidence/spark-ui/README.md) —
 không đo lại, không suy đoán. Chỗ nào chưa có số thì ghi rõ "chưa đo".
@@ -141,7 +141,7 @@ Chạy **cùng 20 ngày rải đều** (có cả ngày bé lẫn ngày to), ch�
 Kết quả **ngược kỳ vọng**: bật AQE **chậm hơn** (72,3s → 81,7s) và task chậm nhất **tệ hơn**
 (18,7s → 23,6s). Giả định ban đầu bị số đo bác bỏ.
 
-> **Hạ giọng phần so sánh THỜI GIAN TỔNG (đo 2026-10-12).** Chạy **đúng một cấu hình ba lần**
+> **Hạ giọng phần so sánh THỜI GIAN TỔNG.** Chạy **đúng một cấu hình ba lần**
 > trong cùng môi trường cho 55,9 / 63,2 / 64,8s — tức **nhiễu 8,9s trên nền 61,3s = 14,5%**
 > (n=3, chỉ là cỡ độ lớn, không phải khoảng tin cậy). Cặp 72,3 / 81,7 chênh 9,4s = **13%**, với
 > **n=1 mỗi bên**. Chênh nhỏ hơn nhiễu, nên bảng trên **không đủ** để kết luận "AQE làm chậm hơn"
@@ -167,10 +167,10 @@ nặng thêm (đúng như cột "số task" cho thấy: 200 → 8).
 | `hash` (mặc định Iceberg 1.5 cho bảng có partition — **đang dùng**) | dồn mọi dòng cùng `export_date` về **một** task | 1 file/partition, gọn; nhưng ngày to = 1 task ôm hết → nghẽn |
 | `none` | không shuffle, 114 task đọc gì ghi nấy | ghi song song, hết nghẽn; nhưng **nhiều file nhỏ** hơn — liên quan trực tiếp tới kết luận "small-file là vấn đề phía đọc" |
 
-### e. Quyết định: GIỮ `hash` (chốt 2026-10-11)
-Quyết định triển khai ngày 2026-10-11 đã chốt: **giữ `hash`, không chạy lại**.
+### e. Quyết định: GIỮ `hash` (chốt)
+Quyết định triển khai đã chốt: **giữ `hash`, không chạy lại**.
 
-**`hash` là mặc định NGẦM, không phải giá trị ghi trong bảng (đo 2026-10-12).**
+**`hash` là mặc định NGẦM, không phải giá trị ghi trong bảng.**
 `SHOW TBLPROPERTIES lakehouse.bronze.raw_amazon_orders` **không có** dòng
 `write.distribution-mode` (chỉ có `write.parquet.compression-codec=zstd`). Nên "giữ `hash`" nghĩa
 là **giữ nguyên mặc định của Iceberg cho bảng có partition** — trong repo không có dòng cấu hình
@@ -183,7 +183,7 @@ median) **nhưng không chặn được việc** — job vẫn xong và ghi đ�
 phía đọc (1.064/3.316 file < 1 MB, mục 3). Giữ `hash` giữ đúng 1 file/partition, đổi lại
 chấp nhận ngày to ghi trong một task. Đây là đánh đổi có lý do, không phải bỏ qua skew.
 
-### f. Ba phương pháp đã thử, và bảng trước/sau (đo 2026-10-12)
+### f. Ba phương pháp đã thử, và bảng trước/sau
 
 Phần (e) chốt giữ `hash` bằng **lập luận**. Phần này đo bằng **số**: ba phương pháp, mỗi phương
 pháp một lần chạy riêng, cùng 20 ngày mẫu (`pick_sample_days` tất định nên cùng dữ liệu), AQE tắt,
@@ -269,7 +269,7 @@ chưa điều tra.
 
 ---
 
-### g. Đo lại trên AWS (2026-10-29, EC2 r6i.xlarge 4 vCPU, nguồn `s3a://`)
+### g. Đo lại trên AWS (EC2 r6i.xlarge 4 vCPU, nguồn `s3a://`)
 
 Cùng thí nghiệm 5f, chạy bằng `PLATFORM_STORAGE=s3 bash scripts/evidence/measure_order_snapshots_bronze.sh
 skew_0|skew_b` trên EC2 (driver trong container Airflow, Spark 2 worker × 2 core, đọc raw S3 qua IAM role):
@@ -288,12 +288,12 @@ mỗi task ghi file riêng cho mọi ngày nó gặp ⇒ 309 file nhỏ.
 
 Kết luận giống local và giữ nguyên quyết định ở (e): **giữ `hash`** — nhanh hơn 21% lúc ghi không bù được
 15× số file nhỏ cho mọi lần đọc sau (xem compaction ở [storage.md](../data_storage.md)).
-Ảnh AWS được nhúng ở [mục AWS](#trên-aws-2026-10-29).
+Ảnh AWS được nhúng ở [mục AWS](#trên-aws).
 
 ## 6. Kết quả ở quy mô đầy đủ — lần 3
 
 `--aqe on --table raw_amazon_orders`, cả 180 ngày,
-`run_id=e02f0e9f-3635-499e-a47d-aabc7ff55df9` (2026-10-11 08:02 → 08:21).
+`run_id=e02f0e9f-3635-499e-a47d-aabc7ff55df9` (19 phút).
 
 | Số đo | Giá trị |
 |---|---|
@@ -466,8 +466,8 @@ và không coi DP1 này là đã xử lý hết 100 GB nguồn Batch.
 
 ## 10. Proof Silver: schema evolution và dedup trong execution 3
 
-Ảnh và REST dưới đây được lấy lại từ History Server ngày 2026-10-15, dùng
-event log của lần chạy **2026-10-14**, không chạy lại job:
+Ảnh và REST dưới đây được lấy lại từ History Server, dùng
+event log của lần chạy, không chạy lại job:
 `app-20261014035356-0002`, app name
 `silver-amazon-stg_amazon_order_lines_dp2`. Application đã kết thúc, không có
 job thất bại. Đây là task Amazon Silver trong DP2 run
@@ -503,8 +503,8 @@ bộ cột Silver. Các trường v0 không còn ở schema mới được giữ
 | Sau dedup (`Filter`, node 6) | 8.314.312 |
 | **Bản trùng đã bỏ** | **134.990 (1,5976%)** |
 
-Như vậy số trước/sau đã được đối chiếu ngay trên run ngày 2026-10-14, ngoài
-phép đo lịch sử ngày 2026-10-12 trong [Silver mục 10.6](silver.md).
+Như vậy số trước/sau đã được đối chiếu ngay trên run, ngoài
+phép đo lịch sử trong [Silver mục 10.6](silver.md).
 Tỷ lệ 1,5976% thuộc cửa sổ 10 ngày, không so bằng trực tiếp với 1,98% của
 generator toàn kỳ vì các cặp duplicate gần rìa cửa sổ có thể nằm ngoài nguồn nạp.
 
@@ -513,10 +513,10 @@ Tái tạo ảnh bằng `scripts/evidence/capture_spark_silver_evidence.py` khi 
 tên khóa, `from_json`, `Union`, `row_number` trước khi lưu proof. Việc chụp
 không cần Spark worker hay đọc lại dữ liệu nguồn.
 
-## Trên AWS (2026-10-29)
+## Trên AWS
 
 Thí nghiệm skew chạy Compose trên EC2 `r6i.xlarge`, hai Spark worker × hai core, nguồn S3;
-20 ngày Amazon, AQE tắt. [Mục 5g](#g-đo-lại-trên-aws-2026-10-29-ec2-r6ixlarge-4-vcpu-nguồn-s3a)
+20 ngày Amazon, AQE tắt. [Mục 5g](#g-đo-lại-trên-aws-ec2-r6ixlarge-4-vcpu-nguồn-s3a)
 và [receipt](../../evidence/aws/data-platform-aws-20261027.json) (`spark_skew_aws`) giữ số đo.
 Code: [script đo](../../../scripts/evidence/measure_order_snapshots_bronze.sh),
 [job ingest](../../../spark_jobs/bronze/ingest_amazon_order_snapshots.py).
@@ -525,7 +525,7 @@ UI baseline `hash` có 314 task ở hai stage. Stage ghi có median 2 ms/0 dòng
 phần lớn partition hash rỗng, một số task chịu ngày nhiều dữ liệu. Đây là skew theo ngày ghi, không phải bằng chứng
 skew SKU trong phép join. Bỏ phân phối hash bằng `write.distribution-mode=none` bỏ shuffle, còn 114 task/một stage.
 Thời gian giảm từ trung bình 91,1 xuống 71,6 giây; file tăng 20 → 309. Giữ `hash` để tránh nhiều file nhỏ;
-đổi spec cho kênh nhỏ được đo riêng ở [Storage AWS](../data_storage.md#trên-aws-2026-10-29).
+đổi spec cho kênh nhỏ được đo riêng ở [Storage AWS](../data_storage.md#trên-aws).
 
 ![Terminal EC2: ba run skew_0 mất 93,8, 88,7, 90,7 giây và skew_b mất 71,6 giây; mỗi run ghi 12.627.457 dòng](../../evidence/aws/spark-skew-runs-20261029.png)
 
@@ -540,14 +540,14 @@ Thời gian giảm từ trung bình 91,1 xuống 71,6 giây; file tăng 20 → 3
 Tích hợp: [dp1_bronze](../../../dags/dp1_bronze.py) submit ingest rồi validate từng nguồn;
 [dp2_silver](../../../dags/dp2_silver.py) submit chuẩn hóa/dedup rồi Gold/SCD2;
 [dp3_features](../../../dags/dp3_features.py) submit build/validate feature.
-[Airflow AWS](../pipeline_orchestration.md#trên-aws-2026-10-27-đến-2026-10-28) nhúng Graph/Gantt/log và giải thích từng component.
-Ảnh Master dưới thuộc DP1 ngày 2026-10-27; thí nghiệm skew ngày 29 ở trên chạy riêng bằng script,
+[Airflow AWS](../pipeline_orchestration.md#trên-aws) nhúng Graph/Gantt/log và giải thích từng component.
+Ảnh Master dưới thuộc DP1; thí nghiệm skew ngày 29 ở trên chạy riêng bằng script,
 không gán run_id của benchmark cho run DAG.
 
 ![Spark Master: hai worker ALIVE, mỗi worker hai core; ứng dụng dp1-validate-amazon của user airflow đang RUNNING](../../evidence/aws/spark-master-2x2core-20261027.png)
 
 ![Airflow DP1: danh sách 10 task màu xanh và cạnh ingest nối validate trong Graph](../../evidence/aws/dp1-bronze-graph-20261027.png)
 
-DP2 AWS đã validate Silver/Gold không lỗi ([Silver AWS](silver.md#trên-aws-2026-10-28)).
+DP2 AWS đã validate Silver/Gold không lỗi ([Silver AWS](silver.md#trên-aws)).
 Chưa có ảnh Spark UI AWS thể hiện Union parse schema cũ/mới và Window dedup như execution local ở mục 10;
 log PASS không thay thế capture đó cho DE13–14.

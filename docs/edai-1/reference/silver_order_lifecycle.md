@@ -1,4 +1,4 @@
-# Bronze/Silver nguồn v2 — gói C (2026-10-18)
+# Bronze/Silver nguồn v2 — gói C
 
 > **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
 
@@ -38,7 +38,7 @@ Quy tắc dùng chung (code ở [`spark_jobs/lib/order_lifecycle_lakehouse.py`](
   Ví dụ: sửa số tồn đầu kỳ 200 → 199 thì sổ kho dùng 199, không phải 399.
 - **`as_of`**: chỉ dùng dòng có `source_observed_at` trước thời điểm đó, để dựng
   lại đúng những gì đã biết lúc ấy. Snapshot Order native (không có `source_observed_at`) được coi là biết ở
-  **cuối ngày export** (`export_date` + 1 ngày). Trước 2026-10-19 các dòng này bị lọc mất khi có `as_of` ⇒
+  **cuối ngày export** (`export_date` + 1 ngày). Bản đầu các dòng này bị lọc mất khi có `as_of` ⇒
   `seller_sku` của mọi line thành null (lỗi chỉ lộ khi DAG v2 truyền `--as-of`).
 
 ## Walmart qua JDBC
