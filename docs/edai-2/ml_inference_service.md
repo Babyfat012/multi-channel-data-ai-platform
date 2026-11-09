@@ -15,6 +15,8 @@ Feature API `/predict` và model-agent trả (xem [Web API](web_api_mcp.md#trên
 
 ![KServe trên EKS: inferenceservice return-risk READY True, pod predictor Running, POST :predict trả score 0.1661 model_version 1](../evidence/aws/kserve-pod-predict-20261031.png)
 
+**Multi-replica và autoscale.** `minReplicas: 2`, `maxReplicas: 3`, `autoscalerClass: external` (EKS không có metrics-server cho HPA CPU), KEDA scale theo `return_risk_predictions_total`, ngưỡng 5 dự đoán/giây mỗi pod. Tải `:predict` 150 giây: lên 3 pod sau ~48 s, về 2 sau ~495 s ([log](../evidence/aws/return-risk-autoscale.txt), [ảnh trong Agents](agents.md#model-agent-đủ-bộ-như-data-agent)).
+
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 

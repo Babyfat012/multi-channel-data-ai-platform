@@ -192,6 +192,6 @@ DAG [maintenance_iceberg](../../../dags/maintenance_iceberg.py) chạy Compose E
 `no_op=true`: chỉ kiểm kê orphan dry-run; trước/sau đều 180 file, 4.689.957 dòng, fingerprint không đổi.
 
 [Job maintenance](../../../spark_jobs/maintenance/maintain_iceberg_tables.py) không gộp qua ranh giới partition ngày.
-Lần optimize riêng ngày 29 dùng [partition evolution + rewrite-all](../../../spark_jobs/maintenance/repartition_small_channel.py),
+Lần optimize riêng dùng [partition evolution + rewrite-all](../../../spark_jobs/maintenance/repartition_small_channel.py),
 180 → 6 file và giữ fingerprint. [Storage AWS](../data_storage.md#trên-aws) ghi số đo và giới hạn;
 chưa có ảnh riêng chụp compaction AWS trước/sau, không gọi no-op là optimize thành công.

@@ -158,7 +158,7 @@ run sau khi đổi code; check CDC v1 vẫn là run trước đó.
 
 ![Gold fact tới feature, sau lần chạy lại DP3](../images/datahub/v2/dp3-lineage.png)
 
-![Assertion DP3 hiển thị Passing, kết quả mới nhất là run 2026-10-18](../images/datahub/v2/dp3-validation.png)
+![Assertion DP3 hiển thị Passing, kết quả mới nhất là run sau khi đổi code](../images/datahub/v2/dp3-validation.png)
 
 Tái tạo bộ v2 (sau khi các run trên đã có trong volume Airflow):
 

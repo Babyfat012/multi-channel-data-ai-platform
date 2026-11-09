@@ -7,7 +7,7 @@ Code: [agentgateway.yaml](../../infra/k8s/agents/agentgateway.yaml), [kagent pro
 | Route | Đích | Chính sách / mục đích |
 |---|---|---|
 | `/v1/chat/completions` | llama.cpp | API key và rate limit kiểm soát inference |
-| `/mcp` | Feature API MCP | API key, `mcpAuthorization` giới hạn tool |
+| `/mcp` | MCP server (pod `feature-mcp`) | API key, `mcpAuthorization` giới hạn tool |
 | `x-kagent-host` / `/a2a/<agent>/` | Service Agent | API key, policy A2A; gọi Agent qua gateway |
 
 ## Vì sao chọn các policy
@@ -52,20 +52,22 @@ chọn Agent theo header `x-kagent-host`, `a2a-data-agent-path` và `a2a-data-ag
 Các route còn lại: `a2a-model-agent` và `a2a-coordinator` (theo header `x-kagent-host`), `a2a-model-agent-path` và `a2a-coordinator-path`
 (đường `/a2a/<agent>/`), rồi route **`mcp`** (`/mcp`) với `apiKey` và `mcpAuthorization`: chỉ cho gọi bốn tool `get_sku_features`, `get_policy_chunks`,
 `search_policy_chunks`, `predict_return_risk`; tool ngoài danh sách bị ẩn khỏi `tools/list` và bị chặn khi gọi. Backend MCP là `features`
-(`http://feature-api.feature-store.svc.cluster.local:8000/mcp/`). Route MCP không đặt rate limit (bản 1.6.0 không áp dụng cho MCP).
+(`http://feature-mcp.feature-store.svc.cluster.local:8000/mcp/`, pod MCP riêng; [Web API và MCP](web_api_mcp.md)). Route MCP không đặt rate limit (bản 1.6.0 không áp dụng cho MCP).
 
 ![ConfigMap agentgateway-config: route a2a-model-agent-path, a2a-coordinator, a2a-coordinator-path, route mcp với mcpAuthorization bốn tool](../evidence/aws/gateway-config-routes-model-coordinator-mcp.png)
 
-![ConfigMap agentgateway-config: backend MCP trỏ tới feature-api /mcp/](../evidence/aws/gateway-config-mcp-backend.png)
+Ảnh dưới chụp trước khi tách pod, lúc backend còn là `feature-api`:
+
+![ConfigMap agentgateway-config trước khi tách: backend MCP trỏ tới feature-api /mcp/](../evidence/aws/gateway-config-mcp-backend.png)
 
 ### Allow / deny theo từng policy
 
 [`gateway_smoke.py`](../../scripts/evidence/gateway_smoke.py) in bảng policy → request → ALLOW/DENY kỳ vọng và thực tế
 (API key, PII request, rate limit, `mcpAuthorization`, A2A của từng Agent: `data-agent`, `model-agent`, `coordinator`).
-Kết quả trên EKS (`platform-apps`): **22/22** kiểm tra đạt (16 dòng policy ở bảng dưới và 6 kiểm số liệu Prometheus), receipt
-[gateway-smoke.json](../evidence/aws/gateway-smoke.json).
+Kết quả trên EKS (`platform-apps`) sau khi tách pod MCP: **24/24** kiểm tra đạt (18 dòng policy ở bảng dưới và 6 kiểm số liệu Prometheus), receipt
+[gateway-smoke-20261109.json](../evidence/aws/gateway-smoke-20261109.json). Lần chạy trước khi tách đạt 22/22 ([receipt](../evidence/aws/gateway-smoke.json)).
 
-![Bảng policy trên EKS: API key 401/200, PII 403, MCP tools/list và get_sku_features, A2A có/không key cho data-agent, model-agent, coordinator, tool ngoài danh sách bị chặn, rate limit 429](../evidence/aws/gateway-smoke-policy-table.png)
+![Bảng policy trên EKS: API key 401/200, PII 403, MCP tools/list, get_sku_features, predict_return_risk, search_policy_chunks, A2A có/không key cho ba Agent, tool ngoài danh sách bị chặn, rate limit 429](../evidence/aws/gateway-smoke-policy-table-20261109.png)
 
 - **API key:** thiếu khóa trả `401` ở LLM, MCP và A2A của cả ba Agent; có khóa trả `200`.
 - **PII request:** email trong prompt bị chặn `403`.

@@ -18,7 +18,7 @@ Tài liệu bám theo rubric, tập trung các lần triển khai AWS. Data Plat
 | 15 | [ML Inference Service](ml_inference_service.md) | Có pod READY và prediction EKS. |
 | 16–18 | [Web API / MCP](web_api_mcp.md) | Có deployment/API/probe; MCP server bốn tool tách pod riêng `feature-mcp` (smoke EKS 24/24 sau khi tách); autoscale Feature API và MCP 2→3→2; Helm rolling update và tự rollback khi bản hỏng trên EKS (763/763 request 200). |
 | 19–22 | [Data Agent / Model Agent / Sandbox](agents.md) | Data Agent và Model Agent đủ cùng bộ: multi-replica + KEDA 2→3→2, Sandbox gVisor gọi tool, publish registry, gọi MCP qua gateway (smoke 24/24); KServe predict 2→3→2. Eval Data 12/12, predict 12/12, **policy 3/5 (dưới ngưỡng, build đỏ)**. |
-| 23–24 | [MCP / A2A Gateway](agent_gateways.md) | Smoke 22/22 kèm bảng allow/deny và ảnh cấu hình ConfigMap; chưa có rate limit riêng cho MCP. |
+| 23–24 | [MCP / A2A Gateway](agent_gateways.md) | Smoke 24/24 kèm bảng allow/deny và ảnh cấu hình ConfigMap; chưa có rate limit riêng cho MCP. |
 | 25–26 | [Coordinator](coordinator.md) | Có chat/publish và scale 2 → 3 → 2 trên EKS; cổng CI eval 12/12 (#9) nhưng chỉ chấm định tuyến. |
 | 27 | [Warm Up](warm_up.md) | 6 Agent/1 worker; chưa đo cold start. |
 | 28–32 | [Validation & Verification](validation_verification.md) | PR tests ở máy phát triển; Locust gọi EKS, 3.004 request/0 lỗi. |

@@ -17,14 +17,15 @@ Code lấy từ git bundle; image đẩy lên ECR
 |---|---|
 | [feature-api-agents](../../ci/jenkins/feature-api-agents.Jenkinsfile) #8 | Test → Build → Push ECR → Deploy MCP server → Sync prompts từ Langfuse → Deploy Agent → Eval agent → Smoke: xanh. Gate đạt **12/12 = 1,00 ≥ 0,95**; [JSONL và giới hạn PII](agent_evaluation.md#trên-aws). |
 | [rag-pipeline](../../ci/jenkins/rag-pipeline.Jenkinsfile) #2 | Test → Build → Push → Release config → Deploy → DAG import → Run DAG: xanh. Lineage DataHub đã có ảnh AWS: [RAG Pipeline](rag_pipeline.md). |
-| [stream-features](../../ci/jenkins/stream-features.Jenkinsfile) #2 | Test → Build → Push → Release config → Deploy → Verify: xanh. |
+| [feature-api-agents](../../ci/jenkins/feature-api-agents.Jenkinsfile) #13 | Sau khi tách pod MCP: Test → Build → Push → Deploy MCP server (2 release + gateway) → Sync prompts → Deploy Agent xanh; **Eval agent đỏ**: Data 12/12, predict 12/12, policy 3/5 ([chi tiết](agent_evaluation.md)). |
+| [stream-features](../../ci/jenkins/stream-features.Jenkinsfile) #2 (bản Flink SQL) | Test → Build → Push → Release config → Deploy → Verify: xanh. |
 | [coordinator](../../ci/jenkins/coordinator.Jenkinsfile) | #2: Validate / Sync / Deploy xanh, **Eval agent đỏ** sau 15 phút 6 giây. #4: Validate / Sync / Deploy xanh, **Eval agent chạy hơn 20 phút chưa xong** nên không đạt cổng. #9: Eval agent đạt 12/12, cổng chỉ chấm định tuyến. Chi tiết và số liệu LLM: [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026) |
 
 ![Jenkins EC2 feature-api-agents #8: các stage xanh, gồm Push, Sync prompts và Eval agent](../evidence/aws/jenkins-feature-api-agents-20261031.png)
 
 ![Jenkins EC2 rag-pipeline #2: Test, Build, Push, Release config, Deploy, DAG import và Run DAG xanh](../evidence/aws/jenkins-rag-pipeline-20261031.png)
 
-![Jenkins EC2 coordinator: build #4 (04/11) qua Validate, Sync prompts, Deploy rồi Eval agent chạy 20 phút 9 giây chưa xong; build #2 (31/10) Eval agent đỏ sau 15 phút 6 giây](../evidence/aws/jenkins-coordinator-eval-20min.png)
+![Jenkins EC2 coordinator: build #4 qua Validate, Sync prompts, Deploy rồi Eval agent chạy 20 phút 9 giây chưa xong; build #2 (31/10) Eval agent đỏ sau 15 phút 6 giây](../evidence/aws/jenkins-coordinator-eval-20min.png)
 
 ![Jenkins EC2 stream-features #2: Test, Build, Push, Release config, Deploy và Verify xanh](../evidence/aws/jenkins-stream-features-20261031.png)
 

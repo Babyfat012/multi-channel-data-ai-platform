@@ -2,7 +2,7 @@
 
 Tài liệu này ghi các dữ kiện và lựa chọn đã chốt trước khi xây Gold.
 Gold fact, Amazon SCD2, feature và bridge nhãn đã được kiểm chứng trong
-[các run ngày 2026-10-14](gold.md). Từ vựng nghiệp vụ giữ ở
+[các run](gold.md). Từ vựng nghiệp vụ giữ ở
 [thuật ngữ và tầng dữ liệu](../../shared/terminology.md).
 
 ## Dữ kiện đã xác minh

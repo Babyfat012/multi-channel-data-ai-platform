@@ -541,7 +541,7 @@ Tích hợp: [dp1_bronze](../../../dags/dp1_bronze.py) submit ingest rồi valid
 [dp2_silver](../../../dags/dp2_silver.py) submit chuẩn hóa/dedup rồi Gold/SCD2;
 [dp3_features](../../../dags/dp3_features.py) submit build/validate feature.
 [Airflow AWS](../pipeline_orchestration.md#trên-aws) nhúng Graph/Gantt/log và giải thích từng component.
-Ảnh Master dưới thuộc DP1; thí nghiệm skew ngày 29 ở trên chạy riêng bằng script,
+Ảnh Master dưới thuộc DP1; thí nghiệm skew ở trên chạy riêng bằng script,
 không gán run_id của benchmark cho run DAG.
 
 ![Spark Master: hai worker ALIVE, mỗi worker hai core; ứng dụng dp1-validate-amazon của user airflow đang RUNNING](../../evidence/aws/spark-master-2x2core-20261027.png)

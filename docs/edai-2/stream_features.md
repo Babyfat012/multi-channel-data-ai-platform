@@ -254,13 +254,13 @@ kubectl --context kind-platform -n feature-store exec deploy/redis -- redis-cli 
 ## CI/CD
 
 [`ci/jenkins/stream-features.Jenkinsfile`](../../ci/jenkins/stream-features.Jenkinsfile): **Test** (ruff, test docstring +
-renderer stream, test Spark `check_sku_daily_features.py`) → **Build** (image Flink có jar JDBC, image
-Feast) → **Deploy** (Kafka + Flink, `feast apply`, recreate pusher, huỷ job Flink cùng tên rồi submit lại)
-→ **Verify** (đúng 1 job `ml-sku-return-24h` RUNNING, pusher running).
+renderer stream, test Spark `check_sku_daily_features.py`) → **Build** (image Flink, Feast, Flink ML; chạy `tests/flink` trong image) → **Deploy**.
+Nhánh `DATA_STORAGE=s3` (AWS): Kafka + cluster Flink ML, `run_stream_feature_jobs.sh` huỷ job cùng tên rồi submit 2 job; **Verify** đúng 2 job RUNNING.
+Nhánh local: Flink SQL bản B + pusher như mô tả ở mục này; **Verify** đúng 1 job `ml-sku-return-24h` RUNNING, pusher running.
 
 Secret không nằm trong repo: Jenkins credential `platform-postgres` và `platform-minio` (username/password),
 truyền vào bằng `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh)
-chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 (`stream-features` #2 xanh), xem [CI/CD](cicd.md#trên-aws).
+chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 (`stream-features`, bản Flink SQL #2 xanh, bản PyFlink chạy lại sau đó), xem [CI/CD](cicd.md#trên-aws).
 
 ## Bằng chứng
 

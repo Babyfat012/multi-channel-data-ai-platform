@@ -30,13 +30,13 @@ Nguồn đối chiếu rubric là [rubric guide](../shared/rubric_guide.md) và 
 |---|---|---|
 | EC2 · Airflow / stream | `ml_feature_materialize`, `ml_rag_ingest`, Kafka / Flink, 2 job PyFlink stream feature (Flink ML 2.2) | Batch materialize, streaming push online + offline, RAG pipeline / governance |
 | S3 | Offline features, training_lines, registry, RAG raw / chunk / embedding, MLflow artifacts | Offline feature store, dataset / model versioning |
-| `feature-store` | Redis, Feature API 2 replicas, Helm release | Online features, async FastAPI / Pydantic, health, REST / MCP, rolling update |
+| `feature-store` | Redis, `feature-api` (REST) và `feature-mcp` (MCP) mỗi release 2–3 pod KEDA, Helm | Online features, async FastAPI / Pydantic, health, REST / MCP tách pod, rolling update, autoscale |
 | `kubeflow` | KFP pipeline, `mle-drift` | PIT join → split → train → evaluate → register; novel drift theo kênh |
 | EC2 · MLflow / CLI + ECR | `return-risk` registry, `deploy_return_risk.sh`, image chứa model | Tracking / versioning / production gate / deploy |
-| `ml-serving` / `kserve` | `return-risk` InferenceService / KServe controller | ML inference; predictor đọc Feast online |
+| `ml-serving` / `kserve` | `return-risk` InferenceService 2–3 pod KEDA / KServe controller | ML inference; predictor đọc Feast online, autoscale |
 | `rag` | pgvector, PVC `pgdata` | Feast vector search / top-k policy chunks |
 | `llm` | `qwen`, `qwen-small`, model PVC | Custom self-host GGUF, benchmark, LLM A/B |
-| `kagent` | UI, coordinator, data-agent, model-agent, ModelConfig / RemoteMCPServer | Agent tools, A2A orchestration, global model config; KEDA data-agent / coordinator |
+| `kagent` | UI, coordinator, data-agent, model-agent, ModelConfig / RemoteMCPServer | Agent tools, A2A orchestration, global model config; KEDA data-agent / model-agent / coordinator |
 | `agentgateway` | agentgateway | LLM / MCP / A2A gateway, API key / PII / routing A/B |
 | `ingress` / `cert-manager` | NGINX controller / certificate controller | NLB / HTTPS / basic auth / rate limit, API / UI / ops routes |
 | `observability` / `keda` | Prometheus, Grafana, Fluent Bit / Loki, Jaeger / KEDA controller | Metrics / logs / traces, LLM / agent telemetry, autoscale |
@@ -46,6 +46,6 @@ Nguồn đối chiếu rubric là [rubric guide](../shared/rubric_guide.md) và 
 
 Nguồn cấu hình: `infra/k8s/`, `infra/helm/feature-api/`, `ci/jenkins/`, `scripts/setup/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
 
-Các giới hạn được ghi ngay dưới ảnh ML + LLM: model-agent chưa có KEDA; Coordinator CI eval còn timeout; drift là Job theo yêu cầu và không tự retrain. A/B, sandbox và DataHub bật theo pha. Chi tiết proof từng mục xem audit.
+Các giới hạn được ghi ngay dưới ảnh ML + LLM: eval RAG của Model Agent chưa đạt ngưỡng (3/5); cổng Coordinator chỉ chấm định tuyến; stream feature dùng dữ liệu phát lại; drift là Job theo yêu cầu và không tự retrain. A/B, sandbox và DataHub bật theo pha. Chi tiết proof từng mục xem audit.
 
 Mở và chỉnh file `.excalidraw` bằng excalidraw.com (File → Open) hoặc extension Excalidraw trong VS Code; xuất lại PNG khi đổi hình.

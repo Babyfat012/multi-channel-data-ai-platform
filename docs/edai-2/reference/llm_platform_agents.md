@@ -3,7 +3,7 @@
 
 ```
 kagent UI ─► Data Agent (kagent) ──/v1 (API key)──► agentgateway ──► llama.cpp Qwen2.5-1.5B (ns llm)
-                                └──/mcp (API key)──►      │       ──► Feature API /mcp/ (ns feature-store)
+                                └──/mcp (API key)──►      │       ──► feature-mcp /mcp/ (ns feature-store)
                                                            └ /metrics :15020
 ```
 
@@ -84,7 +84,7 @@ agentgateway v1.6.0 (standalone, cấu hình bằng file), một cổng `:3000`:
 | Đường | Tới | Chính sách |
 |---|---|---|
 | `/v1/chat/completions` | llama.cpp (`provider: custom`, format `completions`) | API key, rate limit 60 request dồn + hồi 1/s |
-| `/mcp` (route) | Feature API `/mcp/` | API key, `mcpAuthorization` chỉ cho 4 tool đã duyệt |
+| `/mcp` (route) | `feature-mcp` `/mcp/` | API key, `mcpAuthorization` chỉ cho 4 tool đã duyệt |
 | header `x-kagent-host: <agent>.kagent` | Service của Agent (A2A JSON-RPC) | API key, policy `a2a`; đường mà kagent dùng khi bật `proxy.url` |
 | `/a2a/<agent>/` | như trên, cho client ngoài cụm | API key, `a2a`, bỏ tiền tố đường dẫn |
 

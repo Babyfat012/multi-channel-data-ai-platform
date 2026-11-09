@@ -167,7 +167,7 @@ báo cáo HTML [locust-feature-api-eks.html](../evidence/aws/locust-feature-api-
 | `GET /healthz` | 488 | 0 | 240 ms | 260 ms | 310 ms | 8,2 |
 | **Tổng** | **3.065** | **0** | 250 ms | 260 ms | 290 ms | **51,7** |
 
-![Báo cáo Locust trên EKS ngày 04/11: 3.065 request, 0 lỗi, p50 250 ms, RPS ổn định khoảng 53, 20 user](../evidence/aws/locust-feature-api-eks.png)
+![Báo cáo Locust trên EKS: 3.065 request, 0 lỗi, p50 250 ms, RPS ổn định khoảng 53, 20 user](../evidence/aws/locust-feature-api-eks.png)
 
 Hai lần chạy cho kết quả gần như trùng nhau (3.004 và 3.065 request, đều 0 lỗi, p50 250 ms): hiệu năng ổn định giữa hai lần bật cụm.
 Dòng đầu của biểu đồ thời gian phản hồi có p95 khoảng 800 ms ở giây đầu tiên (làm nóng kết nối) rồi về mức ổn định khoảng 260 ms.

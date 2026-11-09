@@ -53,7 +53,7 @@ Tích hợp: [dp1_bronze](../../dags/dp1_bronze.py) submit ingest rồi validate
 [dp2_silver](../../dags/dp2_silver.py) submit chuẩn hóa/dedup rồi Gold/SCD2;
 [dp3_features](../../dags/dp3_features.py) submit build/validate feature.
 [Airflow AWS](pipeline_orchestration.md#trên-aws) nhúng Graph/Gantt/log và giải thích từng component.
-Ảnh Master dưới thuộc DP1; thí nghiệm skew ngày 29 ở trên chạy riêng bằng script,
+Ảnh Master dưới thuộc DP1; thí nghiệm skew ở trên chạy riêng bằng script,
 không gán run_id của benchmark cho run DAG.
 
 ![Spark Master: hai worker ALIVE, mỗi worker hai core; ứng dụng dp1-validate-amazon của user airflow đang RUNNING](../evidence/aws/spark-master-2x2core-20261027.png)
@@ -153,7 +153,7 @@ bật checkpoint ra EBS, file CSV đóng mỗi 30 s, đầu ra sang thư mục `
 
 **Chạy lại bản liên tục trên AWS.** Kafka trên EC2 đã mất hai topic của lần bounded (còn lại `ml.sku_return_24h` và `order_snapshots.return_events`), nên phát lại bằng generator
 (`platform-generator:opt`, seed 42, `--speed 0`): **399.410** tin Amazon (132.222 + 133.332 + 133.856 qua 3 partition) và **93.554** tin TikTok (31.375 + 30.918 + 31.261), khớp từng tin với
-[manifest 28/10](../evidence/aws/stream-manifest-20261028.json), nên các số trong bảng dưới vẫn so sánh được. Rồi submit bốn SQL bằng `sql-client.sh`; cả bốn job ở trạng thái **RUNNING**
+[manifest bounded](../evidence/aws/stream-manifest-20261028.json), nên các số trong bảng dưới vẫn so sánh được. Rồi submit bốn SQL bằng `sql-client.sh`; cả bốn job ở trạng thái **RUNNING**
 (sau khoảng 5 phút: dedup-tiktok 2 task, baseline-amazon 1, window-tiktok 3, late-amazon 1), TaskManager 1 với 6 slot (2 slot còn trống), 0 job Finished/Canceled/Failed.
 
 ![Flink 1.20.3 Running Jobs trên AWS: flink-dedup-tiktok, flink-baseline-amazon, flink-window-tiktok, flink-late-amazon đều RUNNING](../evidence/aws/flink-running-jobs.png)

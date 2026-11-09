@@ -38,7 +38,7 @@ của `sku_return_daily` vào Redis. Log apply thấy credentials lấy từ IAM
 
 Receipt ghi hai lỗi đã sửa: cột run_id trùng khi export training lines, thiếu mount feature_repo khi feast_apply.
 Gantt còn dấu attempt lỗi; Graph ghi trạng thái cuối success. Tại mốc này `sku_return_24h` offline rỗng;
-apply thành công không chứng minh stream pusher đã ghi dữ liệu. Lần chạy ngày 30 ở mục trên có proof riêng.
+apply thành công không chứng minh stream pusher đã ghi dữ liệu. Lần chạy stream có proof riêng: [Streaming Feature](stream_features.md).
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
@@ -162,7 +162,7 @@ gắn lại **cùng PVC** `redis-data` (`pvc-7069083e…`, `Bound`), và `dbsize
 ([output](../evidence/aws/redis-after-node-restart.txt)). Không phải nạp lại từ Airflow như lần đầu.
 
 Giới hạn: phép thử chứng minh dữ liệu sống sót khi thay pod và khi tắt cả node (PVC giữ nguyên); không phải backup nếu PVC bị xóa. Lần nạp lại chỉ phục hồi feature batch; các feature stream
-(ví dụ `approved_returns_24h`) cần job Flink và pusher chạy lại để có giá trị. PVC và AOF không thay thế backup.
+(ví dụ `approved_returns_24h`) cần job PyFlink online chạy lại để có giá trị. PVC và AOF không thay thế backup.
 
 Deployment dùng `Recreate`: dừng Pod cũ trước khi tạo Pod mới, chấp nhận gián đoạn
 trong lúc cập nhật và khôi phục. Xóa PVC hoặc xóa cả cụm local vẫn có thể mất dữ liệu;

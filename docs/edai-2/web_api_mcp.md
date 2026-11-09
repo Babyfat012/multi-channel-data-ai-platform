@@ -8,7 +8,7 @@ Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận
 
 ### Trên EKS
 
-Feature API (helm, 2 replica) sau ingress HTTPS `https://api.<ip>.sslip.io` (cert Let's Encrypt). `helm upgrade` lên
+Feature API (helm, KEDA tối thiểu 2 pod) sau ingress HTTPS `https://api.<ip>.sslip.io` (cert Let's Encrypt). `helm upgrade` lên
 image `813627b-pii1` (làm tròn số, xem [LLM và agent](reference/llm_platform_agents.md#trên-eks)) là revision 2,
 rolling không gián đoạn.
 
@@ -36,9 +36,9 @@ Lệnh gọi `/healthz` và `/readyz` **trong từng pod** đều trả `200`.
 
 ![Swagger Feature API: sáu endpoint gồm /healthz, /readyz, /features, /chunks, /predict, /chunks/by-id](../evidence/aws/feature-api-swagger-overview-20261106.png)
 
-![Swagger GET /healthz ngày 06/11: 200, status ok](../evidence/aws/feature-api-swagger-healthz-20261106.png)
+![Swagger GET /healthz 200, status ok](../evidence/aws/feature-api-swagger-healthz-20261106.png)
 
-![Swagger GET /readyz ngày 06/11: 200, status ready](../evidence/aws/feature-api-swagger-readyz-20261106.png)
+![Swagger GET /readyz 200, status ready](../evidence/aws/feature-api-swagger-readyz-20261106.png)
 
 #### MCP server trên EKS
 
@@ -71,7 +71,7 @@ Smoke trên EKS sau khi tách ([gateway-smoke-20261109.json](../evidence/aws/gat
 MCP không key → 401; `initialize` có key → 200; `tools/list` trả đủ bốn tool;
 `get_sku_features` có giá trị, `predict_return_risk` có `score` và `model_version`, `search_policy_chunks` trả ≥ 1 chunk; tool ngoài danh sách bị chặn.
 
-![Bảng policy trên EKS 09/11: MCP không key 401, tools/list đủ bốn tool, get_sku_features, predict_return_risk, search_policy_chunks, tool ngoài danh sách bị chặn, A2A, rate limit 429, đều PASS](../evidence/aws/gateway-smoke-policy-table-20261109.png)
+![Bảng policy trên EKS: MCP không key 401, tools/list đủ bốn tool, get_sku_features, predict_return_risk, search_policy_chunks, tool ngoài danh sách bị chặn, A2A, rate limit 429, đều PASS](../evidence/aws/gateway-smoke-policy-table-20261109.png)
 
 MCP server đã đăng ký trong Agent Registry, và Grafana đếm từng lượt gọi tool theo kết quả (`mcp_tool_calls_total{tool,outcome}` do Feature API xuất ra):
 
