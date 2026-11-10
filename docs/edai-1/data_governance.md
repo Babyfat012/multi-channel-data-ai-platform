@@ -1,24 +1,30 @@
 # Data Governance trên AWS
 
-EDAI-1, dòng 28–33: lineage và validation của DP1/DP2/DP3.
+Trang này ứng với EDAI-1, dòng 28–33 của rubric: lineage (dữ liệu đi từ đâu tới đâu) và validation (kiểm tra chất
+lượng dữ liệu) của ba pipeline DP1/DP2/DP3.
 
 Code / cấu hình: [Manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây là của các lần chạy AWS đã ghi lại; trang này không khẳng định dịch vụ hiện vẫn đang bật.
 
 ## Trên AWS
 
-DataHub 1.7.0.1 chạy Compose trên EC2. Lần publish sáu DAG ghi 22 dataset, 30 job và 16 assertion PASS;
-[manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json) ghi run_id, task_id, rule và metrics của từng check.
-[Publisher](../../scripts/run/publish_order_snapshots_datahub.py) khai lineage từ input/output DAG;
-[builder validation](../../scripts/evidence/build_order_snapshots_datahub_validation.py) lấy kết quả từ log Airflow thành công.
-Ảnh Quality chỉ thấy assertion xanh; run_id và số chi tiết phải đọc manifest, không suy từ nhãn “hours ago”.
+DataHub 1.7.0.1 chạy bằng Compose trên EC2. Lần publish metadata của sáu DAG ghi vào DataHub 22 dataset, 30 job và 16
+assertion (luật kiểm tra chất lượng), tất cả đều PASS. Thông tin được đưa vào bằng hai script:
+
+- [Publisher](../../scripts/run/publish_order_snapshots_datahub.py) khai lineage dựa trên input/output của từng DAG.
+- [Builder validation](../../scripts/evidence/build_order_snapshots_datahub_validation.py) lấy kết quả kiểm tra từ log
+  của các task Airflow đã chạy thành công.
+
+[Manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json) ghi run_id, task_id, rule và số đo của từng check.
+Ảnh tab Quality chỉ cho thấy assertion có dấu xanh. Muốn biết run_id và số chi tiết thì đọc manifest; không suy ra
+từ nhãn “hours ago” trên giao diện.
 
 | DAG / run_id | Bảng và nhiệm vụ | Assertion đã ghi |
 |---|---|---|
-| `dp1_bronze` / `manual__2026-10-27T14:58:12+00:00` | `bronze.raw_amazon_orders_dp1`: payload S3 qua `ingest_amazon`; bốn bảng raw còn lại giữ nguồn từng kênh | `validate_amazon`: nguồn = Bronze 108.248.563, invalid 0; từng kênh có check riêng |
-| `dp2_silver` / `manual__2026-10-27T16:05:58+00:00` | Năm `silver.stg_*_order_lines_dp2` qua `build_gold_order_lines` → `gold.fact_order_lines_dp2`; `gold.dim_amazon_order_dp2` giữ SCD2 | `validate_gold_order_lines`: 227.200.303 = Silver, invalid và khóa trùng 0; validator dimension kiểm khóa fact và một bản hiện hành |
-| `dp3_features` / `manual__2026-10-28T00:05:21.167441+00:00` | `gold.fact_order_lines_dp2` qua `build_return_features` → `gold.feat_order_line_return_dp3`: feature lúc đặt Order | `validate_return_features`: 227.200.303 = Gold; missing/extra/wrong event time/trùng khóa/invalid đều 0 |
+| `dp1_bronze` / `manual__2026-10-27T14:58:12+00:00` | Task `ingest_amazon` đọc payload từ S3 và ghi vào `bronze.raw_amazon_orders_dp1`. Bốn bảng raw còn lại giữ dữ liệu nguồn của từng kênh | `validate_amazon`: số dòng nguồn bằng số dòng Bronze, đều 108.248.563; 0 dòng invalid. Mỗi kênh có check riêng |
+| `dp2_silver` / `manual__2026-10-27T16:05:58+00:00` | Task `build_gold_order_lines` gộp năm bảng `silver.stg_*_order_lines_dp2` thành `gold.fact_order_lines_dp2`. Bảng `gold.dim_amazon_order_dp2` giữ lịch sử theo kiểu SCD2 (lưu cả bản hiện hành và các bản cũ) | `validate_gold_order_lines`: Gold có 227.200.303 dòng, bằng Silver; 0 dòng invalid, 0 khóa trùng. Validator của bảng dimension kiểm tra khóa nối với fact và mỗi đơn chỉ có một bản hiện hành |
+| `dp3_features` / `manual__2026-10-28T00:05:21.167441+00:00` | Task `build_return_features` đọc `gold.fact_order_lines_dp2` và ghi `gold.feat_order_line_return_dp3`: feature tại thời điểm đặt Order | `validate_return_features`: 227.200.303 dòng, bằng Gold. Số dòng thiếu (missing), thừa (extra), sai event time, trùng khóa và invalid đều bằng 0 |
 
 Code pipeline và vai trò từng task: [Airflow AWS](pipeline_orchestration.md#trên-aws).
 
@@ -44,8 +50,8 @@ Code pipeline và vai trò từng task: [Airflow AWS](pipeline_orchestration.md#
 
 ### CDC, nhãn và warehouse
 
-[DAG CDC](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`:
-Kafka → `ingest_walmart_cdc` → `bronze.raw_walmart_cdc_v2`; validator kiểm 3 offset, không thiếu/thừa/sai payload.
+[DAG CDC](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`: task `ingest_walmart_cdc` đọc thay
+đổi từ Kafka và ghi vào `bronze.raw_walmart_cdc_v2`. Validator kiểm 3 offset; không có tin thiếu, thừa hay sai payload.
 [Probe và giải thích CDC](reference/cdc.md#trên-aws).
 
 ![DataHub CDC: Kafka orders qua ingest_walmart_cdc tới raw_walmart_cdc_v2 và validate_walmart_cdc](../evidence/aws/datahub/dp1-cdc-lineage.png)
@@ -53,22 +59,26 @@ Kafka → `ingest_walmart_cdc` → `bronze.raw_walmart_cdc_v2`; validator kiểm
 ![DataHub Quality raw_walmart_cdc_v2: assertion dp1_cdc.validate_walmart_cdc có dấu xanh](../evidence/aws/datahub/dp1-cdc-validation.png)
 
 [DAG nhãn](../../dags/dp3_return_labels.py), run `manual__2026-10-28T16:18:15.667507+00:00`:
-`build_and_validate_return_labels` nối Gold với đáp án generator → `gold.fact_return_labels_dp3`,
-179.436.428 dòng, duplicate và invalid 0 theo manifest. Nhãn tách khỏi feature để tránh leakage.
+task `build_and_validate_return_labels` nối Gold với đáp án do generator sinh, ghi ra `gold.fact_return_labels_dp3`
+gồm 179.436.428 dòng; theo manifest, 0 dòng trùng và 0 dòng invalid. Nhãn được để ở bảng riêng, tách khỏi feature,
+để tránh leakage (mô hình vô tình nhìn thấy đáp án khi train).
 
 ![DataHub: năm nhánh Silver qua Gold fact và task build_and_validate tới fact_return_labels_dp3](../evidence/aws/datahub/dp3-return-labels-lineage.png)
 
 [DAG warehouse](../../dags/dp4_warehouse.py), run `manual__2026-10-29T08:34:06.602356+00:00`:
-`export_and_index_warehouse` chép Gold 30 ngày → PostgreSQL `warehouse.fact_order_lines_30d_dp2`.
-Assertion đối soát 37.045.741 dòng, đủ năm Channel và không lệch count trước khi tạo index.
+task `export_and_index_warehouse` chép 30 ngày dữ liệu Gold sang PostgreSQL `warehouse.fact_order_lines_30d_dp2`.
+Trước khi tạo index, assertion đối soát 37.045.741 dòng: đủ năm Channel, số dòng mỗi bên khớp nhau.
 
 ![DataHub: năm bảng Silver qua Gold fact và export_and_index_warehouse tới warehouse.fact_order_lines_30d_dp2](../evidence/aws/datahub/dp4-warehouse-lineage.png)
 
 ![DataHub Quality warehouse.fact_order_lines_30d_dp2: assertion dp4_warehouse.export_and_index_warehouse có dấu xanh](../evidence/aws/datahub/dp4-warehouse-validation.png)
 
-Giới hạn: lineage khai trong publisher, chưa tự suy từ Spark execution plan. Metadata và assertion này
-là lịch sử của các run trong manifest; không khẳng định mọi run tiếp theo tự publish. Sidebar UI đang lỗi,
-nhưng các trang dataset/Lineage/Quality trong ảnh mở được.
+Giới hạn:
+
+- Lineage được khai trong publisher, chưa tự suy ra từ Spark execution plan.
+- Metadata và assertion ở đây là lịch sử của các run có trong manifest; không khẳng định mọi run sau này đều tự
+  publish.
+- Sidebar của UI đang lỗi, nhưng các trang dataset/Lineage/Quality trong ảnh vẫn mở được.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
@@ -221,4 +231,4 @@ UI ở `http://localhost:9002`; GMS ở `http://localhost:8089`.
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
