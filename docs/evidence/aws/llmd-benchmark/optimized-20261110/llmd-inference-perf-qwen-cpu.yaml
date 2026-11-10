@@ -1,3 +1,4 @@
+# Workload inference-perf đã dùng trong lần chạy EKS 2026-11-10, cấu hình optimized, bản do công cụ llm-d-benchmark ghi lại (nguồn: infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml).
 load:
   type: constant
   stages:

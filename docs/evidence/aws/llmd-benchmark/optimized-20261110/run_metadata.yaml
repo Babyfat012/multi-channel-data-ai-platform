@@ -1,3 +1,4 @@
+# Siêu dữ liệu lần chạy llm-d-benchmark trên EKS 2026-11-10, cấu hình optimized (threads 3, parallel 4, ctx 16384, flash-attn, KV q8_0) (thời gian, endpoint, model, mã thoát); nội dung nguyên văn, chỉ thêm dòng chú thích này.
 harness_start: "2026-11-10T06:07:10+00:00"
 harness_stop: "2026-11-10T06:11:01+00:00"
 harness_delta: "PT231.555977321S"

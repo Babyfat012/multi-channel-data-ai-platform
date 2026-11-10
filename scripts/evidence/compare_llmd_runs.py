@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 def stages(run_dir):
+    """Đọc báo cáo từng mức tải (stage_N_lifecycle_metrics.json) trong một lần chạy, theo thứ tự N."""
     files = sorted(
         Path(run_dir).rglob("stage_*_lifecycle_metrics.json"),
         key=lambda p: int(p.name.split("_")[1]),
@@ -17,6 +18,7 @@ def stages(run_dir):
 
 
 def row(label, s):
+    """Một dòng bảng markdown cho một mức tải: OK/lỗi, TTFT, TPOT, độ trễ request, thông lượng."""
     ok, lat = s["successes"], s["successes"]["latency"]
     ttft, tpot, req = (
         lat["time_to_first_token"],

@@ -1,3 +1,4 @@
+# Báo cáo llm-d-benchmark (inference-perf) mức tải 0,4 request/giây, EKS 2026-11-10, cấu hình baseline (threads 4, parallel 2, ctx 8192, KV f16, không flash-attn); nội dung nguyên văn, chỉ thêm dòng chú thích này.
 results:
   request_performance:
     aggregate:
