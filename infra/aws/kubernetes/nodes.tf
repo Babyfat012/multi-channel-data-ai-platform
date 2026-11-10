@@ -1,4 +1,4 @@
-# Managed node group không có SSH key; image pull bằng role node, workload dùng Pod Identity.
+# The managed node group has no SSH key; image pulls use the node role, workloads use Pod Identity.
 data "aws_iam_policy_document" "node_trust" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -66,7 +66,7 @@ resource "aws_eks_node_group" "apps" {
   lifecycle {
     precondition {
       condition     = var.node_max_size >= var.node_desired_size && var.node_desired_size >= var.node_min_size && var.node_max_size >= 1
-      error_message = "Yêu cầu max >= desired >= min >= 0 và max >= 1."
+      error_message = "Requires max >= desired >= min >= 0 and max >= 1."
     }
   }
 }

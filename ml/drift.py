@@ -1,8 +1,8 @@
-"""ML-N2: theo dõi data drift của đầu vào model return-risk bằng Evidently.
+"""Monitor data drift of the return-risk model inputs with Evidently.
 
-So một lô "hiện tại" với lô tham chiếu (giai đoạn train) trên các cột đầu vào, bằng khoảng cách
-Jensen-Shannon. Có cột drift ⇒ `alert` ⇒ nên kiểm lại model trước khi tin score.
-Chạy: `python -m ml.drift --reference <parquet> [--sale-truth <_truth/lines.jsonl>] --out out/drift`.
+Compare a "current" batch with a reference batch (the training period) on the input columns, using
+Jensen-Shannon distance. Any drifted column ⇒ `alert` ⇒ re-check the model before trusting the score.
+Run: `python -m ml.drift --reference <parquet> [--sale-truth <_truth/lines.jsonl>] --out out/drift`.
 """
 
 from __future__ import annotations
@@ -17,10 +17,10 @@ COLUMNS = ["seller_sku", "label"]
 
 
 def summarize(snapshot: dict) -> dict:
-    """Rút gọn kết quả Evidently: điểm từng cột, cột drift, cờ cảnh báo.
+    """Condense the Evidently result: per-column score, drifted columns, alert flag.
 
-    Chiều so phụ thuộc phương pháp ghi trong tên metric: p-value drift khi NHỎ hơn ngưỡng,
-    khoảng cách (Jensen-Shannon...) drift khi LỚN hơn hoặc bằng ngưỡng.
+    The comparison direction depends on the method named in the metric: a p-value drifts when BELOW the threshold,
+    a distance (Jensen-Shannon...) drifts when GREATER than or equal to the threshold.
     """
     columns = {}
     for metric in snapshot["metrics"]:
@@ -45,7 +45,7 @@ def summarize(snapshot: dict) -> dict:
 
 
 def check(reference: pd.DataFrame, current: pd.DataFrame, html: Path) -> dict:
-    """Chạy DataDriftPreset trên COLUMNS (đều là categorical), lưu HTML, trả bản tóm tắt."""
+    """Run DataDriftPreset on COLUMNS (all categorical), save HTML, return the summary."""
     from evidently import DataDefinition, Dataset, Report
     from evidently.presets import DataDriftPreset
 
@@ -54,8 +54,8 @@ def check(reference: pd.DataFrame, current: pd.DataFrame, html: Path) -> dict:
         Dataset.from_pandas(f[COLUMNS].astype(str), data_definition=definition)
         for f in (current, reference)
     ]
-    # Jensen-Shannon cho mọi cột phân loại. seller_sku có ~100 giá trị: nhiễu lấy mẫu của ~1.000 dòng
-    # đã cho khoảng cách ~0,14 nên ngưỡng 0,2; label 2 giá trị giữ ngưỡng mặc định 0,1.
+    # Jensen-Shannon for every categorical column. seller_sku has ~100 values: sampling noise of ~1,000 rows
+    # alone gives a distance of ~0.14, hence threshold 0.2; label has 2 values and keeps the default 0.1.
     preset = DataDriftPreset(
         cat_method="jensenshannon", per_column_threshold={"seller_sku": 0.2, "label": 0.1}
     )
@@ -66,8 +66,8 @@ def check(reference: pd.DataFrame, current: pd.DataFrame, html: Path) -> dict:
 
 
 def sale_batch(truth_path: str) -> pd.DataFrame:
-    """Lô 'đợt Sale' từ file truth của generator: SKU + nhãn trả/hoàn trong 30 ngày."""
-    # Import ở đây: Job trên EKS (pipeline A) không mang mã generator, chỉ cần khi có lô Sale của B.
+    """'Sale event' batch from the generator truth file: SKU + return/refund label within 30 days."""
+    # Imported here: the Job on EKS (pipeline A) does not ship the generator code; only needed for B's Sale batch.
     from generator.generate_order_lifecycle import POSITIVE_SCENARIOS
 
     rows = [json.loads(line) for line in Path(truth_path).read_text().splitlines()]
@@ -80,8 +80,8 @@ def sale_batch(truth_path: str) -> pd.DataFrame:
 
 
 def comparisons(frame: pd.DataFrame, reference_days: int, shift_channel: str | None = None) -> dict:
-    """Cặp (tham chiếu, hiện tại): `stable` = N ngày đầu vs phần sau; `channel_shift` = N ngày đầu vs
-    phần sau chỉ của một kênh (cơ cấu đơn dồn về một sàn) — kịch bản drift dựng được trên pipeline A."""
+    """(reference, current) pairs: `stable` = first N days vs the rest; `channel_shift` = first N days vs
+    the rest of one Channel only (order mix shifting to one Marketplace) — a drift scenario buildable on pipeline A."""
     day = pd.to_datetime(frame["event_timestamp"], utc=True).dt.normalize()
     boundary = day.min() + pd.Timedelta(days=reference_days)
     reference, later = frame[day < boundary], frame[day >= boundary]
@@ -89,19 +89,21 @@ def comparisons(frame: pd.DataFrame, reference_days: int, shift_channel: str | N
     if shift_channel:
         current = later[later["channel"] == shift_channel]
         if current.empty:
-            raise ValueError(f"không có dòng nào của kênh {shift_channel!r} sau mốc tham chiếu")
+            raise ValueError(f"no rows for Channel {shift_channel!r} after the reference boundary")
         pairs["channel_shift"] = (reference, current)
     return pairs
 
 
 def main(argv=None):
-    """Các phép so: ổn định, lệch theo kênh (nếu có), đợt Sale của pipeline B (nếu có)."""
+    """Comparisons: stable, Channel shift (if given), pipeline B Sale event (if given)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--reference", required=True, help="Parquet training_lines (local hoặc s3://)"
+        "--reference", required=True, help="Parquet training_lines (local or s3://)"
     )
     parser.add_argument("--reference-days", type=int, default=30)
-    parser.add_argument("--shift-channel", help="vd shopee: lô hiện tại chỉ gồm một kênh")
+    parser.add_argument(
+        "--shift-channel", help="e.g. shopee: the current batch holds one Channel only"
+    )
     parser.add_argument("--sale-truth")
     parser.add_argument("--out", type=Path, default=Path("out/drift"))
     args = parser.parse_args(argv)

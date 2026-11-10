@@ -1,27 +1,27 @@
-"""Báo cáo chất lượng dữ liệu của một lần chạy Batch, đo lại từ chính dữ liệu đã ghi.
+"""Data quality report for a Batch run, re-measured from the written data itself.
 
-Báo cáo chất lượng dữ liệu đọc
-dữ liệu y như pipeline phía sau sẽ đọc (file gốc của Channel trên local hoặc MinIO,
-bảng nguồn trong PostgreSQL), đo lại bằng DuckDB, rồi đặt từng con số cạnh đáp án
-trong `run_manifest.json`. Khớp nhau nghĩa là generator chèn đúng lượng lỗi đã cấu hình.
+The data quality report reads
+the data exactly as the downstream pipeline will (Channel native files on local or MinIO,
+source tables in PostgreSQL), re-measures with DuckDB, then puts each number next to the answer key
+in `run_manifest.json`. A match means the generator injected exactly the configured amount of faults.
 
-Các bảng đầu ra:
+Output tables:
     storefront_skew, city_skew, category_skew, top_skus, daily_orders   skew
     cardinality                                                        high cardinality
     schema_evolution, schema_evolution_daily                           schema evolution
-    duplicates                                                         duplicate trước và sau dedup
-    volume                                                             dung lượng và định dạng
+    duplicates                                                         duplicates before and after dedup
+    volume                                                             size and format
 
-Nguồn đọc:
-    - Amazon: `source-exports/channel=amazon/...` (JSON Lines). Hai schema (Orders v0 và
-      Orders 2026-01-01) được đọc như JSON thô rồi lấy field bằng `coalesce` tên cũ và tên mới,
-      giống cách job Silver sẽ phải làm.
-    - Walmart và danh mục SKU: bảng PostgreSQL nếu có `dsn`, ngược lại là file `pg-load/`.
-    - Trên MinIO: thông tin đăng nhập lấy từ biến môi trường `AWS_ACCESS_KEY_ID`,
-      `AWS_SECRET_ACCESS_KEY` và `FSSPEC_S3_ENDPOINT_URL` (cùng biến mà s3fs dùng).
+Sources read:
+    - Amazon: `source-exports/channel=amazon/...` (JSON Lines). Both schemas (Orders v0 and
+      Orders 2026-01-01) are read as raw JSON, then fields are taken by `coalesce` of the old and new names,
+      the same way the Silver job will have to.
+    - Walmart and the SKU catalog: PostgreSQL tables if `dsn` is given, otherwise the `pg-load/` files.
+    - On MinIO: credentials come from the environment variables `AWS_ACCESS_KEY_ID`,
+      `AWS_SECRET_ACCESS_KEY` and `FSSPEC_S3_ENDPOINT_URL` (the same variables s3fs uses).
 
-Dedup theo quy tắc ở docs/edai-1/reference/generator_design.md mục 5: cùng khóa thì giữ bản có thời
-điểm cập nhật mới nhất (Amazon `LastUpdateDate`/`lastUpdatedTime`, Walmart `fetched_at`).
+Dedup follows the rule in docs/data-platform/reference/generator_design.md section 5: for the same key, keep the version with the
+latest update time (Amazon `LastUpdateDate`/`lastUpdatedTime`, Walmart `fetched_at`).
 """
 
 from __future__ import annotations
@@ -42,11 +42,11 @@ AMAZON_GLOB = "source-exports/channel=amazon/dataset=orders/export_date=*/*.json
 WALMART_GLOB = "pg-load/walmart.orders/export_date=*/*.jsonl"
 SKUS_GLOB = "pg-load/seller.skus/*.jsonl"
 
-# Nhóm file để báo cáo dung lượng: (tên, tiền tố, nơi lưu, định dạng).
+# File groups for the size report: (name, prefix, storage, format).
 DATASET_PREFIXES = (
     ("amazon.orders", "source-exports/channel=amazon/dataset=orders", "object store", "JSON Lines"),
-    ("walmart.orders", "pg-load/walmart.orders", "PostgreSQL (trung chuyển)", "JSON Lines"),
-    ("seller.skus", "pg-load/seller.skus", "PostgreSQL (trung chuyển)", "JSON Lines"),
+    ("walmart.orders", "pg-load/walmart.orders", "PostgreSQL (staging)", "JSON Lines"),
+    ("seller.skus", "pg-load/seller.skus", "PostgreSQL (staging)", "JSON Lines"),
     ("labels", "ground-truth/labels", "object store", "Parquet"),
     ("order_line_keys", "ground-truth/order_line_keys", "object store", "Parquet"),
 )
@@ -54,7 +54,7 @@ DATASET_PREFIXES = (
 
 @dataclass(frozen=True)
 class Table:
-    """Một bảng kết quả: tiêu đề, giải thích ngắn, tên cột và các dòng."""
+    """A result table: title, short explanation, column names and rows."""
 
     title: str
     note: str
@@ -62,15 +62,15 @@ class Table:
     rows: list[tuple[Any, ...]]
 
     def as_dicts(self) -> list[dict[str, Any]]:
-        """Các dòng dưới dạng dict theo tên cột, tiện cho test và notebook."""
+        """Rows as dicts keyed by column name, handy for tests and notebooks."""
         return [dict(zip(self.columns, row)) for row in self.rows]
 
 
 class QualityReport:
-    """Đo chất lượng dữ liệu của một lần chạy, gốc tại `source_root`."""
+    """Measure the data quality of a run rooted at `source_root`."""
 
     def __init__(self, source_root: str, dsn: str | None = None) -> None:
-        """Mở DuckDB, khai báo view cho từng nguồn và đọc manifest."""
+        """Open DuckDB, declare a view per source and read the manifest."""
         self.store = OutputStore(source_root)
         self.base = source_root.rstrip("/")
         self.dsn = dsn
@@ -83,10 +83,10 @@ class QualityReport:
             self.con.execute(f"ATTACH {_quote(dsn)} AS pg (TYPE postgres, READ_ONLY)")
         self._create_views()
 
-    # --- Chuẩn bị -----------------------------------------------------------
+    # --- Setup --------------------------------------------------------------
 
     def _configure_s3(self) -> None:
-        """Cho DuckDB đọc MinIO bằng cùng biến môi trường mà s3fs dùng."""
+        """Let DuckDB read MinIO using the same environment variables s3fs uses."""
         endpoint = urlparse(os.environ.get("FSSPEC_S3_ENDPOINT_URL", "https://s3.amazonaws.com"))
         self.con.execute("INSTALL httpfs; LOAD httpfs;")
         self.con.execute(f"""
@@ -100,11 +100,11 @@ class QualityReport:
             )""")
 
     def _glob(self, pattern: str) -> str:
-        """Đường dẫn glob đầy đủ, dạng DuckDB hiểu (thư mục local hoặc s3://)."""
+        """Full glob path in a form DuckDB understands (local directory or s3://)."""
         return _quote(f"{self.base}/{pattern}")
 
     def _create_views(self) -> None:
-        """Khai báo view chuẩn hóa: đơn và dòng đơn của Amazon và Walmart, danh mục SKU."""
+        """Declare normalized views: Amazon and Walmart orders and order lines, and the SKU catalog."""
         marketplace_map = " ".join(
             f"WHEN {_quote(mid)} THEN {_quote(sf)}" for sf, (mid, _) in MARKETPLACES.items()
         )
@@ -193,14 +193,14 @@ class QualityReport:
         """)
 
     def _query(self, sql: str) -> tuple[tuple[str, ...], list[tuple[Any, ...]]]:
-        """Chạy `sql`, trả về tên cột và các dòng."""
+        """Run `sql` and return the column names and rows."""
         rel = self.con.sql(sql)
         return tuple(rel.columns), rel.fetchall()
 
     # --- Skew ---------------------------------------------------------------
 
     def storefront_skew(self) -> Table:
-        """Tỷ trọng Order theo Storefront: cấu hình, đáp án, và đo lại từ dữ liệu đã xuất."""
+        """Order share per Storefront: config, answer key, and re-measured from the exported data."""
         truth = self.manifest["orders_by_storefront"]
         total = sum(truth.values())
         weights = self.manifest["config"].get("storefront_weights", DEFAULT_STOREFRONT_WEIGHTS)
@@ -212,23 +212,23 @@ class QualityReport:
         ]
         return Table(
             "storefront_skew",
-            "Order theo Storefront. `orders_exported` trống nghĩa là Channel chưa có renderer.",
+            "Orders per Storefront. An empty `orders_exported` means the Channel has no renderer yet.",
             ("storefront_id", "config_weight", "orders_truth", "pct_truth", "orders_exported"),
             rows,
         )
 
     def city_skew(self) -> Table:
-        """Tỷ trọng Order theo thành phố trong từng Storefront (skew địa lý)."""
+        """Order share per city within each Storefront (geographic skew)."""
         columns, rows = self._query("""
             SELECT storefront_id, city, count(*) AS orders,
                    round(100 * count(*) / sum(count(*)) OVER (PARTITION BY storefront_id), 2) AS pct
             FROM all_orders GROUP BY storefront_id, city ORDER BY storefront_id, orders DESC""")
         return Table(
-            "city_skew", "Vài thành phố lớn chiếm phần lớn Order của mỗi Storefront.", columns, rows
+            "city_skew", "A few large cities take most of each Storefront's Orders.", columns, rows
         )
 
     def category_skew(self) -> Table:
-        """Tỷ trọng Order Line theo danh mục (join `seller.skus`), kèm tỷ lệ trả thật."""
+        """Order Line share per category (join `seller.skus`), with the true Return rate."""
         columns, rows = self._query("""
             SELECT s.category, count(*) AS order_lines, round(100 * count(*) / sum(count(*)) OVER (), 2) AS pct
             FROM all_lines l JOIN skus s USING (sku) GROUP BY s.category ORDER BY order_lines DESC""")
@@ -236,25 +236,25 @@ class QualityReport:
         rows = [(*row, _pct(return_rates.get(row[0]))) for row in rows]
         return Table(
             "category_skew",
-            "Order Line theo danh mục. `return_pct_truth` là tỷ lệ trả thật từ manifest.",
+            "Order Lines per category. `return_pct_truth` is the true Return rate from the manifest.",
             (*columns, "return_pct_truth"),
             rows,
         )
 
     def top_skus(self, n: int = 10) -> Table:
-        """Các SKU bán chạy nhất và phần trăm Order Line của chúng (phân phối Zipf)."""
+        """Best-selling SKUs and their percentage of Order Lines (Zipf distribution)."""
         columns, rows = self._query(f"""
             SELECT sku, count(*) AS order_lines, round(100 * count(*) / sum(count(*)) OVER (), 2) AS pct
             FROM all_lines GROUP BY sku ORDER BY order_lines DESC LIMIT {int(n)}""")
         return Table(
             "top_skus",
-            "SKU bán chạy nhất nên chiếm khoảng 5% Order Line: tạo task chậm cho Spark.",
+            "The best-selling SKU should take about 5% of Order Lines: creates a straggler task for Spark.",
             columns,
             rows,
         )
 
     def daily_orders(self, n: int = 5) -> Table:
-        """Các ngày nhiều Order nhất so với trung vị (Sale Event làm lệch theo ngày)."""
+        """Days with the most Orders relative to the median (the Sale Event skews by day)."""
         columns, rows = self._query(f"""
             WITH daily AS (SELECT created_at::DATE AS day, count(*) AS orders FROM all_orders GROUP BY ALL)
             SELECT day, orders, round(orders / (SELECT median(orders) FROM daily), 2) AS x_median
@@ -262,7 +262,7 @@ class QualityReport:
         sale = (self.manifest.get("drift") or {}).get("prime_day") or {}
         return Table(
             "daily_orders",
-            f"Ngày nhiều Order nhất (Amazon và Walmart). Ngày Sale Event trong manifest: {sale.get('days')}.",
+            f"Days with the most Orders (Amazon and Walmart). Sale Event days in the manifest: {sale.get('days')}.",
             columns,
             rows,
         )
@@ -270,7 +270,7 @@ class QualityReport:
     # --- High cardinality ---------------------------------------------------
 
     def cardinality(self) -> Table:
-        """`approx_count_distinct` của các mã có cardinality cao, cạnh số đếm chính xác."""
+        """`approx_count_distinct` of the high-cardinality ids, next to the exact count."""
         checks = (
             ("amazon.orders", "order_id", "amazon_orders"),
             ("amazon.orders", "line_id", "amazon_lines"),
@@ -298,8 +298,8 @@ class QualityReport:
             )
         return Table(
             "cardinality",
-            "Số giá trị khác nhau: ước lượng HyperLogLog của DuckDB và số đếm chính xác. "
-            "HyperLogLog của DuckDB dùng ít bộ đếm nên có thể lệch hơn 10%.",
+            "Distinct values: DuckDB's HyperLogLog estimate and the exact count. "
+            "DuckDB's HyperLogLog uses few registers, so it can be off by more than 10%.",
             ("dataset", "column", "approx_distinct", "exact_distinct", "approx_err_pct", "rows"),
             rows,
         )
@@ -307,7 +307,7 @@ class QualityReport:
     # --- Schema evolution ---------------------------------------------------
 
     def schema_evolution(self) -> Table:
-        """Tỷ lệ null của field cũ và mới, trước và sau ngày Amazon đổi schema."""
+        """Null rates of the old and new fields, before and after the Amazon schema change day."""
         switch = self.manifest["schema_evolution"]["amazon.orders"]["first_export_date"]
         columns, rows = self._query(f"""
             SELECT CASE WHEN export_date < DATE '{switch}' THEN 'before (Orders v0)' ELSE 'after (Orders 2026)' END
@@ -319,13 +319,13 @@ class QualityReport:
             FROM amazon_orders GROUP BY ALL ORDER BY period DESC""")
         return Table(
             "schema_evolution",
-            f"amazon.orders đổi schema từ export_date {switch}: field mới null ở partition cũ và ngược lại.",
+            f"amazon.orders changes schema from export_date {switch}: new fields are null in old partitions and vice versa.",
             columns,
             rows,
         )
 
     def schema_evolution_daily(self, days: int = 3) -> Table:
-        """Tỷ lệ null theo từng `export_date` quanh ngày đổi schema."""
+        """Null rates per `export_date` around the schema change day."""
         switch = self.manifest["schema_evolution"]["amazon.orders"]["first_export_date"]
         columns, rows = self._query(f"""
             SELECT export_date, count(*) AS rows,
@@ -337,7 +337,7 @@ class QualityReport:
             GROUP BY ALL ORDER BY export_date""")
         return Table(
             "schema_evolution_daily",
-            f"Tỷ lệ null theo export_date quanh ngày đổi schema {switch}.",
+            f"Null rates per export_date around the schema change day {switch}.",
             columns,
             rows,
         )
@@ -345,7 +345,7 @@ class QualityReport:
     # --- Duplicate ----------------------------------------------------------
 
     def duplicates(self) -> Table:
-        """Tỷ lệ trùng theo khóa trước và sau dedup, tách bản y hệt và bản cũ hơn."""
+        """Duplicate rate by key before and after dedup, splitting identical copies and older versions."""
         rows = []
         for dataset, raw, latest in (
             ("amazon.orders", "amazon_orders", "amazon_latest"),
@@ -376,8 +376,8 @@ class QualityReport:
         return Table(
             "duplicates",
             (
-                "Tỷ lệ trùng = 1 - count(distinct khóa) / count(*). Dedup giữ bản cập nhật mới nhất theo khóa. "
-                "Walmart: mỗi lần kéo có `fetched_at` riêng, nên bản trùng nào cũng thành bản cũ hơn."
+                "Duplicate rate = 1 - count(distinct key) / count(*). Dedup keeps the latest update per key. "
+                "Walmart: each pull has its own `fetched_at`, so every duplicate becomes an older version."
             ),
             (
                 "dataset",
@@ -393,10 +393,10 @@ class QualityReport:
             rows,
         )
 
-    # --- Dung lượng ---------------------------------------------------------
+    # --- Size ---------------------------------------------------------------
 
     def volume(self) -> Table:
-        """Dung lượng, số file và định dạng theo từng dataset, cộng dung lượng bảng PostgreSQL."""
+        """Size, file count and format per dataset, plus PostgreSQL table sizes."""
         rows = []
         for name, prefix, where, fmt in DATASET_PREFIXES:
             full = self.store.path(prefix)
@@ -407,21 +407,21 @@ class QualityReport:
             )
             rows.append((name, where, fmt, len(sizes), _mb(sum(sizes))))
         if self.dsn:
-            for table, fmt in (("walmart.orders", "heap, cột JSONB"), ("seller.skus", "heap")):
+            for table, fmt in (("walmart.orders", "heap, JSONB column"), ("seller.skus", "heap")):
                 ((size,),) = self.con.execute(
                     "SELECT * FROM postgres_query('pg', ?)",
                     [f"SELECT pg_total_relation_size('{table}')"],
                 ).fetchall()
-                rows.append((table, "PostgreSQL (bảng, gồm index)", fmt, None, _mb(size)))
+                rows.append((table, "PostgreSQL (table, incl. indexes)", fmt, None, _mb(size)))
         return Table(
             "volume",
-            "Dung lượng sau khi lưu, theo nơi lưu và định dạng.",
+            "Size at rest, by storage and format.",
             ("dataset", "storage", "format", "files", "size_mb"),
             rows,
         )
 
     def all_tables(self) -> list[Table]:
-        """Mọi bảng của báo cáo, theo thứ tự in."""
+        """All report tables, in print order."""
         return [
             self.storefront_skew(),
             self.city_skew(),
@@ -437,7 +437,7 @@ class QualityReport:
 
 
 def render_text(table: Table) -> str:
-    """Định dạng bảng thành chữ canh cột, để in ra terminal và chụp màn hình."""
+    """Format a table as column-aligned text, for the terminal and screenshots."""
     cells = [tuple("" if v is None else str(v) for v in row) for row in table.rows]
     widths = [
         max(len(c), *(len(r[i]) for r in cells)) if cells else len(c)
@@ -455,7 +455,7 @@ def render_text(table: Table) -> str:
 
 
 def render_markdown(table: Table) -> str:
-    """Định dạng bảng thành Markdown, để dán vào tài liệu trong `docs/`."""
+    """Format a table as Markdown, to paste into documents under `docs/`."""
     out = [
         f"#### {table.title}",
         "",
@@ -471,15 +471,15 @@ def render_markdown(table: Table) -> str:
 
 
 def _quote(value: str) -> str:
-    """Đặt chuỗi trong nháy đơn kiểu SQL."""
+    """Wrap a string in SQL-style single quotes."""
     return "'" + value.replace("'", "''") + "'"
 
 
 def _pct(fraction: float | None) -> float | None:
-    """Đổi tỷ lệ 0..1 thành phần trăm làm tròn 2 chữ số."""
+    """Convert a 0..1 ratio to a percentage rounded to 2 decimals."""
     return None if fraction is None else round(100 * fraction, 2)
 
 
 def _mb(n_bytes: int) -> float:
-    """Byte sang MB, làm tròn 2 chữ số."""
+    """Bytes to MB, rounded to 2 decimals."""
     return round(n_bytes / 1024**2, 2)

@@ -1,54 +1,54 @@
-# Quy ước viết code
+# Code conventions
 
-Mục tiêu: người mới mở file là đọc được, không phải đọc qua một bài luận.
+Goal: a newcomer who opens a file can read it without wading through an essay.
 
-## Công cụ
+## Tools
 
-- `uv run ruff format .` tự xuống dòng, thụt lề, dấu nháy (dòng tối đa 100 ký tự).
-- `uv run ruff check --fix .` sắp import, bỏ import thừa, bắt vài lỗi hay gặp.
-- Cả hai chạy trong pre-commit và CI (`.github/workflows/ci.yml`). Cấu hình ở `pyproject.toml`.
+- `uv run ruff format .` handles line wrapping, indentation and quotes (max line length 100 characters).
+- `uv run ruff check --fix .` sorts imports, removes unused imports and catches a few common mistakes.
+- Both run in pre-commit and CI (`.github/workflows/ci.yml`). Configuration is in `pyproject.toml`.
 
-## Chú thích
+## Comments
 
-- **Đầu file**: một dòng nói file làm gì. Thêm vài dòng cho điều không nhìn code thấy được,
-  và cách chạy nếu là job.
-- **Docstring hàm**: một dòng là đủ. Thêm đoạn thứ hai chỉ khi có một "vì sao" không hiển nhiên.
-- **Comment**: giải thích *vì sao*, không lặp lại *code làm gì*.
-- Một file dùng một thứ tiếng (tiếng Việt).
+- **File header**: one line saying what the file does. Add a few lines for things the code cannot show,
+  and how to run it if it is a job.
+- **Function docstring**: one line is enough. Add a second paragraph only when there is a non-obvious "why".
+- **Comments**: explain *why*, do not repeat *what the code does*.
+- One file uses one language (English).
 
-Không viết vào code:
+Do not put in code:
 
-- Số dòng của file khác (`walmart.py:103`) hay số mục tài liệu: sửa file kia là sai ngay.
-  Trỏ tới tên tài liệu là đủ, ví dụ `docs/edai-1/reference/silver.md`.
-- Lịch sử quyết định ("chốt ngày ...", "Q3"): để trong `docs/` hoặc ADR.
-- Số đo của một lần chạy (GB, số dòng, giây): để trong tài liệu bằng chứng.
-- Chữ IN HOA để nhấn mạnh.
-- Tên người/công cụ làm việc (người vận hành, brief, ...).
+- Line numbers in other files (`walmart.py:103`) or doc section numbers: they go stale as soon as the other file changes.
+  Pointing to the doc name is enough, for example `docs/data-platform/reference/silver.md`.
+- Decision history ("decided on ...", "Q3"): keep it in `docs/` or an ADR.
+- Measurements from a single run (GB, row counts, seconds): keep them in the evidence docs.
+- ALL CAPS for emphasis.
+- Names of people/tools doing the work (operator, brief, ...).
 
-## Ví dụ
+## Example
 
-Trước:
+Before:
 
 ```python
 def dedup(df):
-    """Bỏ bản trùng theo khoá `(order_id, order_item_id)`, giữ bản mới nhất.
+    """Drop duplicates by key `(order_id, order_item_id)`, keeping the newest record.
 
-    Thứ tự tie-break, chốt ở `docs/edai-1/reference/silver.md` mục 3.1:
-      1. `last_updated_time` lớn nhất — "luôn lấy cái mới nhất";
-      2. hoà thì `export_date` lớn nhất.
+    Tie-break order, decided in `docs/data-platform/reference/silver.md` section 3.1:
+      1. largest `last_updated_time` — "always take the newest";
+      2. on a tie, largest `export_date`.
 
-    Vì sao `order_id` MỘT MÌNH là sai: ở mức Order Line, một `order_id` nằm trên nhiều dòng
-    THẬT (một đơn nhiều món), nên dedup chỉ theo `order_id` sẽ xoá Order Line thật. ...
+    Why `order_id` ALONE is wrong: at the Order Line level, one `order_id` spans many REAL
+    rows (one order, several items), so dedup by `order_id` alone would delete real Order Lines. ...
     """
 ```
 
-Sau:
+After:
 
 ```python
 def dedup(df):
-    """Giữ bản mới nhất của mỗi `(order_id, order_item_id)`.
+    """Keep the newest record of each `(order_id, order_item_id)`.
 
-    Thứ tự: `last_updated_time` lớn nhất, hoà thì `export_date` lớn nhất. Khoá phải có
-    `order_item_id`: chỉ theo `order_id` sẽ xoá nhầm các line khác của cùng đơn.
+    Order: largest `last_updated_time`, on a tie largest `export_date`. The key must include
+    `order_item_id`: using `order_id` alone would wrongly delete other lines of the same order.
     """
 ```

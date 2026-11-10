@@ -1,4 +1,4 @@
-"""DAG CDC Walmart v2 chạy tay, mặc định paused; ingest bounded rồi kiểm oracle."""
+"""Manually triggered Walmart v2 CDC DAG, paused by default; bounded ingest, then oracle check."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from platform_spark_operator import PlatformSparkSubmitOperator
 
 
 class OrderLifecycleCdcSparkSubmitOperator(PlatformSparkSubmitOperator):
-    """Cho phép Airflow render cả ba trường tài nguyên Spark v2."""
+    """Let Airflow render all three v2 Spark resource fields."""
 
     template_fields = tuple(
         dict.fromkeys(

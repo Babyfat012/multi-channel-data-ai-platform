@@ -1,4 +1,4 @@
-"""Chính sách Iceberg thuần Python: kế hoạch, ngưỡng, retention và retry có receipt."""
+"""Pure-Python Iceberg policy: plan, thresholds, retention and retry with receipts."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ DEFAULTS = {
 
 
 def validated_config(config):
-    """Chuẩn hoá cấu hình, từ chối retention/retry không an toàn và cột không hợp lệ."""
+    """Normalize config, rejecting unsafe retention/retry and invalid columns."""
     result = {**DEFAULTS, **config}
     for key in (
         "min_input_files",
@@ -41,7 +41,7 @@ def validated_config(config):
         "max_attempts",
     ):
         if type(result[key]) is not int or result[key] < 1:
-            raise ValueError(f"{key} phải là số nguyên dương")
+            raise ValueError(f"{key} must be a positive integer")
     for key in (
         "small_file_ratio",
         "max_snapshot_age_hours",
@@ -54,45 +54,45 @@ def validated_config(config):
             or not math.isfinite(result[key])
             or result[key] < 0
         ):
-            raise ValueError(f"{key} không hợp lệ")
+            raise ValueError(f"{key} is invalid")
     if not 0 < result["small_file_ratio"] <= 1 or result["orphan_age_hours"] < 72:
-        raise ValueError("ratio phải trong (0,1]; orphan_age_hours phải >=72")
+        raise ValueError("ratio must be in (0,1]; orphan_age_hours must be >=72")
     if type(result["orphans_dry_run"]) is not bool:
-        raise ValueError("orphans_dry_run phải là boolean")
+        raise ValueError("orphans_dry_run must be a boolean")
     if not isinstance(result["generation_tag_prefix"], str) or not result["generation_tag_prefix"]:
-        raise ValueError("generation_tag_prefix phải khác rỗng")
+        raise ValueError("generation_tag_prefix must be non-empty")
     if not isinstance(result["zorder_columns"], list) or any(
         not isinstance(column, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column)
         for column in result["zorder_columns"]
     ):
-        raise ValueError("zorder_columns phải là danh sách tên cột đơn")
+        raise ValueError("zorder_columns must be a list of single column names")
     if not isinstance(result["probe_predicates"], list):
-        raise ValueError("probe_predicates phải là danh sách")
+        raise ValueError("probe_predicates must be a list")
     for probe in result["probe_predicates"]:
         if not isinstance(probe, dict) or not probe.get("name") or not probe.get("ranges"):
-            raise ValueError("probe cần name và ranges (AND các khoảng đóng)")
+            raise ValueError("probe needs name and ranges (AND of closed ranges)")
         for column, bounds in probe["ranges"].items():
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column) or len(bounds) != 2:
-                raise ValueError("Khoảng probe không hợp lệ")
+                raise ValueError("Invalid probe range")
             if bounds[0] is not None and bounds[1] is not None and bounds[0] > bounds[1]:
-                raise ValueError("Khoảng probe bị đảo")
+                raise ValueError("Probe range is reversed")
     return result
 
 
 def load_config(path):
-    """Đọc JSON cấu hình theo bảng; không suy đoán bảng thật khi thiếu cấu hình."""
+    """Read the per-table JSON config; never guess real tables when config is missing."""
     data = json.loads(Path(path).read_text())
     if not isinstance(data.get("tables"), dict) or not data["tables"]:
-        raise ValueError("Cấu hình cần tables khác rỗng")
+        raise ValueError("Config needs non-empty tables")
     return {table: validated_config(config) for table, config in data["tables"].items()}
 
 
 def plan_maintenance(metadata, config, now=None):
-    """Trả hành động có lý do; orphan dry-run luôn có, no_op chỉ xét thay đổi bảng.
+    """Return actions with reasons; the orphan dry-run is always present, no_op only considers table changes.
 
-    Brief đồng thời yêu cầu orphan luôn lập kế hoạch và actions lần hai rỗng.
-    Giữ nguyên luật an toàn orphan: no_op=true nghĩa là không có mutation,
-    actions vẫn chứa đúng cuộc kiểm kê orphan dry-run.
+    The brief requires both that orphans are always planned and that a second run has empty actions.
+    Keep the orphan safety rule: no_op=true means no mutation,
+    and actions still contain exactly the orphan dry-run inventory.
     """
     config = validated_config(config)
     now = utc(now or datetime.now(timezone.utc))
@@ -115,13 +115,13 @@ def plan_maintenance(metadata, config, now=None):
                 "partitions": partitions,
                 "target_file_size_bytes": config["target_file_size_bytes"],
                 "min_input_files": config["min_input_files"],
-                "reason": "Partition có đủ nhiều file và size trung bình dưới ngưỡng",
+                "reason": "Partition has enough files and average size below threshold",
             }
         )
     snapshots = sorted(metadata.get("snapshots", []), key=lambda s: utc(s["committed_at"]))
     marker = metadata.get("properties", {}).get("platform.maintenance.last_zorder_snapshot_id")
     by_id = {str(s["snapshot_id"]): s for s in snapshots}
-    # Đi theo parent để không đếm file trên nhánh không thuộc trạng thái hiện hành.
+    # Follow parents so files on branches outside the current state are not counted.
     cursor = str(
         metadata.get("current_snapshot_id", snapshots[-1]["snapshot_id"] if snapshots else "")
     )
@@ -139,9 +139,9 @@ def plan_maintenance(metadata, config, now=None):
                 "columns": config["zorder_columns"],
                 "target_file_size_bytes": config["target_file_size_bytes"],
                 "new_data_files": added,
-                "reason": "Chưa có mốc z-order/không còn ancestry mốc"
+                "reason": "No z-order marker yet/marker no longer in ancestry"
                 if marker_missing
-                else "Đủ data file mới từ mốc z-order",
+                else "Enough new data files since the z-order marker",
             }
         )
     protected = sorted({int(ref["snapshot_id"]) for ref in metadata.get("refs", [])})
@@ -161,7 +161,7 @@ def plan_maintenance(metadata, config, now=None):
                 "snapshot_ids": expired,
                 "older_than": cutoff.isoformat(),
                 "retain_last": config["retain_last"],
-                "reason": "Snapshot quá tuổi, ngoài retain_last và không bị ref bảo vệ",
+                "reason": "Snapshot is past age, outside retain_last and not protected by a ref",
             }
         )
     actions.append(
@@ -169,7 +169,7 @@ def plan_maintenance(metadata, config, now=None):
             "kind": "remove_orphans",
             "dry_run": config["orphans_dry_run"],
             "older_than": (now - timedelta(hours=config["orphan_age_hours"])).isoformat(),
-            "reason": "Kiểm kê orphan mặc định không xoá; cutoff ít nhất 72 giờ",
+            "reason": "Orphan inventory does not delete by default; cutoff at least 72 hours",
         }
     )
     no_op = all(a["kind"] == "remove_orphans" and a["dry_run"] for a in actions)
@@ -183,14 +183,14 @@ def plan_maintenance(metadata, config, now=None):
             and r["name"].startswith(config["generation_tag_prefix"])
         ],
         "no_op": no_op,
-        "reason": "no-op: không hành động thay đổi bảng; chỉ kiểm kê orphan"
+        "reason": "no-op: no table-changing action; orphan inventory only"
         if no_op
-        else "Có ngưỡng bảo trì bị vượt",
+        else "A maintenance threshold was exceeded",
     }
 
 
 def is_transient(error):
-    """Chỉ retry commit conflict và ValidationException có dấu hiệu ghi đồng thời."""
+    """Retry only commit conflicts and ValidationExceptions that indicate concurrent writes."""
     message = f"{type(error).__name__}: {error}"
     return "CommitFailedException" in message or (
         "ValidationException" in message
@@ -209,7 +209,7 @@ def is_transient(error):
 
 
 def execute_actions(actions, execute, config, attempts, sleep=time.sleep):
-    """Thi hành tuần tự; ghi mọi lần thử kể cả lỗi rồi ném lại và dừng ngay."""
+    """Execute sequentially; record every attempt including errors, then re-raise and stop immediately."""
     config = validated_config(config)
     for action in actions:
         for number in range(1, config["max_attempts"] + 1):
@@ -234,10 +234,10 @@ def execute_actions(actions, execute, config, attempts, sleep=time.sleep):
 
 
 def count_probe_files(files, ranges):
-    """Đếm file có giao tất cả khoảng đóng; thiếu metrics thì luôn phải đọc.
+    """Count files that intersect all closed ranges; files without metrics must always be read.
 
-    Đây là ước lượng bằng min/max, không phải số task Spark hay số file đọc thực tế.
-    Ngày/giờ cấu hình ISO được đổi cùng kiểu với metrics trước khi so sánh.
+    This is a min/max estimate, not the number of Spark tasks or files actually read.
+    ISO date/time config values are converted to the metrics type before comparison.
     """
     count = 0
     for file in files:
@@ -265,10 +265,10 @@ def count_probe_files(files, ranges):
 
 
 def ensure_refs_survive_expiration(metadata, now=None):
-    """Từ chối expiry nếu TTL sẽ làm Iceberg bỏ một ref mà policy đang bảo vệ.
+    """Refuse expiry if the TTL would make Iceberg drop a ref the policy protects.
 
-    Iceberg có thể tự bỏ ref quá tuổi trong expire_snapshots. Không chỉ dựa
-    vào hậu kiểm: kiểm retention tường minh trước khi gọi procedure xoá.
+    Iceberg may drop an over-age ref itself in expire_snapshots. Do not rely only
+    on a post-check: check retention explicitly before calling the delete procedure.
     """
     now = utc(now or datetime.now(timezone.utc))
     snapshots = {int(s["snapshot_id"]): s for s in metadata.get("snapshots", [])}
@@ -282,9 +282,9 @@ def ensure_refs_survive_expiration(metadata, now=None):
         age_limit = default_age if age_limit is None else int(age_limit)
         snapshot = snapshots.get(int(ref["snapshot_id"]))
         if snapshot is None:
-            raise ValueError(f"Ref {ref['name']} trỏ snapshot không đọc được")
+            raise ValueError(f"Ref {ref['name']} points to an unreadable snapshot")
         age_ms = (now - utc(snapshot["committed_at"])).total_seconds() * 1000
         if age_ms > age_limit:
             raise ValueError(
-                f"Ref {ref['name']} đã quá TTL; dừng trước expiry để bảo vệ generation"
+                f"Ref {ref['name']} is past its TTL; stopping before expiry to protect the generation"
             )

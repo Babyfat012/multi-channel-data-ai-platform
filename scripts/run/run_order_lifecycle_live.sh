@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
-# Planner chạy trên host: fixture → DAG thật → MCP → ảnh UI, tách RAM hai pha.
+# Host-side planner: fixture → real DAG → MCP → UI screenshots, splitting RAM across two phases.
 set -euo pipefail
-set -E  # ERR trap cũng áp dụng trong function/subshell.
+set -E  # The ERR trap also applies inside functions/subshells.
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 usage() {
   cat <<'HELP'
-Cách chạy: bash scripts/run/run_order_lifecycle_live.sh --phase source|airflow|datahub|capture|all
-Mặc định: --phase all. --help chỉ in hướng dẫn, không gọi Docker.
-Biến môi trường:
-  PLATFORM_ORDER_LIFECYCLE_DIR  fixture host (mặc định ./out/order_lifecycle_live)
-  PLATFORM_ORDER_LIFECYCLE_CUTOFF      mặc định 2026-06-01T00:00:00.000000Z
-  PLATFORM_V2_RUN_ID      chọn run mới khi trigger; chọn run cũ khi publish
-  PLATFORM_V2_TIMEOUT    timeout DAG giây (1800); PLATFORM_V2_START_TIMEOUT (600)
-  PLATFORM_V2_EXECUTOR_MEMORY  mặc định 2g, vừa worker mặc định cho fixture nhỏ
-  PLATFORM_STORAGE       minio (mặc định) hoặc s3; đọc từ environment hoặc .env
+Usage: bash scripts/run/run_order_lifecycle_live.sh --phase source|airflow|datahub|capture|all
+Default: --phase all. --help only prints usage, does not call Docker.
+Environment variables:
+  PLATFORM_ORDER_LIFECYCLE_DIR  host fixture (default ./out/order_lifecycle_live)
+  PLATFORM_ORDER_LIFECYCLE_CUTOFF      default 2026-06-01T00:00:00.000000Z
+  PLATFORM_V2_RUN_ID      picks the new run on trigger; picks the old run on publish
+  PLATFORM_V2_TIMEOUT    DAG timeout in seconds (1800); PLATFORM_V2_START_TIMEOUT (600)
+  PLATFORM_V2_EXECUTOR_MEMORY  default 2g, fits the default worker for the small fixture
+  PLATFORM_STORAGE       minio (default) or s3; read from the environment or .env
   PLATFORM_PYTHON        local .venv/bin/python; S3 /mnt/platform-data/venv/bin/python
-  RAW_BUCKET, AWS_REGION, PLATFORM_DATASET_NAME  nguồn S3 đã sync bởi Ansible
-  DATAHUB_PYTHON     Python có acryl-datahub SDK, mặc định môi trường uv đã chuẩn bị
-  DATAHUB_GMS_URL    mặc định http://127.0.0.1:8089
-  DATAHUB_GMS_TOKEN  token tùy chọn, chỉ truyền qua environment
-  DATAHUB_QUICKSTART_DIR  mặc định $HOME/.datahub/quickstart
-Receipt: out/receipts-v2-run/<run_id>/; run gần nhất: out/receipts-v2-run/latest-run-id
-Cần Docker Compose, curl, Chrome, aiohttp, quickstart/DataHub SDK đã cài (docs/edai-1/data_governance.md).
+  RAW_BUCKET, AWS_REGION, PLATFORM_DATASET_NAME  S3 source synced by Ansible
+  DATAHUB_PYTHON     Python with the acryl-datahub SDK, defaults to the prepared uv environment
+  DATAHUB_GMS_URL    default http://127.0.0.1:8089
+  DATAHUB_GMS_TOKEN  optional token, passed only via the environment
+  DATAHUB_QUICKSTART_DIR  default $HOME/.datahub/quickstart
+Receipt: out/receipts-v2-run/<run_id>/; latest run: out/receipts-v2-run/latest-run-id
+Requires Docker Compose, curl, Chrome, aiohttp, and the quickstart/DataHub SDK installed (docs/data-platform/data_governance.md).
 HELP
 }
 phase=all
@@ -31,11 +31,11 @@ while (($#)); do
   case "$1" in
     --phase) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; phase=$2; shift 2 ;;
     --help|-h) usage; exit 0 ;;
-    *) echo "Cờ không hợp lệ: $1" >&2; usage >&2; exit 2 ;;
+    *) echo "Invalid flag: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
-case "$phase" in source|airflow|datahub|capture|all) ;; *) echo "Pha không hợp lệ: $phase" >&2; exit 2 ;; esac
-# Đọc giá trị cần thiết từ .env, giữ ưu tiên environment và không export secret.
+case "$phase" in source|airflow|datahub|capture|all) ;; *) echo "Invalid phase: $phase" >&2; exit 2 ;; esac
+# Read required values from .env, keep the environment's precedence, and do not export secrets.
 if [[ ! -v PLATFORM_STORAGE && -f .env ]]; then
   export PLATFORM_STORAGE="$( (source .env; printf '%s' "${PLATFORM_STORAGE:-minio}") )"
 fi
@@ -52,7 +52,7 @@ source_root=/data/order_lifecycle
 export PLATFORM_ORDER_LIFECYCLE_DIR="${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}"
 py="${PLATFORM_PYTHON:-.venv/bin/python}"
 if [[ "$storage" = s3 ]]; then
-  source_root="s3a://${RAW_BUCKET:?Cần RAW_BUCKET}/order_lifecycle/${PLATFORM_DATASET_NAME:-fixture}"
+  source_root="s3a://${RAW_BUCKET:?RAW_BUCKET is required}/order_lifecycle/${PLATFORM_DATASET_NAME:-fixture}"
   py="${PLATFORM_PYTHON:-/mnt/platform-data/venv/bin/python}"
   export PLATFORM_ORDER_LIFECYCLE_DIR="/mnt/platform-data/source/${PLATFORM_DATASET_NAME:-fixture}"
 fi
@@ -60,10 +60,10 @@ cutoff="${PLATFORM_ORDER_LIFECYCLE_CUTOFF:-2026-06-01T00:00:00.000000Z}"
 timeout="${PLATFORM_V2_TIMEOUT:-1800}"
 start_timeout="${PLATFORM_V2_START_TIMEOUT:-600}"
 for seconds in "$timeout" "$start_timeout"; do
-  [[ "$seconds" =~ ^[1-9][0-9]*$ ]] || { echo 'Timeout phải là số giây nguyên dương' >&2; exit 2; }
+  [[ "$seconds" =~ ^[1-9][0-9]*$ ]] || { echo 'Timeout must be a positive integer number of seconds' >&2; exit 2; }
 done
 compose=(docker compose --profile airflow --profile spark)
-# Dừng cả dependency sau pha A, không xóa volume hoặc dừng service dự án khác.
+# Stop the dependencies too after phase A; do not delete volumes or stop other projects' services.
 services=(airflow spark-worker-1 spark-worker-2 spark-master lakekeeper lakekeeper-migrate lakekeeper-db-init airflow-db-init minio-init minio postgres)
 if [[ "$storage" = s3 ]]; then
   services=(airflow spark-worker-1 spark-worker-2 spark-master lakekeeper lakekeeper-migrate lakekeeper-db-init airflow-db-init postgres)
@@ -77,14 +77,14 @@ hub=(docker compose --env-file "$quickstart/.local-secrets.env" --profile quicks
 gms="${DATAHUB_GMS_URL:-http://127.0.0.1:8089}"
 cleanup_hint() {
   local code=$?
-  echo "Lỗi pha $phase (exit $code). Giữ nguyên dữ liệu/receipt để kiểm log." >&2
+  echo "Phase $phase failed (exit $code). Data/receipts kept intact for log inspection." >&2
   if [[ "$storage" = s3 ]]; then
-    echo 'Dọn pha A: docker compose --profile airflow --profile spark stop airflow spark-worker-1 spark-worker-2 spark-master lakekeeper postgres' >&2
+    echo 'Clean up phase A: docker compose --profile airflow --profile spark stop airflow spark-worker-1 spark-worker-2 spark-master lakekeeper postgres' >&2
   else
-  echo 'Dọn pha A: docker compose --profile airflow --profile spark stop airflow spark-worker-1 spark-worker-2 spark-master lakekeeper postgres minio' >&2
+  echo 'Clean up phase A: docker compose --profile airflow --profile spark stop airflow spark-worker-1 spark-worker-2 spark-master lakekeeper postgres minio' >&2
   fi
-  echo 'Dọn pha B: chạy lại lệnh Compose DataHub trong docs/edai-1/data_governance.md, thay up -d bằng stop.' >&2
-  echo 'Không dùng down -v; không xóa volume. Xem log rồi dùng run_id mới nếu cần chạy lại Gold.' >&2
+  echo 'Clean up phase B: rerun the DataHub Compose command in docs/data-platform/data_governance.md, replacing up -d with stop.' >&2
+  echo 'Do not use down -v; do not delete volumes. Check the logs, then use a new run_id if Gold needs to be rerun.' >&2
   exit "$code"
 }
 trap cleanup_hint ERR
@@ -93,21 +93,21 @@ wait_until() {
   local label=$1 deadline=$((SECONDS + start_timeout))
   shift
   until "$@" >/dev/null 2>&1; do
-    if ((SECONDS >= deadline)); then echo "Timeout chờ $label" >&2; return 1; fi
+    if ((SECONDS >= deadline)); then echo "Timeout waiting for $label" >&2; return 1; fi
     sleep 5
   done
 }
 source_phase() {
   if [[ "$storage" = s3 ]]; then
-    aws s3 ls "s3://${RAW_BUCKET}/order_lifecycle/${PLATFORM_DATASET_NAME:-fixture}/manifest.json" --region "${AWS_REGION:?Cần AWS_REGION}"
+    aws s3 ls "s3://${RAW_BUCKET}/order_lifecycle/${PLATFORM_DATASET_NAME:-fixture}/manifest.json" --region "${AWS_REGION:?AWS_REGION is required}"
     return
   fi
   if [[ -f "$PLATFORM_ORDER_LIFECYCLE_DIR/manifest.json" ]]; then
-    echo "Giữ fixture đã có: $PLATFORM_ORDER_LIFECYCLE_DIR"
+    echo "Keeping existing fixture: $PLATFORM_ORDER_LIFECYCLE_DIR"
   else
-    # Không ghi đè thư mục dở dang/nguồn của người khác.
+    # Do not overwrite a half-written directory or someone else's source.
     if [[ -d "$PLATFORM_ORDER_LIFECYCLE_DIR" ]] && [[ -n "$(ls -A "$PLATFORM_ORDER_LIFECYCLE_DIR")" ]]; then
-      echo 'Thư mục nguồn không rỗng nhưng thiếu manifest; hãy chọn thư mục mới.' >&2; return 1
+      echo 'Source directory is not empty but has no manifest; choose a new directory.' >&2; return 1
     fi
     "$py" -m generator.generate_order_lifecycle_fixture --output "$PLATFORM_ORDER_LIFECYCLE_DIR"
   fi
@@ -140,20 +140,20 @@ import json, sys
 from airflow.models.dagrun import DagRun
 runs = DagRun.find(dag_id="dp_order_lifecycle", run_id=sys.argv[1])
 if not runs:
-    raise SystemExit("Không tìm thấy run đã trigger")
+    raise SystemExit("Triggered run not found")
 r = runs[0]
 print(json.dumps({"state": r.state, "directory": r.execution_date.strftime("%Y%m%dT%H%M%S")}))
 PY
 }
 airflow_phase() {
-  [[ "$storage" = s3 || -f "$PLATFORM_ORDER_LIFECYCLE_DIR/manifest.json" ]] || { echo 'Chạy --phase source trước' >&2; return 1; }
+  [[ "$storage" = s3 || -f "$PLATFORM_ORDER_LIFECYCLE_DIR/manifest.json" ]] || { echo 'Run --phase source first' >&2; return 1; }
   if [[ -n "$(docker ps -q --filter label=com.docker.compose.project=datahub)" ]]; then
-    echo 'Dừng Compose DataHub trước pha A để đủ RAM (docs/edai-1/data_governance.md).' >&2; return 1
+    echo 'Stop the DataHub Compose stack before phase A to free enough RAM (docs/data-platform/data_governance.md).' >&2; return 1
   fi
   mkdir -p out/receipts out/receipts-v2-run
-  # User Airflow phải ghi được bind mount vừa tạo. Không đụng quyền file receipt cũ.
+  # The Airflow user must be able to write the freshly created bind mount. Do not touch old receipt file permissions.
   chmod 0777 out/receipts
-  # minio-init chạy một lần rồi thoát; Compose mới coi thoát là lỗi của --wait nên tách riêng.
+  # minio-init runs once and exits; newer Compose treats that exit as a --wait failure, so it runs separately.
   if [[ "$storage" = s3 ]]; then
     source_phase
     "${compose[@]}" up -d --wait --wait-timeout "$start_timeout" airflow spark-master spark-worker-1 spark-worker-2
@@ -168,7 +168,7 @@ airflow_phase() {
   "${compose[@]}" exec -T airflow airflow variables set platform_order_lifecycle_executor_memory "${PLATFORM_V2_EXECUTOR_MEMORY:-2g}"
   "${compose[@]}" exec -T airflow airflow dags list-import-errors --output json
   run_id="${PLATFORM_V2_RUN_ID:-}"
-  # Không dùng dấu ':' hoặc '/' trong run_id mặc định để thư mục host dễ dùng.
+  # No ':' or '/' in the default run_id so the host directory stays easy to use.
   if [[ -z "${PLATFORM_V2_RUN_ID:-}" ]]; then
     run_id="live_v2__$(date -u +%Y%m%dT%H%M%S)_$("$py" -c 'import uuid; print(uuid.uuid4().hex[:8])')"
   fi
@@ -186,34 +186,34 @@ airflow_phase() {
     info=$(run_info)
     state=$("$py" -c 'import json,sys; print(json.loads(sys.argv[1])["state"])' "$info")
     case "$state" in success|failed) break ;; esac
-    if ((SECONDS >= deadline)); then echo "Timeout DAG: $run_id; xem Airflow logs/receipt" >&2; return 1; fi
+    if ((SECONDS >= deadline)); then echo "Timeout DAG: $run_id; see Airflow logs/receipt" >&2; return 1; fi
     sleep 10
   done
   directory=$("$py" -c 'import json,sys; print(json.loads(sys.argv[1])["directory"])' "$info")
   mkdir -p "out/receipts-v2-run/$run_id"
   "${compose[@]}" cp "airflow:/opt/airflow/receipts/order_lifecycle/$directory/." "out/receipts-v2-run/$run_id/"
   "${compose[@]}" stop "${services[@]}"
-  [[ "$state" = success ]] || { echo "DAG failed: $run_id; đã copy receipt, không publish" >&2; return 1; }
+  [[ "$state" = success ]] || { echo "DAG failed: $run_id; receipts copied, not publishing" >&2; return 1; }
   printf '%s\n' "$run_id" > out/receipts-v2-run/latest-run-id
-  echo "DAG success: $run_id; receipt ở out/receipts-v2-run/$run_id/; pha A đã dừng."
+  echo "DAG success: $run_id; receipts in out/receipts-v2-run/$run_id/; phase A stopped."
 }
 validate_run_id() {
-  [[ "$run_id" =~ ^[A-Za-z0-9_][A-Za-z0-9_.:+-]*$ ]] || { echo 'run_id không hợp lệ cho thư mục host' >&2; return 1; }
+  [[ "$run_id" =~ ^[A-Za-z0-9_][A-Za-z0-9_.:+-]*$ ]] || { echo 'run_id is not valid as a host directory name' >&2; return 1; }
 }
 datahub_phase() {
   run_id="${PLATFORM_V2_RUN_ID:-$(cat out/receipts-v2-run/latest-run-id)}"
   validate_run_id
   local receipts="out/receipts-v2-run/$run_id"
-  # Từ chối publish nhầm run hoặc bộ receipt thiếu; không suy PASS từ file thiếu.
+  # Refuse to publish the wrong run or an incomplete receipt set; never infer PASS from a missing file.
   "$py" - "$receipts" "$run_id" <<'PY'
 import json, sys
 from pathlib import Path
 root, run = Path(sys.argv[1]), sys.argv[2]
 for task in ("check_contracts", "ingest_bronze", "build_silver", "build_gold", "validate_gold"):
     doc = json.loads((root / (task + ".json")).read_text())
-    assert doc["run_id"] == run, f"Sai run_id: {task}"
-    assert doc.get("status", "passed") == "passed", f"Receipt lỗi: {task}"
-    assert all(v == 0 for v in doc.get("checks", {}).values()), f"Check lỗi: {task}"
+    assert doc["run_id"] == run, f"Wrong run_id: {task}"
+    assert doc.get("status", "passed") == "passed", f"Receipt failed: {task}"
+    assert all(v == 0 for v in doc.get("checks", {}).values()), f"Check failed: {task}"
 PY
   "${compose[@]}" stop "${services[@]}"
   "${hub[@]}" up -d
@@ -235,7 +235,7 @@ case "$phase" in
   all)
     source_phase; airflow_phase; datahub_phase
     if [[ "$storage" = s3 ]]; then
-      echo 'Chạy trên laptop qua tunnel: .venv/bin/python scripts/evidence/capture_order_lifecycle_datahub_evidence.py'
+      echo 'Run on the laptop over a tunnel: .venv/bin/python scripts/evidence/capture_order_lifecycle_datahub_evidence.py'
     else
       capture_phase
     fi

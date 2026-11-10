@@ -1,4 +1,4 @@
--- Lần chạy riêng để chụp Flink UI và execution plan của keyed dedup.
+-- A separate run to capture the Flink UI and execution plan of the keyed dedup.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'dedup_tiktok_state_proof';

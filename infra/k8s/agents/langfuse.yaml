@@ -1,6 +1,6 @@
-# Langfuse v2 (quản lý prompt): system prompt của Agent sống ở đây, có version + label production.
-# Bản v2 chỉ cần Postgres (dùng database `langfuse` trên pgvector, ns rag); v3+ cần thêm ClickHouse/Redis/S3.
-# Secret langfuse-env (DATABASE_URL, khoá, tài khoản khởi tạo) do scripts/setup/deploy_kind_langfuse.sh tạo.
+# Langfuse v2 (prompt management): Agent system prompts live here, versioned + `production` label.
+# v2 only needs Postgres (uses the `langfuse` database on pgvector, ns rag); v3+ also needs ClickHouse/Redis/S3.
+# Secret langfuse-env (DATABASE_URL, keys, initial account) is created by scripts/setup/deploy_kind_langfuse.sh.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -13,7 +13,7 @@ metadata:
   namespace: langfuse
 spec:
   replicas: 1
-  strategy: {type: Recreate}   # migration Prisma chạy lúc khởi động: không để 2 pod chạy migration cùng lúc
+  strategy: {type: Recreate}   # Prisma migrations run at startup: never let 2 pods migrate at the same time
   selector:
     matchLabels: {app: langfuse}
   template:

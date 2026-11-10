@@ -1,53 +1,53 @@
-<!-- Mục đích: điểm vào Terraform AWS Data Platform: dựng gì, chạy thế nào, tốn gì. -->
+<!-- Purpose: entry point for the AWS Data Platform Terraform: what it builds, how to run it, what it costs. -->
 # Terraform AWS Data Platform
 
-Terraform ≥1.6, provider `hashicorp/aws` `~> 6.0` (bản cụ thể ghim trong
-`.terraform.lock.hcl`). State để local. Mốc 1 **chưa có EKS**.
+Terraform ≥1.6, provider `hashicorp/aws` `~> 6.0` (exact version pinned in
+`.terraform.lock.hcl`). State is local. Milestone 1 **has no EKS yet**.
 
-Dựng: VPC `10.42.0.0/16` + 1 public subnet + Internet Gateway, security group
-**không mở cổng vào**, một EC2 `t3.xlarge` Ubuntu 24.04, một EBS gp3 dữ liệu,
-IAM role (instance profile, không access key), 2 bucket S3 (`raw`, `lakehouse`),
-budget tùy chọn. Sơ đồ: [`docs/diagrams/data-platform-system-architecture-excalidraw.png`](../../../docs/diagrams/data-platform-system-architecture-excalidraw.png).
+Builds: VPC `10.42.0.0/16` + 1 public subnet + Internet Gateway, a security group
+with **no inbound ports**, one `t3.xlarge` Ubuntu 24.04 EC2, one gp3 data EBS,
+an IAM role (instance profile, no access key), 2 S3 buckets (`raw`, `lakehouse`),
+an optional budget. Diagram: [`docs/diagrams/data-platform-system-architecture-excalidraw.png`](../../../docs/diagrams/data-platform-system-architecture-excalidraw.png).
 
-Trước khi chạy, kiểm quyền của AWS profile, quota và cấu hình instance/region của tài khoản triển khai theo [runbook](../../../docs/shared/aws_deploy.md). Repo chưa có bằng chứng launch EC2 trên AWS.
+Before running, check the AWS profile's permissions, quota and the instance/region settings of the deployment account per the [runbook](../../../docs/shared/aws_deploy.md). The repo has no evidence yet of an EC2 launch on AWS.
 
-## Chạy
+## Run
 
 ```bash
 cd infra/aws/terraform
-cp terraform.tfvars.example terraform.tfvars   # điền ssh_public_key
+cp terraform.tfvars.example terraform.tfvars   # fill in ssh_public_key
 terraform init
 terraform plan -out data-platform.tfplan
 terraform apply data-platform.tfplan
 ```
 
-Máy bạn cần `aws` CLI đã đăng nhập và `session-manager-plugin` (để SSH qua SSM).
-Sau đó sang [Ansible](../ansible/README.md).
+Your machine needs a logged-in `aws` CLI and `session-manager-plugin` (for SSH over SSM).
+Then continue with [Ansible](../ansible/README.md).
 
-## Lưu ý tiền
+## Cost notes
 
-- EC2 chỉ tính tiền khi chạy: `aws ec2 stop-instances --instance-ids <id>` khi nghỉ.
-- **EBS vẫn tính tiền khi EC2 tắt.** Public IPv4 tự cấp của cấu hình này được
-  AWS thu hồi khi stop; không có Elastic IP. Xem [quy tắc IP của EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-instance-addressing.html).
-- `cpu_credits = "standard"`: hết CPU credit thì máy chậm lại, không bị tính thêm.
-- Budget chỉ cảnh báo, không chặn chi. Bật bằng `enable_budget = true` + `budget_email`.
-- `terraform destroy` xóa cả EBS dữ liệu. Bucket còn dữ liệu sẽ chặn destroy
-  trừ khi `force_destroy = true`.
+- EC2 is billed only while running: `aws ec2 stop-instances --instance-ids <id>` when idle.
+- **EBS is still billed while the EC2 is stopped.** The auto-assigned public IPv4 in this setup is
+  released by AWS on stop; there is no Elastic IP. See [EC2 IP rules](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-instance-addressing.html).
+- `cpu_credits = "standard"`: when CPU credits run out the machine slows down, with no extra charge.
+- The budget only alerts; it does not block spending. Enable it with `enable_budget = true` + `budget_email`.
+- `terraform destroy` also deletes the data EBS. Buckets that still hold data block destroy
+  unless `force_destroy = true`.
 
-## Khác bản GCP
+## Differences from GCP
 
-| GCP (`infra/gcp`) | AWS (ở đây) |
+| GCP (`infra/gcp`) | AWS (here) |
 |---|---|
-| IAP + OS Login, firewall mở 22 cho dải IAP | SSM, security group không ingress |
-| Service account gắn VM | IAM role + instance profile |
+| IAP + OS Login, firewall opens 22 to the IAP range | SSM, security group with no ingress |
+| Service account attached to the VM | IAM role + instance profile |
 | `/dev/disk/by-id/google-platform-data` | `/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol…` |
-| Budget tự gửi mail Billing Admin | Phải ghi `budget_email` |
-| Bật API (`google_project_service`) | Không cần |
+| Budget emails the Billing Admin automatically | Must set `budget_email` |
+| Enable APIs (`google_project_service`) | Not needed |
 
-## State của môi trường đã tồn tại
+## State of existing environments
 
-Resource address hiện hành dùng `data_platform` và `operator`; tên AWS dùng tiền tố `platform` / `data-platform`. Nếu đã apply cấu hình có resource address hoặc tên cũ, cần kiểm state và lập kế hoạch di chuyển trước khi apply. Xem toàn bộ plan để phân biệt cập nhật metadata với thao tác tạo lại EC2, EBS hoặc bucket; đổi tên trong repo không tự di chuyển state hay dữ liệu.
+Current resource addresses use `data_platform` and `operator`; AWS names use the `platform` / `data-platform` prefix. If a configuration with old resource addresses or names was already applied, check the state and plan a migration before applying. Read the full plan to tell metadata updates apart from recreating the EC2, EBS or buckets; renaming in the repo does not move state or data by itself.
 
-## Registry và mạng cho ML/LLM
+## Registry and network for ML/LLM
 
-Bật `enable_ecr` để tạo repository ECR; bật `enable_kubernetes_network` và điền `secondary_availability_zone` để có hai subnet cho root [EKS](../kubernetes/README.md). Hai flag mặc định tắt. Xem [cloud setup](../../../docs/shared/cloud_setup.md) để kiểm tài khoản, review plan và triển khai theo thứ tự.
+Enable `enable_ecr` to create ECR repositories; enable `enable_kubernetes_network` and set `secondary_availability_zone` to get two subnets for the [EKS](../kubernetes/README.md) root. Both flags default to off. See [cloud setup](../../../docs/shared/cloud_setup.md) to check the account, review the plan and deploy in order.

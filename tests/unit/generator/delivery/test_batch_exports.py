@@ -1,4 +1,4 @@
-"""Test lớp export của Batch: vị trí bản chính và cách chèn duplicate."""
+"""Tests for the Batch export layer: primary placement and duplicate injection."""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ from generator.delivery.batch_exports import (
 
 
 def _with_duplicate_rate(config, rate):
-    """Bản sao của cấu hình với `duplicate_rate` khác."""
+    """A copy of the config with a different `duplicate_rate`."""
     problems = dataclasses.replace(config.offline_problems, duplicate_rate=rate)
     return dataclasses.replace(config, offline_problems=problems)
 
 
 def test_without_duplicates_each_order_appears_once_at_last_update(tiny_config):
-    """Chứng minh `duplicate_rate=0` thì mỗi Order có đúng một bản chính, ở ngày export của lần đổi trạng thái cuối trước cutoff."""
+    """Prove that with `duplicate_rate=0` each Order has exactly one primary copy, on the export day of its last status change before the Cutoff."""
     config = _with_duplicate_rate(tiny_config, 0.0)
     rng = rng_for(0, "test")
     for order in Simulator(config).simulate_day(10):
@@ -35,7 +35,7 @@ def test_without_duplicates_each_order_appears_once_at_last_update(tiny_config):
 
 
 def test_duplicates_are_identical_later_or_older_earlier(tiny_config):
-    """Chứng minh bản trùng hoặc giống hệt và đến muộn hơn, hoặc là bản cũ hơn đến sớm hơn, và luôn nằm trong phạm vi overlap."""
+    """Prove a duplicate is either identical and arrives later, or an older version that arrives earlier, and always within the overlap range."""
     config = _with_duplicate_rate(tiny_config, 0.4)
     rng = rng_for(0, "test")
     kinds = set()
@@ -57,7 +57,7 @@ def test_duplicates_are_identical_later_or_older_earlier(tiny_config):
 
 
 def test_orders_after_cutoff_are_not_in_batch(tiny_config):
-    """Chứng minh Order tạo sau cutoff không được xuất trong Batch."""
+    """Prove Orders created after the Cutoff are not exported in the Batch."""
     after_cutoff_day = tiny_config.scale.days_history + 1
     rng = rng_for(0, "test")
     for order in Simulator(tiny_config).simulate_day(after_cutoff_day):
@@ -65,12 +65,12 @@ def test_orders_after_cutoff_are_not_in_batch(tiny_config):
 
 
 def test_order_created_in_the_last_second_before_cutoff_is_left_out(tiny_config):
-    """Order tạo trong giây cuối của lịch sử bị loại, không làm `status_at` ném lỗi.
+    """Orders created in the last second of history are excluded and do not make `status_at` raise.
 
-    Ảnh chụp của Batch lấy ở `cutoff - 1s`, nên Order tạo sau mốc đó chưa tồn tại
-    lúc chụp. Xác suất mỗi Order là 1/86.400: ở `default.yaml` (4.000 Order/ngày)
-    gần như không gặp, nhưng ở `scale-100gb.yaml` (852.099 Order/ngày) thì trung
-    bình ~10 Order mỗi lần chạy. Không có test này thì lỗi chỉ lộ ra sau vài giờ.
+    The Batch snapshot is taken at `cutoff - 1s`, so Orders created after that do not exist yet
+    at snapshot time. The probability per Order is 1/86,400: with `default.yaml` (4,000 Orders/day)
+    it almost never happens, but with `scale-100gb.yaml` (852,099 Orders/day) it averages
+    ~10 Orders per run. Without this test the bug only shows up after several hours.
     """
     order = next(iter(Simulator(tiny_config).simulate_day(1)))
     rng = rng_for(0, "test")

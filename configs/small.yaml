@@ -1,4 +1,4 @@
-# Cấu hình nhỏ để chạy thử nhanh trên máy cá nhân (vài giây).
+# Small config for quick test runs on a personal machine (a few seconds).
 seed: 42
 scale:
   n_skus: 50
@@ -15,7 +15,7 @@ streaming_problems:
   pacing:
     default_seconds_per_sim_day: 60
     segments:
-      - {from_day: 65, to_day: 65, seconds_per_sim_day: 600}   # ngày livestream phát chậm để thấy burst
+      - {from_day: 65, to_day: 65, seconds_per_sim_day: 600}   # livestream day replayed slowly to make the burst visible
   duplicate_rate: {tiktok_shop_us: 0.015}
   amazon_late: {median_minutes: 5, share_over_1h: 0.05}
 drift:

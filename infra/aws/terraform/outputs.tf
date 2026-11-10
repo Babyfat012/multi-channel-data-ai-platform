@@ -1,11 +1,11 @@
-# Giao diện bàn giao cho Ansible và các lệnh để người vận hành tự mở phiên/UI qua SSM.
+# Hand-off interface for Ansible, plus commands for the operator to open sessions/UIs over SSM.
 output "raw_bucket" {
-  description = "Tên bucket raw (không gồm s3://)."
+  description = "Raw bucket name (without s3://)."
   value       = aws_s3_bucket.data["raw"].id
 }
 
 output "lakehouse_bucket" {
-  description = "Tên bucket warehouse Iceberg (không gồm s3://)."
+  description = "Iceberg warehouse bucket name (without s3://)."
   value       = aws_s3_bucket.data["lakehouse"].id
 }
 
@@ -44,19 +44,19 @@ output "ecr_repositories" {
 }
 
 output "image_registry" {
-  description = "Prefix dùng với scripts/run/push_images.sh; gồm account registry và namespace dự án."
+  description = "Prefix for scripts/run/push_images.sh; includes the registry account and project namespace."
   value = var.enable_ecr ? trimsuffix(
     aws_ecr_repository.application["platform-feature-api"].repository_url, "/platform-feature-api"
   ) : null
 }
 
 output "instance_id" {
-  description = "Dùng làm ansible_host trong inventory (SSH đi qua SSM theo ID)."
+  description = "Use as ansible_host in the inventory (SSH goes through SSM by ID)."
   value       = aws_instance.data_platform.id
 }
 
 output "data_volume_id" {
-  description = "Ansible tìm disk ở /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_<id bỏ dấu ->."
+  description = "Ansible finds the disk at /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_<id without the ->."
   value       = aws_ebs_volume.data.id
 }
 
@@ -69,6 +69,6 @@ output "ssm_command" {
 }
 
 output "port_forward_command" {
-  description = "Tunnel SSH qua SSM; dùng cùng key path với inventory mẫu (đổi -i nếu lưu key nơi khác)."
+  description = "SSH tunnel over SSM; uses the same key path as the sample inventory (change -i if the key lives elsewhere)."
   value       = "ssh -N -i ~/.ssh/platform_aws -o ExitOnForwardFailure=yes -o ProxyCommand='aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p --region ${var.region}' -L 127.0.0.1:8080:127.0.0.1:8080 -L 127.0.0.1:8081:127.0.0.1:8081 -L 127.0.0.1:8181:127.0.0.1:8181 -L 127.0.0.1:9002:127.0.0.1:9002 -L 127.0.0.1:8089:127.0.0.1:8089 -L 127.0.0.1:8082:127.0.0.1:8082 ubuntu@${aws_instance.data_platform.id}"
 }

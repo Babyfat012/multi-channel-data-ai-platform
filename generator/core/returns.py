@@ -1,28 +1,28 @@
-"""Quy luật quyết định Order Line nào bị trả và trả sau bao lâu.
+"""Rules deciding which Order Lines are returned and how long after.
 
-Xác suất trả là hàm logistic của một tổng các "tác động" (xem
-generator-design.md, mục 4):
+The Return probability is the logistic function of a sum of "effects" (see
+generator-design.md, section 4):
 
-    logit(p) = logit(tỷ lệ trả của danh mục)     mức nền
-             + defect_propensity của SKU            ẩn, chỉ suy ra từ lịch sử
-             + độ lệch của Storefront
-             + tác động của Fulfillment Method
-             + tác động của mức giảm giá, giá, số lượng
+    logit(p) = logit(category Return rate)          baseline
+             + the SKU's defect_propensity          hidden, only inferable from history
+             + Storefront shift
+             + Fulfillment Method effect
+             + discount, price and quantity effects
 
-Hàm logistic đổi tổng này về xác suất trong khoảng (0, 1). Dùng logit thay vì
-cộng thẳng xác suất vì cộng nhiều tác động trên thang logit không bao giờ cho
-ra xác suất âm hay lớn hơn 1.
+The logistic function maps this sum to a probability in (0, 1). Logits are used instead of
+adding probabilities directly because adding many effects on the logit scale can never
+yield a negative probability or one above 1.
 
-Mỗi tác động được **tâm hóa**: trừ đi giá trị trung bình của nó, để tính trung
-bình trên mọi Order Line thì tác động gần bằng 0. Nhờ vậy tỷ lệ trả của cả danh
-mục vẫn xấp xỉ `return_rate` đã cấu hình, còn từng dòng thì lệch lên hoặc xuống.
-Ví dụ giảm giá: khoảng 25% dòng được giảm trung bình 17,5%, tức mức giảm trung
-bình khoảng 4,4%. Dòng không giảm giá bị trừ nhẹ, dòng giảm sâu được cộng nhiều.
+Each effect is **centered**: its mean is subtracted, so averaged over all
+Order Lines the effect is close to 0. That keeps each category's Return rate
+close to the configured `return_rate`, while individual lines shift up or down.
+Discount example: about 25% of lines get an average 17.5% discount, i.e. a mean
+discount of about 4.4%. Undiscounted lines get a small minus, deeply discounted lines a large plus.
 
-Mô hình học được bài toán vì mọi tác động (trừ defect_propensity) đều nhìn thấy
-trong dữ liệu lúc tạo Order, còn defect_propensity học được qua feature lịch sử
-trả hàng theo SKU. Không tác động nào dùng thông tin chỉ có sau khi giao, nên
-không có leakage.
+The model can learn the task because every effect (except defect_propensity) is visible
+in the data at Order creation, while defect_propensity is learnable through per-SKU Return
+history features. No effect uses information only available after delivery, so
+there is no leakage.
 """
 
 from __future__ import annotations
@@ -35,14 +35,14 @@ import numpy as np
 from generator.core.model import FULFILLED_BY_CHANNEL, OrderLine, Sku
 from generator.core.storefronts import CATEGORIES, Storefront
 
-# Hệ số của từng tác động trên thang logit.
-CHANNEL_FULFILLED_SHIFT = 0.25  # hàng do Channel giao trả dễ hơn (nhãn trả trước, tới kho Channel)
-DISCOUNT_COEF = 1.2  # giảm 30% làm logit tăng khoảng 0,31 so với mức trung bình
-LOG_PRICE_COEF = 0.25  # SKU đắt hơn mức giữa danh mục thì dễ bị trả hơn
-EXTRA_QUANTITY_COEF = 0.15  # mua nhiều cái cùng lúc (thử size) thì dễ trả hơn
+# Coefficient of each effect on the logit scale.
+CHANNEL_FULFILLED_SHIFT = 0.25  # Channel-fulfilled items are easier to return (prepaid label, back to the Channel's warehouse)
+DISCOUNT_COEF = 1.2  # a 30% discount raises the logit by about 0.31 over the mean
+LOG_PRICE_COEF = 0.25  # SKUs priced above the category midpoint are returned more often
+EXTRA_QUANTITY_COEF = 0.15  # buying several at once (trying sizes) makes a Return more likely
 
-# Giá trị trung bình dùng để tâm hóa (khớp với cách lõi sinh dữ liệu trong simulate.py).
-MEAN_CHANNEL_FULFILLED = 0.6  # tỷ lệ dòng do Channel giao, tính theo tỷ trọng Storefront
+# Means used for centering (matching how the core generates data in simulate.py).
+MEAN_CHANNEL_FULFILLED = 0.6  # Channel-fulfilled line share, weighted by Storefront share
 MEAN_DISCOUNT_FRACTION = 0.044
 MEAN_QUANTITY = 1.2
 
@@ -56,7 +56,7 @@ def return_probability(
     discount_fraction: float,
     quantity: int,
 ) -> float:
-    """Tính xác suất một Order Line bị trả, theo công thức ở đầu file."""
+    """Compute the probability that an Order Line is returned, per the formula at the top of the file."""
     category = _CATEGORY_BY_NAME[sku.category]
     low, high = category.price_range_usd
     mid_price = (low + high) / 2
@@ -80,12 +80,12 @@ def decide_return(
     window_days: int,
     rng: np.random.Generator,
 ) -> None:
-    """Quyết định dòng `line` có bị trả không, rồi ghi kết quả và nhãn vào `line`.
+    """Decide whether line `line` is returned, then write the outcome and label into `line`.
 
-    Độ trễ từ lúc giao tới lúc yêu cầu trả rút từ phân phối Gamma (hình dạng 2),
-    trung bình bằng `return_lag_mean_days` của Storefront. Phân phối này có đuôi
-    dài, nên thỉnh thoảng có Return tới sau 30 ngày: vẫn là Return thật, nhưng
-    nhãn bằng 0 vì nằm ngoài cửa sổ.
+    The delay from delivery to the Return request is drawn from a Gamma distribution (shape 2)
+    with mean equal to the Storefront's `return_lag_mean_days`. The distribution has a long
+    tail, so occasionally a Return arrives after 30 days: still a real Return, but
+    labeled 0 because it falls outside the window.
     """
     if rng.random() >= probability:
         line.label = 0
@@ -93,10 +93,10 @@ def decide_return(
 
     lag_days = rng.gamma(shape=2.0, scale=storefront.return_lag_mean_days / 2.0)
     line.return_requested_at = delivered_at + timedelta(days=float(lag_days))
-    rng.uniform(2, 7)  # Rút bỏ đi để giữ nguyên dãy số ngẫu nhiên của dữ liệu đã sinh.
+    rng.uniform(2, 7)  # Discarded draw to keep the random sequence of existing data unchanged.
     line.label = 1 if lag_days <= window_days else 0
 
 
 def _logit(p: float) -> float:
-    """Hàm ngược của logistic: đổi xác suất `p` về thang logit."""
+    """Inverse of the logistic function: map probability `p` to the logit scale."""
     return math.log(p / (1 - p))

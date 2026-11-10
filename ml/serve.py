@@ -1,8 +1,8 @@
-"""KServe predictor return-risk: model nằm sẵn trong image, tự đọc feature SKU từ Feast online.
+"""KServe return-risk predictor: the model is baked into the image and reads SKU features from Feast online.
 
-Người gọi (agent/Web API) chỉ gửi thuộc tính đơn; predictor ghép feature SKU từ Redis rồi chấm.
-SKU có ít hơn MIN_HISTORY line đã có nhãn trong 90 ngày ⇒ `abstain` (Q38), vẫn kèm score để tham khảo.
-Thiếu labeled_count_90d ⇒ không chấm, score=null và reason=feature_data_unavailable.
+Callers (agent/Web API) send only the order attributes; the predictor joins SKU features from Redis and scores.
+A SKU with fewer than MIN_HISTORY labeled lines in 90 days ⇒ `abstain` (Q38), score still included for reference.
+Missing labeled_count_90d ⇒ no scoring, score=null and reason=feature_data_unavailable.
 """
 
 import os
@@ -17,12 +17,12 @@ from prometheus_client import Counter, Histogram
 from feature_repo.publication import FeatureDataUnavailable, load_published_store
 from ml.train_lib import FEAST_FEATURES, FEATURES, add_order_features
 
-# Metric nghiệp vụ, lộ ở /metrics cùng metric độ trễ mặc định của KServe (Prometheus kéo về).
+# Business metrics, exposed at /metrics next to KServe's default latency metrics (scraped by Prometheus).
 PREDICTIONS = Counter(
-    "return_risk_predictions_total", "Số kết quả dự đoán/kết quả từ chối", ["abstain"]
+    "return_risk_predictions_total", "Number of predictions/abstentions", ["abstain"]
 )
-ERRORS = Counter("return_risk_errors_total", "Số request lỗi", ["reason"])
-FEAST_SECONDS = Histogram("return_risk_feast_lookup_seconds", "Thời gian đọc feature online")
+ERRORS = Counter("return_risk_errors_total", "Number of failed requests", ["reason"])
+FEAST_SECONDS = Histogram("return_risk_feast_lookup_seconds", "Online feature read time")
 
 ORDER_FIELDS = [
     "seller_sku",
@@ -37,7 +37,7 @@ class ReturnRisk(Model):
     """Model v1 protocol: `{"instances": [...]}` → `{"predictions": [...]}`."""
 
     def __init__(self, name: str):
-        """Khởi tạo cấu hình, phiên bản và trạng thái nạp model dự đoán rủi ro."""
+        """Initialize config, version and load state of the risk prediction model."""
         super().__init__(name)
         self.min_history = int(os.environ.get("MIN_HISTORY", "20"))
         self.version = os.environ.get("MODEL_VERSION", "unknown")
@@ -45,7 +45,7 @@ class ReturnRisk(Model):
         self.store = None
 
     def load(self):
-        """Nạp booster từ image và mở kết nối Feast (registry S3 + Redis)."""
+        """Load the booster from the image and open the Feast connection (S3 registry + Redis)."""
         from feast import FeatureStore
 
         self.booster = lgb.Booster(model_file=os.environ.get("MODEL_PATH", "/opt/model/model.lgb"))
@@ -59,12 +59,12 @@ class ReturnRisk(Model):
         return self.ready
 
     def score(self, instances: list[dict]) -> list[dict]:
-        """Ghép feature online theo SKU, chấm điểm, gắn cờ abstain."""
+        """Join online features by SKU, score, set the abstain flag."""
         orders = pd.DataFrame(instances)
         missing = [c for c in ORDER_FIELDS if c not in orders]
         if missing:
             ERRORS.labels("missing_field").inc()
-            raise InvalidInput(f"thiếu trường {missing}")  # KServe trả 400, không phải 500
+            raise InvalidInput(f"missing fields {missing}")  # KServe returns 400, not 500
         started = time.perf_counter()
         release = None
         try:
@@ -115,7 +115,7 @@ class ReturnRisk(Model):
         return predictions
 
     def predict(self, payload: dict, headers: dict | None = None) -> dict:
-        """Điểm vào KServe."""
+        """KServe entry point."""
         return {"predictions": self.score(payload["instances"])}
 
 

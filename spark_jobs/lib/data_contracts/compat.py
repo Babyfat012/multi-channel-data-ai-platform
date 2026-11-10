@@ -1,11 +1,11 @@
-"""So tiến hóa schema; migrations giải thích đổi tên, không miễn luật tương thích."""
+"""Compare schema evolution; migrations explain renames, they do not waive compatibility rules."""
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class Change:
-    """Một thay đổi tại đường dẫn JSON và tính bắt buộc hai phía."""
+    """One change at a JSON path and its required-ness on both sides."""
 
     kind: str
     path: str
@@ -15,7 +15,7 @@ class Change:
 
 
 def diff(old, new, migrations=None, path="$"):
-    """So thuộc tính đệ quy, bao gồm item trong array."""
+    """Compare properties recursively, including array items."""
     migrations = migrations or {}
     changes = []
     if old.get("type") != new.get("type"):
@@ -64,7 +64,7 @@ def diff(old, new, migrations=None, path="$"):
 
 
 def verdict(changes, mode):
-    """True khi đáp ứng định nghĩa reader mới/cũ theo mode."""
+    """True when the new/old reader definition for the mode is satisfied."""
     if mode not in {"BACKWARD", "FORWARD", "FULL", "NONE"}:
         raise ValueError(f"Unknown compatibility mode: {mode}")
     backward = any(

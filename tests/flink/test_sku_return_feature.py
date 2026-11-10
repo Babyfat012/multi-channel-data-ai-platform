@@ -1,4 +1,4 @@
-"""Test job PyFlink stream feature trên mini cluster cục bộ (cần Java + PyFlink + Feast: chạy trong image).
+"""Test the PyFlink stream feature job on a local mini cluster (needs Java + PyFlink + Feast: run in the image).
 
 docker run --rm --network none --hostname localhost --tmpfs /tmp:exec -e HOME=/tmp -v "$PWD":/w:ro -w /w \
     platform-flink-ml:2.2.1 python -m pytest -q -p no:cacheprovider tests/flink
@@ -19,7 +19,7 @@ T0 = datetime(2026, 6, 27, 8, 0, tzinfo=UTC)
 
 
 def event(sha, sku, at, event_type="approved", quantity=1):
-    """Tin giống replay_return_events.py (effective_at mili giây, hậu tố Z)."""
+    """Message like replay_return_events.py (effective_at in milliseconds, Z suffix)."""
     return json.dumps(
         {
             "record_sha256": sha,
@@ -32,7 +32,7 @@ def event(sha, sku, at, event_type="approved", quantity=1):
 
 
 def oracle(raw):
-    """Đếm độc lập (không Flink): bỏ trùng theo sha, mỗi cửa sổ [end−24h, end) căn theo giờ có tin."""
+    """Independent count (no Flink): dedup by sha, each window [end−24h, end) aligned to hours with messages."""
     seen, events = set(), []
     for line in raw:
         e = job.parse_event(line)
@@ -48,7 +48,7 @@ def oracle(raw):
 
 
 def test_parse_event_keeps_only_valid_approved():
-    """Chỉ Return approved, quantity > 0, đủ trường; thời gian cắt tới mili giây, UTC."""
+    """Only approved Returns, quantity > 0, all fields present; time truncated to milliseconds, UTC."""
     at = T0 + timedelta(minutes=5, microseconds=123_456)
     ms = int((T0 + timedelta(minutes=5, milliseconds=123)).timestamp() * 1000)
     assert job.parse_event(event("a", "S", at)) == ("a", "S", ms)
@@ -59,15 +59,17 @@ def test_parse_event_keeps_only_valid_approved():
 
 
 def test_windows_match_independent_count():
-    """Job (bỏ trùng + HOP 24h/1h) ra đúng từng cửa sổ như phép đếm độc lập, kể cả tin trùng và tin trễ."""
+    """The job (dedup + HOP 24h/1h) yields exactly each window like the independent count, including duplicate and late messages."""
     from pyflink.datastream import StreamExecutionEnvironment
 
     raw = [
         event("a", "S1", T0 + timedelta(minutes=10)),
-        event("a", "S1", T0 + timedelta(minutes=10)),  # phát lại trùng
+        event("a", "S1", T0 + timedelta(minutes=10)),  # duplicate replay
         event("b", "S1", T0 + timedelta(hours=3)),
         event("c", "S2", T0 + timedelta(hours=1, minutes=30)),
-        event("d", "S1", T0 + timedelta(hours=2, minutes=40)),  # trễ < 1h so với tin trước
+        event(
+            "d", "S1", T0 + timedelta(hours=2, minutes=40)
+        ),  # < 1h late relative to the previous message
         event("e", "S2", T0 + timedelta(hours=1), event_type="rejected"),
     ]
     env = StreamExecutionEnvironment.get_execution_environment()
@@ -82,7 +84,7 @@ def test_windows_match_independent_count():
 
 
 def test_offline_parts_read_by_feast_point_in_time(tmp_path, monkeypatch):
-    """Hai lô Parquet trong một thư mục ⇒ Feast FileSource đọc cả thư mục, PIT join lấy cửa sổ gần nhất trước mốc."""
+    """Two Parquet batches in one directory ⇒ the Feast FileSource reads the whole directory, the PIT join takes the latest window before the timestamp."""
     from feast import Entity, FeatureStore, FeatureView, Field, FileSource, PushSource, ValueType
     from feast.repo_config import RepoConfig
     from feast.types import Int64
@@ -132,7 +134,7 @@ def test_offline_parts_read_by_feast_point_in_time(tmp_path, monkeypatch):
 
 
 def test_online_push_read_back_by_feast(tmp_path, monkeypatch):
-    """Nhánh online: Feast push ONLINE rồi get_online_features (cách Feature API đọc) ra giá trị cửa sổ mới nhất."""
+    """Online branch: Feast push ONLINE then get_online_features (how the Feature API reads) returns the latest window value."""
     from feast import Entity, FeatureStore, FeatureView, Field, FileSource, PushSource, ValueType
     from feast.repo_config import RepoConfig
     from feast.types import Int64
@@ -173,7 +175,7 @@ def test_online_push_read_back_by_feast(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("argv", [["--sink", "offline"], ["--sink", "both"]])
 def test_cli_rejects_missing_offline_path_or_bad_sink(argv, monkeypatch):
-    """Offline mà không có thư mục, hoặc sink lạ ⇒ dừng ngay, không submit job."""
+    """Offline without a directory, or an unknown sink ⇒ stop immediately, without submitting the job."""
     monkeypatch.delenv("FEAST_SKU_RETURN_24H_PATH", raising=False)
     with pytest.raises(SystemExit):
         job.main(argv)

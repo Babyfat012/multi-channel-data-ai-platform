@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Harness planner chạy: mạng/container riêng, bounded 4 job và dedup unbounded recovery.
+# Harness run by the planner: dedicated network/containers, 4 bounded jobs and unbounded dedup recovery.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$repo"
@@ -16,7 +16,7 @@ tm="$prefix-tm"
 client_pid=''
 control_pid=''
 cleanup() {
-  # Dọn đúng tài nguyên do harness tạo, giữ file evidence kể cả khi lỗi.
+  # Clean up exactly the resources the harness created; keep evidence files even on failure.
   local status=$?
   trap - EXIT INT TERM
   if [[ -n "$client_pid" ]]; then kill "$client_pid" 2>/dev/null || true; fi
@@ -31,13 +31,13 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-# Không pull/build ngầm: planner chuẩn bị hai image trước khi chạy.
+# No implicit pull/build: the planner prepares both images before running.
 docker image inspect apache/kafka:3.9.1 platform-flink:1.20.3-kafka3.4.0 >/dev/null
 "$py" -m generator.generate_order_lifecycle --output "$run_dir/source" --orders-per-day 200 --days 10 --seed 7 >"$run_dir/source.log"
 mkdir "$run_dir/output" "$run_dir/checkpoints"
 chmod 777 "$run_dir/output" "$run_dir/checkpoints"
 docker network create "$network" >/dev/null
-# KRaft không cho đổi advertised.listeners sau khi chạy ⇒ chọn cổng host trống TRƯỚC, quảng bá đúng cổng đó.
+# KRaft does not allow changing advertised.listeners after start ⇒ pick a free host port FIRST and advertise exactly that port.
 port=$("$py" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 docker run -d --pull never --name "$kafka" --network "$network" --network-alias kafka -p "127.0.0.1:$port:9094" \
  -e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller \
@@ -88,7 +88,7 @@ for epoch in 1 2; do
   if [[ -n "$control_pid" ]]; then
    wait "$control_pid"
    control_pid=''
-   # Streaming đã cancel; summary bounded riêng giữ đối soát counts hiện có.
+   # Streaming is cancelled; the separate bounded summary keeps the existing count reconciliation.
    timeout 600 docker exec -u flink "$jm" /opt/flink/bin/sql-client.sh -f "/harness/sql-$epoch/dedup_counts.sql" >"$run_dir/$epoch-dedup_counts.log" 2>&1
   fi
  done

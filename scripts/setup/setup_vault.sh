@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Init (lần đầu) + unseal Vault, bật KV v2, nạp secret của PLATFORM từ .env, tạo policy chỉ-đọc và token
-# cho CI. Khoá unseal + root token lưu ở out/vault/ (gitignored, quyền 600) — chỉ dùng local;
-# trên GKE thay bằng auto-unseal Cloud KMS. Chạy lại nhiều lần an toàn.
+# Init (first time) + unseal Vault, enable KV v2, load PLATFORM secrets from .env, create a read-only policy and token
+# for CI. Unseal keys + root token are stored in out/vault/ (gitignored, mode 600) — local use only;
+# on GKE, replace with Cloud KMS auto-unseal. Safe to rerun many times.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
@@ -22,9 +22,9 @@ api "$VAULT_ADDR/v1/sys/mounts" | grep -q '"secret/"' || \
 put() { api -X POST "$VAULT_ADDR/v1/secret/data/platform/$1" -d "{\"data\":$2}" >/dev/null; }
 put minio "{\"user\":\"$MINIO_ROOT_USER\",\"password\":\"$MINIO_ROOT_PASSWORD\"}"
 put postgres "{\"user\":\"$POSTGRES_USER\",\"password\":\"$POSTGRES_PASSWORD\",\"db\":\"$POSTGRES_DB\"}"
-# Key agent của agentgateway: nguồn là Secret k8s do helm chart tạo; bỏ qua nếu cụm chưa có.
-# EC2 (s3) không có kubectl/kubeconfig trên host ⇒ đọc qua container Jenkins (kubeconfig EKS, quyền nhóm platform-ci);
-# chạy lại script này SAU setup_jenkins.sh.
+# agentgateway's agent key: sourced from the k8s Secret created by the helm chart; skipped if the cluster does not have it yet.
+# EC2 (s3) has no kubectl/kubeconfig on the host ⇒ read via the Jenkins container (EKS kubeconfig, platform-ci group permissions);
+# rerun this script AFTER setup_jenkins.sh.
 if [[ "${PLATFORM_STORAGE:-minio}" == s3 ]]; then
   KC=(docker compose exec -T jenkins kubectl --kubeconfig /run/secrets/kubeconfig --context "${EKS_CLUSTER:-platform-apps}")
 else
@@ -41,4 +41,4 @@ if [[ ! -s out/vault/ci-token ]]; then
     | python3 -c 'import json,sys;print(json.load(sys.stdin)["auth"]["client_token"])' > out/vault/ci-token
   chmod 600 out/vault/ci-token
 fi
-printf 'Vault sẵn sàng: %s, secret ở secret/platform/{minio,postgres}; token chỉ-đọc: out/vault/ci-token\n' "$VAULT_ADDR"
+printf 'Vault ready: %s, secrets in secret/platform/{minio,postgres}; read-only token: out/vault/ci-token\n' "$VAULT_ADDR"

@@ -1,4 +1,4 @@
-"""Phát bốn feed vận hành v2 theo known-time, giữ envelope và receipt từng offset."""
+"""Publish the four v2 operational feeds by known-time, keeping the envelope and a receipt per offset."""
 
 from __future__ import annotations
 
@@ -20,12 +20,12 @@ FEEDS = (
 
 
 def encoded(value):
-    """Mã hóa JSON ổn định để hash receipt và gửi lại nguyên byte khi retry."""
+    """Stable JSON encoding to hash receipts and resend the exact bytes on retry."""
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
 
 
 def source_rows(root):
-    """Đọc đúng các source file được kê khai, kiểm hash và cấm đường dẫn ngoài nguồn."""
+    """Read exactly the declared source files, check hashes and reject paths outside the source."""
     root = Path(root).resolve()
     manifest = json.loads((root / "manifest.json").read_text())
     rows = []
@@ -61,15 +61,15 @@ def source_rows(root):
 
 
 class FileSink:
-    """Ghi log toàn cục JSONL, mô phỏng partition 0 và offset tăng riêng mỗi topic."""
+    """Write a global JSONL log, simulating partition 0 and per-topic increasing offsets."""
 
     def __init__(self, path):
-        """Mở đích mới, không ghi đè lần phát trước."""
-        self.handle = Path(path).open("x")  # noqa: SIM115 (close() đóng)
+        """Open a new target; never overwrite a previous publish."""
+        self.handle = Path(path).open("x")  # noqa: SIM115 (closed by close())
         self.offsets = Counter()
 
     def send(self, topic, key, value, epoch, delivered):
-        """Ghi nguyên envelope, header epoch và offset vào log kiểm thử."""
+        """Write the envelope as is, the epoch header and the offset to the test log."""
         offset = self.offsets[topic]
         self.offsets[topic] += 1
         self.handle.write(
@@ -88,15 +88,15 @@ class FileSink:
         delivered(0, offset)
 
     def close(self):
-        """Đóng file để toàn bộ receipt đã được ghi bền vững."""
+        """Close the file so all receipts are durably written."""
         self.handle.close()
 
 
 class KafkaSink:
-    """Dùng confluent-kafka có sẵn, thu offset từ delivery callback thực tế."""
+    """Use the installed confluent-kafka and collect offsets from the real delivery callback."""
 
     def __init__(self, bootstrap):
-        """Bật idempotence để chỉ retry chủ đích mới tạo thêm record."""
+        """Enable idempotence so only intentional retries create extra records."""
         self.bootstrap = bootstrap
         from confluent_kafka import Producer
 
@@ -104,10 +104,10 @@ class KafkaSink:
         self.errors = []
 
     def send(self, topic, key, value, epoch, delivered):
-        """Gửi cùng byte envelope với header epoch; không tự gắn epoch vào payload."""
+        """Send the same envelope bytes with the epoch header; never add the epoch to the payload."""
 
         def callback(error, message):
-            """Lưu lỗi hoặc xác nhận offset của record đã được broker nhận."""
+            """Store the error or confirm the offset of a record the broker accepted."""
             if error:
                 self.errors.append(str(error))
             else:
@@ -128,7 +128,7 @@ class KafkaSink:
         self.producer.poll(0)
 
     def close(self):
-        """Chỉ công nhận manifest hoàn tất nếu mọi record đã được xác nhận."""
+        """Only accept the manifest as complete if every record was confirmed."""
         remaining = self.producer.flush(120)
         if remaining or self.errors:
             raise RuntimeError(f"Kafka delivery incomplete: {remaining}, {self.errors[:3]}")
@@ -146,7 +146,7 @@ def run_stream(
     late_topics=False,
     topic_prefix="order_lifecycle.",
 ):
-    """Phát N nguồn và floor(N×rate) retry chọn bằng seed, ghi ledger có offset thực."""
+    """Publish N sources plus floor(N×rate) seed-chosen retries and write a ledger with real offsets."""
     if type(epoch) is not int or epoch < 0 or not 0 <= duplicate_rate <= 1 or pause_ms < 0:
         raise ValueError("invalid epoch/rate/pause")
     manifest_path = Path(manifest_path)
@@ -185,7 +185,7 @@ def run_stream(
                 topics[topic]["injected_duplicates"] += bool(attempt)
 
                 def delivered(partition, offset, entry=entry, topic=topic):
-                    """Gắn offset thực vào đúng dòng receipt tương ứng."""
+                    """Attach the real offset to the matching receipt row."""
                     entry.update(partition=partition, offset=offset)
                     stats = topics[topic]["partitions"].setdefault(
                         str(partition), dict(first_offset=offset, last_offset=offset, records=0)
@@ -221,12 +221,12 @@ def run_stream(
     if late_topics:
 
         def sink_factory():
-            """Tạo sink mới cho bản sao proof, không dùng lại sink đã đóng."""
+            """Create a new sink for the proof copy; never reuse a closed sink."""
             if isinstance(sink, FileSink):
                 return FileSink(str(sink.handle.name) + ".late")
             return KafkaSink(sink.bootstrap)
 
-        # Phát bản sao độc lập cùng thứ tự/retry vào topic một partition đã tạo sẵn.
+        # Publish an independent copy with the same order/retries to the pre-created single-partition topic.
         run_stream(
             source,
             sink_factory(),
@@ -241,7 +241,7 @@ def run_stream(
 
 
 def main():
-    """CLI chọn file hoặc Kafka; mỗi epoch phải dùng manifest và log mới."""
+    """CLI choosing file or Kafka; each epoch must use a new manifest and log."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True)
     parser.add_argument("--epoch", required=True, type=int)
@@ -254,7 +254,7 @@ def main():
     parser.add_argument(
         "--late-topics",
         action="store_true",
-        help="Phát thêm v2.late.<feed>, mỗi topic phải có 1 partition",
+        help="Also publish v2.late.<feed>; each topic must have 1 partition",
     )
     parser.add_argument("--pause-ms", type=float, default=0)
     args = parser.parse_args()

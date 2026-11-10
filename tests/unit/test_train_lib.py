@@ -1,4 +1,4 @@
-"""Kiểm ml/train_lib.py: split theo thời gian, baseline, đánh giá; train thật LightGBM nếu có."""
+"""Check ml/train_lib.py: time-based split, baseline, evaluation; real LightGBM training when available."""
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,7 @@ from ml.train_lib import add_order_features, baseline_scores, evaluate, temporal
 
 
 def frame(days=20, per_day=10):
-    """Dữ liệu dựng tay: nhãn 1 khi SKU-A, để model có tín hiệu rõ."""
+    """Hand-built data: label 1 for SKU-A, so the model has a clear signal."""
     rows = []
     for d in range(days):
         for i in range(per_day):
@@ -33,7 +33,7 @@ def frame(days=20, per_day=10):
 
 @pytest.mark.parametrize("test_days", [1, 5, 19])
 def test_temporal_split_boundary_has_no_overlap(test_days):
-    """Biên: mọi dòng test đều sau mọi dòng train; test đúng `test_days` ngày lịch."""
+    """Boundary: every test row is after every train row; test covers exactly `test_days` calendar days."""
     train, test = temporal_split(frame(), test_days)
     assert train["event_timestamp"].max() < test["event_timestamp"].min()
     assert test["event_timestamp"].dt.normalize().nunique() == test_days
@@ -41,20 +41,20 @@ def test_temporal_split_boundary_has_no_overlap(test_days):
 
 
 def test_split_rejects_whole_range_as_test():
-    """Test phủ hết dữ liệu ⇒ train rỗng ⇒ lỗi, không lặng lẽ train trên 0 dòng."""
+    """Test covers all data ⇒ empty train ⇒ error, not silently training on 0 rows."""
     with pytest.raises(ValueError):
         temporal_split(frame(days=3), test_days=3)
 
 
 def test_baseline_fills_missing_with_train_prior():
-    """SKU chưa có lịch sử nhận tỷ lệ chung của train, không phải 0."""
+    """A SKU without history gets the overall train rate, not 0."""
     train = pd.DataFrame({"label": [1, 0, 0, 0]})
     test = pd.DataFrame({"return_or_refund_rate_90d": [None, 0.5]})
     assert baseline_scores(train, test).tolist() == [0.25, 0.5]
 
 
 def test_unit_price_guards_zero_quantity():
-    """Số lượng 0 ⇒ đơn giá NaN, không chia cho 0."""
+    """Quantity 0 ⇒ unit price NaN, no division by 0."""
     out = add_order_features(
         pd.DataFrame(
             {
@@ -72,7 +72,7 @@ def test_unit_price_guards_zero_quantity():
 
 
 def test_evaluate_perfect_vs_random():
-    """Model xếp đúng hoàn toàn ⇒ PR-AUC 1 và thắng baseline đảo ngược."""
+    """A perfectly ranking model ⇒ PR-AUC 1 and beats the inverted baseline."""
     test = pd.DataFrame({"label": [1, 0, 1, 0]})
     m = evaluate(test, np.array([0.9, 0.1, 0.8, 0.2]), np.array([0.1, 0.9, 0.2, 0.8]))
     assert m["pr_auc_model"] == 1.0 and m["beats_baseline"] and m["prevalence"] == 0.5

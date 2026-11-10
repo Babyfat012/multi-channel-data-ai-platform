@@ -1,4 +1,4 @@
-"""Test lõi mô phỏng: tái lập, vòng đời Order và nhãn."""
+"""Tests for the simulation core: reproducibility, Order lifecycle and labels."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from generator.core.simulate import Simulator, postal_code
 
 
 def _fingerprint(orders):
-    """Tóm tắt các Order thành tuple để so sánh hai lần sinh."""
+    """Summarize Orders as tuples to compare two generations."""
     return [
         (
             o.order_id,
@@ -30,18 +30,18 @@ def _fingerprint(orders):
 
 
 def test_same_seed_gives_same_orders(tiny_config):
-    """Chứng minh cùng seed sinh ra đúng cùng một tập Order (tái lập được)."""
+    """Prove the same seed yields the exact same set of Orders (reproducible)."""
     assert _fingerprint(Simulator(tiny_config).simulate_day(3)) == _fingerprint(
         Simulator(tiny_config).simulate_day(3)
     )
 
 
 def test_a_day_does_not_depend_on_previous_days(tiny_config):
-    """Sinh ngày 5 trực tiếp hay sau khi đã sinh ngày 1 đến 4 đều ra cùng kết quả."""
+    """Generating day 5 directly or after days 1 to 4 gives the same result."""
     warm = Simulator(tiny_config)
     for day in range(1, 5):
-        # Phải duyệt hết: `simulate_day` là generator, không duyệt thì không sinh gì
-        # và test trở thành rỗng ruột.
+        # Must be consumed fully: `simulate_day` is a generator; if not iterated it generates nothing
+        # and the test becomes hollow.
         assert list(warm.simulate_day(day))
     assert _fingerprint(warm.simulate_day(5)) == _fingerprint(
         Simulator(tiny_config).simulate_day(5)
@@ -49,13 +49,13 @@ def test_a_day_does_not_depend_on_previous_days(tiny_config):
 
 
 def test_orders_are_created_inside_their_day(tiny_config):
-    """Chứng minh mọi Order của ngày d có `created_at` nằm trong ngày d, không rơi sang ngày khác."""
+    """Prove every Order of day d has `created_at` within day d, never spilling into another day."""
     for order in Simulator(tiny_config).simulate_day(4):
         assert tiny_config.day_start(4) <= order.created_at < tiny_config.day_start(5)
 
 
 def test_timeline_is_ordered_and_ends_in_completed_or_cancelled(tiny_config):
-    """Chứng minh timeline tăng dần theo thời gian, mở đầu bằng `PENDING_PAYMENT`, kết thúc ở `COMPLETED` hoặc `CANCELLED`."""
+    """Prove the timeline increases in time, starts with `PENDING_PAYMENT`, and ends at `COMPLETED` or `CANCELLED`."""
     for order in Simulator(tiny_config).simulate_day(2):
         times = [c.at for c in order.timeline]
         assert times == sorted(times)
@@ -64,7 +64,7 @@ def test_timeline_is_ordered_and_ends_in_completed_or_cancelled(tiny_config):
 
 
 def test_status_at_returns_latest_change_before_time(tiny_config):
-    """Chứng minh `status_at` trả về thay đổi mới nhất TRƯỚC mốc thời gian, và báo lỗi khi hỏi trước lúc tạo Order."""
+    """Prove `status_at` returns the latest change BEFORE the given time, and raises when asked before the Order is created."""
     order = next(o for o in Simulator(tiny_config).simulate_day(1) if o.shipped_at is not None)
     assert order.status_at(order.shipped_at).status == SHIPPED
     assert order.status_at(order.shipped_at - timedelta(seconds=1)).status != SHIPPED
@@ -73,7 +73,7 @@ def test_status_at_returns_latest_change_before_time(tiny_config):
 
 
 def test_cancelled_orders_have_no_label_and_delivered_orders_do(tiny_config):
-    """Chứng minh Order chưa giao không có nhãn, còn Order đã giao có nhãn 0 hoặc 1."""
+    """Prove undelivered Orders have no label, while delivered Orders have label 0 or 1."""
     orders = [o for day in range(1, 4) for o in Simulator(tiny_config).simulate_day(day)]
     for order in orders:
         for line in order.lines:
@@ -84,7 +84,7 @@ def test_cancelled_orders_have_no_label_and_delivered_orders_do(tiny_config):
 
 
 def test_label_is_one_only_when_return_is_within_window(tiny_config):
-    """Chứng minh nhãn bằng 1 đúng khi yêu cầu trả rơi trong cửa sổ 30 ngày kể từ ngày giao."""
+    """Prove the label is 1 exactly when the Return request falls within the 30-day window after delivery."""
     window = timedelta(days=tiny_config.labels.window_days)
     orders = [o for day in range(1, 6) for o in Simulator(tiny_config).simulate_day(day)]
     for order in orders:
@@ -97,14 +97,14 @@ def test_label_is_one_only_when_return_is_within_window(tiny_config):
 
 
 def test_zipf_top_share_matches_design_target():
-    """Với 2.000 SKU và số mũ 0,8, SKU bán chạy nhất chiếm khoảng 5%."""
+    """With 2,000 SKUs and exponent 0.8, the best-selling SKU takes about 5%."""
     weights = zipf_popularity(2000, 0.8, rng_for(1, "test"))
     assert weights.sum() == pytest.approx(1.0)
     assert 0.045 < weights.max() < 0.06
 
 
 def test_catalog_has_requested_size_and_unique_ids(tiny_config):
-    """Chứng minh catalog có đúng số SKU theo cấu hình và mã SKU không trùng."""
+    """Prove the catalog has exactly the configured number of SKUs and SKU ids are unique."""
     catalog = build_catalog(tiny_config)
     assert len(catalog.skus) == tiny_config.scale.n_skus
     assert len(catalog.skus_by_id) == tiny_config.scale.n_skus
@@ -120,13 +120,13 @@ def test_catalog_has_requested_size_and_unique_ids(tiny_config):
     ],
 )
 def test_postal_code_follows_country_format(country, city, pattern):
-    """Chứng minh mã bưu chính sinh ra khớp định dạng của từng quốc gia."""
+    """Prove generated postal codes match each country's format."""
     for suffix in (0, 248, 999):
         assert re.fullmatch(pattern, postal_code(country, city, suffix))
 
 
 def _sale_config(tiny_config, **overrides):
-    """Bản sao của cấu hình với một Sale Event ở ngày 5."""
+    """A copy of the config with a Sale Event on day 5."""
     prime_day = PrimeDayConfig(day=5, days=2, order_multiplier=4, discount_share=0.7, deal_skus=3)
     return dataclasses.replace(
         tiny_config, drift=DriftConfig(prime_day=dataclasses.replace(prime_day, **overrides))
@@ -134,7 +134,7 @@ def _sale_config(tiny_config, **overrides):
 
 
 def test_sale_day_multiplies_amazon_orders_only(tiny_config):
-    """Chứng minh ngày sale chỉ nhân số Order Amazon, không đụng tới Channel khác."""
+    """Prove a sale day only multiplies Amazon Orders and does not touch other Channels."""
     sim = Simulator(_sale_config(tiny_config))
     sale = collections.Counter(o.storefront_id.split("_")[0] for o in sim.simulate_day(5))
     normal = collections.Counter(o.storefront_id.split("_")[0] for o in sim.simulate_day(8))
@@ -143,11 +143,11 @@ def test_sale_day_multiplies_amazon_orders_only(tiny_config):
 
 
 def test_sale_day_discounts_amazon_lines_deeper(tiny_config):
-    """Chứng minh ngày sale làm tỷ lệ Order Line Amazon được giảm giá cao hơn hẳn ngày thường."""
+    """Prove a sale day makes the share of discounted Amazon Order Lines clearly higher than on normal days."""
     sim = Simulator(_sale_config(tiny_config))
 
     def discounted_share(day):
-        """Tỷ lệ Order Line Amazon có giảm giá trong một ngày."""
+        """Share of discounted Amazon Order Lines in one day."""
         lines = [
             line
             for o in sim.simulate_day(day)
@@ -161,7 +161,7 @@ def test_sale_day_discounts_amazon_lines_deeper(tiny_config):
 
 
 def test_days_outside_the_sale_are_untouched(tiny_config):
-    """Ngày thường phải ra đúng dữ liệu như khi không cấu hình Sale Event."""
+    """Normal days must yield exactly the same data as without a configured Sale Event."""
     assert _fingerprint(Simulator(_sale_config(tiny_config)).simulate_day(8)) == _fingerprint(
         Simulator(tiny_config).simulate_day(8)
     )

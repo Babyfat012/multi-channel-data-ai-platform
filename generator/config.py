@@ -1,12 +1,12 @@
-"""Đọc và kiểm tra file cấu hình YAML của generator.
+"""Read and validate the generator's YAML config file.
 
-Mỗi mục trong YAML (`scale`, `labels`, ...) ứng với một dataclass ở đây.
-Đọc vào dataclass thay vì dùng dict thô có hai lợi ích:
-- Gõ sai tên khóa (ví dụ `order_per_day`) sẽ báo lỗi ngay, không bị bỏ qua âm thầm.
-- Code phía sau viết `config.scale.orders_per_day`, dễ đọc và IDE gợi ý được.
+Each YAML section (`scale`, `labels`, ...) maps to a dataclass here.
+Reading into dataclasses instead of raw dicts has two benefits:
+- A mistyped key (e.g. `order_per_day`) fails immediately instead of being silently ignored.
+- Downstream code writes `config.scale.orders_per_day`, which reads well and gets IDE completion.
 
-Chỉ những khóa generator đã dùng mới có mặt. Khóa của phần chưa làm
-sẽ thêm khi làm tới phần đó.
+Only keys the generator already uses are present. Keys for parts not yet built
+will be added when those parts are built.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from generator.core.storefronts import DEFAULT_STOREFRONT_WEIGHTS, STOREFRONTS
 
 @dataclass(frozen=True)
 class ScaleConfig:
-    """Quy mô dữ liệu: số SKU, số ngày, số Order mỗi ngày."""
+    """Data scale: number of SKUs, number of days, Orders per day."""
 
     n_skus: int = 2000
     start_date: date = date(2026, 1, 1)
@@ -36,14 +36,14 @@ class ScaleConfig:
 
 @dataclass(frozen=True)
 class LabelConfig:
-    """Tham số sinh nhãn Return/Refund."""
+    """Parameters for generating Return/Refund labels."""
 
     window_days: int = 30
 
 
 @dataclass(frozen=True)
 class OfflineProblemsConfig:
-    """Các vấn đề dữ liệu chèn vào Batch."""
+    """Data problems injected into the Batch."""
 
     duplicate_rate: float = 0.02
     overlap_days: int = 3
@@ -52,7 +52,7 @@ class OfflineProblemsConfig:
 
 @dataclass(frozen=True)
 class PacingSegment:
-    """Đoạn ngày mô phỏng `from_day` tới `to_day` (tính cả hai) phát với tốc độ riêng."""
+    """Simulated days `from_day` to `to_day` (inclusive) emitted at their own pace."""
 
     from_day: int
     to_day: int
@@ -61,13 +61,13 @@ class PacingSegment:
 
 @dataclass(frozen=True)
 class PacingConfig:
-    """Tốc độ phát Stream: bao nhiêu giây thật cho mỗi ngày mô phỏng."""
+    """Stream emit pace: how many real seconds per simulated day."""
 
     default_seconds_per_sim_day: float = 60.0
     segments: tuple[PacingSegment, ...] = ()
 
     def seconds_per_day(self, day: int) -> float:
-        """Số giây thật dành cho ngày mô phỏng `day`."""
+        """Real seconds spent on simulated day `day`."""
         for seg in self.segments:
             if seg.from_day <= day <= seg.to_day:
                 return seg.seconds_per_sim_day
@@ -76,11 +76,11 @@ class PacingConfig:
 
 @dataclass(frozen=True)
 class AmazonLateConfig:
-    """Độ trễ của notification Amazon.
+    """Delay of Amazon notifications.
 
-    Thuộc tính:
-        median_minutes: độ trễ trung vị của phần message trễ ít (dưới 1 giờ).
-        share_over_1h: tỷ lệ message trễ hơn 1 giờ.
+    Attributes:
+        median_minutes: median delay of the slightly late messages (under 1 hour).
+        share_over_1h: share of messages delayed more than 1 hour.
     """
 
     median_minutes: float = 5.0
@@ -89,9 +89,9 @@ class AmazonLateConfig:
 
 @dataclass(frozen=True)
 class StreamingProblemsConfig:
-    """Các vấn đề dữ liệu chèn vào Stream.
+    """Data problems injected into the Stream.
 
-    `duplicate_rate` theo Storefront, đo bằng `1 - count(distinct khóa) / count(*)`.
+    `duplicate_rate` per Storefront, measured as `1 - count(distinct key) / count(*)`.
     """
 
     pacing: PacingConfig = field(default_factory=PacingConfig)
@@ -101,14 +101,14 @@ class StreamingProblemsConfig:
 
 @dataclass(frozen=True)
 class PrimeDayConfig:
-    """Một Sale Event kiểu Prime Day trên các Storefront Amazon.
+    """A Prime Day style Sale Event on the Amazon Storefronts.
 
-    Thuộc tính:
-        day: ngày mô phỏng bắt đầu sale.
-        days: sale kéo dài mấy ngày.
-        order_multiplier: số Order của Storefront Amazon gấp mấy lần ngày thường.
-        discount_share: tỷ lệ Order Line Amazon được giảm giá trong ngày sale.
-        deal_skus: số SKU được đẩy mạnh, hút phần lớn nhu cầu trong ngày sale.
+    Attributes:
+        day: simulated day the sale starts.
+        days: how many days the sale lasts.
+        order_multiplier: how many times a normal day's Orders the Amazon Storefronts get.
+        discount_share: share of Amazon Order Lines discounted on sale days.
+        deal_skus: number of promoted SKUs that draw most of the demand on sale days.
     """
 
     day: int = 120
@@ -118,20 +118,20 @@ class PrimeDayConfig:
     deal_skus: int = 50
 
     def covers(self, day: int) -> bool:
-        """Ngày mô phỏng `day` có nằm trong đợt sale không."""
+        """Whether simulated day `day` falls within the sale."""
         return self.day <= day < self.day + self.days
 
 
 @dataclass(frozen=True)
 class TikTokLiveConfig:
-    """Một buổi livestream TikTok Shop sau `cutoff`, gây burst trong Stream.
+    """A TikTok Shop livestream after `cutoff` that causes a burst in the Stream.
 
-    Thuộc tính:
-        day: ngày mô phỏng có livestream.
-        start_hour_utc: giờ bắt đầu (UTC).
-        duration_hours: kéo dài mấy giờ.
-        burst_multiplier: khoảng hệ số nhân số Order TikTok Shop. Hệ số thật
-            rút một lần cho mỗi lần chạy, ghi vào manifest làm đáp án.
+    Attributes:
+        day: simulated day of the livestream.
+        start_hour_utc: start hour (UTC).
+        duration_hours: how many hours it lasts.
+        burst_multiplier: range of the TikTok Shop Order multiplier. The actual
+            multiplier is drawn once per run and written to the manifest as the answer key.
     """
 
     day: int = 195
@@ -140,14 +140,14 @@ class TikTokLiveConfig:
     burst_multiplier: tuple[float, float] = (5.0, 8.0)
 
     def window(self, day_start: datetime) -> tuple[datetime, datetime]:
-        """Khoảng thời gian livestream, cho biết `day_start` là 00:00 của `day`."""
+        """Livestream time window, given that `day_start` is 00:00 of `day`."""
         start = day_start + timedelta(hours=self.start_hour_utc)
         return start, start + timedelta(hours=self.duration_hours)
 
 
 @dataclass(frozen=True)
 class DriftConfig:
-    """Các sự kiện làm đổi tham số của lõi theo lịch. `None` nghĩa là không có."""
+    """Scheduled events that change the core's parameters. `None` means none."""
 
     prime_day: PrimeDayConfig | None = None
     tiktok_live: TikTokLiveConfig | None = None
@@ -155,10 +155,10 @@ class DriftConfig:
 
 @dataclass(frozen=True)
 class StorageConfig:
-    """Nơi ghi dữ liệu.
+    """Where data is written.
 
-    `output_root` là URL của fsspec: đường dẫn thư mục local (`./out`)
-    hoặc bucket S3/MinIO (`s3://...`). Code ghi file không cần biết là loại nào.
+    `output_root` is an fsspec URL: a local directory path (`./out`)
+    or an S3/MinIO bucket (`s3://...`). The writing code does not need to know which.
     """
 
     output_root: str = "./out"
@@ -166,7 +166,7 @@ class StorageConfig:
 
 @dataclass(frozen=True)
 class GeneratorConfig:
-    """Toàn bộ cấu hình của một lần chạy."""
+    """Full configuration of one run."""
 
     seed: int = 42
     scale: ScaleConfig = field(default_factory=ScaleConfig)
@@ -179,40 +179,40 @@ class GeneratorConfig:
     drift: DriftConfig = field(default_factory=DriftConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
 
-    # --- Các mốc thời gian suy ra từ cấu hình -----------------------------
+    # --- Timestamps derived from the config ------------------------------
 
     def day_start(self, day: int) -> datetime:
-        """Trả về 00:00 UTC của ngày mô phỏng `day` (ngày 1 là `start_date`)."""
+        """Return 00:00 UTC of simulated day `day` (day 1 is `start_date`)."""
         d = self.scale.start_date + timedelta(days=day - 1)
         return datetime.combine(d, time(0, 0), tzinfo=timezone.utc)
 
     @property
     def cutoff(self) -> datetime:
-        """Mốc "hôm nay": hết ngày cuối cùng của lịch sử, tức 00:00 UTC ngày kế tiếp."""
+        """The "today" mark: end of the last history day, i.e. 00:00 UTC of the next day."""
         return self.day_start(self.scale.days_history + 1)
 
     @property
     def stream_end(self) -> datetime:
-        """Hết ngày Stream cuối cùng."""
+        """End of the last Stream day."""
         return self.day_start(self.scale.days_history + self.scale.days_stream + 1)
 
     def to_dict(self) -> dict[str, Any]:
-        """Chuyển cấu hình về dict thuần để ghi vào `run_manifest.json`."""
+        """Convert the config to a plain dict to write into `run_manifest.json`."""
         return _jsonable(dataclasses.asdict(self))
 
 
 def load_config(path: str | Path) -> GeneratorConfig:
-    """Đọc file YAML và trả về `GeneratorConfig` đã kiểm tra.
+    """Read a YAML file and return a validated `GeneratorConfig`.
 
-    Khóa nào không có trong YAML thì lấy giá trị mặc định của dataclass.
-    Khóa lạ gây `ValueError` để phát hiện lỗi gõ sớm.
+    Keys missing from the YAML take the dataclass defaults.
+    Unknown keys raise `ValueError` to catch typos early.
     """
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     return parse_config(raw)
 
 
 def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
-    """Tạo `GeneratorConfig` từ dict (đã đọc từ YAML), rồi kiểm tra giá trị."""
+    """Build a `GeneratorConfig` from a dict (read from YAML), then validate the values."""
     sections = {
         "scale": ScaleConfig,
         "labels": LabelConfig,
@@ -220,7 +220,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
         "storage": StorageConfig,
     }
     _reject_unknown(
-        raw, {"seed", "storefront_weights", "drift", "streaming_problems", *sections}, where="gốc"
+        raw, {"seed", "storefront_weights", "drift", "streaming_problems", *sections}, where="root"
     )
 
     kwargs: dict[str, Any] = {}
@@ -244,7 +244,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
 
 
 def _parse_drift(raw: dict[str, Any]) -> DriftConfig:
-    """Đọc mục `drift`, mỗi sự kiện là một dataclass lồng bên trong."""
+    """Read the `drift` section; each event is a nested dataclass."""
     _reject_unknown(raw, {"prime_day", "tiktok_live"}, where="drift")
     kwargs: dict[str, Any] = {}
     if raw.get("prime_day") is not None:
@@ -258,7 +258,7 @@ def _parse_drift(raw: dict[str, Any]) -> DriftConfig:
 
 
 def _parse_streaming(raw: dict[str, Any]) -> StreamingProblemsConfig:
-    """Đọc mục `streaming_problems`."""
+    """Read the `streaming_problems` section."""
     _reject_unknown(
         raw,
         {f.name for f in dataclasses.fields(StreamingProblemsConfig)},
@@ -282,86 +282,84 @@ def _parse_streaming(raw: dict[str, Any]) -> StreamingProblemsConfig:
 
 
 def _section(raw: dict[str, Any], cls: type, where: str) -> Any:
-    """Tạo dataclass `cls` từ `raw`, báo lỗi nếu có khóa lạ."""
+    """Build dataclass `cls` from `raw`, raising on unknown keys."""
     _reject_unknown(raw, {f.name for f in dataclasses.fields(cls)}, where=where)
     return cls(**raw)
 
 
 def _reject_unknown(section: dict[str, Any], allowed: set[str], where: str) -> None:
-    """Báo lỗi nếu `section` có khóa không nằm trong `allowed`."""
+    """Raise if `section` has keys not in `allowed`."""
     unknown = set(section) - allowed
     if unknown:
-        raise ValueError(f"Khóa không hợp lệ ở mục '{where}': {sorted(unknown)}")
+        raise ValueError(f"Invalid keys in section '{where}': {sorted(unknown)}")
 
 
 def _validate(config: GeneratorConfig) -> None:
-    """Kiểm tra các ràng buộc giữa các giá trị cấu hình."""
+    """Check constraints between config values."""
     weights = config.storefront_weights
     unknown = set(weights) - set(STOREFRONTS)
     if unknown:
-        raise ValueError(f"Storefront không tồn tại: {sorted(unknown)}")
+        raise ValueError(f"Storefront does not exist: {sorted(unknown)}")
     if abs(sum(weights.values()) - 1.0) > 1e-6:
-        raise ValueError(
-            f"storefront_weights phải cộng lại bằng 1, đang là {sum(weights.values())}"
-        )
+        raise ValueError(f"storefront_weights must sum to 1, got {sum(weights.values())}")
     if not 0 <= config.offline_problems.duplicate_rate < 0.5:
-        raise ValueError("duplicate_rate phải nằm trong [0, 0.5)")
+        raise ValueError("duplicate_rate must be in [0, 0.5)")
     if (
         not 1
         <= config.offline_problems.amazon_orders_api_switch_day
         <= config.scale.days_history + 1
     ):
-        raise ValueError("amazon_orders_api_switch_day phải nằm trong khoảng ngày lịch sử")
+        raise ValueError("amazon_orders_api_switch_day must be within the history day range")
 
     sale = config.drift.prime_day
     if sale is not None:
         if sale.days < 1 or not 1 <= sale.day <= config.scale.days_history - sale.days + 1:
-            raise ValueError("drift.prime_day phải nằm trọn trong khoảng ngày lịch sử")
+            raise ValueError("drift.prime_day must lie entirely within the history day range")
         if sale.order_multiplier < 1:
-            raise ValueError("drift.prime_day.order_multiplier phải từ 1 trở lên")
+            raise ValueError("drift.prime_day.order_multiplier must be at least 1")
         if not 0 <= sale.discount_share <= 1:
-            raise ValueError("drift.prime_day.discount_share phải nằm trong [0, 1]")
+            raise ValueError("drift.prime_day.discount_share must be in [0, 1]")
         if not 1 <= sale.deal_skus <= config.scale.n_skus:
-            raise ValueError("drift.prime_day.deal_skus phải từ 1 tới n_skus")
+            raise ValueError("drift.prime_day.deal_skus must be between 1 and n_skus")
 
     first_stream_day = config.scale.days_history + 1
     last_stream_day = config.scale.days_history + config.scale.days_stream
     if config.scale.days_stream < 1:
-        raise ValueError("days_stream phải từ 1 trở lên")
+        raise ValueError("days_stream must be at least 1")
     live = config.drift.tiktok_live
     if live is not None:
         if not first_stream_day <= live.day <= last_stream_day:
-            raise ValueError("drift.tiktok_live.day phải nằm trong khoảng ngày Stream")
+            raise ValueError("drift.tiktok_live.day must be within the Stream day range")
         if not (
             live.start_hour_utc >= 0
             and live.duration_hours > 0
             and live.start_hour_utc + live.duration_hours <= 24
         ):
-            raise ValueError("drift.tiktok_live phải nằm trọn trong một ngày")
+            raise ValueError("drift.tiktok_live must lie entirely within one day")
         low, high = live.burst_multiplier
         if not 1 <= low <= high:
             raise ValueError(
-                "drift.tiktok_live.burst_multiplier phải là [thấp, cao] với 1 <= thấp <= cao"
+                "drift.tiktok_live.burst_multiplier must be [low, high] with 1 <= low <= high"
             )
     streaming = config.streaming_problems
     unknown = set(streaming.duplicate_rate) - set(STOREFRONTS)
     if unknown:
         raise ValueError(
-            f"streaming_problems.duplicate_rate có Storefront không tồn tại: {sorted(unknown)}"
+            f"streaming_problems.duplicate_rate has a Storefront that does not exist: {sorted(unknown)}"
         )
     if not all(0 <= r < 0.5 for r in streaming.duplicate_rate.values()):
-        raise ValueError("streaming_problems.duplicate_rate phải nằm trong [0, 0.5)")
+        raise ValueError("streaming_problems.duplicate_rate must be in [0, 0.5)")
     late = streaming.amazon_late
     if not 0 < late.median_minutes < 60 or not 0 <= late.share_over_1h < 1:
-        raise ValueError("amazon_late cần 0 < median_minutes < 60 và 0 <= share_over_1h < 1")
+        raise ValueError("amazon_late needs 0 < median_minutes < 60 and 0 <= share_over_1h < 1")
     if streaming.pacing.default_seconds_per_sim_day <= 0 or any(
         s.seconds_per_sim_day <= 0 or s.from_day > s.to_day for s in streaming.pacing.segments
     ):
-        raise ValueError("streaming_problems.pacing cần tốc độ dương và from_day <= to_day")
+        raise ValueError("streaming_problems.pacing needs a positive pace and from_day <= to_day")
 
 
 def _jsonable(value: Any) -> Any:
-    """Đổi `date`/`datetime` thành chuỗi ISO để `json.dumps` ghi được."""
+    """Convert `date`/`datetime` to ISO strings so `json.dumps` can write them."""
     if isinstance(value, dict):
         return {k: _jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):

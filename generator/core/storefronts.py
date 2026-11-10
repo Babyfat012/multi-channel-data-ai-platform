@@ -1,8 +1,8 @@
-"""Hằng số mô tả 7 Storefront và 8 danh mục sản phẩm của Seller ACME.
+"""Constants describing the 7 Storefronts and 8 product categories of the Seller ACME.
 
-Đây là "địa lý" cố định của thế giới giả lập. Các con số hay đổi
-(tỷ trọng Order theo Storefront) nằm trong cấu hình, còn những thứ gắn
-với bản chất Storefront (tiền tệ, thành phố, cách giao hàng) nằm ở đây.
+This is the fixed "geography" of the simulated world. Numbers that change often
+(Order share per Storefront) live in the config, while things tied to
+the nature of a Storefront (currency, cities, fulfillment) live here.
 """
 
 from __future__ import annotations
@@ -12,18 +12,18 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Storefront:
-    """Một chỗ Seller bán hàng: Channel cộng Marketplace nếu Channel có.
+    """A place where the Seller sells: a Channel plus a Marketplace if the Channel has one.
 
-    Thuộc tính:
-        storefront_id: mã chuẩn, dùng làm khóa feature (`sku_id` + `storefront_id`).
-        channel: tên Channel, quyết định renderer nào sẽ xuất dữ liệu.
-        country: mã quốc gia ISO của buyer.
-        currency: tiền tệ gốc của giá bán.
-        price_factor: giá bán = giá gốc USD của SKU × hệ số này (đã gồm quy đổi tiền).
-        channel_fulfilled_share: tỷ lệ Order Line do Channel giao (FBA, WFS, ...).
-        return_lag_mean_days: số ngày trung bình từ lúc giao tới lúc buyer yêu cầu trả.
-        return_logit_shift: cộng vào logit xác suất trả, thể hiện khác biệt giữa Storefront.
-        cities: các thành phố lớn, thành phố đầu chiếm nhiều Order nhất (skew địa lý).
+    Attributes:
+        storefront_id: canonical id, used as the feature key (`sku_id` + `storefront_id`).
+        channel: Channel name, decides which renderer outputs the data.
+        country: ISO country code of the buyer.
+        currency: original currency of the selling price.
+        price_factor: selling price = the SKU's base USD price × this factor (currency conversion included).
+        channel_fulfilled_share: share of Order Lines fulfilled by the Channel (FBA, WFS, ...).
+        return_lag_mean_days: mean days from delivery until the buyer requests a Return.
+        return_logit_shift: added to the Return probability logit, expressing differences between Storefronts.
+        cities: major cities; the first city gets the most Orders (geographic skew).
     """
 
     storefront_id: str
@@ -129,10 +129,10 @@ STOREFRONTS: dict[str, Storefront] = {
     ]
 }
 
-# Phần đầu mã bưu chính của từng thành phố, theo hệ thống bưu chính thật của nước đó.
-# Mỹ: 3 số đầu ZIP. Đức: 2 số đầu PLZ. Anh: vùng (postcode area) của outward code.
-# Việt Nam: 2 số đầu mã bưu chính quốc gia 5 số (áp dụng từ 2018).
-# Tên thành phố không trùng giữa các nước nên dùng làm khóa được.
+# Postal code prefix of each city, following that country's real postal system.
+# US: first 3 ZIP digits. Germany: first 2 PLZ digits. UK: postcode area of the outward code.
+# Vietnam: first 2 digits of the 5-digit national postal code (in use since 2018).
+# City names do not repeat across countries, so they work as keys.
 POSTAL_PREFIX: dict[str, str] = {
     "New York": "100",
     "Los Angeles": "900",
@@ -167,19 +167,19 @@ POSTAL_PREFIX: dict[str, str] = {
     "Can Tho": "94",
 }
 
-# Số chữ số thập phân của từng tiền tệ (VND không có phần lẻ).
+# Decimal places per currency (VND has no fractional part).
 CURRENCY_DECIMALS: dict[str, int] = {"USD": 2, "GBP": 2, "EUR": 2, "VND": 0}
 
 
 @dataclass(frozen=True)
 class Category:
-    """Một danh mục sản phẩm.
+    """A product category.
 
-    Thuộc tính:
-        code: tiền tố của `sku_id`, ví dụ `APP` trong `APP-00042`.
-        sku_share: tỷ lệ SKU thuộc danh mục này trong danh mục SKU.
-        return_rate: tỷ lệ trả mục tiêu, dùng làm mức nền của hàm logistic.
-        price_range_usd: khoảng giá gốc (USD) của SKU trong danh mục.
+    Attributes:
+        code: prefix of `sku_id`, e.g. `APP` in `APP-00042`.
+        sku_share: share of SKUs in the catalog that belong to this category.
+        return_rate: target Return rate, used as the baseline of the logistic function.
+        price_range_usd: base price range (USD) of SKUs in the category.
     """
 
     name: str
@@ -200,7 +200,7 @@ CATEGORIES: tuple[Category, ...] = (
     Category("home", "HOM", 0.11, 0.04, (10, 200)),
 )
 
-# Tỷ trọng Order theo Storefront khi cấu hình không ghi (skew theo Storefront).
+# Order share per Storefront when the config does not set one (Storefront skew).
 DEFAULT_STOREFRONT_WEIGHTS: dict[str, float] = {
     "amazon_us": 0.45,
     "tiktok_shop_us": 0.15,

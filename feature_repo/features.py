@@ -1,9 +1,9 @@
-"""Định nghĩa Feast cho SKU: hai feature view, một batch và một stream.
+"""Feast definitions for SKUs: two feature views, one Batch and one Stream.
 
-- `sku_return_daily`: tỷ lệ trả 90 ngày chụp mỗi ngày; Parquet do
-  `spark_jobs/gold/export_sku_daily_features.py` ghi, Airflow materialize sang Redis.
-- `sku_return_24h`: số Return approved 24h gần nhất; Flink tính, `push_stream_features.py`
-  push vào cả Redis lẫn Parquet offline (để train dùng PIT join như feature batch).
+- `sku_return_daily`: 90-day return rate snapshotted daily; Parquet written by
+  `spark_jobs/gold/export_sku_daily_features.py`, Airflow materializes it to Redis.
+- `sku_return_24h`: number of approved Returns in the last 24h; computed by Flink, `push_stream_features.py`
+  pushes it to both Redis and offline Parquet (so training uses a PIT join like the batch feature).
 """
 
 import os
@@ -13,7 +13,7 @@ from feast import Entity, FeatureView, Field, FileSource, PushSource, ValueType
 from feast.types import Float64, Int64, String
 
 sku = Entity(
-    name="sku", join_keys=["seller_sku"], value_type=ValueType.STRING, description="SKU của Seller"
+    name="sku", join_keys=["seller_sku"], value_type=ValueType.STRING, description="Seller SKU"
 )
 
 sku_daily_source = FileSource(
@@ -26,8 +26,8 @@ sku_daily_source = FileSource(
 sku_return_daily = FeatureView(
     name="sku_return_daily",
     entities=[sku],
-    # 0 = không hết hạn: SKU ít bán vẫn giữ ảnh chụp cuối cùng. Riêng lần materialize đầu tiên,
-    # Feast chỉ quét từ 1 năm trước giờ thật, nên dữ liệu giả lập phải nằm trong khoảng đó.
+    # 0 = never expires: slow-selling SKUs keep their last snapshot. For the first materialize only,
+    # Feast scans from 1 year before wall-clock time, so the simulated data must fall within that range.
     ttl=timedelta(0),
     schema=[
         Field(name="labeled_count_90d", dtype=Int64),
@@ -39,8 +39,8 @@ sku_return_daily = FeatureView(
     source=sku_daily_source,
 )
 
-# Push ghi đè cả file mỗi lần (đọc + ghi lại), nên phải là MỘT file và có sẵn trước:
-# push_stream_features.py tạo file rỗng khi khởi động.
+# Push overwrites the whole file every time (read + rewrite), so it must be ONE file that exists beforehand:
+# push_stream_features.py creates an empty file on startup.
 sku_return_24h_push = PushSource(
     name="sku_return_24h_push",
     batch_source=FileSource(

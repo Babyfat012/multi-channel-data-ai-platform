@@ -1,8 +1,8 @@
-"""Test lớp ghi: các bảo đảm của bút ghi dần mà phần Batch dựa vào.
+"""Tests for the write layer: the incremental writer guarantees the Batch part relies on.
 
-Các bảo đảm này là lý do `BatchRun` dám bỏ bộ đệm bản ghi và dám tin vào tem. Nếu một cái vỡ thì
-đầu ra ở quy mô 100 GB hỏng sau nhiều giờ chạy, nên chúng được khóa ở đây chứ
-không chỉ kiểm qua một lần chạy Batch nhỏ.
+These guarantees are why `BatchRun` can drop its record buffers and trust the stamps. If one breaks,
+100 GB-scale output is corrupted after hours of running, so they are pinned here rather
+than only checked through a small Batch run.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ SCHEMA = pa.schema([("n", pa.int64())])
 
 
 def test_jsonl_pool_reports_bytes_matching_the_file_on_disk(tmp_path):
-    """`close` trả về số byte thật, vì manifest lấy `datasets[*].bytes` từ đó."""
+    """`close` returns the actual byte count, since the manifest takes `datasets[*].bytes` from it."""
     store = OutputStore(str(tmp_path))
     with store.jsonl_writers() as pool:
         pool.write("a", "a.jsonl", {"x": 1})
@@ -31,7 +31,7 @@ def test_jsonl_pool_reports_bytes_matching_the_file_on_disk(tmp_path):
 
 
 def test_jsonl_pool_keeps_files_interleaved_without_mixing_them(tmp_path):
-    """Nhiều file mở cùng lúc nhận dòng xen kẽ mà không lẫn sang nhau."""
+    """Many files open at once receive interleaved rows without mixing them up."""
     store = OutputStore(str(tmp_path))
     with store.jsonl_writers() as pool:
         for i in range(3):
@@ -39,7 +39,7 @@ def test_jsonl_pool_keeps_files_interleaved_without_mixing_them(tmp_path):
             pool.write("b", "b.jsonl", {"n": -i})
 
     def read(name: str) -> list[int]:
-        """Giá trị cột `n` đọc lại từ một file JSONL, để so nội dung."""
+        """Values of column `n` read back from a JSONL file, to compare contents."""
         return [json.loads(line)["n"] for line in (tmp_path / name).read_text().splitlines()]
 
     assert read("a.jsonl") == [0, 1, 2]
@@ -47,15 +47,15 @@ def test_jsonl_pool_keeps_files_interleaved_without_mixing_them(tmp_path):
 
 
 def test_jsonl_pool_closes_open_files_when_the_body_raises(tmp_path):
-    """Lỗi giữa đường vẫn đóng file, nên dòng đã ghi đọc lại được.
+    """An error midway still closes the files, so written rows can be read back.
 
-    Đây là lý do chọn ranh giới "Storage giữ trách nhiệm đóng file": một lần chạy
-    100 GB dài vài giờ, và dữ liệu đã sinh không nên mất vì một lỗi ở cuối.
+    This is why the boundary "Storage owns closing files" was chosen: a 100 GB run
+    takes several hours, and generated data should not be lost to an error at the end.
     """
     store = OutputStore(str(tmp_path))
     with pytest.raises(RuntimeError), store.jsonl_writers() as pool:
         pool.write("a", "a.jsonl", {"x": 1})
-        raise RuntimeError("ngày mô phỏng lỗi")
+        raise RuntimeError("simulated day failed")
 
     assert [json.loads(line) for line in (tmp_path / "a.jsonl").read_text().splitlines()] == [
         {"x": 1}
@@ -63,24 +63,24 @@ def test_jsonl_pool_closes_open_files_when_the_body_raises(tmp_path):
 
 
 def test_jsonl_pool_refuses_to_write_to_a_closed_key(tmp_path):
-    """Ghi lại vào khóa đã đóng phải ném lỗi, vì mở lại sẽ xóa trắng file.
+    """Writing again to a closed key must raise, because reopening would wipe the file.
 
-    `BatchRun._flush` chỉ đóng ngày export <= ngày vừa sinh, nên hiện không xảy ra.
-    Test này là cái lưới: nếu sau này có kiểu export lùi ngày, test đổ ngay thay vì
-    mất một ngày dữ liệu sau nhiều giờ chạy.
+    `BatchRun._flush` only closes export days <= the day just generated, so this does not happen today.
+    This test is the safety net: if a backdated export kind appears later, the test fails right away instead of
+    losing a day of data after hours of running.
     """
     store = OutputStore(str(tmp_path))
     with store.jsonl_writers() as pool:
         pool.write("a", "a.jsonl", {"x": 1})
         pool.close("a")
-        with pytest.raises(ValueError, match="đã đóng"):
+        with pytest.raises(ValueError, match="already closed"):
             pool.write("a", "a.jsonl", {"x": 2})
 
     assert (tmp_path / "a.jsonl").read_text().count("\n") == 1
 
 
 def test_parquet_writer_makes_one_row_group_per_write_and_skips_empty(tmp_path):
-    """Mỗi `write` là một row group; khối rỗng bị bỏ qua để metadata không nở."""
+    """Each `write` is one row group; empty blocks are skipped so the metadata does not bloat."""
     store = OutputStore(str(tmp_path))
     with store.parquet_writer("t.parquet", SCHEMA) as writer:
         assert writer.write({"n": [1, 2]}) == 2
@@ -94,17 +94,17 @@ def test_parquet_writer_makes_one_row_group_per_write_and_skips_empty(tmp_path):
 
 
 def test_parquet_writer_closes_the_file_when_the_body_raises(tmp_path):
-    """Footer Parquet được ghi dù thân khối lỗi, nên file vẫn đọc được."""
+    """The Parquet footer is written even if the block body fails, so the file stays readable."""
     store = OutputStore(str(tmp_path))
     with pytest.raises(RuntimeError), store.parquet_writer("t.parquet", SCHEMA) as writer:
         writer.write({"n": [1]})
-        raise RuntimeError("ngày mô phỏng lỗi")
+        raise RuntimeError("simulated day failed")
 
     assert pq.read_table(tmp_path / "t.parquet").column("n").to_pylist() == [1]
 
 
 def test_write_json_atomic_leaves_no_temporary_file_behind(tmp_path):
-    """Ghi tem xong thì không còn `.tmp` nào, vì tem được đổi tên vào chỗ chứ không chép."""
+    """After writing a stamp no `.tmp` remains, because the stamp is renamed into place, not copied."""
     store = OutputStore(str(tmp_path))
     store.write_json_atomic("_checkpoint/day-00003.json", {"rows": 7})
 
@@ -113,10 +113,10 @@ def test_write_json_atomic_leaves_no_temporary_file_behind(tmp_path):
 
 
 def test_write_json_atomic_replaces_an_existing_file_completely(tmp_path):
-    """Tem mới đè hẳn tem cũ, không để lại đuôi của nội dung dài hơn trước đó.
+    """A new stamp fully replaces the old one, leaving no tail of longer previous content.
 
-    `BatchRun` ghi lại tem của cùng một ngày khi chạy lại, và tem cũ có thể dài hơn
-    tem mới. Nếu phép đè chỉ ghi lên đầu file thì phần đuôi cũ còn lại và JSON vỡ.
+    `BatchRun` rewrites the same day's stamp on rerun, and the old stamp may be longer than
+    the new one. If overwriting only wrote over the start of the file, the old tail would remain and break the JSON.
     """
     store = OutputStore(str(tmp_path))
     store.write_json_atomic("_checkpoint/day-00001.json", {"long": "x" * 500})
@@ -126,11 +126,11 @@ def test_write_json_atomic_replaces_an_existing_file_completely(tmp_path):
 
 
 def test_write_json_atomic_keeps_floats_exact_through_a_round_trip(tmp_path):
-    """Số thực đi qua tem rồi về phải y nguyên, vì tổng giảm giá được cộng dồn qua tem.
+    """Floats must round-trip through the stamp unchanged, since the discount total accumulates through stamps.
 
-    `amazon_discount_sum` là `float` cộng dồn suốt lần chạy. Lệch một bit ở đây thì
-    manifest của lần chạy bị cắt khác lần chạy liền mạch, và phép so byte sẽ đổ —
-    nên test này nói rõ vì sao nó không đổ.
+    `amazon_discount_sum` is a `float` accumulated over the whole run. One bit off here and
+    the manifest of an interrupted run differs from an uninterrupted one, and the byte comparison fails —
+    so this test spells out why it does not fail.
     """
     store = OutputStore(str(tmp_path))
     value = 1234.5678901234567
@@ -140,7 +140,7 @@ def test_write_json_atomic_keeps_floats_exact_through_a_round_trip(tmp_path):
 
 
 def test_remove_is_quiet_when_the_file_is_already_gone(tmp_path):
-    """Dọn file của ngày bị cắt phải chịu được việc file đã không còn ở đó."""
+    """Cleaning up the cut day's files must tolerate the files already being gone."""
     store = OutputStore(str(tmp_path))
     store.write_json_atomic("a.json", {})
     store.remove("a.json")

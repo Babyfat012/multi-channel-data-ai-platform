@@ -1,12 +1,12 @@
-# Image cho các bước Kubeflow train model: Feast (đọc kho offline) + LightGBM + MLflow client.
-# Dựng trên platform-feast để dùng chung lớp, tiết kiệm đĩa.
+# Image for the Kubeflow model training steps: Feast (reads the offline store) + LightGBM + MLflow client.
+# Built on platform-feast to share layers and save disk.
 FROM platform-feast:0.66.0
 USER root
 RUN apt-get update && apt-get install --no-install-recommends -y libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir "lightgbm==4.7.0" "scikit-learn==1.9.1" "mlflow-skinny==3.17.0" "kfp==2.17.0"
 COPY ml /opt/ml/ml
-# Đường dẫn Feast/S3 do pipeline truyền theo đích (ml/training_pipeline.py FEAST_ENV): image dùng
-# chung cho kind (MinIO) và EKS (S3 thật), không ghi cứng endpoint.
+# Feast/S3 paths are passed by the pipeline per target (ml/training_pipeline.py FEAST_ENV): one image
+# serves both kind (MinIO) and EKS (real S3), with no hard-coded endpoint.
 ENV PYTHONPATH=/opt/ml
 USER 65534

@@ -1,26 +1,22 @@
-# Tài liệu nội bộ của quá trình thiết kế, không đẩy lên repo
+# Internal design-process documents, not pushed to the repo
 CONTEXT.md
 docs/domain-overview.md
 
-# Workbook và ghi chú nội bộ, không thuộc mã nguồn dự án
-Coursework Tracking (Public).xlsx
-
-# Dữ liệu sinh ra khi chạy generator
+# Data produced by running the generator
 out/
 .venv/
 __pycache__/
 
-# Ghi chú bàn giao giữa các phiên, bí mật của Docker Compose
+# Session handoff notes, Docker Compose secrets
 HANDOFF.md
 HANDOFF.*.md
 .env
 
-# Brief giao việc nội bộ giữa các phiên agent
+# Internal task briefs between agent sessions
 .briefs/
 
-# Ghi chú cá nhân và cấu hình công cụ local
+# Personal notes and local tool config
 docs/plan.md
-edai-k11-cw/
 .vibe-wise/
 .claude/
 .pytest_cache/
@@ -28,8 +24,6 @@ MISSION.md
 NOTES.md
 RESOURCES.md
 assets/
-lessons/
-learning-records/
 /reference/
 
 # mutmut / hypothesis / coverage
@@ -37,10 +31,10 @@ mutants/
 .hypothesis/
 .coverage
 
-# Tài liệu quá trình và cấu hình lịch sử: chỉ lưu local
+# Process documents and historical config: kept local only
 .archive/
 
-# State, plan và cấu hình triển khai thực tế chỉ lưu local.
+# State, plans and real deployment config are kept local only.
 **/.terraform/
 *.tfstate
 *.tfstate.*
@@ -51,12 +45,11 @@ infra/aws/ansible/inventory.ini
 infra/aws/ansible/group_vars/all.yml
 *.plan
 
-# Ẩn khỏi bản nộp: ADR và cấu hình ngân sách cloud (chỉ lưu local)
-docs/adr/
-docs/shared/cloud_capacity.md
-
-# Bản nháp và các phần riêng của sơ đồ ML + LLM ở thư mục gốc: bản cuối nằm ở docs/diagrams/
+# Drafts and separate parts of the ML + LLM diagrams at the repo root: final versions live in docs/diagrams/
 /ml-llm-platform*.excalidraw
 
-# Tập train 32 MB của notebook 05, tải từ S3 (xem notebooks/README.md)
+# Notebook 05's 32 MB training set, downloaded from S3 (see notebooks/README.md)
 notebooks/data/train_set.parquet
+
+# Upstream llm-d-benchmark clone used for benchmarking (not vendored)
+llm-d-benchmark/

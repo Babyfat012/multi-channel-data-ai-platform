@@ -1,11 +1,11 @@
-"""Renderer Batch cho Shopee `get_order_detail`.
+"""Batch renderer for Shopee `get_order_detail`.
 
-Mỗi dòng JSONL là response `response.order_list` có một Order. `COMPLETED` của
-Shopee là proxy trạng thái sau giao; nguồn không có thời điểm giao thật trong
-các field đã xác minh, nên renderer không thêm `delivered_at`.
+Each JSONL row is a `response.order_list` response with one Order. Shopee's `COMPLETED`
+is a proxy for the post-delivery status; the source has no actual delivery time in
+the verified fields, so the renderer does not add `delivered_at`.
 
-Field dựa trên `docs/edai-1/reference/channel_sources.md` mục 6. Những ID và carrier được sinh
-ổn định từ seed; chúng không chứa thông tin lõi ngoài mã nối ground truth.
+Fields follow `docs/data-platform/reference/channel_sources.md` section 6. Ids and carriers are generated
+deterministically from the seed; they carry no core information beyond the ground-truth join id.
 """
 
 from __future__ import annotations
@@ -37,26 +37,26 @@ STATUS = {
 
 
 class ShopeeOrdersRenderer:
-    """Vẽ một snapshot Order Shopee với ID ổn định qua mọi Export Date."""
+    """Render a Shopee Order snapshot with ids stable across every Export Date."""
 
     channel = "shopee"
     dataset = "orders"
     storage = OBJECT_STORE
 
     def __init__(self, config: GeneratorConfig) -> None:
-        """Ghi seed để sinh mã gốc Shopee."""
+        """Store the seed to generate Shopee native ids."""
         self.seed = config.seed
 
     def order_sn(self, order: Order) -> str:
-        """Sinh mã Order chữ và số cố định cho một Order lõi."""
+        """Generate a fixed alphanumeric Order id for a core Order."""
         return "VN" + native_code(self.seed, "shopee_order", order.order_id, 12)
 
     def line_id(self, line: OrderLine) -> str:
-        """Sinh mã Order Line dạng số cố định cho một Order Line lõi."""
+        """Generate a fixed numeric Order Line id for a core Order Line."""
         return "1" + native_digits(self.seed, "shopee_line", line.order_line_id, 15)
 
     def line_keys(self, order: Order) -> list[dict[str, Any]]:
-        """Nối ID lõi với order_sn và order_item_id Shopee."""
+        """Map core ids to Shopee order_sn and order_item_id."""
         order_sn = self.order_sn(order)
         return [
             {
@@ -68,7 +68,7 @@ class ShopeeOrdersRenderer:
         ]
 
     def render(self, order: Order, as_of: datetime, export_day: int) -> RenderedRecord:
-        """Vẽ một Order tại `as_of`; ngày export được lớp Batch ghi vào đường dẫn."""
+        """Render an Order at `as_of`; the Batch layer writes the export date into the path."""
         del export_day
         status_change = order.status_at(as_of)
         status = status_change.status

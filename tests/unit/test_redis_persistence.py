@@ -1,4 +1,4 @@
-"""Giữ hợp đồng phục hồi Redis: AOF nằm trên PVC dùng lại khi thay Pod."""
+"""Keep the Redis recovery contract: AOF lives on a PVC that is reused when the Pod is replaced."""
 
 from pathlib import Path
 
@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_redis_aof_uses_persistent_volume_without_overlapping_rollout():
-    """Chặn AOF tắt/ghi ngoài PVC, claim sai và rollout chồng hai Redis."""
+    """Block AOF being disabled/written outside the PVC, a wrong claim, and a rollout overlapping two Redis instances."""
     documents = list(yaml.safe_load_all((ROOT / "infra/k8s/feature-store/redis.yaml").read_text()))
     deployment = next(d for d in documents if d["kind"] == "Deployment")
     spec = deployment["spec"]

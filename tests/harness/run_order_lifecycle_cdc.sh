@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Planner chạy harness CDC v2 cô lập; image/jar có sẵn, không tải mạng, trap dọn tài nguyên riêng.
+# The planner runs the isolated CDC v2 harness; images/jars pre-provisioned, no network downloads, a trap cleans up its own resources.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
@@ -10,20 +10,20 @@ WORK="$(mktemp -d /tmp/platform-cdc-v2.XXXXXX)"
 chmod 777 "$WORK"
 NETWORK="$PREFIX-net"
 cleanup() {
-  # Chỉ dọn đúng container/mạng của harness; giữ WORK làm bằng chứng.
+  # Clean up only the harness's own containers/network; keep WORK as evidence.
   docker rm -f "$PREFIX-spark" "$PREFIX-connect" "$PREFIX-kafka" "$PREFIX-postgres" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
-  printf 'Receipt/warehouse còn tại %s\n' "$WORK"
+  printf 'Receipt/warehouse kept at %s\n' "$WORK"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-# Không tự tạo volume rỗng nếu cache chưa có.
+# Do not create an empty volume if the cache does not exist yet.
 docker volume inspect platform_airflow-data >/dev/null
 for image in postgres:15 apache/kafka:3.9.1 quay.io/debezium/connect:3.4 "$IMAGE"; do
   docker image inspect "$image" >/dev/null
 done
-# ls bắt buộc để planner thấy cache thực, rồi kiểm đủ dependency Kafka Spark offline.
+# ls is mandatory so the planner sees the real cache, then check all Kafka Spark dependencies are present offline.
 docker run --rm --pull never --network none --name "$PREFIX-spark" \
   -v platform_airflow-data:/ivy:ro --entrypoint bash "$IMAGE" -c '
   ls /ivy/.ivy2/jars
@@ -33,9 +33,9 @@ docker run --rm --pull never --network none --name "$PREFIX-spark" \
     "org.apache.kafka_kafka-clients-*.jar" "org.apache.commons_commons-pool2-*.jar"; do
     compgen -G "/ivy/.ivy2/jars/$pattern" >/dev/null || { echo "THIẾU JAR: $pattern" >&2; exit 1; }
   done'
-# Chọn cổng host trống; mọi container dùng DNS riêng trong network mới.
+# Pick free host ports; every container uses its own DNS in the new network.
 read -r PG_PORT KAFKA_PORT CONNECT_PORT < <("$PYTHON" - <<'PY'
-"""Giữ ba socket đồng thời để chọn ba cổng host khác nhau."""
+"""Hold three sockets at once to pick three distinct host ports."""
 import socket
 sockets = [socket.socket() for _ in range(3)]
 for sock in sockets:
@@ -83,9 +83,9 @@ ENV
 "$PYTHON" tests/harness/control_order_lifecycle_cdc.py events --env-file "$WORK/harness.env" \
   --oracle "$WORK/order_lifecycle_cdc_expected.json" --receipt "$WORK/poll.json"
 spark_job() {
-  # Driver local dùng Hadoop catalog trong /tmp, không trỏ Lakekeeper hay tải package.
-  # Chạy bằng user mặc định của image (uid host không có trong passwd ⇒ Hadoop login NPE, và không đọc được
-  # /home/airflow/.local). WORK mở quyền để container ghi; xong thì container root trả quyền file về uid host.
+  # The local driver uses a Hadoop catalog in /tmp, never pointing at Lakekeeper or downloading packages.
+  # Runs as the image's default user (the host uid is not in passwd ⇒ Hadoop login NPE, and it cannot read
+  # /home/airflow/.local). WORK is opened up so the container can write; afterwards a root container hands file ownership back to the host uid.
   find "$WORK" -user "$(id -u)" -exec chmod a+rwX {} +
   local status=0
   docker run --rm --pull never --name "$PREFIX-spark" --network "$NETWORK" \
@@ -98,18 +98,18 @@ spark_job() {
   docker run --rm --pull never --user 0 -v "$WORK":/proof --entrypoint chown "$IMAGE" -R "$(id -u):$(id -g)" /proof
   return "$status"
 }
-# Trong container /proof/warehouse cũng là thư mục WORK/warehouse dưới /tmp trên host.
+# Inside the container, /proof/warehouse is the same WORK/warehouse directory under /tmp on the host.
 spark_job /workspace/spark_jobs/cdc/ingest_order_lifecycle_changes.py --bootstrap kafka:9092 --run-id harness-v2 \
   --boundary-dir /proof/boundary --receipt /proof/ingest.json --local-warehouse file:///proof/warehouse
 validate() {
-  # Dùng đúng oracle và receipt của ingest, luôn kiểm cả dòng sai epoch cùng run.
+  # Use the ingest's exact oracle and receipt, always also checking wrong-epoch rows in the same run.
   spark_job /workspace/spark_jobs/cdc/validate_order_lifecycle_changes.py --run-id harness-v2 \
     --oracle /proof/order_lifecycle_cdc_expected.json --ingest-receipt /proof/ingest.json \
     --boundary-dir /proof/boundary --receipt "/proof/$1" --local-warehouse file:///proof/warehouse
 }
 validate validate.json
 cat > "$WORK/inject.py" <<'PY'
-"""Tiêm một bản ghi giả vào Bronze để kiểm validator báo extra."""
+"""Inject a fake record into Bronze to check the validator reports extra."""
 from pyspark.sql import functions as F
 from spark_jobs.lib.order_lifecycle_cdc import TARGET, build_session
 spark = build_session("inject-extra-cdc-v2", "file:///proof/warehouse")
@@ -122,11 +122,11 @@ finally:
 PY
 spark_job /proof/inject.py
 if validate validate-extra.json; then
-  echo 'LỖI: validator phải thất bại khi có extra' >&2
+  echo 'ERROR: validator must fail when there is extra' >&2
   exit 1
 fi
 "$PYTHON" - "$WORK/validate-extra.json" <<'PY'
-"""Xác nhận exit lỗi thực sự do bản ghi thừa, không do lỗi khởi động Spark."""
+"""Confirm the failing exit is really due to the extra record, not a Spark startup error."""
 import json
 import sys
 receipt = json.load(open(sys.argv[1]))

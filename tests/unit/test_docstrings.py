@@ -1,4 +1,4 @@
-"""Kiểm mô tả mã nguồn, liên kết tương đối và độ phủ tài liệu công khai."""
+"""Check source descriptions, relative links and public documentation coverage."""
 
 import ast
 import re
@@ -21,7 +21,7 @@ COMMENT_PREFIXES = {
 
 
 def python_files():
-    """Liệt kê Python được Git theo dõi, bỏ test và cây mutant sinh tự động."""
+    """List Git-tracked Python files, skipping tests and the auto-generated mutant tree."""
     result = subprocess.run(
         ["git", "ls-files", "-z", "--", "*.py"],
         cwd=ROOT,
@@ -38,7 +38,7 @@ def python_files():
 
 
 def documented_nodes(tree):
-    """Duyệt module/class và hàm, dừng ở thân hàm để bỏ qua định nghĩa lồng."""
+    """Walk modules/classes and functions, stopping at function bodies to skip nested definitions."""
     for child in ast.iter_child_nodes(tree):
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
             yield child
@@ -50,7 +50,7 @@ def documented_nodes(tree):
 
 @pytest.mark.parametrize("path", python_files(), ids=lambda p: str(p.relative_to(ROOT)))
 def test_python_docstrings(path):
-    """Mọi module, class, hàm và method ngoài hàm lồng phải có docstring."""
+    """Every module, class, function and method outside nested functions must have a docstring."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     missing = [] if ast.get_docstring(tree) else ["module:1"]
     missing.extend(
@@ -58,11 +58,11 @@ def test_python_docstrings(path):
         for node in documented_nodes(tree)
         if not ast.get_docstring(node)
     )
-    assert not missing, f"{path.relative_to(ROOT)}: thiếu docstring {', '.join(missing)}"
+    assert not missing, f"{path.relative_to(ROOT)}: missing docstring {', '.join(missing)}"
 
 
 def described_files():
-    """Tìm script/cấu hình thuộc repo, dùng Git để bỏ qua tài liệu cá nhân và output."""
+    """Find the repo's scripts/configs, using Git to skip personal documents and output."""
     result = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=ROOT,
@@ -83,7 +83,7 @@ def described_files():
 
 @pytest.mark.parametrize("path", described_files(), ids=lambda p: str(p.relative_to(ROOT)))
 def test_file_purpose_comment(path):
-    """Dòng nội dung đầu sau shebang phải là chú thích có mô tả, không chỉ dấu phân cách."""
+    """The first content line after the shebang must be a descriptive comment, not just a separator."""
     lines = path.read_text(encoding="utf-8").splitlines()
     if lines and lines[0].startswith("#!"):
         lines = lines[1:]
@@ -91,14 +91,14 @@ def test_file_purpose_comment(path):
     prefixes = COMMENT_PREFIXES[path.suffix]
     assert any(
         first.startswith(prefix) and re.search(r"\w", first[len(prefix) :]) for prefix in prefixes
-    ), f"{path.relative_to(ROOT)}: thiếu mô tả đầu file"
+    ), f"{path.relative_to(ROOT)}: missing file header description"
 
 
 def markdown_targets(path):
-    """Lấy đích link/image inline và reference, bỏ qua ví dụ trong code fence."""
+    """Collect inline and reference link/image targets, skipping examples in code fences."""
     source = path.read_text(encoding="utf-8")
     source = re.sub(r"(?ms)^\s*(`{3,}|~{3,})[^\n]*\n.*?^\s*\1\s*$", "", source)
-    # Nhãn có thể chứa backtick; chỉ đích link mới được giải mã URL.
+    # Labels may contain backticks; only link targets are URL-decoded.
     inline = re.findall(r"!?\[[^\]\n]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+[^)]*)?\)", source)
     references = re.findall(r"(?m)^\s{0,3}\[[^\]]+\]:\s*(<[^>]+>|\S+)", source)
     for target in inline + references:
@@ -108,7 +108,7 @@ def markdown_targets(path):
 
 
 def ignored_targets(targets):
-    """Dùng chính quy tắc gitignore để phân loại cả đích chưa tồn tại."""
+    """Use the gitignore rules themselves to classify targets, including ones that do not exist yet."""
     relative = [str(path.relative_to(ROOT)) for path in targets if path.is_relative_to(ROOT)]
     if not relative:
         return set()
@@ -124,7 +124,7 @@ def ignored_targets(targets):
 
 
 def test_relative_markdown_links(record_property):
-    """Link tương đối phải tồn tại; đếm riêng lượt link bị ignore theo yêu cầu brief."""
+    """Relative links must exist; ignored links are counted separately."""
     links = [
         (source, target)
         for source in [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
@@ -137,11 +137,11 @@ def test_relative_markdown_links(record_property):
         for source, target in links
         if target not in ignored and not target.is_file()
     ]
-    assert not missing, "Link tương đối hỏng:\n" + "\n".join(missing)
+    assert not missing, "Broken relative links:\n" + "\n".join(missing)
 
 
 def test_readme_reaches_all_public_docs():
-    """Mọi Markdown công khai trong docs/ phải truy cập được từ README qua các link tài liệu."""
+    """Every public Markdown file in docs/ must be reachable from README through documentation links."""
     documents = set((ROOT / "docs").rglob("*.md"))
     public = documents - ignored_targets(documents)
     visited = set()
@@ -160,6 +160,6 @@ def test_readme_reaches_all_public_docs():
             and target not in visited
             and target not in ignored_targets({target})
         )
-    assert not (public - visited), "Thiếu link tài liệu: " + ", ".join(
+    assert not (public - visited), "Missing documentation links: " + ", ".join(
         str(path.relative_to(ROOT)) for path in sorted(public - visited)
     )

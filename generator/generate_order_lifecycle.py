@@ -1,7 +1,7 @@
-"""Sinh nguồn v2 đa dạng có seed, đệm từng ngày trên đĩa, chỉ dùng stdlib.
+"""Generate diverse seeded v2 sources, buffering each day on disk, stdlib only.
 
-Chạy ``python -m generator.generate_order_lifecycle --output DIR --orders-per-day 200
---days 10 --seed 7``. Tệp truth chỉ dành cho kiểm thử, nằm ngoài cây nguồn.
+Run ``python -m generator.generate_order_lifecycle --output DIR --orders-per-day 200
+--days 10 --seed 7``. The truth file is for testing only and lives outside the source tree.
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ from generator.generate_order_lifecycle_fixture import (
     stable_id,
 )
 
-# Mỗi line chọn đúng một kịch bản; hậu mãi và correction dùng payload fixture.
+# Each line picks exactly one scenario; after-sales and correction use fixture payloads.
 SCENARIO_WEIGHTS = {
     "delivered": 0.30,
     "partial_cancel": 0.10,
     "split_delivery": 0.12,
-    # Return ≠ Refund (ADR-0010): ca phổ biến nhất ngoài đời là trả hàng KÈM hoàn tiền.
+    # Return ≠ Refund (ADR-0010): the most common real-world case is a Return WITH a Refund.
     "return_with_refund": 0.07,
     "return_only": 0.03,
     "return_after_window": 0.07,
@@ -52,7 +52,7 @@ SCENARIO_WEIGHTS = {
     "right_censored": 0.04,
 }
 MAX_SOURCE_ROWS = 20_000_000
-# Kịch bản cho nhãn Return-or-Refund = 1 (trả/hoàn trong 30 ngày sau giao).
+# Scenarios for label Return-or-Refund = 1 (returned/refunded within 30 days of delivery).
 POSITIVE_SCENARIOS = (
     "return_with_refund",
     "return_only",
@@ -60,7 +60,7 @@ POSITIVE_SCENARIOS = (
     "refund_retry",
     "correction",
 )
-# Chỉ dùng khi sku_return_skew > 0: kênh nhãn trả trước/thử đồ dễ trả hơn (cùng chiều v1 returns.py).
+# Only used when sku_return_skew > 0: Channels with prepaid labels/try-on return more easily (same direction as v1 returns.py).
 CHANNEL_RETURN_FACTOR = {
     "amazon": 1.0,
     "tiktok_shop": 1.6,
@@ -72,7 +72,7 @@ CHANNEL_RETURN_FACTOR = {
 
 @dataclass(frozen=True)
 class ScaleConfig:
-    """Tham số bất biến; horizon là số ngày tính từ start UTC, không phải độ dài tail."""
+    """Immutable parameters; the horizon is days counted from start UTC, not the tail length."""
 
     seed: int = 7
     start: str = "2026-01-01T00:00:00.000000Z"
@@ -85,17 +85,17 @@ class ScaleConfig:
     followup_days: int = 270
     observation_days: int = 285
     native_schemas: tuple[tuple[str, int], ...] = ()
-    # 0 = nhãn không phụ thuộc gì (mặc định, giữ nguyên dữ liệu cũ). > 0: mỗi SKU có hệ số trả
-    # exp(skew·z), z ~ N(0,1) cố định theo SKU, cộng hệ số theo kênh ⇒ model có tín hiệu để học.
+    # 0 = labels depend on nothing (default, keeps old data unchanged). > 0: each SKU gets a Return factor
+    # exp(skew·z), z ~ N(0,1) fixed per SKU, plus a per-Channel factor ⇒ the model has a signal to learn.
     sku_return_skew: float = 0.0
 
     @property
     def creation_days(self):
-        """Cung cấp tên horizon dùng chung với bộ phát fixture."""
+        """Expose the horizon name shared with the fixture emitter."""
         return self.days
 
     def validate(self):
-        """Kiểm mọi giới hạn trước khi tạo thư mục hoặc phát nguồn."""
+        """Check every limit before creating directories or emitting sources."""
         for name, low, high in (
             ("days", 1, 180),
             ("orders_per_day", 1, 20000),
@@ -143,7 +143,7 @@ class ScaleConfig:
         return start
 
     def row_upper_bound(self):
-        """Chặn theo worst case 24 dòng/line, không dựa vào kỳ vọng lấy mẫu."""
+        """Bound by the worst case of 24 rows/line, not by the sampling expectation."""
         max_lines = max(i + 1 for i, weight in enumerate(self.lines_per_order) if weight > 0)
         return (
             self.days * self.orders_per_day * (24 * max_lines + 1)
@@ -153,12 +153,12 @@ class ScaleConfig:
         )
 
     def estimate(self):
-        """Ước lượng số dòng/byte từ pilot cùng renderer, tối đa 100 đơn một ngày."""
+        """Estimate rows/bytes from a pilot with the same renderer, at most 100 orders per day."""
         self.validate()
         pilot_orders = min(self.orders_per_day * self.days, 100)
         pilot = _pilot(self, pilot_orders)
         factor = self.days * self.orders_per_day / pilot_orders
-        # Mappings được phát một lần cho mỗi (Channel, SKU); kỳ vọng occupancy.
+        # Mappings are emitted once per (Channel, SKU); expected occupancy.
         mean_lines = sum((i + 1) * w for i, w in enumerate(self.lines_per_order)) / sum(
             self.lines_per_order
         )
@@ -191,12 +191,12 @@ class ScaleConfig:
 
 
 def _sku_weights(config):
-    """Trọng số Zipf theo rank ổn định, s=0 là phân phối đều."""
+    """Zipf weights by stable rank; s=0 is uniform."""
     return [rank ** (-config.sku_zipf_s) for rank in range(1, config.sku_count + 1)]
 
 
 def _params(config):
-    """Tham số tạo ID dataset; bỏ `sku_return_skew` khi = 0 để dữ liệu cũ giữ nguyên ID/byte."""
+    """Parameters for the dataset id; drop `sku_return_skew` when = 0 so old data keeps its id/bytes."""
     params = asdict(config)
     if not params["sku_return_skew"]:
         del params["sku_return_skew"]
@@ -204,14 +204,14 @@ def _params(config):
 
 
 def _scenario_weights(config, sku, channel):
-    """Trọng số kịch bản của một line: nhân nhóm dương với hệ số SKU × kênh (RNG riêng theo SKU)."""
+    """Scenario weights of a line: multiply the positive group by the SKU × Channel factor (per-SKU RNG)."""
     z = random.Random(f"{config.seed}:{sku}").gauss(0.0, 1.0)
     factor = math.exp(config.sku_return_skew * z) * CHANNEL_RETURN_FACTOR[channel]
     return tuple(w * factor if k in POSITIVE_SCENARIOS else w for k, w in SCENARIO_WEIGHTS.items())
 
 
 def _orders_by_day(config):
-    """Lấy mẫu bằng RNG riêng và chỉ giữ đơn của đúng một ngày."""
+    """Sample with a dedicated RNG and keep only the orders of exactly one day."""
     rng = random.Random(config.seed)
     start = datetime.fromisoformat(config.start.replace("Z", "+00:00"))
     population = stable_id("population", _params(config) | {"native_schemas": ()})
@@ -228,7 +228,7 @@ def _orders_by_day(config):
             lines = []
             for index in range(rng.choices((1, 2, 3, 4), config.lines_per_order)[0]):
                 if config.sku_return_skew:
-                    # Rút SKU TRƯỚC để kịch bản phụ thuộc SKU; nhánh mặc định giữ thứ tự cũ.
+                    # Draw the SKU FIRST so the scenario depends on the SKU; the default branch keeps the old order.
                     sku = f"sku-{bisect_left(sku_cdf, rng.random() * acc) + 1:05d}"
                     weights = _scenario_weights(config, sku, channel)
                     scenario = rng.choices(tuple(SCENARIO_WEIGHTS), weights)[0]
@@ -309,7 +309,7 @@ def _orders_by_day(config):
 
 
 def _pilot(config, count):
-    """Đếm chi phí lifecycle từ một mẫu nhỏ, không mở tệp hay RNG toàn cục."""
+    """Count lifecycle cost from a small sample, without opening files or a global RNG."""
     from dataclasses import replace
 
     cfg = replace(config, days=1, orders_per_day=count)
@@ -351,15 +351,15 @@ def _pilot(config, count):
 
 
 class _Files:
-    """Ghi append theo export_date với tối đa 24 handle và hash tăng dần."""
+    """Append by export_date with at most 24 handles and incremental hashing."""
 
     def __init__(self, root, dataset):
-        """Khởi tạo sổ file chưa giữ nội dung trong RAM."""
+        """Initialize the file registry without holding content in RAM."""
         self.root, self.dataset = root, dataset
         self.handles, self.entries, self.hashes = OrderedDict(), {}, {}
 
     def write(self, feed, producer, row, date):
-        """Ghi một bản ghi canonical vào đúng partition thư mục."""
+        """Write one canonical record into the right directory partition."""
         rel = f"dataset_version={self.dataset}/producer={producer}/feed={feed}/export_date={date}/part-00000.jsonl"
         if rel not in self.entries:
             path = self.root / rel
@@ -387,7 +387,7 @@ class _Files:
         self.hashes[rel].update(raw)
 
     def finish(self):
-        """Đóng mọi handle và trả metadata đã chốt hash."""
+        """Close every handle and return metadata with finalized hashes."""
         for handle in self.handles.values():
             handle.close()
         self.handles.clear()
@@ -398,7 +398,7 @@ class _Files:
 
 
 def _prepare_day(e, orders, config, start, first=False, last=False):
-    """Dùng renderer chung, truyền trễ quan sát và bảo toàn causal known-time."""
+    """Use the shared renderer, pass the observation delay and preserve causal known-time."""
     e.world["orders"] = orders
     _emit_sources(
         e,
@@ -452,7 +452,7 @@ def _prepare_day(e, orders, config, start, first=False, last=False):
 
 
 def _native_scaled(order, version, index):
-    """Tái dùng native renderer và override giống fixture, cập nhật tổng tiền theo line."""
+    """Reuse the native renderer and fixture-like overrides, updating totals per line."""
     channel = order["channel"]
     row = _native(order, version if channel == "amazon" else 1)
     total = f"{len(order['lines']) * 300}.00"
@@ -473,7 +473,7 @@ def _native_scaled(order, version, index):
 
 
 def _array_hash(strings):
-    """Hash JSON array canonical qua iterator đã sắp xếp, không collect toàn tập."""
+    """Hash a canonical JSON array through a sorted iterator without collecting the whole set."""
     h = hashlib.sha256(b"[")
     for index, raw in enumerate(strings):
         if index:
@@ -484,10 +484,10 @@ def _array_hash(strings):
 
 
 def _scale_identity(config, parameters):
-    """Pass đầu chỉ hash world từng ngày; không phụ thuộc schema renderer hay đồng hồ máy.
+    """The first pass only hashes the world day by day; independent of renderer schema and machine clock.
 
-    Trả (physical_sha, intent_sha, world_id, identity, dataset). `dataset` là hash của
-    `identity`, gồm cả hash mã generator: sửa code là ra dataset_version mới.
+    Return (physical_sha, intent_sha, world_id, identity, dataset). `dataset` is the hash of
+    `identity`, which includes the generator code hash: changing the code yields a new dataset_version.
     """
     physical = hashlib.sha256()
     intents = hashlib.sha256()
@@ -504,7 +504,7 @@ def _scale_identity(config, parameters):
         "contract_sha256": hashlib.sha256(
             (
                 Path(__file__).parents[1]
-                / "docs/edai-1/reference/source_contract_order_lifecycle.md"
+                / "docs/data-platform/reference/source_contract_order_lifecycle.md"
             ).read_bytes()
         ).hexdigest(),
         "source_profiles": PROFILES,
@@ -529,7 +529,7 @@ def _scale_identity(config, parameters):
 
 
 def _open_spool(spool):
-    """SQLite tạm giữ mọi sự kiện trên đĩa để sắp lại theo known-time mà không giữ trong RAM."""
+    """Temporary SQLite holding every event on disk to re-sort by known-time without keeping it in RAM."""
     db = sqlite3.connect(str(Path(spool) / "events.sqlite"))
     db.execute("PRAGMA journal_mode=OFF")
     db.execute("PRAGMA synchronous=OFF")
@@ -556,9 +556,9 @@ def _spool_day(
     counts,
     native_ids,
 ):
-    """Một ngày đặt hàng: sự kiện vào spool, uncertainty + đơn native ghi thẳng, oracle vào truth.
+    """One order day: events go to the spool, uncertainty + native orders are written directly, the oracle goes to truth.
 
-    Trả (cohort của ngày, độ trễ quan sát lớn nhất trong ngày, tính bằng giây).
+    Return (the day's cohort, the day's largest observation delay in seconds).
     """
     max_delay = 0
     rows = _prepare_day(e, orders, config, start, first=day == 0, last=day == config.days - 1)
@@ -653,7 +653,7 @@ def _spool_day(
 
 
 def _write_sequenced_events(db, writer):
-    """Sắp lại theo known-time trên đĩa; producer sequence liên tục, toàn cục."""
+    """Re-sort by known-time on disk; the producer sequence is contiguous and global."""
     db.execute("CREATE INDEX observation_order ON events(producer,observed)")
     sequences = Counter()
     for rowid, raw in db.execute("SELECT rowid,raw FROM events ORDER BY producer,observed,rowid"):
@@ -672,14 +672,14 @@ def _write_sequenced_events(db, writer):
 def _week_coverage(
     db, feed, producer, profile, capability, scope, week, config, start, dataset, world_id, recorded
 ):
-    """Coverage `complete` cho một feed trong một tuần sự kiện `[begin, end)` (ADR-0013)."""
+    """Coverage `complete` for one feed over one event week `[begin, end)` (ADR-0013)."""
     begin = _stamp(start + timedelta(days=week))
     end = _stamp(start + timedelta(days=min(week + 7, config.followup_days)))
     params = (feed, begin, end)
     last_observed = db.execute(
         "SELECT max(observed) FROM events WHERE feed=? AND effective>=? AND effective<?", params
     ).fetchone()[0]
-    # Đóng sau cuối tuần ít nhất 1 ngày, hoặc sau dòng trễ cuối cùng 1µs.
+    # Close at least 1 day after the week ends, or 1µs after the last late row.
     observed = datetime.fromisoformat(end.replace("Z", "+00:00")) + timedelta(days=1)
     if last_observed:
         observed = max(
@@ -730,9 +730,9 @@ def _week_coverage(
 
 
 def _write_coverage(db, writer, config, start, horizons, dataset, world_id, recorded):
-    """Ghi coverage theo tuần cho mọi feed nghiệp vụ; trả danh sách authority cho manifest.
+    """Write weekly coverage for every business feed; return the authority list for the manifest.
 
-    Feed mà pool do Channel quản lý không có quyền vận hành thì thêm một coverage `unavailable`.
+    Feeds whose pool is Channel-managed have no operational authority, so they get an `unavailable` coverage.
     """
     db.execute("CREATE INDEX feed_interval ON events(feed,effective)")
     authority = []
@@ -757,7 +757,7 @@ def _write_coverage(db, writer, config, start, horizons, dataset, world_id, reco
                 "valid_to": horizons["source_observation_end"],
             }
         )
-        # Mỗi dòng chỉ thuộc một tuần; index đĩa giữ tổng tập hash tuyến tính.
+        # Each row belongs to exactly one week; the on-disk index keeps total hashing linear.
         for week in range(0, config.followup_days, 7):
             cov = _week_coverage(
                 db,
@@ -820,7 +820,7 @@ def _write_coverage(db, writer, config, start, horizons, dataset, world_id, reco
 
 
 def _add_empty_feed_files(root, dataset, horizons, files):
-    """Feed trống vẫn phải có file cho profile/consumer discovery."""
+    """Empty feeds still need a file for profile/consumer discovery."""
     for feed in list(FEEDS) + ["source.uncertainties"] + [c + ".orders" for c in CHANNELS]:
         if not any(f["feed"] == feed for f in files):
             producer = (
@@ -851,7 +851,7 @@ def _add_empty_feed_files(root, dataset, horizons, files):
 
 
 def _native_sources(files, native_ids, config, horizons):
-    """Mô tả snapshot native từng Channel cho manifest: Walmart qua JDBC, còn lại qua file."""
+    """Describe each Channel's native snapshot for the manifest: Walmart via JDBC, the rest via files."""
     native_sources = {}
     for channel in CHANNELS:
         channel_files = [f for f in files if f["feed"] == channel + ".orders"]
@@ -873,7 +873,7 @@ def _native_sources(files, native_ids, config, horizons):
 
 
 def _file_sha256(path):
-    """SHA-256 của một file, đọc từng MiB để không giữ cả file trong RAM."""
+    """SHA-256 of a file, read one MiB at a time to avoid holding the whole file in RAM."""
     sha = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -882,10 +882,10 @@ def _file_sha256(path):
 
 
 def generate_scaled(output_root, config: ScaleConfig):
-    """Xuất bộ nguồn scale vào thư mục mới, truth riêng, không dịch vụ hay mạng.
+    """Export the scaled source set into a new directory, truth kept separate, no services or network.
 
-    Các bước: hash world → từng ngày đẩy sự kiện vào spool SQLite → sắp lại theo known-time
-    và đánh sequence → coverage theo tuần → file rỗng cho feed trống → manifest.
+    Steps: hash the world → push each day's events into the SQLite spool → re-sort by known-time
+    and assign sequence → weekly coverage → empty files for empty feeds → manifest.
     """
     began = time.perf_counter()
     start = config.validate()
@@ -903,7 +903,7 @@ def generate_scaled(output_root, config: ScaleConfig):
         "lifecycle_followup_end": _stamp(start + timedelta(days=config.followup_days)),
         "source_observation_end": _stamp(start + timedelta(days=config.observation_days)),
     }
-    # Đồng hồ đóng băng của export nguồn; thời gian chạy thật chỉ nằm trên manifest.
+    # Frozen clock of the source export; real run time only appears in the manifest.
     recorded = horizons["source_observation_end"]
     root.mkdir(parents=True, exist_ok=False)
     writer = _Files(root, dataset)
@@ -1020,7 +1020,7 @@ def generate_scaled(output_root, config: ScaleConfig):
 
 
 def main():
-    """CLI in estimate trước khi sinh và chỉ ghi vào thư mục mới."""
+    """CLI that prints the estimate before generating and only writes to a new directory."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--orders-per-day", type=int, required=True)

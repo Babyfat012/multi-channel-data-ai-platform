@@ -1,5 +1,5 @@
-# Grafana (chart grafana/grafana 10.5.15): một chỗ xem số đo (Prometheus), log (Loki) và trace (Jaeger).
-# Mật khẩu admin trong Secret grafana-admin (tạo bởi scripts/setup/deploy_kind_observability.sh, không vào Git).
+# Grafana (chart grafana/grafana 10.5.15): one place to view metrics (Prometheus), logs (Loki) and traces (Jaeger).
+# Admin password in Secret grafana-admin (created by scripts/setup/deploy_kind_observability.sh, not in Git).
 admin:
   existingSecret: grafana-admin
   userKey: admin-user
@@ -23,8 +23,8 @@ dashboardProviders:
       - {name: platform, folder: PLATFORM, type: file, disableDeletion: true, options: {path: /var/lib/grafana/dashboards/platform}}
 dashboardsConfigMaps:
   platform: grafana-dashboards-platform
-# Ingress đã có basic auth (user ops) ⇒ header Authorization: Basic tới tận Grafana. Tắt basic auth của Grafana
-# để nó không hiểu nhầm đó là tài khoản Grafana (401); đăng nhập Grafana bằng form như thường.
+# The Ingress already has basic auth (user ops) ⇒ an Authorization: Basic header reaches Grafana. Disable Grafana's basic auth
+# so it does not mistake that for a Grafana account (401); log in to Grafana via the form as usual.
 grafana.ini:
   auth.basic:
     enabled: false

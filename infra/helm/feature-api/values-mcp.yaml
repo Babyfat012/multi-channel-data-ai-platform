@@ -1,7 +1,7 @@
-# Release feature-mcp: MCP server pod riêng, cùng image/code với Feature API, chỉ phơi /mcp/ (+ probe, /metrics).
-# Đặt SAU values-aws.yaml: dùng lại ServiceAccount feature-api (Pod Identity đọc S3) thay vì tạo trùng tên.
+# Release feature-mcp: dedicated MCP server pod, same image/code as the Feature API, exposes only /mcp/ (+ probes, /metrics).
+# Place AFTER values-aws.yaml: reuses the feature-api ServiceAccount (Pod Identity reads S3) instead of creating a duplicate name.
 surface: mcp
 service:
-  type: ClusterIP   # chỉ agentgateway gọi trong cluster; không NodePort/ingress
+  type: ClusterIP   # only agentgateway calls it inside the cluster; no NodePort/ingress
 serviceAccount:
   create: false

@@ -1,9 +1,9 @@
-# Cụm k8s local cho ML Platform (1 node, image node mặc định của kind đang cài). Tên node: platform-control-plane.
-# Airflow/Spark trong Compose gọi vào qua NodePort sau khi nối node vào mạng platform_default.
+# Local k8s cluster for the ML Platform (1 node, default node image of the installed kind). Node name: platform-control-plane.
+# Airflow/Spark in Compose call in via NodePort after the node is joined to the platform_default network.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: platform
-# Registry local (scripts/setup/setup_kind_registry.sh): containerd đọc hosts.toml trong certs.d.
+# Local registry (scripts/setup/setup_kind_registry.sh): containerd reads hosts.toml in certs.d.
 containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri".registry]

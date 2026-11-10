@@ -1,11 +1,11 @@
-# Prometheus tối giản cho kind local (chart prometheus-community/prometheus 29.36.2): chỉ server, giữ 6 giờ.
-# Lấy số liệu từ pod có annotation prometheus.io/scrape (agentgateway, llama.cpp, Feature API) cho KEDA và Grafana.
+# Minimal Prometheus for local kind (chart prometheus-community/prometheus 29.36.2): server only, 6-hour retention.
+# Scrapes pods annotated prometheus.io/scrape (agentgateway, llama.cpp, Feature API) for KEDA and Grafana.
 alertmanager: {enabled: false}
 prometheus-pushgateway: {enabled: false}
 prometheus-node-exporter: {enabled: false}
 kube-state-metrics: {enabled: false}
-# Sidecar nạp lại config khi ConfigMap đổi. Tắt thì `helm upgrade` đổi target mà Prometheus vẫn chạy config cũ
-# (30/10: vẫn scrape IP EC2 cũ 10.42.0.12 suốt 13 giờ sau khi values đã trỏ 10.42.0.151).
+# Sidecar reloads config when the ConfigMap changes. Without it, `helm upgrade` changes targets but Prometheus keeps the old config
+# (30/10: kept scraping old EC2 IP 10.42.0.12 for 13 hours after values pointed to 10.42.0.151).
 configmapReload:
   prometheus:
     enabled: true

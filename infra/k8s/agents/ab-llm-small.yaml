@@ -1,6 +1,6 @@
-# A/B: nhánh B = LLM nhỏ hơn (Qwen2.5-0.5B Q4) cùng image llama.cpp với nhánh A
-# (qwen, 1.5B). agentgateway chia traffic theo trọng số giữa hai bản (virtual model `platform-chat`).
-# PVC riêng: PVC `models` là RWO và đang gắn vào pod qwen. Scale về 0 khi xong để trả RAM.
+# A/B: branch B = a smaller LLM (Qwen2.5-0.5B Q4) on the same llama.cpp image as branch A
+# (qwen, 1.5B). agentgateway splits traffic by weight between the two (virtual model `platform-chat`).
+# Separate PVC: PVC `models` is RWO and attached to the qwen pod. Scale to 0 when done to free RAM.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -31,7 +31,7 @@ spec:
       containers:
         - name: llama
           image: ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312  # build b11749
-          # Cùng cấu hình đã benchmark của nhánh A để so công bằng; chỉ khác model.
+          # Same benchmarked configuration as branch A for a fair comparison; only the model differs.
           args: ["-hf", "Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M", "--alias", "qwen2.5-0.5b-instruct",
                  "--host", "0.0.0.0", "--port", "8080", "--ctx-size", "8192", "--threads", "4",
                  "--parallel", "2", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0",

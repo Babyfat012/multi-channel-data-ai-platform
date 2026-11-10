@@ -1,10 +1,10 @@
-"""Kiểm thử hợp đồng dữ liệu qua giao diện Python công khai."""
+"""Test data contracts through the public Python interface."""
 
 from spark_jobs.lib.data_contracts.schema import infer_schema, required_json_paths, validate_record
 
 
 def test_infer_and_validate():
-    """Phân biệt trường chung, trường tùy chọn và hợp kiểu lồng nhau."""
+    """Distinguish common fields, optional fields and nested type unions."""
     schema = infer_schema(
         [{"a": 1, "items": [{"id": "x"}], "note": "hi"}, {"a": None, "items": [{"id": "y"}]}]
     )
@@ -16,7 +16,7 @@ def test_infer_and_validate():
 
 
 def test_compatibility_rename_and_optional():
-    """Đổi tên có giải thích vẫn phá vỡ; thêm tùy chọn tương thích."""
+    """An explained rename still breaks; adding an optional field is compatible."""
     from spark_jobs.lib.data_contracts.compat import diff, verdict
 
     old = infer_schema([{"order_sn": "a", "items": [{"model_sku": "x"}]}])
@@ -44,7 +44,7 @@ def test_compatibility_rename_and_optional():
 
 
 def test_generator_overrides_manifest(tmp_path):
-    """Override khai đúng schema từng Channel trong manifest."""
+    """The override declares the right schema for each Channel in the manifest."""
     from generator.generate_order_lifecycle_fixture import generate_fixture
 
     manifest = generate_fixture(
@@ -55,7 +55,7 @@ def test_generator_overrides_manifest(tmp_path):
 
 
 def test_registry_and_gate(tmp_path):
-    """Ba fixture kiểm cổng và luật parser khi đăng ký schema phá vỡ."""
+    """Three fixtures check the gate and the parser rule when registering a breaking schema."""
     import json
     import shutil
 
@@ -103,7 +103,7 @@ def test_registry_and_gate(tmp_path):
 
 
 def test_schema_validates_all_items_and_json_types():
-    """Boolean không phải integer; validator phát hiện cả phần tử thứ hai."""
+    """Boolean is not integer; the validator also catches the second element."""
     schema = {
         "type": "object",
         "required": ["n", "rows"],
@@ -127,7 +127,7 @@ def test_schema_validates_all_items_and_json_types():
 
 
 def test_compatibility_modes_required_transitions_and_types():
-    """Kiểm đủ bốn mode, đổi kiểu và hai hướng đổi required."""
+    """Check all four modes, type changes and both directions of required changes."""
     from spark_jobs.lib.data_contracts.compat import diff, verdict
 
     old = {"type": "object", "properties": {"a": {"type": "string"}}, "required": []}
@@ -144,7 +144,7 @@ def test_compatibility_modes_required_transitions_and_types():
 
 
 def test_gate_reason_precedence_and_full_validation(tmp_path):
-    """Nhãn lạ trước parser; parser null trước validation; parser có mới kiểm hợp đồng."""
+    """Unknown label before parser; null parser before validation; only a known parser checks the contract."""
     import json
 
     from generator.generate_order_lifecycle_fixture import generate_fixture
@@ -169,7 +169,7 @@ def test_gate_reason_precedence_and_full_validation(tmp_path):
 
 
 def test_cli_rejects_registry_with_reused_breaking_parser(tmp_path):
-    """Mã exit check-registry khác 0 và chỉ ra trường đổi tên."""
+    """check-registry exits non-zero and points to the renamed field."""
     import json
     import shutil
     import subprocess
@@ -211,7 +211,7 @@ def test_cli_rejects_registry_with_reused_breaking_parser(tmp_path):
 
 
 def test_registry_identity_paths(tmp_path):
-    """Định danh native nằm trong registry; metadata sai bị check-registry từ chối."""
+    """Native identity lives in the registry; bad metadata is rejected by check-registry."""
     import json
     import shutil
 
@@ -219,7 +219,7 @@ def test_registry_identity_paths(tmp_path):
 
     registry = Registry("contracts")
     native = [entry for sid, entry in registry.entries.items() if sid.startswith("sim-native-v2/")]
-    assert len(native) == 7  # Sáu schema gốc và TikTok /2 dùng cùng định danh.
+    assert len(native) == 7  # Six original schemas plus TikTok /2 sharing the same identity.
     assert all(entry["identity_path"].startswith("$.") for entry in native)
     target = tmp_path / "contracts"
     shutil.copytree("contracts", target)
@@ -238,7 +238,7 @@ def test_registry_identity_paths(tmp_path):
 
 
 def test_contracts_directory_precedence(tmp_path, monkeypatch, capsys):
-    """Cờ thắng env, env thắng Docker, Docker tồn tại thắng repo, không phụ thuộc cwd."""
+    """Flag beats env, env beats Docker, an existing Docker path beats the repo, independent of cwd."""
     import shutil
     from pathlib import Path
 
@@ -265,7 +265,7 @@ def test_contracts_directory_precedence(tmp_path, monkeypatch, capsys):
 
 
 def test_cli_gate_uses_contracts_directory_precedence(tmp_path, monkeypatch, capsys):
-    """Lệnh gate dùng cùng resolver như check-registry và Registry trực tiếp."""
+    """The gate command uses the same resolver as check-registry and Registry directly."""
     import json
     import shutil
     from pathlib import Path

@@ -10,7 +10,7 @@ from tests.unit.generator.channels.test_amazon import _orders_of
 
 
 def test_walmart_row_has_payload_and_fetched_at(tiny_config):
-    """Chứng minh bản ghi Walmart chỉ có 3 cột, khóa bằng `purchaseOrderId`, và payload mang trạng thái Delivered kèm tracking."""
+    """Prove a Walmart record has only 3 columns, is keyed by `purchaseOrderId`, and the payload carries the Delivered status with tracking."""
     renderer = WalmartOrdersRenderer(tiny_config)
     delivered = [o for o in _orders_of(tiny_config, "walmart", days=range(1, 6)) if o.delivered_at]
     order = delivered[0]
@@ -36,6 +36,6 @@ def test_walmart_row_has_payload_and_fetched_at(tiny_config):
     ],
 )
 def test_walmart_tracking_number_matches_carrier(tiny_config, carrier, pattern):
-    """Chứng minh mã vận đơn Walmart khớp định dạng của từng hãng vận chuyển."""
+    """Prove Walmart tracking numbers match each carrier's format."""
     renderer = WalmartOrdersRenderer(tiny_config)
     assert re.fullmatch(pattern, renderer.tracking_number(carrier, "1445238308495"))

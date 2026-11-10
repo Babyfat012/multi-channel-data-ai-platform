@@ -1,4 +1,4 @@
--- Nguồn v2 bounded; render placeholder bằng scripts/run/render_order_lifecycle_stream.py trước khi chạy.
+-- Bounded v2 source; render placeholders with scripts/run/render_order_lifecycle_stream.py before running.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'order-lifecycle-stream-@@JOB@@-@@EPOCH@@';
@@ -36,8 +36,8 @@ SELECT *, CAST(CAST(kafka_headers['epoch'] AS STRING) AS BIGINT) AS epoch
 FROM lifecycle_source;
 CREATE TABLE routed (topic STRING, epoch BIGINT, `partition` INT, kafka_offset BIGINT, record_sha256 STRING, entity_id STRING, entity_revision BIGINT, route STRING) PARTITIONED BY (route) WITH ('connector'='filesystem', 'path'='file:///opt/flink/output/order_lifecycle/late/@@EPOCH@@/routes', 'format'='json');
 
--- Một lần phân loại, một sink chia hai thư mục route=main và route=late.
--- NULL watermark vẫn vào main; không làm mất record lúc startup.
+-- One classification, one sink split into two directories route=main and route=late.
+-- A NULL watermark still goes to main; no records are lost at startup.
 INSERT INTO routed
 SELECT topic, epoch, kafka_partition, kafka_offset, record_sha256, entity_id, entity_revision,
  CASE WHEN event_ts <= CURRENT_WATERMARK(event_ts) THEN 'late' ELSE 'main' END

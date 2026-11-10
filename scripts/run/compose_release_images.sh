@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Sinh override Compose: các service deploy kéo đúng TAG đã phát hành trong stage Push.
+# Generate a Compose override: deployed services pull exactly the TAG released in the Push stage.
 set -euo pipefail
-: "${TAG:?đặt TAG bất biến}"
+: "${TAG:?set an immutable TAG}"
 [[ "$TAG" != latest ]] || exit 1
 REGISTRY=${REGISTRY:-localhost:5001}
 printf 'services:\n'

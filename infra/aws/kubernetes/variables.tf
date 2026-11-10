@@ -1,4 +1,4 @@
-# Đầu vào phải được chốt theo tài khoản/quota/ngân sách thực trước khi lập plan.
+# Inputs must be settled against the real account/quota/budget before planning.
 variable "region" {
   type    = string
   default = "ap-southeast-1"
@@ -10,41 +10,41 @@ variable "name_prefix" {
 }
 
 variable "data_platform_state" {
-  description = "Đường dẫn state local sau apply root ../terraform với mạng hai AZ đã bật. Không commit state."
+  description = "Local state path after applying the ../terraform root with the two-AZ network enabled. Do not commit state."
   type        = string
 }
 
 variable "kubernetes_version" {
-  description = "Chọn bản EKS đang được AWS hỗ trợ tại region triển khai; không tự chọn theo phiên bản kind local."
+  description = "Pick an EKS version AWS supports in the deployment region; do not pick it from the local kind version."
   type        = string
 }
 
 variable "admin_role_arn" {
-  description = "IAM role thường trực dùng để quản trị EKS, không dùng STS assumed-role session ARN."
+  description = "Long-lived IAM role used to administer EKS; not an STS assumed-role session ARN."
   type        = string
   validation {
     condition     = can(regex("^arn:aws:iam::[0-9]{12}:role/.+", var.admin_role_arn))
-    error_message = "admin_role_arn phải là IAM role ARN."
+    error_message = "admin_role_arn must be an IAM role ARN."
   }
 }
 
 variable "api_allowed_cidrs" {
-  description = "IP egress của máy quản trị/CI, ví dụ IPv4/32; endpoint private luôn bật cho node."
+  description = "Egress IP of the admin/CI machine, e.g. IPv4/32; the private endpoint is always on for nodes."
   type        = list(string)
   validation {
     condition = length(var.api_allowed_cidrs) > 0 && alltrue([
       for c in var.api_allowed_cidrs : can(cidrnetmask(c)) && try(tonumber(split("/", c)[1]) >= 24, false)
     ])
-    error_message = "Cần CIDR IPv4 cụ thể /24 hoặc hẹp hơn; không dùng 0.0.0.0/0."
+    error_message = "Requires a specific IPv4 CIDR of /24 or narrower; 0.0.0.0/0 is not allowed."
   }
 }
 
 variable "node_instance_types" {
-  description = "Các instance x86_64 cùng cỡ tài nguyên; đối chiếu quota và giá thực trước khi điền."
+  description = "x86_64 instance types of the same resource size; check quota and real prices before filling in."
   type        = list(string)
   validation {
     condition     = length(var.node_instance_types) > 0
-    error_message = "Chọn ít nhất một loại node."
+    error_message = "Pick at least one node type."
   }
 }
 
@@ -53,7 +53,7 @@ variable "node_desired_size" {
   default = 1
   validation {
     condition     = var.node_desired_size >= 0 && floor(var.node_desired_size) == var.node_desired_size
-    error_message = "node_desired_size phải là số nguyên >= 0; 0 dành cho tạm nghỉ workload."
+    error_message = "node_desired_size must be an integer >= 0; 0 pauses workloads."
   }
 }
 
@@ -62,22 +62,22 @@ variable "node_min_size" {
   default = 1
   validation {
     condition     = var.node_min_size >= 0 && floor(var.node_min_size) == var.node_min_size
-    error_message = "node_min_size phải là số nguyên >= 0."
+    error_message = "node_min_size must be an integer >= 0."
   }
 }
 
 variable "node_update_strategy" {
-  description = "DEFAULT tạo node thay thế trước; MINIMAL giảm peak CPU quota nhưng có thể gián đoạn workload."
+  description = "DEFAULT creates the replacement node first; MINIMAL lowers peak CPU quota but may interrupt workloads."
   type        = string
   default     = "DEFAULT"
   validation {
     condition     = contains(["DEFAULT", "MINIMAL"], var.node_update_strategy)
-    error_message = "Chọn DEFAULT hoặc MINIMAL."
+    error_message = "Pick DEFAULT or MINIMAL."
   }
 }
 
 variable "single_az_workers" {
-  description = "Một worker tiết kiệm: giữ AZ cố định để PVC EBS vẫn dùng được sau scale-to-zero/resume. Control plane vẫn hai AZ."
+  description = "Budget single worker: pin the AZ so EBS PVCs stay usable after scale-to-zero/resume. The control plane still spans two AZs."
   type        = bool
   default     = false
 }
@@ -93,11 +93,11 @@ variable "node_disk_gb" {
 }
 
 variable "data_service_ports" {
-  description = "Chỉ các cổng EC2 được mở từ SG của cluster. Mặc định chỉ PostgreSQL và Lakekeeper."
+  description = "Only these EC2 ports are opened from the cluster SG. Default: PostgreSQL and Lakekeeper only."
   type        = set(number)
   default     = [5432, 8181]
   validation {
     condition     = alltrue([for p in var.data_service_ports : contains([5432, 8181, 5050, 8200, 9100, 9187], p)])
-    error_message = "Chỉ cho phép PostgreSQL, Lakekeeper, MLflow, Vault hoặc exporter (9100/9187); không mở UI/SSH công khai."
+    error_message = "Only PostgreSQL, Lakekeeper, MLflow, Vault or exporters (9100/9187) are allowed; no public UI/SSH."
   }
 }

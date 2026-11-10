@@ -1,4 +1,4 @@
-"""Cổng fixture thuần Python: kiểm mọi dòng và mọi phần tử mảng."""
+"""Pure-Python fixture gate: checks every row and every array element."""
 
 import json
 from collections import Counter
@@ -9,7 +9,7 @@ from spark_jobs.lib.data_contracts.schema import validate_record
 
 
 def gate_root(root, registry):
-    """Theo manifest, ưu tiên nhãn trong dòng; cách ly không làm dừng feed khác."""
+    """Follow the manifest, preferring the label in the row; quarantine does not stop other feeds."""
     root = Path(root)
     manifest = json.loads((root / "manifest.json").read_text())
     files = []

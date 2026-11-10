@@ -1,4 +1,4 @@
-"""Harness Spark local + PostgreSQL 16 thật; chỉ chạy trên một DB tạm trống."""
+"""Harness with local Spark + real PostgreSQL 16; runs only against an empty temporary DB."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ os.environ["PLATFORM_CONTRACTS_DIR"] = str(ROOT / "contracts")
 
 
 def serving(cur):
-    """Chụp toàn bộ giá trị phục vụ, không chỉ count hoặc tiền."""
+    """Capture every serving value, not only counts or money."""
     from spark_jobs.lib.order_lifecycle_warehouse import TABLES
 
     result = {}
@@ -30,7 +30,7 @@ def serving(cur):
 
 
 def corrupt_money(cur, name, stage):
-    """Tiêm lệch một minor unit vào từng dòng staging, không sửa Gold expected."""
+    """Inject a one-minor-unit drift into each staging row, without changing the expected Gold."""
     if name == "fact_order_lines":
         cur.execute(
             f"UPDATE warehouse_lifecycle.{stage} SET headline_product_net_minor=headline_product_net_minor+1"
@@ -38,7 +38,7 @@ def corrupt_money(cur, name, stage):
 
 
 def main():
-    """Kiểm load đầu, chặn tiền lệch, rollback DDL giữa swap, swap lần hai và index."""
+    """Check the first load, blocking money drift, DDL rollback mid-swap, a second swap and indexes."""
     from pyspark.sql import SparkSession
     from pyspark.sql import functions as F
 
@@ -50,7 +50,7 @@ def main():
     dsn = os.environ["WAREHOUSE_TEST_DSN"]
     parsed = urlparse(dsn)
     if parsed.scheme not in ("postgresql", "postgres"):
-        raise ValueError("WAREHOUSE_TEST_DSN phải là URI postgresql://user:password@host:port/db")
+        raise ValueError("WAREHOUSE_TEST_DSN must be a postgresql://user:password@host:port/db URI")
     jdbc = {
         "url": f"jdbc:postgresql://{parsed.hostname}:{parsed.port or 5432}/{parsed.path.lstrip('/')}",
         "user": unquote(parsed.username or ""),
@@ -61,7 +61,9 @@ def main():
     with conn.cursor() as cur:
         cur.execute("SELECT to_regnamespace('warehouse_lifecycle')")
         if cur.fetchone()[0] is not None:
-            raise ValueError("Harness chỉ nhận DB tạm chưa có schema warehouse_lifecycle")
+            raise ValueError(
+                "The harness only accepts a temporary DB without the warehouse_lifecycle schema"
+            )
     with tempfile.TemporaryDirectory(prefix="warehouse-v2-") as tmp:
         work = Path(tmp)
         generate_fixture(work / "source")
@@ -78,8 +80,8 @@ def main():
             bronze = bronze_from_root(spark, str(work / "source"), "warehouse-test")
             silver = build_silver(bronze=bronze)
             gold = build_gold(silver=silver, cutoff="2026-06-01T00:00:00Z", run_id="load-one")
-            # Ghi Gold ra Parquet rồi đọc lại, như job 25 đọc bảng Iceberg đã ghi: bốn lần export
-            # trên lineage Gold chưa vật chất hóa làm local[1] 3g thiếu bộ nhớ.
+            # Write Gold to Parquet and read it back, like the export job reads the written Iceberg table: four exports
+            # on an unmaterialized Gold lineage run local[1] 3g out of memory.
             frames = {}
             for name in TABLES:
                 gold["label_return_v2" if name == "label_return" else name].write.parquet(
@@ -116,7 +118,7 @@ def main():
                     jdbc,
                     stage_transform=corrupt_money,
                 )
-                raise AssertionError("Load sai tiền không bị chặn")
+                raise AssertionError("Load with wrong money was not blocked")
             except ValueError:
                 pass
             receipt = json.loads((work / "bad.json").read_text())

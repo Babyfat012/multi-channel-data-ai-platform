@@ -1,7 +1,7 @@
-"""Spark regression cho Bronze/Silver nguồn v2 (gói C); chạy trong image Airflow đã cache.
+"""Spark regression for Bronze/Silver of the v2 source (package C); runs in the cached Airflow image.
 
-Không dùng Kafka/Iceberg/catalog/volume dự án. Mỗi lần chạy sinh một fixture v2 mới
-trong /tmp bằng generator.generate_order_lifecycle_fixture, rồi kiểm DataFrame logic của
+Uses no Kafka/Iceberg/catalog/project volume. Each run generates a fresh v2 fixture
+in /tmp with generator.generate_order_lifecycle_fixture, then checks the DataFrame logic of
 spark_jobs/lib/order_lifecycle_lakehouse.py:
 
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
@@ -31,16 +31,16 @@ from generator.generate_order_lifecycle_fixture import generate_fixture
 os.environ["PLATFORM_CONTRACTS_DIR"] = str(ROOT / "contracts")
 import spark_jobs.lib.order_lifecycle_lakehouse as v2
 
-# Ngày 40 kể từ 2026-01-01: sau khi refund mơ hồ được quan sát, trước correction (ngày 43).
+# Day 40 from 2026-01-01: after the ambiguous Refund is observed, before the correction (day 43).
 BEFORE_REFUND_CORRECTION = "2026-02-10T00:00:00.000000Z"
 
 
 class SourceV2LakehouseTests(unittest.TestCase):
-    """Kiểm logic Bronze/Silver v2 trên DataFrame từ fixture nguồn cục bộ."""
+    """Check Bronze/Silver v2 logic on DataFrames from a local source fixture."""
 
     @classmethod
     def setUpClass(cls):
-        """Khởi tạo Spark local và fixture v2 dùng chung cho bộ kiểm."""
+        """Start local Spark and the shared v2 fixture for the suite."""
         cls.tmp = Path(tempfile.mkdtemp(prefix="platform-v2-"))
         cls.root = cls.tmp / "fixture"
         cls.manifest = generate_fixture(cls.root)
@@ -59,22 +59,22 @@ class SourceV2LakehouseTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        """Dừng Spark và dọn fixture tạm sau bộ kiểm."""
+        """Stop Spark and clean up the temporary fixture after the suite."""
         cls.spark.stop()
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def source_files(self):
-        """Lấy danh sách file của feed từ manifest fixture."""
+        """Get the feed file list from the fixture manifest."""
         return [f for f in self.manifest["files"] if f["role"] == "source"]
 
     # ---------- Bronze ----------
     def test_bronze_keeps_every_emitted_line(self):
-        """Kiểm Bronze giữ mọi dòng đã phát ra từ nguồn."""
+        """Check Bronze keeps every line emitted by the source."""
         expected = sum(f["rows"] for f in self.source_files())
         self.assertEqual(self.bronze.count(), expected)
 
     def test_bronze_path_columns_match_manifest(self):
-        """Kiểm cột đường dẫn Bronze khớp manifest nguồn."""
+        """Check Bronze path columns match the source manifest."""
         got = {
             (r["producer"], r["feed"]): r["n"]
             for r in self.bronze.groupBy("producer", "feed").agg(F.count("*").alias("n")).collect()
@@ -86,14 +86,14 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(got, want)
 
     def test_bronze_record_hash_matches_file_bytes(self):
-        """Kiểm hash bản ghi Bronze khớp byte file nguồn."""
+        """Check the Bronze record hash matches the source file bytes."""
         row = self.bronze.filter(F.col("feed") == "seller_wms.stock_operations").first()
         import hashlib
 
         self.assertEqual(row["record_sha256"], hashlib.sha256(row["raw_json"].encode()).hexdigest())
 
     def test_fact_hash_ignores_execution_recorded_at(self):
-        """Kiểm fact hash không phụ thuộc recorded_at của lần thực thi."""
+        """Check the fact hash does not depend on the execution's recorded_at."""
         row = self.bronze.filter(F.col("feed") == "seller_oms.line_commitments").first()["raw_json"]
         other = json.loads(row)
         other["recorded_at"] = "2099-01-01T00:00:00.000000Z"
@@ -105,13 +105,13 @@ class SourceV2LakehouseTests(unittest.TestCase):
 
     # ---------- Silver: event identity ----------
     def test_clean_fixture_reconciles(self):
-        """Kiểm fixture sạch đối soát thành công."""
+        """Check the clean fixture reconciles successfully."""
         result = v2.reconcile(self.silver)
         failures = {k: v for k, v in result["checks"].items() if v}
         self.assertEqual(failures, {}, result)
 
     def test_retry_duplicate_is_dropped_not_counted_twice(self):
-        """Kiểm retry trùng được loại bỏ và không bị đếm hai lần."""
+        """Check a duplicate retry is dropped and not counted twice."""
         dup = self.bronze.filter(F.col("feed") == "seller_oms.line_commitments").limit(1)
         silver = v2.build_silver(self.bronze.unionByName(dup))
         self.assertEqual(silver["events"].count(), self.silver["events"].count())
@@ -119,7 +119,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(v2.reconcile(silver)["checks"]["event_conflicts"], 0)
 
     def test_same_event_id_with_different_payload_is_conflict(self):
-        """Kiểm cùng event ID nhưng khác payload bị đánh dấu conflict."""
+        """Check the same event ID with a different payload is flagged as a conflict."""
         one = self.bronze.filter(F.col("feed") == "seller_wms.stock_operations").limit(1)
         altered = v2.with_envelope(
             one.withColumn(
@@ -130,7 +130,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(v2.reconcile(silver)["checks"]["event_conflicts"], 1)
 
     def test_missing_dependency_is_reported(self):
-        """Kiểm dependency còn thiếu được báo cáo."""
+        """Check a missing dependency is reported."""
         target = self.bronze.filter(
             (F.col("feed") == "seller_oms.fulfillment_allocations")
             & (F.col("entity_revision") == 1)
@@ -140,7 +140,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
 
     # ---------- Silver: quantity, money, lifecycle ----------
     def test_headline_is_ordered_minus_canceled_before_ship_refund_separate(self):
-        """Kiểm headline trừ cancel trước giao và tách riêng refund."""
+        """Check the headline subtracts cancellations before shipping and keeps Refunds separate."""
         lines = self.silver["line_commitments"]
         line_a = lines.filter(F.col("native_line_id") == "1").first()
         self.assertEqual((line_a["ordered_basis_qty"], line_a["canceled_unshipped_qty"]), (3, 1))
@@ -151,7 +151,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(refunds.agg(F.sum("amount_minor")).first()[0], 15 * 10000)
 
     def test_quantity_balance_breaks_when_allocation_missing(self):
-        """Kiểm thiếu allocation làm hỏng cân bằng số lượng."""
+        """Check a missing allocation breaks the quantity balance."""
         second = self.bronze.filter(
             (F.get_json_object("raw_json", "$.payload.quantity") == "1")
             & (F.col("feed") == "seller_oms.fulfillment_allocations")
@@ -161,7 +161,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertGreater(v2.reconcile(silver)["checks"]["quantity_mismatch_lines"], 0)
 
     def test_split_shipment_line_has_two_allocations(self):
-        """Kiểm một dòng giao tách có hai allocation riêng."""
+        """Check a split-shipment line has two separate allocations."""
         allocs = (
             self.silver["allocations"]
             .groupBy("line_id")
@@ -174,14 +174,14 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual({(r["n"], r["q"]) for r in rows}, {(2, 3)})
 
     def test_no_fanout_between_lines_and_allocations(self):
-        """Kiểm join dòng đơn với allocation không gây fanout."""
+        """Check joining Order Lines with allocations causes no fan-out."""
         result = v2.reconcile(self.silver)
         self.assertEqual(result["checks"]["fanout_headline_delta_minor"], 0)
         self.assertEqual(result["checks"]["orphan_allocations"], 0)
 
     # ---------- Silver: corrections, uncertainty, known-time ----------
     def test_refund_before_correction_keeps_unresolved_scope(self):
-        """Kiểm refund trước correction giữ scope chưa phân giải."""
+        """Check a Refund before the correction keeps the unresolved scope."""
         early = v2.build_silver(self.bronze, as_of=BEFORE_REFUND_CORRECTION)
         result = v2.reconcile(early)
         self.assertEqual(result["info"]["refund_unresolved_product_rows"], 15)
@@ -192,14 +192,14 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(unresolved.filter(F.col("unresolved_scope_ref").isNull()).count(), 0)
 
     def test_refund_after_correction_is_allocated(self):
-        """Kiểm refund sau correction được phân bổ đúng."""
+        """Check a Refund after the correction is allocated correctly."""
         result = v2.reconcile(self.silver)
         self.assertEqual(result["info"]["refund_unresolved_product_rows"], 0)
         refunds = self.silver["refunds"].filter(F.col("component") == "product")
         self.assertEqual(refunds.filter(F.col("allocated_amount_minor") != 10000).count(), 0)
 
     def test_listing_correction_replaces_wrong_mapping_and_keeps_history(self):
-        """Kiểm listing correction thay mapping sai và giữ lịch sử."""
+        """Check a listing correction replaces the wrong mapping and keeps history."""
         history = self.silver["listing_versions"]
         amazon_a = history.filter((F.col("channel") == "amazon") & (F.col("revision") > 1))
         latest = history.filter(
@@ -213,12 +213,12 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(amazon_a.count(), 2)
 
     def test_stock_ledger_matches_snapshot(self):
-        """Kiểm sổ stock khớp snapshot."""
+        """Check the stock ledger matches the snapshot."""
         self.assertEqual(v2.reconcile(self.silver)["checks"]["stock_snapshot_mismatches"], 0)
 
-    # ---------- Silver: đơn native 5 Channel, đối soát chéo với OMS ----------
+    # ---------- Silver: native Orders for 5 Channels, cross-reconciled with OMS ----------
     def test_native_lines_parse_for_every_channel(self):
-        """Kiểm native line của đủ năm Channel được parse."""
+        """Check native lines of all five Channels are parsed."""
         native = self.silver["native_order_lines"]
         per_channel = {
             r["channel"]: r["n"]
@@ -231,7 +231,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(native.filter(F.col("net_minor") != 30000).count(), 0)
 
     def test_native_reconciles_with_oms(self):
-        """Kiểm nguồn native đối soát được với OMS."""
+        """Check the native source reconciles with OMS."""
         checks = v2.reconcile(self.silver)["checks"]
         for key in (
             "native_unparsed_rows",
@@ -243,7 +243,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
             self.assertEqual(checks[key], 0, key)
 
     def test_amazon_schema_two_parses_the_same(self):
-        """Kiểm schema Amazon thứ hai có cùng kết quả logic."""
+        """Check the second Amazon schema gives the same logical result."""
         root = self.tmp / "schema2"
         generate_fixture(root, native_schema=2)
         silver = v2.build_silver(v2.bronze_from_root(self.spark, str(root), "run-schema2"))
@@ -256,7 +256,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual({k: v for k, v in checks.items() if v}, {})
 
     def test_native_money_drift_is_caught(self):
-        """Kiểm phát hiện sai lệch tiền từ nguồn native."""
+        """Check money drift from the native source is caught."""
         walmart = self.bronze.filter(F.col("feed") == "walmart.orders").limit(1)
         drifted = v2.with_envelope(
             walmart.withColumn(
@@ -267,13 +267,13 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(v2.reconcile(silver)["checks"]["native_money_mismatches"], 2)
 
     def test_missing_native_order_is_caught(self):
-        """Kiểm phát hiện đơn native còn thiếu."""
+        """Check a missing native Order is caught."""
         one = self.bronze.filter(F.col("feed") == "shopee.orders").limit(1)
         silver = v2.build_silver(self.bronze.subtract(one))
         self.assertEqual(v2.reconcile(silver)["checks"]["commitments_without_native"], 2)
 
     def test_walmart_via_jdbc_rows_parses_and_reconciles(self):
-        """Dòng đọc từ PostgreSQL (json_build_object có khoảng trắng) thay dòng file bootstrap."""
+        """Rows read from PostgreSQL (json_build_object with whitespace) replace the bootstrap file rows."""
         files = self.bronze.filter(F.col("feed") == "walmart.orders")
         jdbc = files.select(
             "dataset_version",
@@ -312,20 +312,20 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual({k: v for k, v in checks.items() if v}, {})
 
     def test_snapshot_scope_compares_order_ids(self):
-        """Kiểm snapshot scope so sánh đúng tập order ID."""
+        """Check the snapshot scope compares the right set of Order IDs."""
         got = v2.snapshot_scope_diff(["a", "b", "b"], ["a", "c"])
         self.assertEqual(got, {"missing": ["c"], "extra": ["b"], "duplicate": ["b"]})
 
-    # ---------- Silver: coverage receipt của producer ----------
+    # ---------- Silver: producer coverage receipt ----------
     def test_coverage_receipts_pass_on_clean_fixture(self):
-        """Kiểm coverage receipt đạt trên fixture sạch."""
+        """Check the coverage receipt passes on the clean fixture."""
         result = v2.reconcile(self.silver)
         self.assertEqual(result["checks"]["coverage_receipt_failures"], 0)
         self.assertEqual(result["checks"]["feeds_without_complete_coverage"], 0)
         self.assertEqual(result["info"]["coverage_unavailable_scopes"], 6)
 
     def test_coverage_detects_missing_record(self):
-        """Kiểm coverage phát hiện bản ghi bị mất."""
+        """Check coverage detects a lost record."""
         op = self.bronze.filter(F.col("raw_json").contains('"operation_type":"reserve"')).limit(1)
         receipts = v2.build_silver(self.bronze.subtract(op))["coverage_receipts"]
         failed = receipts.filter(F.col("covered_feed") == "seller_wms.stock_operations").first()
@@ -334,7 +334,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertIn("record_count_mismatch", failed["reasons"])
 
     def test_coverage_detects_silent_content_change(self):
-        """Kiểm coverage phát hiện nội dung bị đổi âm thầm."""
+        """Check coverage detects a silent content change."""
         row = self.bronze.filter(F.col("feed") == "carrier.delivery_events").limit(1)
         changed = v2.with_envelope(
             row.withColumn(
@@ -351,7 +351,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(failed["reasons"], ["record_set_digest_mismatch"])
 
     def test_stock_correction_replaces_not_adds(self):
-        """Kiểm stock correction thay giá trị cũ thay vì cộng dồn."""
+        """Check a stock correction replaces the old value instead of accumulating."""
         opening = self.bronze.filter(
             F.col("raw_json").contains('"operation_type":"opening"')
         ).limit(1)
@@ -379,11 +379,11 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(v2.reconcile(silver)["checks"]["stock_snapshot_mismatches"], 1)
 
     def test_contract_default_has_no_quarantine(self):
-        """Fixture mặc định được chấp nhận nguyên vẹn."""
+        """The default fixture is accepted intact."""
         self.assertEqual(self.silver["quarantine_records"].count(), 0)
 
     def test_contract_unknown_shopee_keeps_other_channels(self):
-        """Schema lạ cách ly Shopee, bốn Channel còn lại giữ đủ line và đối soát."""
+        """An unknown schema quarantines Shopee; the other four Channels keep all lines and reconcile."""
         root = self.tmp / "unknown-shopee"
         generate_fixture(root, native_schemas={"shopee": 2})
         silver = v2.build_silver(v2.bronze_from_root(self.spark, str(root), "unknown"))
@@ -403,7 +403,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(result["info"]["quarantined_native_records_without_order_identity"], 3)
 
     def test_contract_compatible_tiktok_uses_existing_parser(self):
-        """Version tùy chọn mới đi qua parser cũ chỉ nhờ registry."""
+        """A new optional version goes through the old parser purely via the registry."""
         root = self.tmp / "compatible-tiktok"
         generate_fixture(root, native_schemas={"tiktok_shop": 2})
         silver = v2.build_silver(v2.bronze_from_root(self.spark, str(root), "compatible"))
@@ -422,7 +422,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(after.exceptAll(before).count(), 0)
 
     def test_contract_producer_lies_about_schema(self):
-        """Sai required dưới nhãn đã đăng ký bị cách ly với đường dẫn rõ ràng."""
+        """A wrong required field under a registered label is quarantined with a clear path."""
         one = self.bronze.filter(F.col("feed") == "shopee.orders").limit(1)
         changed = v2.with_envelope(
             one.withColumn(
@@ -440,7 +440,7 @@ class SourceV2LakehouseTests(unittest.TestCase):
         self.assertEqual(result["info"]["quarantined_native_records_without_order_identity"], 1)
 
     def test_contract_registered_but_missing_parser(self):
-        """Registry biết schema nhưng Silver chưa hỗ trợ parser: no_parser."""
+        """The registry knows the schema but Silver has no parser yet: no_parser."""
         from spark_jobs.lib.data_contracts.registry import Registry
 
         registry = Registry(ROOT / "contracts")

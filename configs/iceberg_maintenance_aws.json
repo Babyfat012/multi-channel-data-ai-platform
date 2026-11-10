@@ -1,5 +1,5 @@
 {
-  "description": "AWS (EC2): bảng Bronze file nhỏ nhất (shopee, median 2,5 MB, 1 file/partition ngày). Không z-order để không rewrite cả bảng; orphan chỉ dry-run.",
+  "description": "AWS (EC2): the Bronze table with the smallest files (shopee, median 2.5 MB, 1 file/day partition). No z-order so the whole table is not rewritten; orphan cleanup is dry-run only.",
   "tables": {
     "lakehouse.bronze.raw_shopee_orders_dp1": {
       "min_input_files": 5,

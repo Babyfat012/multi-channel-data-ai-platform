@@ -1,10 +1,10 @@
-"""Đồng bộ system prompt Agent từ Langfuse (label `production`) sang ConfigMap `kagent/agent-prompts`.
+"""Sync Agent system prompts from Langfuse (label `production`) to the ConfigMap `kagent/agent-prompts`.
 
-Agent đọc prompt qua `systemMessageFrom` ⇒ đổi prompt = sửa trên Langfuse rồi chạy script này (job Jenkins cũng gọi nó).
-`--seed`: tạo prompt `platform-<agent>` từ infra/k8s/agents/prompts/<agent>.txt nếu Langfuse chưa có (lần đầu).
-Khoá API đọc từ Secret `kagent/langfuse-api`; Langfuse gọi qua port-forward tạm.
+Agents read prompts via `systemMessageFrom` ⇒ changing a prompt = edit it on Langfuse, then run this script (the Jenkins job calls it too).
+`--seed`: create prompt `platform-<agent>` from infra/k8s/agents/prompts/<agent>.txt if Langfuse does not have it yet (first time).
+API keys are read from the Secret `kagent/langfuse-api`; Langfuse is called through a temporary port-forward.
 
-`--push AGENT`: tạo version MỚI từ file .txt (label production) khi nội dung khác bản production hiện tại; rồi đồng bộ.
+`--push AGENT`: create a NEW version from the .txt file (label production) when its content differs from the current production version; then sync.
 
 python scripts/setup/sync_agent_prompts.py [--seed] [--push coordinator]
 """
@@ -26,7 +26,7 @@ URL = "http://localhost:13000"
 
 
 def secret(name, key, namespace="kagent"):
-    """Đọc 1 khoá trong Secret k8s."""
+    """Read one key from a k8s Secret."""
     out = subprocess.run(
         [*KC, "-n", namespace, "get", "secret", name, "-o", f"jsonpath={{.data.{key}}}"],
         capture_output=True,
@@ -37,7 +37,7 @@ def secret(name, key, namespace="kagent"):
 
 
 def call(method, path, auth, body=None):
-    """Gọi Langfuse public API (basic auth public:secret); trả (status, json|None)."""
+    """Call the Langfuse public API (basic auth public:secret); return (status, json|None)."""
     request = urllib.request.Request(
         URL + path,
         method=method,
@@ -52,13 +52,15 @@ def call(method, path, auth, body=None):
 
 
 def main():
-    """Port-forward Langfuse, seed (tuỳ chọn), lấy bản production, ghi ConfigMap."""
+    """Port-forward Langfuse, seed (optional), fetch the production version, write the ConfigMap."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--seed", action="store_true", help="tạo prompt từ file .txt nếu Langfuse chưa có"
+        "--seed",
+        action="store_true",
+        help="create prompts from .txt files if Langfuse does not have them",
     )
     parser.add_argument(
-        "--push", choices=AGENTS, help="đẩy file .txt của agent này thành version mới"
+        "--push", choices=AGENTS, help="push this agent's .txt file as a new version"
     )
     args = parser.parse_args()
     auth = base64.b64encode(
@@ -100,7 +102,7 @@ def main():
                     )
                     print(f"pushed {name}: HTTP {status}")
             if not data:
-                raise SystemExit(f"không lấy được prompt {name} (HTTP {status})")
+                raise SystemExit(f"could not fetch prompt {name} (HTTP {status})")
             prompts[agent], versions[agent] = data["prompt"], str(data["version"])
             print(f"{name}: version {data['version']}, labels {data.get('labels')}")
     finally:

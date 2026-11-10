@@ -1,14 +1,14 @@
--- ML Platform stream feature: số Return "approved" của mỗi SKU trong 24h gần nhất (HOP trượt 1h).
--- Kafka return_events → bỏ bản retry trùng → tra line_id→SKU ở PostgreSQL → Kafka ml.sku_return_24h.
--- Chạy liên tục (streaming). @@PG_*@@ do scripts/run/run_sku_return_feature.sh điền lúc submit.
+-- ML Platform stream feature: count of "approved" Returns per SKU over the last 24h (HOP sliding 1h).
+-- Kafka return_events → drop duplicate retries → look up line_id→SKU in PostgreSQL → Kafka ml.sku_return_24h.
+-- Runs continuously (streaming). @@PG_*@@ is filled by scripts/run/run_sku_return_feature.sh at submit time.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'ml-sku-return-24h';
 SET 'execution.checkpointing.interval' = '10s';
--- Checkpoint ra đĩa (mount /mnt/platform-data/flink trên EC2): mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB;
--- state bỏ trùng + HOP của stream A ~72 MB ⇒ mọi checkpoint hỏng, job RESTARTING mãi (30/10).
+-- Checkpoints to disk (mount /mnt/platform-data/flink on EC2): the default keeps them in JobManager memory, max 5 MB;
+-- dedup state + HOP of stream A is ~72 MB ⇒ every checkpoint failed and the job kept RESTARTING (30/10).
 SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
--- Partition Kafka không có tin thì không giữ watermark lại mãi.
+-- A Kafka partition with no messages does not hold the watermark back forever.
 SET 'table.exec.source.idle-timeout' = '10s';
 
 CREATE TABLE return_events (
@@ -28,7 +28,7 @@ CREATE TABLE return_events (
   'format' = 'json'
 );
 
--- Bảng tra do DAG dp_order_lifecycle_warehouse publish; cache để không gọi DB mỗi tin.
+-- Lookup table published by the dp_order_lifecycle_warehouse DAG; cached so the DB is not called per message.
 CREATE TABLE line_sku (
   dataset_version STRING, line_id STRING, seller_sku STRING,
   PRIMARY KEY (dataset_version, line_id) NOT ENFORCED
@@ -57,7 +57,7 @@ CREATE TABLE sku_return_24h (
   'value.fields-include' = 'ALL'
 );
 
--- Producer retry phát lại đúng bytes ⇒ giữ bản đầu theo record_sha256 (giữ được rowtime).
+-- Producer retries replay the exact bytes ⇒ keep the first copy by record_sha256 (preserves rowtime).
 CREATE VIEW approved AS
 SELECT * FROM (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY record_sha256 ORDER BY event_ts) AS rn
@@ -71,8 +71,8 @@ FROM approved AS a
 JOIN line_sku FOR SYSTEM_TIME AS OF a.proc_time AS l
   ON a.dataset_version = l.dataset_version AND a.payload.line_id = l.line_id;
 
--- Giới hạn: HOP chỉ phát cửa sổ CÓ tin; SKU hết Return thì Redis giữ số cũ tới khi có tin mới.
--- Cần về 0 thật thì thêm luồng phát 0 theo lịch.
+-- Limitation: HOP only emits windows WITH messages; once a SKU has no more Returns, Redis keeps the old count until a new message arrives.
+-- To really return to 0, add a scheduled stream that emits 0.
 INSERT INTO sku_return_24h
 SELECT seller_sku, window_end, COUNT(*)
 FROM TABLE(HOP(TABLE approved_sku, DESCRIPTOR(event_ts), INTERVAL '1' HOUR, INTERVAL '24' HOUR))

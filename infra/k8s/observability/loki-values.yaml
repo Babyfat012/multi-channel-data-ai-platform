@@ -1,5 +1,5 @@
-# Loki 1 tiến trình (chart grafana/loki 7.3.0), lưu file trên PVC 1 Gi, giữ log 24 giờ. Không có UI riêng:
-# xem log trong Grafana Explore. Fluent Bit đẩy log pod vào đây.
+# Single-process Loki (chart grafana/loki 7.3.0), file storage on a 1 Gi PVC, 24-hour log retention. No UI of its own:
+# view logs in Grafana Explore. Fluent Bit pushes pod logs here.
 deploymentMode: SingleBinary
 loki:
   auth_enabled: false

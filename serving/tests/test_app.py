@@ -1,6 +1,6 @@
-"""Test Web API feature: store Feast giả (mock), không cần Redis.
+"""Feature Web API tests: fake (mock) Feast store, no Redis needed.
 
-Chạy: `uv run --no-project --with-requirements serving/requirements-dev.txt \
+Run: `uv run --no-project --with-requirements serving/requirements-dev.txt \
     pytest serving/tests --cov=serving --cov-report=term-missing`
 """
 
@@ -15,7 +15,7 @@ from hypothesis import strategies as st
 
 from serving.app import MAX_SKUS, create_app
 
-# Giá trị giả theo SKU; SKU không có trong đây = Redis chưa có → None.
+# Fake values per SKU; a SKU not listed here = not in Redis yet → None.
 ORDER = [
     "labeled_count_90d",
     "positive_count_90d",
@@ -30,7 +30,7 @@ KNOWN = {
 
 
 def fake_online_features(features, entity_rows):
-    """Bắt chước OnlineResponse.to_dict() của Feast: dict cột → list, cùng thứ tự entity_rows."""
+    """Mimic Feast's OnlineResponse.to_dict(): dict of column → list, in entity_rows order."""
     skus = [row["seller_sku"] for row in entity_rows]
     columns = {"seller_sku": skus}
     for feature in features:
@@ -127,8 +127,8 @@ def test_store_down_returns_503(client, store):
     assert resp.json() == {"detail": "online store unavailable"}
 
 
-# Equivalence partitioning + boundary value: số SKU mỗi request.
-# Lớp hợp lệ [1, MAX_SKUS]; hai lớp sai: rỗng và quá MAX_SKUS. Biên: 0, 1, MAX, MAX+1.
+# Equivalence partitioning + boundary value: number of SKUs per request.
+# Valid class [1, MAX_SKUS]; two invalid classes: empty and over MAX_SKUS. Boundaries: 0, 1, MAX, MAX+1.
 @pytest.mark.parametrize(
     ("count", "status"),
     [(0, 422), (1, 200), (50, 200), (MAX_SKUS, 200), (MAX_SKUS + 1, 422)],
@@ -138,7 +138,7 @@ def test_sku_count_boundaries(client, count, status):
     assert client.post("/features", json={"seller_skus": skus}).status_code == status
 
 
-# Độ dài và ký tự của một SKU. Biên độ dài: 0, 1, 64, 65.
+# Length and characters of one SKU. Length boundaries: 0, 1, 64, 65.
 @pytest.mark.parametrize(
     ("sku", "status"),
     [
@@ -162,7 +162,7 @@ def test_bad_body(client, body):
     assert client.post("/features", json=body).status_code == 422
 
 
-# Property-based: gọi lại cùng request ra cùng kết quả (idempotent), và lặp SKU không đổi kết quả.
+# Property-based: repeating the same request gives the same result (idempotent), and repeated SKUs do not change it.
 sku_lists = st.lists(
     st.sampled_from(["sku-00001", "sku-00002", "sku-00003"]), min_size=1, max_size=20
 )
@@ -179,7 +179,7 @@ def test_idempotent(skus):
     assert [r["seller_sku"] for r in first["features"]] == list(dict.fromkeys(skus))
 
 
-# MCP tool: cùng logic, gọi qua JSON-RPC (streamable HTTP, stateless, trả JSON).
+# MCP tool: same logic, called over JSON-RPC (streamable HTTP, stateless, JSON responses).
 MCP_HEADERS = {"Accept": "application/json, text/event-stream"}
 
 
@@ -202,7 +202,7 @@ def test_mcp_lists_tool(client):
         "predict_return_risk",
         "search_policy_chunks",
     ]
-    # Mô tả tool tiếng Việt làm Qwen 1,5B bỏ qua tool (đo trên EKS 30/10: 0/3, tiếng Anh 3/3).
+    # Vietnamese tool descriptions made Qwen 1.5B ignore the tools (measured on EKS 30/10: 0/3, English 3/3).
     assert all(t["description"].isascii() for t in tools)
 
 
@@ -230,7 +230,7 @@ def test_mcp_tool_store_down(client, store):
 
 
 def test_mcp_server_identity(client):
-    """Agent thấy tên + hướng dẫn này khi kết nối; đổi là đổi hợp đồng với Agent."""
+    """The Agent sees this name + instructions on connect; changing them changes the contract with the Agent."""
     body = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -244,8 +244,8 @@ def test_mcp_server_identity(client):
     result = client.post("/mcp/", json=body, headers=MCP_HEADERS).json()["result"]
     assert result["serverInfo"]["name"] == "platform-features"
     assert result["instructions"] == (
-        "Tra feature tỷ lệ trả hàng theo SKU, chấm điểm rủi ro Return cho đơn mới"
-        " và tìm đoạn chính sách trả hàng."
+        "Look up return rate features by SKU, score Return risk for new orders"
+        " and search return policy chunks."
     )
 
 
@@ -253,7 +253,7 @@ def test_openapi_title(client):
     assert client.get("/openapi.json").json()["info"]["title"] == "Feature API"
 
 
-# Tìm chunk RAG: rag giả trả kết quả cố định, ghi lại lời gọi.
+# RAG chunk search: the fake rag returns fixed results and records calls.
 CHUNKS = [
     {
         "chunk_id": "a",
@@ -326,7 +326,7 @@ def test_chunks_store_down():
     assert resp.json() == {"detail": "vector store unavailable"}
 
 
-# Boundary value: query 3–500 ký tự, top_k 1–10.
+# Boundary value: query 3–500 characters, top_k 1–10.
 @pytest.mark.parametrize(
     ("query", "top_k", "status"),
     [
@@ -401,7 +401,7 @@ def test_chunks_by_id_known_and_missing(rag_client, rag):
     assert rag.calls == [tuple(ids)]
 
 
-# chunk_id đúng 16 ký tự hex thường; 1–20 id mỗi request.
+# chunk_id is exactly 16 lowercase hex characters; 1–20 ids per request.
 @pytest.mark.parametrize(
     ("ids", "status"),
     [
@@ -443,7 +443,7 @@ def test_mcp_get_policy_chunks_bad_id(rag_client):
     assert "invalid chunk_ids" in result["content"][0]["text"]
 
 
-# Dự đoán: KServe giả bằng httpx.MockTransport, ghi lại body đã gửi.
+# Prediction: KServe faked with httpx.MockTransport, records the sent body.
 KSERVE = "http://kserve.test/v1/models/return-risk:predict"
 ORDER_LINE = {
     "seller_sku": "sku-00002",
@@ -494,7 +494,7 @@ def test_predict_sends_v1_instance(predict_client):
 
 
 def test_long_decimals_rounded_for_pii_guardrail(store, monkeypatch):
-    """0.16980269175486737 bị guardrail phoneNumber của gateway che thành <PHONE_NUMBER> (30/10) ⇒ làm tròn 4 số."""
+    """0.16980269175486737 was masked as <PHONE_NUMBER> by the gateway phoneNumber guardrail (30/10) ⇒ round to 4 digits."""
     monkeypatch.setenv("KSERVE_URL", KSERVE)
     prediction = {
         "seller_sku": "sku-00003",
@@ -511,7 +511,7 @@ def test_long_decimals_rounded_for_pii_guardrail(store, monkeypatch):
 
 
 def test_predict_rejects_missing_country(predict_client):
-    """Không tự điền feature: thiếu country thì 422, không gọi model."""
+    """No feature imputation: missing country gives 422 and the model is not called."""
     client, sent = predict_client
     body = {k: v for k, v in ORDER_LINE.items() if k != "country"}
     assert client.post("/predict", json=body).status_code == 422
@@ -538,7 +538,7 @@ def test_predict_bad_upstream(store, monkeypatch, status, payload):
     assert resp.json() == {"detail": "model unavailable"}
 
 
-# Equivalence partitioning: channel (5 hợp lệ / ngoài danh sách); boundary: qty 1–1000, net ≥ 0.
+# Equivalence partitioning: channel (5 valid / not in list); boundary: qty 1–1000, net ≥ 0.
 @pytest.mark.parametrize(
     ("change", "status"),
     [
@@ -606,7 +606,7 @@ def test_mcp_predict_tool_not_configured(client, monkeypatch):
 
 
 def test_load_rag_wires_store_and_cache(monkeypatch):
-    """load_rag phải truyền đúng store, câu hỏi, top_k, cache model và id xuống rag.pipeline."""
+    """load_rag must pass the right store, question, top_k, model cache and ids down to rag.pipeline."""
     import rag.pipeline as pipeline
     from serving.app import load_rag
 
@@ -688,10 +688,10 @@ def test_tool_calls_counted_ok_and_error(client):
 
 
 def test_partial_batch_failure_preserves_stream_status(client, store):
-    """Nhóm batch lỗi không chặn stream hợp lệ, không biến dữ liệu thiếu thành zero."""
+    """A failing batch group does not block a valid stream group, and missing data never becomes zero."""
 
     def read(features, entity_rows):
-        """Giả lập registry/batch hỏng nhưng stream vẫn tra được."""
+        """Simulate a broken registry/batch while the stream is still readable."""
         if features[0].startswith("sku_return_daily:"):
             raise RuntimeError("batch unavailable")
         return fake_online_features(features, entity_rows)
@@ -706,20 +706,20 @@ def test_partial_batch_failure_preserves_stream_status(client, store):
 
 
 def test_zero_history_and_zero_stream_are_not_system_failure(client):
-    """Có số zero được xác nhận khác với null và lỗi store."""
+    """A confirmed zero is different from null and from a store error."""
     row = client.post("/features", json={"seller_skus": ["sku-00002"]}).json()["features"][0]
     assert row["batch_status"] == "insufficient_history"
     assert row["stream_status"] == "ready" and row["approved_returns_24h"] == 0
 
 
 def test_published_snapshot_distinguishes_missing_expected_sku(client, store):
-    """SKU có trong bản công bố mà thiếu online là unavailable; SKU ngoài bản chỉ là not_available."""
+    """A SKU in the publication but missing online is unavailable; a SKU outside it is only not_available."""
     from feature_repo.publication import FeatureResult, Release
 
     release = Release("release-a", 1, "registry", "offline", "2026-06-30", frozenset({"sku-00001"}))
 
     def read(features, entity_rows):
-        """Batch trả null cho mọi SKU, kèm phiếu đã kiểm tra."""
+        """Batch returns null for every SKU, together with the validated receipt."""
         if features[0].startswith("sku_return_daily:"):
             return FeatureResult(
                 {
@@ -741,7 +741,7 @@ def test_published_snapshot_distinguishes_missing_expected_sku(client, store):
 
 
 def test_predict_forwards_unavailable_without_inventing_score(store, monkeypatch):
-    """HTTP API giữ nguyên null/reason của predictor để agent không thấy điểm giả."""
+    """The HTTP API keeps the predictor's null/reason so the agent never sees a fake score."""
     monkeypatch.setenv("KSERVE_URL", KSERVE)
     payload = {
         "predictions": [
@@ -767,7 +767,7 @@ def test_predict_forwards_unavailable_without_inventing_score(store, monkeypatch
     [("rest", 200, 404, 200), ("mcp", 404, 200, 200), ("all", 200, 200, 200)],
 )
 def test_surface_splits_rest_and_mcp_pods(store, surface, features, mcp, health):
-    """Pod REST không phơi /mcp, pod MCP không phơi REST; cả hai giữ probe."""
+    """The REST pod does not expose /mcp, the MCP pod does not expose REST; both keep the probes."""
     app = create_app(store_factory=lambda: store, surface=surface)
     with TestClient(app) as c:
         assert c.post("/features", json={"seller_skus": ["sku-00001"]}).status_code == features

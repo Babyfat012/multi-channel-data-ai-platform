@@ -1,7 +1,7 @@
-"""Đưa bảng, Airflow job, lineage và kết quả Validate đã chạy lên DataHub.
+"""Push tables, Airflow jobs, lineage and completed Validate results to DataHub.
 
-Chạy sau khi DataHub GMS sẵn sàng. Không chạy lại Spark/Airflow; dữ liệu kiểm
-được đọc từ manifest bằng chứng, mỗi assertion giữ run_id gốc trong properties.
+Run once DataHub GMS is ready. Does not rerun Spark/Airflow; check data is
+read from the evidence manifest, and each assertion keeps the original run_id in properties.
 """
 
 from __future__ import annotations
@@ -19,14 +19,14 @@ FACT = "lakehouse.gold.fact_order_lines_dp2"
 DIM = "lakehouse.gold.dim_amazon_order_dp2"
 FEATURE = "lakehouse.gold.feat_order_line_return_dp3"
 LABELS = "lakehouse.gold.fact_return_labels_dp3"
-# Bảng nhãn chỉ-Walmart (DAG dp3_walmart_labels cũ) giữ trên DataHub như bằng chứng lịch sử;
-# DAG dp3_return_labels nay ghi một bảng nhãn cho cả năm Channel.
+# The Walmart-only label table (old dp3_walmart_labels DAG) stays on DataHub as historical evidence;
+# the dp3_return_labels DAG now writes one label table for all five Channels.
 LABELS_LEGACY = "lakehouse.gold.fact_walmart_return_labels_dp3"
-# DAG dp1_cdc hiện ghi bảng v2 (có source_epoch). Bảng v1 giữ trên DataHub như bằng chứng
-# lịch sử của run 2026-10-13; không còn job nào ghi vào nó.
+# The dp1_cdc DAG now writes the v2 table (with source_epoch). The v1 table stays on DataHub as historical
+# evidence of the 2026-10-13 run; no job writes to it anymore.
 CDC = "lakehouse.bronze.raw_walmart_cdc_v2"
 CDC_LEGACY = "lakehouse.bronze.raw_walmart_cdc"
-# DP4: 30 ngày Gold năm Channel trên PostgreSQL EC2 (warehouse phục vụ tra theo SKU, có index).
+# DP4: 30 days of five-Channel Gold on EC2 PostgreSQL (warehouse serving per-SKU lookups, indexed).
 WAREHOUSE = "warehouse.fact_order_lines_30d_dp2"
 DATASETS = (
     *BRONZE.values(),
@@ -69,7 +69,7 @@ SOURCE_DATASETS = {
 
 
 def raw_sources(raw_root: str | None) -> dict[str, str]:
-    """Đường nguồn file theo Channel; ``raw_root`` (vd. s3a://bucket/.../source-exports) thay bộ local."""
+    """File source paths per Channel; ``raw_root`` (e.g. s3a://bucket/.../source-exports) replaces the local set."""
     if raw_root is None:
         return {"amazon": RAW_AMAZON, **RAW_FILES}
     return {
@@ -81,7 +81,7 @@ def raw_sources(raw_root: str | None) -> dict[str, str]:
 def job_map(
     raw_root: str | None = None, dags: tuple[str, ...] | None = None
 ) -> dict[str, dict[str, tuple[list[str], list[str]]]]:
-    """Airflow task -> bảng đọc/ghi thật theo DAG của dự án; chỉ giữ ``dags`` nếu có."""
+    """Airflow task -> tables actually read/written per project DAG; keep only ``dags`` if given."""
     files = raw_sources(raw_root)
     dp1: dict[str, tuple[list[str], list[str]]] = {}
     dp2: dict[str, tuple[list[str], list[str]]] = {}
@@ -117,43 +117,43 @@ def job_map(
 
 
 def datasets_of(jobs: dict[str, dict[str, tuple[list[str], list[str]]]]) -> list[str]:
-    """Bảng/nguồn mà các job đã chọn đọc hoặc ghi, giữ thứ tự xuất hiện."""
+    """Tables/sources the selected jobs read or write, in order of appearance."""
     names = (n for tasks in jobs.values() for io in tasks.values() for side in io for n in side)
     return list(dict.fromkeys(names))
 
 
 def platform_of(name: str) -> str:
-    """Nền tảng DataHub của một dataset theo tiền tố/tên của nó."""
+    """DataHub platform of a dataset based on its prefix/name."""
     if name.startswith(("s3a://", "s3://")):
         return "s3"
     return SOURCE_DATASETS.get(name, "iceberg")
 
 
 def description(name: str, platform: str) -> str:
-    """Mô tả dataset; bảng CDC v1 ghi rõ là bản lịch sử."""
+    """Dataset description; the CDC v1 table is explicitly marked as historical."""
     if name == CDC_LEGACY:
-        return f"PLATFORM {platform}: {name} (legacy CDC v1, bằng chứng run 2026-10-13; DAG hiện ghi {CDC})"
+        return f"PLATFORM {platform}: {name} (legacy CDC v1, evidence of run 2026-10-13; DAG now writes {CDC})"
     if name == LABELS_LEGACY:
-        return f"PLATFORM {platform}: {name} (legacy nhãn chỉ Walmart; DAG hiện ghi {LABELS})"
+        return f"PLATFORM {platform}: {name} (legacy Walmart-only labels; DAG now writes {LABELS})"
     return f"PLATFORM {platform}: {name}"
 
 
 def assertion_urn(item: dict) -> str:
-    """URN assertion; check trên bảng v2 có hậu tố riêng để không đè lịch sử của bảng v1."""
+    """Assertion URN; checks on the v2 table get their own suffix so v1 table history is not overwritten."""
     suffix = "-v2" if item["dataset"].endswith("_v2") else ""
     return f"urn:li:assertion:platform-{item['dag_id']}-{item['task_id']}{suffix}"
 
 
 def check_passed(item: dict) -> None:
-    """Từ chối publish SUCCESS khi task chưa thành công hoặc có metric lỗi khác 0."""
+    """Refuse to publish SUCCESS when the task has not succeeded or a failure metric is nonzero."""
     if item["dataset"] not in DATASETS:
-        raise ValueError(f"Bảng assertion không thuộc mapping: {item['dataset']}")
+        raise ValueError(f"Assertion table is not in the mapping: {item['dataset']}")
     if item["state"] != "success":
-        raise ValueError(f"Task Validate chưa thành công: {item['task_id']}")
+        raise ValueError(f"Validate task has not succeeded: {item['task_id']}")
     if any(
         value != 0 for key, value in item["metrics"].items() if key.startswith(FAILURE_PREFIXES)
     ):
-        raise ValueError(f"Số liệu Validate không PASS: {item['task_id']}")
+        raise ValueError(f"Validate metrics did not PASS: {item['task_id']}")
 
 
 def main() -> None:
@@ -167,19 +167,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--raw-root",
-        help="Gốc nguồn file thật, vd. s3a://<raw-bucket>/order_snapshots/source-exports (AWS)",
+        help="Root of the real file sources, e.g. s3a://<raw-bucket>/order_snapshots/source-exports (AWS)",
     )
     parser.add_argument(
-        "--dags", nargs="+", choices=sorted(job_map()), help="Chỉ publish các DAG đã chạy thật"
+        "--dags", nargs="+", choices=sorted(job_map()), help="Publish only DAGs that actually ran"
     )
     args = parser.parse_args()
     jobs = job_map(args.raw_root, tuple(args.dags) if args.dags else None)
-    # Không chọn DAG: giữ cả bảng lịch sử không còn job ghi (CDC v1) như trước.
+    # No DAG selected: also keep historical tables no job writes anymore (CDC v1), as before.
     names = datasets_of(jobs) + ([] if args.dags else list(DATASETS))
     names = list(dict.fromkeys(names))
     evidence = json.loads(args.evidence.read_text())
 
-    # Import tại điểm chạy để file vẫn đọc được khi client chưa được cài.
+    # Import at run time so the file still loads when the client is not installed.
     from datahub.ingestion.graph.client import DatahubClientConfig, DataHubGraph
     from datahub.metadata.urns import DatasetUrn
     from datahub.sdk import DataFlow, DataHubClient, DataJob, Dataset
@@ -223,7 +223,7 @@ def main() -> None:
     for item in evidence["checks"]:
         check_passed(item)
         if item["dataset"] not in names:
-            raise ValueError(f"Assertion trên bảng ngoài các DAG đã chọn: {item['dataset']}")
+            raise ValueError(f"Assertion on a table outside the selected DAGs: {item['dataset']}")
         dataset = item["dataset"]
         metrics = item["metrics"]
         urn_text = assertion_urn(item)
@@ -231,7 +231,7 @@ def main() -> None:
             urn=urn_text,
             entity_urn=str(urn(dataset)),
             type="Airflow Spark Validate",
-            description=f"{item['dag_id']}.{item['task_id']} kiểm {dataset}",
+            description=f"{item['dag_id']}.{item['task_id']} checks {dataset}",
             platform_name="PLATFORM Airflow",
             logic=item["rule"],
         )
@@ -248,7 +248,7 @@ def main() -> None:
     print(
         f"DataHub: {len(names)} datasets, "
         f"{sum(map(len, jobs.values()))} jobs, "
-        f"{len(evidence['checks'])} kết quả Validate"
+        f"{len(evidence['checks'])} Validate results"
     )
 
 

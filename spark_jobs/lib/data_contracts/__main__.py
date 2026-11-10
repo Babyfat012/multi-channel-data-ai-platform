@@ -1,4 +1,4 @@
-"""CLI infer/diff/check-registry/gate, chỉ dùng thư viện chuẩn."""
+"""infer/diff/check-registry/gate CLI, standard library only."""
 
 import argparse
 import json
@@ -12,7 +12,7 @@ from spark_jobs.lib.data_contracts.schema import infer_schema
 
 
 def main(argv=None):
-    """In JSON và trả mã lỗi cho registry hoặc diff phá vỡ."""
+    """Print JSON and return an error code for a breaking registry or diff."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     infer = commands.add_parser("infer")
@@ -24,7 +24,7 @@ def main(argv=None):
     compare.add_argument(
         "--mode", default="BACKWARD", choices=["BACKWARD", "FORWARD", "FULL", "NONE"]
     )
-    compare.add_argument("--migrations", help="File JSON map đường dẫn cũ -> mới")
+    compare.add_argument("--migrations", help="JSON file mapping old path -> new")
     check = commands.add_parser("check-registry")
     check.add_argument("--contracts-dir", default=None)
     gate = commands.add_parser("gate")

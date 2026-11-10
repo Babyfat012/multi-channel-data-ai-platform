@@ -1,6 +1,6 @@
-# UI vận hành sau gateway: metric/log (Grafana), trace (Jaeger), registry agent.
-# Mỗi route: HTTPS + basic auth (secret `ops-basic-auth` cùng namespace). @@NS@@/@@SVC@@/@@PORT@@/@@HOST@@
-# do scripts/setup/setup_ingress.sh điền, chỉ khi service đã tồn tại.
+# Ops UIs behind the gateway: metrics/logs (Grafana), traces (Jaeger), agent registry.
+# Each route: HTTPS + basic auth (secret `ops-basic-auth` in the same namespace). @@NS@@/@@SVC@@/@@PORT@@/@@HOST@@
+# are filled in by scripts/setup/setup_ingress.sh, only when the service already exists.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -8,7 +8,7 @@ metadata:
   namespace: @@NS@@
   annotations:
     cert-manager.io/cluster-issuer: platform-local-ca
-    # Đường kiểm tra HTTP-01 gắn vào chính Ingress này (F5 NGINX từ chối Ingress thứ hai cùng host).
+    # HTTP-01 challenge path attached to this same Ingress (F5 NGINX rejects a second Ingress with the same host).
     acme.cert-manager.io/http01-edit-in-place: "true"
     nginx.org/redirect-to-https: "true"
     nginx.org/basic-auth-secret: ops-basic-auth

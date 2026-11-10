@@ -1,4 +1,4 @@
-"""Công bố A/B không ghi đè active; cache/pin/fence và đối soát phát hiện dữ liệu sai."""
+"""A/B publication never overwrites active; cache/pin/fence and reconciliation detect wrong data."""
 
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -21,7 +21,7 @@ from feature_repo.publish_batch import latest_expected, publish_candidate, recon
 
 
 def release(name="a", database=1):
-    """Một release đã công bố với registry độc lập."""
+    """A published release with its own registry."""
     return Release(
         name,
         database,
@@ -33,7 +33,7 @@ def release(name="a", database=1):
 
 
 def document(name="a", database=1):
-    """Manifest hợp lệ cho catalog giả."""
+    """A valid manifest for the fake catalog."""
     return {
         "release_id": name,
         "database": database,
@@ -46,48 +46,48 @@ def document(name="a", database=1):
 
 
 class Leases:
-    """Coordinator giả để kiểm reader/writer protocol; Lua được thử riêng với Redis thật."""
+    """Fake coordinator to check the reader/writer protocol; the Lua is tested separately against real Redis."""
 
     def __init__(self):
-        """Ban đầu A/B ready, chưa có reader."""
+        """Initially A/B are ready, with no readers."""
         self.retired, self.active, self.prepared = set(), set(), []
         self.expired = False
 
     def acquire(self, item):
-        """Generation thu hồi không nhận reader mới."""
+        """A reclaimed generation admits no new readers."""
         if item.release_id in self.retired:
             return None
         self.active.add(item.release_id)
         return item.release_id
 
     def finish(self, item, token):
-        """Result đã hết lease phải bị bỏ, không trả dữ liệu có thể bị dùng lại."""
+        """A result whose lease expired must be discarded, never returning data that may be reused."""
         self.active.discard(token)
         if self.expired:
             raise FeatureDataUnavailable("expired")
 
     def cancel(self, item, token):
-        """Dọn lượt đọc lỗi."""
+        """Clean up a failed read."""
         self.active.discard(token)
 
     @contextmanager
     def writer(self):
-        """Một writer trong test đơn tiến trình."""
+        """One writer in a single-process test."""
         yield "owner"
 
     def prepare(self, database, name, owner):
-        """Không nhận staging khi reader còn giữ slot."""
+        """Refuse staging while a reader still holds the slot."""
         if self.active:
             raise PublicationBusy("still reading")
         self.prepared.append((database, name))
 
     def ready(self, database, name, owner):
-        """Chỉ được ready đúng candidate đã chuẩn bị."""
+        """Only the prepared candidate may become ready."""
         assert (database, name) in self.prepared
 
 
 def test_cache_returns_immutable_pin_and_refreshes_after_ttl():
-    """Cache chuyển B không làm request đã chọn A biến thành B."""
+    """The cache moving to B does not turn a request that pinned A into B."""
     clock = [0]
     load = Mock(side_effect=[release(), release("b", 2)])
     cache = ReleaseCache(load, ttl=5, clock=lambda: clock[0])
@@ -101,7 +101,7 @@ def test_cache_returns_immutable_pin_and_refreshes_after_ttl():
 
 
 def test_expired_cache_does_not_serve_stale_forever_on_s3_error():
-    """Sau TTL, lỗi nguồn không được âm thầm dùng con trỏ cũ vô hạn."""
+    """After the TTL, a source error must not silently keep using the old pointer forever."""
     clock = [0]
     cache = ReleaseCache(Mock(side_effect=[release(), OSError("s3 down")]), clock=lambda: clock[0])
     cache.current()
@@ -111,7 +111,7 @@ def test_expired_cache_does_not_serve_stale_forever_on_s3_error():
 
 
 def test_database_selection_preserves_auth_and_replaces_old_db():
-    """Không bỏ credential/tùy chọn khác và không để hai tham số db xung đột."""
+    """Do not drop credentials/other options and do not leave two conflicting db parameters."""
     assert (
         redis_database("redis:6379,password=secret,db=0,socket_timeout=5", 2)
         == "redis:6379,password=secret,socket_timeout=5,db=2"
@@ -119,13 +119,13 @@ def test_database_selection_preserves_auth_and_replaces_old_db():
 
 
 def test_reader_holds_a_through_mid_request_cutover():
-    """Công bố B giữa lúc đọc A không đổi registry/slot của request đang chạy."""
+    """Publishing B while A is being read does not change the registry/slot of the running request."""
     state = [release()]
     cache = ReleaseCache(lambda: state[0])
     leases = Leases()
 
     def read(**kwargs):
-        """Giả lập B vừa công bố giữa một lần đọc batch A."""
+        """Simulate B being published in the middle of a batch A read."""
         state[0] = release("b", 2)
         cache.current(force=True)
         assert "a" in leases.active
@@ -143,7 +143,7 @@ def test_reader_holds_a_through_mid_request_cutover():
 
 
 def test_stale_cache_cannot_read_reused_slot():
-    """Generation fence buộc refresh sang B, không đọc A đã trở thành chỗ nạp C."""
+    """The generation fence forces a refresh to B, never reading A once it became the load slot for C."""
     load = Mock(side_effect=[release(), release("b", 2)])
     cache, leases = ReleaseCache(load), Leases()
     cache.current()
@@ -162,7 +162,7 @@ def test_stale_cache_cannot_read_reused_slot():
 
 
 def test_expired_read_discards_result_and_stream_is_independent():
-    """Batch quá hạn không rò dữ liệu; request chỉ stream không cần catalog hoạt động."""
+    """An expired batch read leaks no data; a stream-only request does not need a working catalog."""
     leases = Leases()
     leases.expired = True
     stream = Mock()
@@ -171,7 +171,7 @@ def test_expired_read_discards_result_and_stream_is_independent():
     )
 
     def factory(_):
-        """Store batch giả trả cùng định danh SKU."""
+        """Fake batch store returning the same SKU identity."""
         return SimpleNamespace(
             get_online_features=lambda **_: FeatureResult({"seller_sku": ["sku"]})
         )
@@ -189,7 +189,7 @@ def test_expired_read_discards_result_and_stream_is_independent():
 
 
 def catalog():
-    """Catalog đang công bố A; write được theo dõi để chứng minh lỗi không đổi con trỏ."""
+    """Catalog currently publishing A; writes are tracked to prove a failure does not change the pointer."""
     result = Mock()
     result.pointer.return_value = (
         {"release_id": "a", "manifest_uri": "s3://test/a/manifest.json"},
@@ -200,7 +200,7 @@ def catalog():
 
 
 def test_failed_candidate_keeps_current_release():
-    """Nạp/đối soát lỗi không được gọi publish và không đụng slot active."""
+    """A failed load/reconciliation must not call publish and must not touch the active slot."""
     source, leases = catalog(), Leases()
     with pytest.raises(ValueError, match="mismatch"):
         publish_candidate(source, leases, Mock(side_effect=ValueError("mismatch")))
@@ -209,7 +209,7 @@ def test_failed_candidate_keeps_current_release():
 
 
 def test_successful_candidate_is_published_with_expected_etag():
-    """B chỉ được công bố sau build/validate; CAS tham chiếu đúng bản A đã đọc."""
+    """B is published only after build/validate; the CAS references exactly the A that was read."""
     source, leases = catalog(), Leases()
     current = publish_candidate(source, leases, lambda db, name: document(name, db))
     assert current.database == 2
@@ -218,7 +218,7 @@ def test_successful_candidate_is_published_with_expected_etag():
 
 
 def test_live_reader_prevents_slot_reuse():
-    """Chặn ngay trước build: không xóa slot rồi mới nhận ra có reader."""
+    """Block right before build: never clear the slot and only then notice a reader."""
     source, leases, build = catalog(), Leases(), Mock()
     leases.active.add("old-b")
     with pytest.raises(PublicationBusy):
@@ -229,7 +229,7 @@ def test_live_reader_prevents_slot_reuse():
 
 @pytest.mark.parametrize("full_reload", [False, True])
 def test_explicit_recovery_bypasses_active_empty_guard(full_reload):
-    """Giữ quyền human full_reload đã chốt, không tự chữa bản active mất sạch."""
+    """Keep the agreed human full_reload authority; never self-heal a fully lost active release."""
     source, leases = catalog(), Leases()
     check = Mock(side_effect=ValueError("active empty"))
     if full_reload:
@@ -248,7 +248,7 @@ def test_explicit_recovery_bypasses_active_empty_guard(full_reload):
 
 
 def snapshots():
-    """Hai SKU, hai thời điểm; đủ provenance để so đúng bản."""
+    """Two SKUs, two points in time; enough provenance to compare the right release."""
     return pd.DataFrame(
         [
             {
@@ -270,21 +270,21 @@ def snapshots():
 
 
 def test_expected_snapshot_uses_each_sku_as_of_cutoff():
-    """Không chọn toàn bộ file mới nhất hoặc feature tương lai."""
+    """Do not pick the whole latest file or future features."""
     expected = latest_expected(snapshots(), "2026-06-01T00:00:00Z")
     assert expected["seller_sku"].tolist() == ["a", "b"]
     assert expected["labeled_count_90d"].tolist() == [10, 5]
 
 
 def test_duplicate_snapshot_identity_is_rejected():
-    """Khóa SKU/timestamp trùng khiến snapshot không xác định duy nhất."""
+    """Duplicate SKU/timestamp keys make the snapshot non-unique."""
     frame = snapshots()
     with pytest.raises(ValueError, match="duplicate"):
         latest_expected(pd.concat([frame, frame.iloc[:1]]), "2026-06-30")
 
 
 def test_reconciliation_checks_values_and_provenance_not_just_counts():
-    """Cùng số dòng nhưng sai số liệu/provenance phải fail; nullable hợp lệ vẫn qua."""
+    """Same row count but wrong values/provenance must fail; valid nullables still pass."""
     expected = latest_expected(snapshots(), "2026-06-30")
     columns = {name: expected[name].tolist() for name in ["seller_sku", *BATCH_FIELDS]}
     store = Mock()
@@ -296,7 +296,7 @@ def test_reconciliation_checks_values_and_provenance_not_just_counts():
 
 
 def test_mixed_offline_generations_are_rejected():
-    """Không công bố các SKU lấy từ hai lần sinh dữ liệu khác nhau."""
+    """Do not publish SKUs taken from two different data generations."""
     frame = snapshots()
     frame.loc[0, "generation_id"] = "other-generation"
     with pytest.raises(ValueError, match="mixes"):
@@ -304,7 +304,7 @@ def test_mixed_offline_generations_are_rejected():
 
 
 def test_bootstrap_uses_first_slot_without_old_registry():
-    """Lần đầu không tự coi thiếu active pointer là mất dữ liệu."""
+    """On the first run, a missing active pointer is not treated as data loss."""
     source, leases = catalog(), Leases()
     source.pointer.return_value = (None, None)
     result = publish_candidate(source, leases, lambda db, name: document(name, db))
@@ -313,11 +313,11 @@ def test_bootstrap_uses_first_slot_without_old_registry():
 
 
 def test_invalid_candidate_proof_cannot_publish():
-    """Build trả proof chưa đạt không được chuyển con trỏ."""
+    """A build returning a failed proof must not move the pointer."""
     source = catalog()
 
     def build(db, name):
-        """Giả lập helper trả nhầm trạng thái kiểm tra."""
+        """Simulate a helper returning the wrong validation status."""
         return {**document(name, db), "validation": "failed"}
 
     with pytest.raises(FeatureDataUnavailable):
@@ -326,14 +326,14 @@ def test_invalid_candidate_proof_cannot_publish():
 
 
 class MemoryS3:
-    """S3 giả giữ ETag/conditional put, không chạm mạng hay credential."""
+    """Fake S3 keeping ETag/conditional put, touching no network or credentials."""
 
     def __init__(self):
-        """Kho object trống cho bootstrap."""
+        """Empty object store for bootstrap."""
         self.objects = {}
 
     def get_object(self, Bucket, Key):
-        """Thiếu object chỉ trả NoSuchKey, giống S3 thật."""
+        """A missing object returns only NoSuchKey, like real S3."""
         from io import BytesIO
 
         from botocore.exceptions import ClientError
@@ -344,7 +344,7 @@ class MemoryS3:
         return {"Body": BytesIO(body), "ETag": etag}
 
     def put_object(self, Bucket, Key, Body, ContentType, **conditions):
-        """CAS sai hoặc ghi đè manifest bất biến đều phải bị từ chối."""
+        """A wrong CAS or overwriting an immutable manifest must both be rejected."""
         from botocore.exceptions import ClientError
 
         old = self.objects.get((Bucket, Key))
@@ -356,7 +356,7 @@ class MemoryS3:
 
 
 def test_catalog_keeps_old_pointer_on_conflicting_publish():
-    """Không ghi đè con trỏ mới hơn bằng một publisher đang giữ ETag cũ."""
+    """A publisher holding a stale ETag must not overwrite a newer pointer."""
     from botocore.exceptions import ClientError
 
     from feature_repo.publication import S3Catalog
@@ -372,7 +372,7 @@ def test_catalog_keeps_old_pointer_on_conflicting_publish():
 
 @pytest.mark.parametrize("corrupt", [False, True])
 def test_publisher_command_validates_before_switching_active(monkeypatch, tmp_path, corrupt):
-    """Chạy nguyên command với transport giả: validation lỗi giữ A và dọn candidate, không flush active."""
+    """Run the whole command with fake transport: failed validation keeps A and cleans the candidate, never flushing active."""
     from feature_repo import publish_batch as command
     from feature_repo.publication import S3Catalog
 
@@ -389,7 +389,7 @@ def test_publisher_command_validates_before_switching_active(monkeypatch, tmp_pa
     clients = []
 
     def client(store, database=0):
-        """Ghi nhận DB nào được yêu cầu; không có Redis thật trong unit test."""
+        """Record which DB was requested; no real Redis in unit tests."""
         clients.append(database)
         return redis
 

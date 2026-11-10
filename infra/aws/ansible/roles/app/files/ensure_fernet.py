@@ -1,4 +1,4 @@
-"""Tạo khóa Fernet một lần trên data disk, giữ nguyên khóa khi chạy lại."""
+"""Create the Fernet key once on the data disk and keep it unchanged on reruns."""
 
 import base64
 import os
@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def main():
-    """Ghi độc quyền nếu chưa có khóa và kiểm khóa cũ, tuyệt đối không in giá trị."""
+    """Write exclusively when no key exists and validate an existing key; never print the value."""
     target = Path(sys.argv[1])
     try:
         with target.open("x") as handle:
@@ -17,7 +17,7 @@ def main():
         print("created")
     except FileExistsError:
         if len(base64.urlsafe_b64decode(target.read_text().strip())) != 32:
-            raise ValueError("Khóa Fernet có sẵn không hợp lệ; không ghi đè") from None
+            raise ValueError("Existing Fernet key is invalid; refusing to overwrite") from None
         print("existing")
     os.chown(target, int(sys.argv[2]), 0)
     os.chmod(target, 0o600)

@@ -1,100 +1,100 @@
-# Nhận diện đúng EBS theo volume ID (máy Nitro đổi tên /dev/sdf thành nvme); blkid bảo vệ filesystem hiện hữu trước mkfs.
-- name: Xác nhận volume ID đã điền
+# Identify the EBS by volume ID (Nitro instances rename /dev/sdf to nvme); blkid protects an existing filesystem before mkfs.
+- name: Confirm the volume ID is set
   ansible.builtin.assert:
     that:
       - data_volume_id is match('^vol-[0-9a-f]+$')
-- name: Tìm EBS theo volume ID
+- name: Find the EBS by volume ID
   ansible.builtin.stat:
     path: '{{ data_disk_path }}'
     follow: true
   register: data_disk
-- name: Phải có block device
+- name: Require a block device
   ansible.builtin.assert:
     that: [data_disk.stat.exists, data_disk.stat.isblk]
-- name: Kiểm chữ ký filesystem bằng blkid
+- name: Check filesystem signatures with blkid
   ansible.builtin.command:
     argv: [blkid, -p, '-o', value, '-s', TYPE, '{{ data_disk_path }}']
   register: disk_blkid
   changed_when: false
   failed_when: disk_blkid.rc not in [0, 2]
-- name: Kiểm toàn bộ chữ ký và partition trước khi cho phép format
+- name: Check all signatures and partitions before allowing a format
   ansible.builtin.command:
     argv: [lsblk, --json, --output, 'NAME,FSTYPE,MOUNTPOINT,PTTYPE', '{{ data_disk_path }}']
   register: disk_layout
   changed_when: false
-- name: Từ chối format disk có partition hoặc mount dù blkid không thấy filesystem
+- name: Refuse to format a disk with partitions or mounts even if blkid sees no filesystem
   ansible.builtin.assert:
     that:
       - (disk_layout.stdout | from_json).blockdevices[0].children is not defined
       - not (disk_layout.stdout | from_json).blockdevices[0].pttype
       - not (disk_layout.stdout | from_json).blockdevices[0].mountpoint
   when: disk_blkid.rc == 2
-- name: Chỉ mkfs khi blkid xác nhận chưa có filesystem
+- name: Run mkfs only when blkid confirms there is no filesystem
   ansible.builtin.command:
     argv: [mkfs.ext4, '{{ data_disk_path }}']
   when: disk_blkid.rc == 2
   changed_when: true
-- name: Đọc UUID của filesystem
+- name: Read the filesystem UUID
   ansible.builtin.command:
     argv: [blkid, '-o', value, '-s', UUID, '{{ data_disk_path }}']
   register: disk_uuid
   changed_when: false
-- name: Đọc loại filesystem thực tế
+- name: Read the actual filesystem type
   ansible.builtin.command:
     argv: [blkid, '-o', value, '-s', TYPE, '{{ data_disk_path }}']
   register: disk_fstype
   changed_when: false
-- name: Tạo mountpoint
+- name: Create the mountpoint
   ansible.builtin.file:
     path: /mnt/platform-data
     state: directory
     mode: '0755'
-- name: Ghi mount UUID và mount nếu chưa có
+- name: Write the UUID mount entry and mount if missing
   ansible.posix.mount:
     path: /mnt/platform-data
     src: 'UUID={{ disk_uuid.stdout | trim }}'
     fstype: '{{ disk_fstype.stdout | trim }}'
     opts: defaults
     state: mounted
-- name: Nới filesystem khi EBS được tăng dung lượng (ext4 nới được lúc đang mount; đủ rồi thì không đổi gì)
+- name: Grow the filesystem when the EBS volume is enlarged (ext4 grows while mounted; no-op when already full size)
   ansible.builtin.command:
     argv: [resize2fs, '{{ data_disk_path }}']
   register: disk_resize
   changed_when: "'Nothing to do' not in disk_resize.stderr"
-# Docker 29 dùng containerd image store: image ở /var/lib/containerd, container/volume ở /var/lib/docker.
-# Cả hai mặc định nằm ổ gốc 30 GB (đầy ngày 27 và 28/10). Bind mount hai thư mục sang EBS, giữ nguyên đường dẫn.
-- name: Kiểm kho Docker/containerd đã nằm trên EBS chưa
+# Docker 29 uses the containerd image store: images in /var/lib/containerd, containers/volumes in /var/lib/docker.
+# Both default to the 30 GB root disk (filled up on 27 and 28/10). Bind mount both directories from the EBS, keeping the same paths.
+- name: Check whether Docker/containerd storage is already on the EBS
   ansible.builtin.command:
     argv: [findmnt, --noheadings, --output, SOURCE, '/var/lib/{{ item }}']
   loop: [containerd, docker]
   register: engine_mounts
   changed_when: false
   failed_when: false
-- name: Dời kho Docker/containerd sang EBS (một lần; dừng mọi container vài phút)
+- name: Move Docker/containerd storage to the EBS (once; stops all containers for a few minutes)
   when: engine_mounts.results | selectattr('rc', 'ne', 0) | list | length > 0
   block:
-    - name: Dừng Docker và containerd để chép nhất quán
+    - name: Stop Docker and containerd for a consistent copy
       ansible.builtin.systemd:
         name: '{{ item }}'
         state: stopped
       loop: [docker.socket, docker, containerd]
-    - name: Chép sang EBS (giữ hardlink/xattr/owner; không --delete nên chạy lại an toàn)
+    - name: Copy to the EBS (keeps hardlinks/xattrs/owners; no --delete, so reruns are safe)
       ansible.builtin.command:
         argv: [rsync, -aHAXx, --numeric-ids, '/var/lib/{{ item }}/', '/mnt/platform-data/{{ item }}/']
       loop: [containerd, docker]
       changed_when: true
-    - name: Giữ bản cũ để đối chiếu; người vận hành tự xoá sau khi kiểm
+    - name: Keep the old copy for comparison; the operator deletes it after checking
       ansible.builtin.command:
         argv: [mv, '/var/lib/{{ item }}', '/var/lib/{{ item }}.pre-ebs']
         creates: '/var/lib/{{ item }}.pre-ebs'
       loop: [containerd, docker]
-    - name: Tạo lại mountpoint rỗng
+    - name: Recreate the empty mountpoint
       ansible.builtin.file:
         path: '/var/lib/{{ item }}'
         state: directory
         mode: '0710'
       loop: [containerd, docker]
-- name: Bind mount kho Docker/containerd từ EBS, chỉ sau khi EBS đã mount
+- name: Bind mount Docker/containerd storage from the EBS, only after the EBS is mounted
   ansible.posix.mount:
     path: '/var/lib/{{ item }}'
     src: '/mnt/platform-data/{{ item }}'
@@ -102,13 +102,13 @@
     opts: bind,x-systemd.requires-mounts-for=/mnt/platform-data
     state: mounted
   loop: [containerd, docker]
-- name: Tạo thư mục drop-in systemd
+- name: Create the systemd drop-in directory
   ansible.builtin.file:
     path: '/etc/systemd/system/{{ item }}.service.d'
     state: directory
     mode: '0755'
   loop: [containerd, docker]
-- name: Chặn Docker/containerd khởi động khi EBS chưa gắn (nếu không sẽ tạo kho rỗng trên ổ gốc, im lặng)
+- name: Block Docker/containerd from starting before the EBS is attached (otherwise they silently create empty storage on the root disk)
   ansible.builtin.copy:
     dest: '/etc/systemd/system/{{ item }}.service.d/data-disk.conf'
     content: |
@@ -117,7 +117,7 @@
     mode: '0644'
   loop: [containerd, docker]
   register: engine_dropin
-- name: Nạp lại systemd và bật lại Docker
+- name: Reload systemd and start Docker again
   ansible.builtin.systemd:
     name: '{{ item }}'
     state: started

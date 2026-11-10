@@ -1,11 +1,11 @@
-"""Nhánh S3 của hai job Bronze phải lấy cấu hình từ catalog_conf, không lọt endpoint MinIO."""
+"""The S3 branch of both Bronze jobs must take its config from catalog_conf, with no MinIO endpoint leaking in."""
 
 import sys
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
-# Venv test không cài pyspark: dựng module giả đủ để hai job import được.
+# The test venv has no pyspark: build a fake module just good enough for both jobs to import.
 _sql = ModuleType("pyspark.sql")
 _sql.SparkSession = SimpleNamespace(builder=None)
 _sql.DataFrame = object
@@ -20,23 +20,23 @@ from spark_jobs.bronze import validate_order_snapshots as validate  # noqa: E402
 
 
 class FakeBuilder:
-    """Ghi lại mọi config thay vì bật JVM."""
+    """Record every config instead of starting a JVM."""
 
     def __init__(self):
-        """Bắt đầu với cấu hình rỗng."""
+        """Start with an empty config."""
         self.conf = {}
 
     def appName(self, _name):
-        """Bỏ qua tên app."""
+        """Ignore the app name."""
         return self
 
     def config(self, key, value):
-        """Ghi một cặp config."""
+        """Record one config pair."""
         self.conf[key] = value
         return self
 
     def getOrCreate(self):
-        """Trả dict config thay cho session."""
+        """Return the config dict instead of a session."""
         return self.conf
 
 
@@ -46,7 +46,7 @@ class FakeBuilder:
     ids=["amazon", "walmart"],
 )
 def test_s3_branch_uses_catalog_conf(monkeypatch, build):
-    """PLATFORM_STORAGE=s3 => endpoint s3a theo region, không còn cấu hình MinIO."""
+    """PLATFORM_STORAGE=s3 => region-based s3a endpoint, with no MinIO config left."""
     monkeypatch.setenv("PLATFORM_STORAGE", "s3")
     monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
     for mod in (amazon, walmart):
@@ -59,7 +59,7 @@ def test_s3_branch_uses_catalog_conf(monkeypatch, build):
 
 
 def test_validate_reads_amazon_source_from_flag():
-    """Validate Amazon đếm đúng nguồn được truyền (S3 trên AWS), mặc định vẫn là mount local."""
+    """Validate Amazon counts exactly the source passed in (S3 on AWS); the default is still the local mount."""
     assert validate.parse_args(["--channel", "amazon", "--table", "t", "--run-id", "r"]).source == (
         validate.AMAZON_SOURCE
     )

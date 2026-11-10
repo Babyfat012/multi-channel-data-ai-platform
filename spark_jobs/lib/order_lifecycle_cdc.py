@@ -1,4 +1,4 @@
-"""Hàm thuần đối soát CDC v2 với oracle và tiện ích Spark/receipt dùng chung."""
+"""Pure functions reconciling CDC v2 against the oracle, plus shared Spark/receipt helpers."""
 
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ TARGET = "lakehouse.bronze.lifecycle_raw_walmart_cdc_events"
 
 
 def payload_sha256(payload):
-    """Hash đúng byte UTF-8 của raw_payload TEXT; delete có after null nên hash null."""
+    """Hash the exact UTF-8 bytes of raw_payload TEXT; a delete has a null after, so it hashes null."""
     return None if payload is None else hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def write_json(path, document):
-    """Ghi JSON atomic trên control directory POSIX dùng chung giữa hai task."""
+    """Write JSON atomically on the POSIX control directory shared by the two tasks."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".cdc-v2-")
@@ -36,7 +36,7 @@ def write_json(path, document):
 
 
 def compare_events(expected, actual, epoch, boundary=None):
-    """Đếm thiếu/thừa, sai hash, đảo thứ tự cùng khóa và epoch lẫn, không che dòng sai."""
+    """Count missing/extra, hash mismatches, same-key reordering and mixed epochs, without hiding bad rows."""
     checks = dict.fromkeys(
         (
             "missing",
@@ -104,7 +104,7 @@ def compare_events(expected, actual, epoch, boundary=None):
             )
     for key, sequence in sequences_want.items():
         rows = sequences_got[key]
-        # So dấu vân tay để bắt cả hai UPDATE cùng khóa bị đảo, không quy lỗi payload thành thứ tự.
+        # Compare fingerprints to catch two swapped same-key UPDATEs, without treating payload errors as ordering.
         observed = [
             (e.get("op"), payload_sha256(e.get("payload_after")))
             for e in sorted(rows, key=lambda e: e.get("kafka_offset") or 0)
@@ -116,7 +116,7 @@ def compare_events(expected, actual, epoch, boundary=None):
 
 
 def build_session(name, local_warehouse=None):
-    """Dùng catalog thật mặc định, hoặc Hadoop local riêng cho harness không Lakekeeper."""
+    """Use the real catalog by default, or a separate local Hadoop one for the harness without Lakekeeper."""
     if local_warehouse is None:
         from spark_jobs.lib.iceberg_session import build_spark
 

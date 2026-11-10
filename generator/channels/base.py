@@ -1,10 +1,10 @@
-"""Phần dùng chung cho mọi renderer Channel.
+"""Shared pieces for every Channel renderer.
 
-Renderer làm một việc: nhận một `Order` của lõi cùng thời điểm chụp `as_of`,
-và trả về bản ghi đúng dạng gốc của Channel tại thời điểm đó. Renderer không
-rút số ngẫu nhiên. Mọi thứ "trông ngẫu nhiên" như mã đơn Amazon đều suy ra từ
-mã chuẩn bằng hàm băm, nên cùng một Order luôn có cùng mã gốc ở mọi lần export,
-ở cả Batch lẫn Stream.
+A renderer does one thing: take a core `Order` and a snapshot time `as_of`,
+and return the record in the Channel's native shape at that time. Renderers do not
+draw random numbers. Everything that "looks random", such as Amazon order ids, is derived
+from the canonical id by hashing, so the same Order always has the same native id in every
+export, in both Batch and Stream.
 """
 
 from __future__ import annotations
@@ -18,16 +18,16 @@ from generator.core.model import Order
 from generator.core.rngs import stable_int
 
 OBJECT_STORE = "object_store"  # MinIO, bucket source-exports
-POSTGRES = "postgres"  # PostgreSQL mô phỏng hệ thống của phòng ban khác
+POSTGRES = "postgres"  # PostgreSQL simulates another department's system
 
 
 @dataclass(frozen=True)
 class RenderedRecord:
-    """Một bản ghi đã ở dạng gốc của Channel.
+    """A record already in the Channel's native shape.
 
-    Thuộc tính:
-        key: khóa dedup của Channel (ví dụ `AmazonOrderId`), dùng để đếm tỷ lệ trùng.
-        record: nội dung sẽ ghi ra, là dict chuyển được sang JSON.
+    Attributes:
+        key: the Channel's dedup key (e.g. `AmazonOrderId`), used to count the duplicate rate.
+        record: the content to write, a JSON-serializable dict.
     """
 
     key: str
@@ -35,33 +35,33 @@ class RenderedRecord:
 
 
 class ChannelRenderer(Protocol):
-    """Giao diện mà renderer của mỗi Channel phải có."""
+    """Interface every Channel renderer must implement."""
 
     channel: str
     dataset: str
     storage: str
 
     def render(self, order: Order, as_of: datetime, export_day: int) -> RenderedRecord:
-        """Vẽ `order` như Channel cho Seller thấy tại thời điểm `as_of`."""
+        """Render `order` as the Channel shows it to the Seller at time `as_of`."""
         ...
 
     def line_keys(self, order: Order) -> list[dict[str, Any]]:
-        """Trả về ánh xạ từ `order_line_id` chuẩn sang mã gốc của Channel."""
+        """Return the mapping from canonical `order_line_id` to the Channel's native ids."""
         ...
 
 
 def native_digits(seed: int, kind: str, source_id: str, length: int) -> str:
-    """Sinh chuỗi `length` chữ số cố định cho `source_id`.
+    """Generate a fixed string of `length` digits for `source_id`.
 
-    Ví dụ `native_digits(42, "amazon_order", "ORD-001-00001", 7)` luôn ra cùng
-    7 chữ số. `kind` giúp hai loại mã sinh từ cùng một Order không trùng nhau.
+    E.g. `native_digits(42, "amazon_order", "ORD-001-00001", 7)` always yields the same
+    7 digits. `kind` keeps two id types generated from the same Order from colliding.
     """
     value = stable_int(seed, kind, source_id)
     return str(value % 10**length).zfill(length)
 
 
 def native_code(seed: int, kind: str, source_id: str, length: int) -> str:
-    """Giống `native_digits` nhưng dùng cả chữ in hoa và số (ví dụ phần đuôi ASIN)."""
+    """Like `native_digits` but uses uppercase letters and digits (e.g. the ASIN suffix)."""
     alphabet = string.ascii_uppercase + string.digits
     value = stable_int(seed, kind, source_id)
     chars = []
@@ -72,15 +72,15 @@ def native_code(seed: int, kind: str, source_id: str, length: int) -> str:
 
 
 def iso_z(t: datetime) -> str:
-    """Định dạng thời điểm UTC kiểu ISO 8601 có đuôi Z, ví dụ `2026-01-01T08:30:00Z`."""
+    """Format a UTC time as ISO 8601 with a Z suffix, e.g. `2026-01-01T08:30:00Z`."""
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def epoch_millis(t: datetime) -> int:
-    """Đổi thời điểm thành số mili giây kể từ 1970-01-01 UTC (kiểu Walmart dùng)."""
+    """Convert a time to milliseconds since 1970-01-01 UTC (the format Walmart uses)."""
     return int(t.timestamp() * 1000)
 
 
 def money(amount: float, decimals: int) -> str:
-    """Định dạng số tiền thành chuỗi với số chữ số thập phân của tiền tệ."""
+    """Format an amount as a string with the currency's number of decimal places."""
     return f"{amount:.{decimals}f}"

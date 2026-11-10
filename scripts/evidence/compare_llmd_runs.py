@@ -1,4 +1,4 @@
-"""In bảng markdown so sánh các lần chạy llm-d-benchmark (inference-perf), mỗi thư mục một cấu hình.
+"""Print a markdown table comparing llm-d-benchmark (inference-perf) runs, one directory per configuration.
 
 python3 scripts/evidence/compare_llmd_runs.py out/llmd-benchmark/baseline out/llmd-benchmark/optimized
 """
@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def stages(run_dir):
-    """Đọc báo cáo từng mức tải (stage_N_lifecycle_metrics.json) trong một lần chạy, theo thứ tự N."""
+    """Read the report of each load level (stage_N_lifecycle_metrics.json) in one run, ordered by N."""
     files = sorted(
         Path(run_dir).rglob("stage_*_lifecycle_metrics.json"),
         key=lambda p: int(p.name.split("_")[1]),
@@ -18,7 +18,7 @@ def stages(run_dir):
 
 
 def row(label, s):
-    """Một dòng bảng markdown cho một mức tải: OK/lỗi, TTFT, TPOT, độ trễ request, thông lượng."""
+    """One markdown table row for one load level: OK/failed, TTFT, TPOT, request latency, throughput."""
     ok, lat = s["successes"], s["successes"]["latency"]
     ttft, tpot, req = (
         lat["time_to_first_token"],
@@ -35,7 +35,7 @@ def row(label, s):
 
 if __name__ == "__main__":
     print(
-        "| Cấu hình | Tải (req/s) | OK / lỗi | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Đạt (req/s) | Token ra/s |"
+        "| Configuration | Load (req/s) | OK / failed | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Achieved (req/s) | Output tokens/s |"
     )
     print("|---|---:|---:|---:|---:|---:|---:|---:|")
     for d in sys.argv[1:]:

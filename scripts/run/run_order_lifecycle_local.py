@@ -1,4 +1,4 @@
-"""Chạy nguồn scale → Iceberg local → warehouse; receipt giữ cả chặng lỗi, không ghi secret."""
+"""Run scale source → local Iceberg → warehouse; the receipt keeps failed stages too, never secrets."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ STAGES = (
 
 
 def parse_args(argv=None):
-    """Profile cho giá trị mặc định; cờ riêng được ưu tiên, nguồn có sẵn không bị sinh lại."""
+    """The profile supplies defaults; explicit flags win, and an existing source is not regenerated."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=PROFILES, default="medium")
     parser.add_argument("--orders-per-day", type=int)
@@ -64,14 +64,14 @@ def parse_args(argv=None):
         if args.cutoff:
             cutoff = datetime.fromisoformat(args.cutoff.replace("Z", "+00:00"))
             if cutoff.tzinfo is None:
-                raise ValueError("cutoff phải có timezone")
+                raise ValueError("cutoff must have a timezone")
     except ValueError as error:
         parser.error(str(error))
     return args
 
 
 def empty_receipt(args):
-    """Schema ổn định, chỉ chứa tham số công khai; không chụp biến môi trường kết nối."""
+    """Stable schema with public parameters only; connection environment variables are not captured."""
     return {
         "schema_version": 1,
         "status": "running",
@@ -89,11 +89,11 @@ def empty_receipt(args):
 
 
 def save_receipt(path, receipt):
-    """RSS Linux tính KiB; driver JVM là process con, không cộng hai peak khác thời điểm."""
+    """Linux RSS is in KiB; the JVM driver is a child process; never add two peaks from different times."""
     receipt["peak_rss"] = {
         "python_driver_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "terminated_children_kib": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
-        "scope": "Linux resource.ru_maxrss; JVM đang sống có thể chưa nằm trong children, không phải tổng RSS Spark",
+        "scope": "Linux resource.ru_maxrss; a still-running JVM may not be in children yet, not the total Spark RSS",
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -103,7 +103,7 @@ def save_receipt(path, receipt):
 
 @contextmanager
 def stage(receipt, path, name):
-    """Đo đến hết action/count để không nhầm thời gian dựng lazy plan với thực thi."""
+    """Measure through the action/count so lazy plan build time is not mistaken for execution."""
     item = receipt["stages"][name]
     item["status"] = "running"
     began = time.perf_counter()
@@ -120,7 +120,7 @@ def stage(receipt, path, name):
 
 
 def write_tables(spark, frames, zone, receipt, item):
-    """Materialize vào catalog mới riêng từng run, rồi chỉ trả DataFrame đọc từ bảng."""
+    """Materialize into a fresh per-run catalog, then return only a DataFrame read from the table."""
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS local.{zone}")
     result = {}
     for name, frame in frames.items():
@@ -143,13 +143,13 @@ def write_tables(spark, frames, zone, receipt, item):
 
 
 def warehouse_connection():
-    """Cùng DSN URI với harness warehouse; fallback POSTGRES_* của module export."""
+    """Same DSN URI as the warehouse harness; falls back to the export module's POSTGRES_*."""
     dsn = os.getenv("WAREHOUSE_TEST_DSN")
     if not dsn:
         return None, None
     parsed = urlparse(dsn)
     if parsed.scheme not in ("postgres", "postgresql") or not parsed.hostname:
-        raise ValueError("WAREHOUSE_TEST_DSN phải là PostgreSQL URI")
+        raise ValueError("WAREHOUSE_TEST_DSN must be a PostgreSQL URI")
     host = parsed.hostname
     if ":" in host:
         host = f"[{host}]"
@@ -161,7 +161,7 @@ def warehouse_connection():
 
 
 def run(args, receipt):
-    """Một Spark session, kho Hadoop trong /tmp; PostgreSQL phải là DB tạm riêng."""
+    """One Spark session, Hadoop warehouse in /tmp; PostgreSQL must be a separate throwaway DB."""
     from pyspark.sql import SparkSession
     from pyspark.sql import functions as F
 
@@ -231,7 +231,7 @@ def run(args, receipt):
                 silver = write_tables(
                     spark, {name: built[name] for name in SILVER}, "silver", receipt, item
                 )
-                # Không giữ các cache của Silver khi Gold đã có bảng vật lý riêng.
+                # Do not keep Silver caches once Gold has its own physical table.
                 spark.catalog.clearCache()
             with stage(receipt, args.receipt, "gold_build") as item:
                 gold = build_gold(silver=silver, cutoff=cutoff, run_id=args.run_id)
@@ -242,7 +242,7 @@ def run(args, receipt):
                 receipt["checks"] = result["checks"]
                 receipt["gold_validation"] = result
                 if not receipt["checks"] or any(receipt["checks"].values()):
-                    raise ValueError("Gold validation thất bại")
+                    raise ValueError("Gold validation failed")
             with stage(receipt, args.receipt, "gold_write") as item:
                 gold = write_tables(spark, gold, "gold", receipt, item)
                 spark.catalog.clearCache()
@@ -254,7 +254,7 @@ def run(args, receipt):
                         cur.execute("SELECT to_regnamespace('warehouse_lifecycle')")
                         if cur.fetchone()[0] is not None:
                             raise ValueError(
-                                "Chỉ chạy trên DB tạm chưa có schema warehouse_lifecycle"
+                                "Only run against a throwaway DB without the warehouse_lifecycle schema"
                             )
                 finally:
                     conn.close()
@@ -307,7 +307,7 @@ def run(args, receipt):
 
 
 def main(argv=None):
-    """Receipt lỗi chỉ ghi loại exception, tránh rò credential từ JDBC/DSN."""
+    """A failure receipt records only the exception type, to avoid leaking JDBC/DSN credentials."""
     args = parse_args(argv)
     receipt = empty_receipt(args)
     began = time.perf_counter()
@@ -317,7 +317,7 @@ def main(argv=None):
         return 0
     except Exception as error:
         receipt.update(status="failed", error_type=type(error).__name__)
-        print(f"E2E thất bại ({type(error).__name__}); xem receipt {args.receipt}", file=sys.stderr)
+        print(f"E2E failed ({type(error).__name__}); see receipt {args.receipt}", file=sys.stderr)
         return 1
     finally:
         receipt["total_seconds"] = round(time.perf_counter() - began, 6)

@@ -1,5 +1,5 @@
 {
-  "_description": "Digests fixture mặc định trước refactor, execution clock cố định 2026-10-19T00:00:00Z; chỉ dùng regression test.",
+  "_description": "Default fixture digests from before the refactor, fixed execution clock 2026-10-19T00:00:00Z; regression test only.",
   "physical_outcome_sha256": "4bacf0c5455372e64636dffa282e04ddd711982932b1a6e8f87d70ac7cac1cd0",
   "dataset_version": "dataset-9b9767a38a44fce25446af2afb6836e6",
   "files": {

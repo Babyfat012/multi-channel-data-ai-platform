@@ -1,16 +1,16 @@
-"""Chạy phần Stream: phát message sau `cutoff` vào Kafka hoặc ra file.
+"""Run the Stream part: emit messages after `cutoff` to Kafka or to files.
 
-Hai nơi nhận (sink):
-- `kafka`: gửi vào Kafka, khóa message là mã đơn gốc, giá trị là JSON gốc.
-- `file`: ghi `stream/<topic>/part-00000.jsonl` dưới `storage.output_root`,
-  mỗi dòng gồm `arrive_at`, `key` và `value`. Dùng để test và để đo không cần Kafka.
+Two sinks:
+- `kafka`: send to Kafka; the message key is the native order id, the value is the native JSON.
+- `file`: write `stream/<topic>/part-00000.jsonl` under `storage.output_root`,
+  each row with `arrive_at`, `key` and `value`. Used for tests and for measuring without Kafka.
 
-`speed` chia nhỏ thời gian chờ: 1 là đúng nhịp cấu hình (khoảng 40 phút cho
-30 ngày), 60 là nhanh gấp 60 lần, 0 là không chờ.
+`speed` divides the wait time: 1 is the configured pace (about 40 minutes for
+30 days), 60 is 60 times faster, 0 is no waiting.
 
-Sau khi phát xong, ghi `stream_manifest.json` với số đo thật: tỷ lệ trùng,
-tỷ lệ trễ, số message lệch thứ tự quá 1 giờ, hệ số burst. Đây là đáp án để đối chiếu
-với những gì Flink đo được.
+After emitting, write `stream_manifest.json` with the real measurements: duplicate rate,
+late rate, number of messages out of order by more than 1 hour, burst multiplier. This is the answer key
+to compare with what Flink measures.
 """
 
 from __future__ import annotations
@@ -29,70 +29,70 @@ from generator.storage import OutputStore
 
 
 class Sink(Protocol):
-    """Nơi nhận message."""
+    """Message sink."""
 
     def send(self, msg: StreamMessage) -> None:
-        """Nhận một message và chuyển tới nơi lưu thật (Kafka hoặc file)."""
+        """Accept a message and forward it to the real store (Kafka or file)."""
         ...
 
     def close(self) -> None:
-        """Xả hết message đang chờ và giải phóng tài nguyên của sink."""
+        """Flush pending messages and release the sink's resources."""
         ...
 
 
 class FileSink:
-    """Ghi message ra file JSONL theo topic (giữ trong RAM rồi ghi một lần khi đóng)."""
+    """Write messages to JSONL files per topic (kept in RAM, written once on close)."""
 
     def __init__(self, store: OutputStore) -> None:
-        """Ghi nhớ nơi lưu và mở bộ đệm rỗng cho từng topic.
+        """Remember the store and open an empty buffer per topic.
 
-        Gom trong RAM rồi ghi một lần lúc `close` để không mở lại file cho mỗi dòng.
+        Collect in RAM and write once on `close` to avoid reopening the file per row.
         """
         self.store = store
         self.rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     def send(self, msg: StreamMessage) -> None:
-        """Xếp message vào bộ đệm của topic nó, chưa đụng tới đĩa."""
+        """Queue the message into its topic's buffer without touching disk."""
         self.rows[msg.topic].append(
             {"arrive_at": msg.arrive_at.isoformat(), "key": msg.key, "value": msg.value}
         )
 
     def close(self) -> None:
-        """Ghi mỗi topic thành một file JSONL `stream/<topic>/part-00000.jsonl`."""
+        """Write each topic as one JSONL file `stream/<topic>/part-00000.jsonl`."""
         for topic, rows in self.rows.items():
             self.store.write_jsonl(f"stream/{topic}/part-00000.jsonl", rows)
 
 
 class KafkaSink:
-    """Gửi message vào Kafka qua `confluent-kafka`."""
+    """Send messages to Kafka via `confluent-kafka`."""
 
     def __init__(self, bootstrap_servers: str) -> None:
-        """Tạo Producer tới `bootstrap_servers`.
+        """Create a Producer for `bootstrap_servers`.
 
-        `linger.ms=50` gom message trong 50ms thành lô, giảm số lần gửi mạng.
+        `linger.ms=50` batches messages for 50ms, reducing network sends.
         """
         from confluent_kafka import Producer
 
         self.producer = Producer({"bootstrap.servers": bootstrap_servers, "linger.ms": 50})
 
     def send(self, msg: StreamMessage) -> None:
-        """Đẩy message với khóa là mã đơn gốc để Kafka giữ thứ tự theo khóa.
+        """Produce the message keyed by the native order id so Kafka keeps per-key order.
 
-        `poll(0)` phục vụ callback gửi mà không chặn luồng phát.
+        `poll(0)` serves delivery callbacks without blocking the emit loop.
         """
         self.producer.produce(msg.topic, key=msg.key.encode(), value=json.dumps(msg.value).encode())
         self.producer.poll(0)
 
     def close(self) -> None:
-        """Chờ Producer xả hết message còn trong lô trước khi kết thúc."""
+        """Wait for the Producer to flush the remaining batched messages before finishing."""
         self.producer.flush()
 
 
 class StreamStats:
-    """Đếm các số đo của Stream trong lúc phát."""
+    """Count the Stream measurements while emitting."""
 
     def __init__(self, config: GeneratorConfig) -> None:
-        """Khởi các bộ đếm rỗng; mọi số đo dồn trong lúc phát rồi lấy ra một lần ở `summary`."""
+        """Initialize empty counters; all measurements accumulate while emitting and are read once in `summary`."""
         self.config = config
         self.rows: Counter = Counter()
         self.duplicates: Counter = Counter()
@@ -103,14 +103,14 @@ class StreamStats:
         self.new_tiktok_orders_by_hour: Counter = Counter()
 
     def add(self, msg: StreamMessage) -> None:
-        """Cập nhật số đo cho một message: dòng, khóa duy nhất, độ trễ, lệch thứ tự quá 1 giờ, và Order TikTok mới theo giờ."""
+        """Update the measurements for one message: rows, unique keys, delay, out of order by more than 1 hour, and new TikTok Orders per hour."""
         t = msg.topic
         self.rows[t] += 1
         self.duplicates[t] += msg.is_duplicate
         self.keys[t].add(msg.dedup_key)
         if not msg.is_duplicate:
             self.delays_min[t].append((msg.arrive_at - msg.event_time).total_seconds() / 60)
-        # Lệch thứ tự đáng kể: đến sau một message có event_time muộn hơn quá 1 giờ.
+        # Significantly out of order: arrives after a message whose event_time is more than 1 hour later.
         if t in self.max_event and msg.event_time < self.max_event[t] - timedelta(hours=1):
             self.out_of_order[t] += 1
         self.max_event[t] = max(self.max_event.get(t, msg.event_time), msg.event_time)
@@ -124,10 +124,10 @@ class StreamStats:
             ] += 1
 
     def summary(self, live_multiplier: float) -> dict[str, Any]:
-        """Gộp số đo từng topic thành dict ghi manifest.
+        """Combine per-topic measurements into a dict for the manifest.
 
-        Gồm tỷ lệ trùng, độ trễ trung vị, tỷ lệ trễ quá 1 giờ, số lệch thứ tự,
-        và hệ số burst của buổi live.
+        Includes duplicate rate, median delay, share delayed over 1 hour, out-of-order count,
+        and the livestream burst multiplier.
         """
         topics = {}
         for t, rows in self.rows.items():
@@ -146,7 +146,7 @@ class StreamStats:
         return {"topics": topics, "burst": self._burst(live_multiplier)}
 
     def _burst(self, live_multiplier: float) -> dict[str, Any] | None:
-        """So số Order TikTok mới mỗi giờ trong buổi live với cùng giờ đó ở các ngày khác."""
+        """Compare new TikTok Orders per hour during the livestream with the same hours on other days."""
         live = self.config.drift.tiktok_live
         if live is None:
             return None
@@ -155,7 +155,7 @@ class StreamStats:
         hours = range(int(live.start_hour_utc), int(live.start_hour_utc + live.duration_hours))
 
         def per_hour(day: int) -> float:
-            """Số Order TikTok mới trung bình mỗi giờ trong khung giờ live của một ngày."""
+            """Mean new TikTok Orders per hour in the livestream hours of one day."""
             start = self.config.day_start(day)
             return sum(
                 self.new_tiktok_orders_by_hour[start + timedelta(hours=h)] for h in hours
@@ -174,7 +174,7 @@ class StreamStats:
 
 
 def run_stream(config: GeneratorConfig, sink: Sink, speed: float = 1.0) -> dict[str, Any]:
-    """Phát toàn bộ Stream vào `sink`, trả về manifest với số đo."""
+    """Emit the whole Stream to `sink` and return a manifest with the measurements."""
     stats = StreamStats(config)
     started = time.monotonic()
     try:

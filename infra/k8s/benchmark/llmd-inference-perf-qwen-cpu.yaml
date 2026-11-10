@@ -1,8 +1,8 @@
-# Workload llm-d-benchmark (harness inference-perf) cho llama.cpp Qwen2.5-1.5B chạy CPU trên EKS.
-# Dựa trên workload/profiles/inference-perf/sanity_random.yaml.in của llm-d-benchmark, giảm cỡ cho CPU (~16 token/s):
-# 3 mức tải 0,1 / 0,2 / 0,4 request/giây, prompt ~128 token, sinh ~32 token. API completion + streaming ⇒ có TTFT.
-# model_name/base_url ghi thẳng (không dựa vào REPLACE_ENV của llm-d-benchmark): alias llama.cpp `--alias` và Service `qwen.llm`.
-# tokenizer là id Hugging Face tương ứng, chỉ để đếm token (pod harness cần ra Internet, hoặc đặt HF_TOKEN).
+# llm-d-benchmark workload (inference-perf harness) for llama.cpp Qwen2.5-1.5B on CPU on EKS.
+# Based on llm-d-benchmark's workload/profiles/inference-perf/sanity_random.yaml.in, scaled down for CPU (~16 tokens/s):
+# 3 load levels 0.1 / 0.2 / 0.4 requests/s, prompt ~128 tokens, ~32 generated tokens. Completion API + streaming ⇒ TTFT available.
+# model_name/base_url hard-coded (not relying on llm-d-benchmark's REPLACE_ENV): llama.cpp `--alias` and Service `qwen.llm`.
+# tokenizer is the matching Hugging Face id, used only for token counting (the harness pod needs Internet access, or set HF_TOKEN).
 load:
   type: constant
   stages:
@@ -18,7 +18,7 @@ api:
   type: completion
   streaming: true
 server:
-  type: vllm            # inference-perf gọi /v1/completions kiểu OpenAI; llama.cpp server cùng giao thức
+  type: vllm            # inference-perf calls OpenAI-style /v1/completions; llama.cpp server speaks the same protocol
   model_name: qwen2.5-1.5b-instruct
   base_url: http://qwen.llm.svc.cluster.local:8080
   ignore_eos: true

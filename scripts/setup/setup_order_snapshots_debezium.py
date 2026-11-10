@@ -26,14 +26,14 @@ def load_settings(path: Path) -> dict[str, str]:
     """Read the project's simple KEY=VALUE env file, with file values preferred."""
     values = dict(os.environ)
     if not path.is_file():
-        raise FileNotFoundError(f"Không thấy file cấu hình {path}")
+        raise FileNotFoundError(f"Config file not found: {path}")
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         key, sep, value = line.partition("=")
         if not sep:
-            raise ValueError(f"Dòng không hợp lệ trong {path}: {key!r}")
+            raise ValueError(f"Invalid line in {path}: {key!r}")
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
@@ -57,7 +57,7 @@ def configure_postgres(settings: dict[str, str]) -> None:
         cur.execute("SHOW wal_level")
         wal_level = cur.fetchone()[0]
         if wal_level != "logical":
-            raise RuntimeError(f"PostgreSQL wal_level={wal_level}; cần logical")
+            raise RuntimeError(f"PostgreSQL wal_level={wal_level}; logical is required")
 
         # The source has no primary key. FULL supplies before-values for
         # UPDATE/DELETE; it is required for a usable CDC change log.
@@ -76,7 +76,7 @@ def configure_postgres(settings: dict[str, str]) -> None:
             )
             if cur.fetchone() is None:
                 cur.execute("ALTER PUBLICATION platform_walmart_orders ADD TABLE walmart.orders")
-    print("PostgreSQL: WAL logical, replica identity FULL, publication sẵn sàng")
+    print("PostgreSQL: WAL logical, replica identity FULL, publication ready")
 
 
 def configure_topic(settings: dict[str, str]) -> None:
@@ -85,11 +85,11 @@ def configure_topic(settings: dict[str, str]) -> None:
     future = admin.create_topics([NewTopic(TOPIC, num_partitions=1, replication_factor=1)])[TOPIC]
     try:
         future.result(timeout=30)
-        print(f"Kafka: đã tạo topic {TOPIC} với một partition")
+        print(f"Kafka: created topic {TOPIC} with one partition")
     except Exception as exc:
         if "TOPIC_ALREADY_EXISTS" not in str(exc):
             raise
-        print(f"Kafka: topic {TOPIC} đã tồn tại")
+        print(f"Kafka: topic {TOPIC} already exists")
 
 
 def register_connector(settings: dict[str, str]) -> None:
@@ -125,17 +125,17 @@ def register_connector(settings: dict[str, str]) -> None:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             if response.status not in (200, 201):
-                raise RuntimeError(f"Kafka Connect trả HTTP {response.status}")
+                raise RuntimeError(f"Kafka Connect returned HTTP {response.status}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        detail = detail.replace(settings["POSTGRES_PASSWORD"], "<ẩn mật khẩu>")
+        detail = detail.replace(settings["POSTGRES_PASSWORD"], "<password hidden>")
         raise RuntimeError(f"Kafka Connect HTTP {exc.code}: {detail}") from exc
-    print(f"Debezium: đã đăng ký connector {CONNECTOR_NAME}; topic {TOPIC}")
+    print(f"Debezium: registered connector {CONNECTOR_NAME}; topic {TOPIC}")
 
 
 def main() -> int:
     """Configure PostgreSQL, Kafka topic, and the Debezium connector."""
-    parser = argparse.ArgumentParser(description="Thiết lập CDC cho walmart.orders")
+    parser = argparse.ArgumentParser(description="Set up CDC for walmart.orders")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     args = parser.parse_args()
     settings = load_settings(args.env_file)

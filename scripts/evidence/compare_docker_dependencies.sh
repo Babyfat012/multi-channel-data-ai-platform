@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build image generator naive và tối ưu từ cùng working tree, so bộ thư viện cài trong hai image,
-# in dung lượng + digest. Exit khác 0 nếu bộ thư viện khác nhau (claim "chỉ khác cách build" sai).
-# Dùng: bash scripts/evidence/compare_docker_dependencies.sh [thư mục ghi kết quả]
+# Build the naive and optimized generator images from the same working tree, compare the libraries installed in both,
+# print size + digest. Exits nonzero if the library sets differ (the "only the build differs" claim is false).
+# Usage: bash scripts/evidence/compare_docker_dependencies.sh [output directory]
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
@@ -9,8 +9,8 @@ out=${1:-out/docker-compare}
 mkdir -p "$out"
 docker build -q -t platform-generator:naive -f docker/Dockerfile.naive . >/dev/null
 docker build -q -t platform-generator:opt -f Dockerfile . >/dev/null
-# Image tối ưu không có pip/uv ở stage cuối; đọc metadata dist-info bằng importlib.metadata của
-# chính Python trong venv. Bỏ project và công cụ cài đặt (pip/setuptools/wheel) vì chúng thuộc base image.
+# The optimized image has no pip/uv in the final stage; read dist-info metadata with importlib.metadata of
+# the venv's own Python. Skip the project and installer tools (pip/setuptools/wheel) since they belong to the base image.
 freeze='import importlib.metadata as m
 skip = {"platform-generator", "pip", "setuptools", "wheel"}
 names = sorted({(d.metadata["Name"].lower().replace("_", "-"), d.version) for d in m.distributions()})
@@ -21,8 +21,8 @@ for tag in naive opt; do
   docker image inspect "platform-generator:$tag" --format "$tag {{.Id}} {{.Size}}"
 done | tee "$out/images.txt"
 if diff -u "$out/naive.txt" "$out/opt.txt" >"$out/deps.diff"; then
-  echo "Cùng bộ thư viện: $(wc -l <"$out/opt.txt") package"
+  echo "Same library set: $(wc -l <"$out/opt.txt") packages"
 else
-  echo "KHÁC bộ thư viện — xem $out/deps.diff" >&2
+  echo "DIFFERENT library sets — see $out/deps.diff" >&2
   exit 1
 fi

@@ -1,5 +1,5 @@
 {
-  "description": "Hợp đồng nguồn v2; required là giao mọi sự kiện, không phải schema riêng từng event_type.",
+  "description": "Source contracts v2; required is the intersection of all events, not a per-event_type schema.",
   "subjects": {
     "seller-source-v2/carrier.delivery_events": {
       "compatibility": "BACKWARD",
@@ -140,7 +140,7 @@
           "identity_path": "$.orderId"
         }
       ],
-      "comment": "Hai phiên bản Amazon đã có hai parser riêng từ trước; không áp ràng buộc tiến hóa giữa hai export này."
+      "comment": "The two Amazon versions already had separate parsers; no evolution constraint is enforced between these two exports."
     },
     "sim-native-v2/walmart": {
       "compatibility": "BACKWARD",

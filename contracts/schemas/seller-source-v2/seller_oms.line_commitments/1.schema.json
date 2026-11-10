@@ -1,5 +1,5 @@
 {
-  "description": "Hợp đồng seller-source-v2/seller_oms.line_commitments/1; suy luận từ fixture, required là giao các bản ghi.",
+  "description": "Contract seller-source-v2/seller_oms.line_commitments/1; inferred from fixtures, required is the intersection of all records.",
   "properties": {
     "clock_domain": {
       "type": "string"

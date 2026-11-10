@@ -1,16 +1,16 @@
-"""Test chạy tiếp sau khi Batch bị cắt giữa đường.
+"""Tests for resuming after a Batch is interrupted midway.
 
-Lần chạy 100 GB mất khoảng 3,2 giờ trên một core. Trong khoảng đó máy có thể phải
-tắt. Các test ở đây khóa đúng một lời hứa: **bị cắt rồi chạy tiếp cho ra kết quả y
-hệt chạy một lèo**, tới từng byte và từng con số trong manifest.
+The 100 GB run takes about 3.2 hours on one core. During that time the machine may have to
+shut down. These tests pin exactly one promise: **interrupting and resuming gives a result
+identical to an uninterrupted run**, down to every byte and every number in the manifest.
 
-Cắt được mô phỏng bằng cách ném lỗi từ `write_json_atomic` — chỗ duy nhất ghi tem.
-Hai kiểu cắt khác nhau về bản chất nên test cả hai:
+The interruption is simulated by raising from `write_json_atomic` — the only place that writes stamps.
+The two kinds of interruption differ in nature, so both are tested:
 
-- **Cắt sạch**: tem của ngày d đã ghi xong rồi mới chết. Trên đĩa mọi thứ nhất quán.
-- **Cắt bẩn**: file của ngày d đã nằm trên đĩa nhưng tem CHƯA kịp ghi. Đây là trạng
-  thái nguy hiểm: nếu lần chạy sau tin mấy file đó thì dữ liệu có thể thiếu một nửa.
-  Đúng kiểu hỏng âm thầm — không lỗi, không test đỏ, chỉ sai số.
+- **Clean cut**: the stamp of day d was fully written before dying. Everything on disk is consistent.
+- **Dirty cut**: the files of day d are on disk but the stamp was NOT yet written. This is the
+  dangerous state: if the next run trusts those files, the data may be missing half its rows.
+  Exactly the silent kind of breakage — no error, no red test, just wrong numbers.
 """
 
 from __future__ import annotations
@@ -25,20 +25,20 @@ from generator.generate_order_snapshots import BatchRun
 
 
 class _Cut(Exception):
-    """Máy tắt. Không phải lỗi của code."""
+    """The machine shut down. Not a bug in the code."""
 
 
 def _run_with_cut(config, cut_at: int, *, stamp_first: bool) -> None:
-    """Chạy Batch rồi cắt ở ngày `cut_at`.
+    """Run the Batch, then cut it at day `cut_at`.
 
-    `stamp_first=True` là cắt sạch (tem ghi xong mới chết), `False` là cắt bẩn
-    (chết đúng trước lúc dán tem, để lại file không có tem).
+    `stamp_first=True` is a clean cut (dies after the stamp is written), `False` is a dirty cut
+    (dies right before stamping, leaving files without a stamp).
     """
     run = BatchRun(config)
     write_json_atomic = run.store.write_json_atomic
 
     def guarded(relative: str, obj):
-        """Chặn đúng lúc ghi tem của ngày bị cắt: ném lỗi TRƯỚC khi ghi (cắt bẩn) hoặc SAU khi ghi (cắt sạch)."""
+        """Intercept the stamp write of the cut day: raise BEFORE writing (dirty cut) or AFTER writing (clean cut)."""
         is_stamp_of_cut_day = relative == f"_checkpoint/day-{cut_at:05d}.json"
         if is_stamp_of_cut_day and not stamp_first:
             raise _Cut
@@ -52,14 +52,14 @@ def _run_with_cut(config, cut_at: int, *, stamp_first: bool) -> None:
         run.run()
     except _Cut:
         return
-    raise AssertionError(f"khong cat duoc o ngay {cut_at}")
+    raise AssertionError(f"could not cut at day {cut_at}")
 
 
 def _tree(root: Path) -> dict[str, bytes]:
-    """Mọi file dưới `root`, đường dẫn tương đối -> nội dung byte.
+    """Every file under `root`, relative path -> byte content.
 
-    Bỏ `run_manifest.json` ra vì nó chứa `storage.output_root`, tức đường dẫn của
-    chính lần chạy đó. So riêng bằng `_comparable`.
+    `run_manifest.json` is excluded because it holds `storage.output_root`, i.e. the path of
+    that run itself. It is compared separately via `_comparable`.
     """
     return {
         str(p.relative_to(root)): p.read_bytes()
@@ -69,21 +69,21 @@ def _tree(root: Path) -> dict[str, bytes]:
 
 
 def _comparable(manifest: dict) -> dict:
-    """Manifest bỏ đi `output_root`, thứ duy nhất đúng là phải khác giữa hai thư mục."""
+    """The manifest without `output_root`, the only thing that must legitimately differ between the two directories."""
     stripped = json.loads(json.dumps(manifest))
     stripped["config"]["storage"].pop("output_root", None)
     return stripped
 
 
 def _config_at(config, root: Path):
-    """Cùng cấu hình nhưng ghi vào `root` khác."""
+    """The same config but writing to a different `root`."""
     return dataclasses.replace(
         config, storage=dataclasses.replace(config.storage, output_root=str(root))
     )
 
 
 def _straight_run(config, root: Path) -> dict:
-    """Chạy một lèo vào `root`, trả về manifest."""
+    """Run uninterrupted into `root` and return the manifest."""
     return BatchRun(_config_at(config, root)).run()
 
 
@@ -150,14 +150,16 @@ def test_untrusted_resume_metadata_is_rejected_without_repairing_it(tiny_config,
 
 
 def test_resuming_after_a_clean_cut_matches_a_straight_run_byte_for_byte(tiny_config, tmp_path):
-    """Tem ghi xong mới chết: chạy tiếp từ ngày sau và ra đúng kết quả cũ."""
+    """Dies after the stamp is written: resume from the next day and get the same result."""
     straight = tmp_path / "straight"
     cut = tmp_path / "cut"
     expected = _straight_run(tiny_config, straight)
 
     config = _config_at(tiny_config, cut)
     _run_with_cut(config, cut_at=5, stamp_first=True)
-    assert not (cut / "run_manifest.json").exists(), "lan chay bi cat khong duoc ghi manifest"
+    assert not (cut / "run_manifest.json").exists(), (
+        "an interrupted run must not write the manifest"
+    )
 
     resumed = BatchRun(config).run()
     assert _comparable(resumed) == _comparable(expected)
@@ -165,11 +167,11 @@ def test_resuming_after_a_clean_cut_matches_a_straight_run_byte_for_byte(tiny_co
 
 
 def test_resuming_after_a_dirty_cut_matches_a_straight_run_byte_for_byte(tiny_config, tmp_path):
-    """Chết TRƯỚC khi dán tem: file ngày đó bị bỏ đi và sinh lại, không trùng không thiếu.
+    """Dies BEFORE stamping: that day's files are discarded and regenerated, with no duplicates and nothing missing.
 
-    Đây là test quan trọng nhất của cơ chế. Nếu `_discard_days_after` không xóa file
-    của ngày chưa có tem, lần chạy tiếp sẽ ghi thêm vào bên cạnh chúng và dữ liệu
-    thành trùng — manifest vẫn cộng ra số đẹp, nên chỉ so từng byte mới thấy.
+    This is the most important test of the mechanism. If `_discard_days_after` does not delete the files
+    of a day without a stamp, the resumed run writes next to them and the data
+    ends up duplicated — the manifest still adds up nicely, so only a byte comparison reveals it.
     """
     straight = tmp_path / "straight"
     cut = tmp_path / "cut"
@@ -177,8 +179,8 @@ def test_resuming_after_a_dirty_cut_matches_a_straight_run_byte_for_byte(tiny_co
 
     config = _config_at(tiny_config, cut)
     _run_with_cut(config, cut_at=5, stamp_first=False)
-    # Ngày 5 có để lại file trên đĩa, nhưng không có tem. Đúng trạng thái cần dọn.
-    assert sorted(cut.glob("**/part-sim00005.*")), "cat ban phai de lai file cua ngay 5"
+    # Day 5 left files on disk, but no stamp. Exactly the state that needs cleanup.
+    assert sorted(cut.glob("**/part-sim00005.*")), "a dirty cut must leave day 5 files behind"
     assert not (cut / "_checkpoint/day-00005.json").exists()
 
     resumed = BatchRun(config).run()
@@ -187,22 +189,22 @@ def test_resuming_after_a_dirty_cut_matches_a_straight_run_byte_for_byte(tiny_co
 
 
 def test_the_run_picks_up_at_the_day_after_the_last_stamp(tiny_config, tmp_path):
-    """Cắt bẩn ở ngày 5 thì ngày xong cuối cùng là 4, và ngày 5 được sinh lại."""
+    """A dirty cut at day 5 makes 4 the last complete day, and day 5 is regenerated."""
     config = _config_at(tiny_config, tmp_path / "cut")
     _run_with_cut(config, cut_at=5, stamp_first=False)
 
     run = BatchRun(config)
     assert run._last_complete_day() == 4
     removed = run._discard_days_after(4)
-    assert removed, "phai xoa file cua ngay 5"
+    assert removed, "day 5 files must be deleted"
     assert all("sim00005" in path or "day-00005" in path for path in removed), removed
 
 
 def test_a_stamp_standing_alone_after_a_gap_is_not_trusted(tiny_config, tmp_path):
-    """Tem 1,2 rồi nhảy sang 9: ngày xong cuối cùng là 2, không phải 9.
+    """Stamps 1, 2 then a jump to 9: the last complete day is 2, not 9.
 
-    Tem lẻ không chứng minh được các ngày trước nó đã xong. Lấy số lớn nhất tìm được
-    sẽ bỏ qua ngày 3..8 và mất dữ liệu trong im lặng.
+    A stray stamp does not prove the days before it are done. Taking the largest one found
+    would skip days 3..8 and silently lose data.
     """
     root = tmp_path / "gap"
     config = _config_at(tiny_config, root)
@@ -214,18 +216,18 @@ def test_a_stamp_standing_alone_after_a_gap_is_not_trusted(tiny_config, tmp_path
 
 
 def test_the_stamp_is_written_only_after_every_file_of_the_day_is_closed(tiny_config):
-    """Tem là việc cuối cùng của một ngày: lúc ghi nó, không file nào còn mở.
+    """The stamp is the last step of a day: when it is written, no file is still open.
 
-    Nếu tem ghi trước khi file đóng xong thì mất điện có thể để lại tem nói "ngày d
-    xong" trong khi file ngày d thiếu đuôi. Lần chạy sau tin tem, bỏ qua ngày d, và
-    dữ liệu thiếu mà không ai báo. Cả cơ chế sống chết ở thứ tự này.
+    If the stamp is written before the files are closed, a power loss can leave a stamp saying "day d
+    done" while day d's files are missing their tail. The next run trusts the stamp, skips day d, and
+    data goes missing without anyone noticing. The whole mechanism lives or dies by this order.
     """
     run = BatchRun(tiny_config)
     write_json_atomic = run.store.write_json_atomic
     open_files_when_stamping = []
 
     def guarded(relative: str, obj):
-        """Ghi lại số file còn mở đúng lúc tem được ghi, để kiểm tem là việc cuối cùng của ngày."""
+        """Record the number of open files at the moment the stamp is written, to check the stamp is the day's last step."""
         if relative.startswith("_checkpoint/"):
             open_files_when_stamping.append(len(run.jsonl.keys()))
         return write_json_atomic(relative, obj)
@@ -238,7 +240,7 @@ def test_the_stamp_is_written_only_after_every_file_of_the_day_is_closed(tiny_co
 
 
 def test_restart_ignores_the_stamps_and_regenerates_everything(tiny_config, tmp_path):
-    """`--restart` bỏ tem cũ, làm lại từ ngày 1, và không để lại file của lần cũ."""
+    """`--restart` ignores old stamps, starts over from day 1, and leaves no files of the old run."""
     straight = tmp_path / "straight"
     again = tmp_path / "again"
     expected = _straight_run(tiny_config, straight)
@@ -253,7 +255,7 @@ def test_restart_ignores_the_stamps_and_regenerates_everything(tiny_config, tmp_
 
 
 def test_resuming_a_finished_run_changes_nothing(tiny_config, tmp_path):
-    """Chạy lại trên thư mục đã xong thì không sinh lại ngày nào và kết quả y nguyên."""
+    """Rerunning on a finished directory regenerates no day and the result is unchanged."""
     root = tmp_path / "done"
     config = _config_at(tiny_config, root)
     first = BatchRun(config).run()
@@ -266,11 +268,11 @@ def test_resuming_a_finished_run_changes_nothing(tiny_config, tmp_path):
 
 
 def test_the_manifest_of_a_resumed_run_still_matches_the_files_on_disk(tiny_config, tmp_path):
-    """Số byte và số file trong manifest sau khi chạy tiếp vẫn là số thật trên đĩa.
+    """Byte and file counts in the manifest after resuming are still the actual numbers on disk.
 
-    `datasets[*].bytes` là bằng chứng đạt ngưỡng 100 GB của bộ dữ liệu. Nó được cộng dồn
-    qua tem, nên nếu `_counters` bỏ sót một trường thì nó sai đúng ở lần chạy bị cắt
-    — tức đúng ở lần chạy thật, chứ không phải ở test chạy một lèo.
+    `datasets[*].bytes` is the evidence that the dataset reaches 100 GB. It accumulates
+    through the stamps, so if `_counters` misses a field it is wrong exactly on the interrupted run
+    — i.e. exactly on the real run, not in the uninterrupted test.
     """
     root = tmp_path / "resumed"
     config = _config_at(tiny_config, root)
@@ -296,22 +298,22 @@ def test_the_manifest_of_a_resumed_run_still_matches_the_files_on_disk(tiny_conf
 
 
 def test_a_shorter_rerun_removes_the_files_left_by_a_longer_previous_run(tiny_config, tmp_path):
-    """Chạy lại với ít ngày hơn thì file của những ngày không còn tồn tại phải biến mất.
+    """Rerunning with fewer days must remove the files of days that no longer exist.
 
-    Đây là lý do `_discard_days_after` tồn tại. Ghi lại một ngày thì tự đè file cũ
-    (mở bằng `"wb"` là xóa trắng), nên ngày bị cắt không cần dọn. Nhưng file của
-    ngày 13..20 do lần chạy trước để lại thì KHÔNG ngày nào đè lên — chúng cứ nằm đó.
+    This is why `_discard_days_after` exists. Rewriting a day overwrites its old files
+    (opening with `"wb"` truncates), so the cut day needs no cleanup. But the files of
+    days 13..20 left by the previous run are overwritten by NO day — they just stay there.
 
-    Hậu quả nếu không dọn: Spark, DuckDB và `generator/report.py` đọc cả thư mục nên
-    vẫn thấy chúng và tính là dữ liệu thật, trong khi manifest không đếm. Lúc đó
-    `datasets[*].bytes` — bằng chứng đạt ngưỡng 100 GB — không còn bằng byte thật
-    trên đĩa, và không có gì báo lỗi.
+    Consequence without cleanup: Spark, DuckDB and `generator/report.py` read the whole directory, so
+    they still see them and count them as real data, while the manifest does not. Then
+    `datasets[*].bytes` — the evidence of reaching 100 GB — no longer equals the actual bytes
+    on disk, and nothing reports an error.
     """
     root = tmp_path / "shrink"
     fresh = tmp_path / "fresh"
     longer = dataclasses.replace(tiny_config.scale, days_history=20)
     BatchRun(_config_at(dataclasses.replace(tiny_config, scale=longer), root)).run()
-    assert sorted(root.glob("**/part-sim00018.*")), "lan chay 20 ngay phai co file ngay 18"
+    assert sorted(root.glob("**/part-sim00018.*")), "a 20-day run must have day 18 files"
 
     expected = _straight_run(tiny_config, fresh)
     shrunk = BatchRun(_config_at(tiny_config, root)).run(restart=True)

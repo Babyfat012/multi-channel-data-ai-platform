@@ -123,7 +123,7 @@ def test_cloud_chart_does_not_publish_a_node_port():
     ],
 )
 def test_cloud_rag_is_opt_in(cloud, given, expected):
-    """RAG registry thiếu ⇒ Feast tự ghi file mới mà Pod Identity chỉ đọc ⇒ chỉ bật khi truyền rõ."""
+    """Missing RAG registry ⇒ Feast writes a new file itself while Pod Identity is read-only ⇒ enable only when passed explicitly."""
     cloud.pop("FEAST_RAG_REGISTRY", None)
     if given:
         cloud["FEAST_RAG_REGISTRY"] = given
@@ -137,7 +137,7 @@ def test_cloud_rag_is_opt_in(cloud, given, expected):
 
 
 def test_changed_secret_env_rolls_the_pods(cloud):
-    """Secret đổi một mình không thay pod ⇒ checksum env vào pod template; giữ nguyên env thì checksum giữ nguyên."""
+    """A Secret change alone does not replace the pod ⇒ env checksum in the pod template; unchanged env keeps the checksum unchanged."""
 
     def checksum(env):
         Path(env["CALL_LOG"]).unlink(missing_ok=True)

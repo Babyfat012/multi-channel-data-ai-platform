@@ -1,13 +1,13 @@
-# Bật Kafka + Flink (Stream) hoặc Kafka + Debezium (CDC dp1_cdc) trên EC2, time-share với Spark.
-# Dùng thêm sau hai file chuẩn:
+# Run Kafka + Flink (Stream) or Kafka + Debezium (CDC dp1_cdc) on EC2, time-shared with Spark.
+# Layer on top of the two base files:
 #   docker compose -f docker-compose.yml -f docker-compose.aws.yml -f docker-compose.aws-stream.yml \
 #     --profile stream --profile flink up -d kafka flink-jobmanager flink-taskmanager
 #   CDC: ... --profile cdc up -d kafka debezium-connect
-# Cổng chỉ mở loopback; xem UI qua SSM port forwarding. Đầu ra Flink nằm trên EBS dữ liệu, thư mục phải
-# thuộc user flink của image: sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink
-# Kafka (gap #5 #12) ghi topic trên EBS, thư mục thuộc appuser: sudo install -d -o 1000 -g 1000 /mnt/platform-data/kafka
-# Stream feature A (đợt 4): ... --profile stream --profile flink --profile ml-stream up -d kafka flink-jobmanager \
-#   flink-taskmanager feast-pusher (pusher: build trên EC2 trước, `... build feast-pusher`).
+# Ports open on loopback only; view the UIs via SSM port forwarding. Flink output lives on the data EBS; the directory must
+# be owned by the image's flink user: sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink
+# Kafka (gap #5 #12) writes topics on EBS, directory owned by appuser: sudo install -d -o 1000 -g 1000 /mnt/platform-data/kafka
+# Stream feature A (phase 4): ... --profile stream --profile flink --profile ml-stream up -d kafka flink-jobmanager \
+#   flink-taskmanager feast-pusher (pusher: build it on EC2 first, `... build feast-pusher`).
 services:
   kafka:
     profiles: !override [stream, cdc]
@@ -33,7 +33,7 @@ services:
     profiles: !override [flink]
     scale: 1
     cpus: "2"
-    # 1 GB của file gốc (cỡ laptop) hết heap khi checkpoint stream A: state bỏ trùng ~401k Return + cửa sổ HOP 24h.
+    # The base file's 1 GB (laptop size) runs out of heap on stream A checkpoints: dedup state of ~401k Returns + 24h HOP window.
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
@@ -43,15 +43,15 @@ services:
     volumes: !override
       - ./flink_jobs:/opt/flink/jobs:ro
       - /mnt/platform-data/flink:/opt/flink/output
-  # Debezium đọc WAL của Postgres EC2 (wal_level=logical từ file gốc) và ghi topic platform_cdc.walmart.orders.
+  # Debezium reads the WAL of the EC2 Postgres (wal_level=logical from the base file) and writes topic platform_cdc.walmart.orders.
   debezium-connect:
     profiles: !override [cdc]
     scale: 1
     cpus: "1"
     ports: !override
       - "127.0.0.1:${DEBEZIUM_PORT:-8084}:8083"
-  # Ảnh công cụ Feast/Kafka: phát lại Return (replay_return_events.py) vào Kafka cho job PyFlink.
-  # S3 qua IAM role EC2: không key, không endpoint MinIO.
+  # Feast/Kafka tooling image: replays Returns (replay_return_events.py) into Kafka for the PyFlink job.
+  # S3 via the EC2 IAM role: no keys, no MinIO endpoint.
   feast-pusher:
     cpus: "0.5"
     depends_on:
@@ -64,7 +64,7 @@ services:
       FEAST_REDIS: ${PLATFORM_FEAST_REDIS:?PLATFORM_FEAST_REDIS_required}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   # Cluster Flink 2.2 cho 2 job PyFlink stream feature: online → Redis EKS (NodePort), offline → Parquet S3 (IAM role).
-  # Thư mục checkpoint thuộc user flink: sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink-ml
+  # Checkpoint directory owned by the flink user: sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink-ml
   flink-ml-jobmanager:
     scale: 1
     cpus: "1"
@@ -89,7 +89,7 @@ services:
       - /mnt/platform-data/flink-ml:/opt/flink/output
   flink-ml-taskmanager:
     scale: 1
-    cpus: "3"   # job Python dùng ~3 core khi phát lại (đo 09/11); Kafka và JobManager gần như rảnh
+    cpus: "3"   # the Python job uses ~3 cores while replaying (measured 09/11); Kafka and the JobManager are nearly idle
     environment: *flink-ml-aws-env
     mem_limit: 3584m
     volumes: !override

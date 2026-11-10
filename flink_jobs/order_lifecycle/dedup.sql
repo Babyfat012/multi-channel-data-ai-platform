@@ -1,4 +1,4 @@
--- Nguồn v2 bounded; render placeholder bằng scripts/run/render_order_lifecycle_stream.py trước khi chạy.
+-- Bounded v2 source; render placeholders with scripts/run/render_order_lifecycle_stream.py before running.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'order-lifecycle-stream-@@JOB@@-@@EPOCH@@';
@@ -37,7 +37,7 @@ FROM lifecycle_source;
 CREATE TABLE kept (topic STRING, epoch BIGINT, `partition` INT, kafka_offset BIGINT, record_sha256 STRING, entity_id STRING, entity_revision BIGINT)  WITH ('connector'='filesystem', 'path'='file:///opt/flink/output/order_lifecycle/dedup/@@EPOCH@@/kept', 'format'='json');
 CREATE TABLE audit (topic STRING, epoch BIGINT, `partition` INT, kafka_offset BIGINT, record_sha256 STRING, entity_id STRING, entity_revision BIGINT)  WITH ('connector'='filesystem', 'path'='file:///opt/flink/output/order_lifecycle/dedup/@@EPOCH@@/input', 'format'='json');
 
--- Partition SHA trong epoch đã cô lập bằng offset: retry mất, entity revisions vẫn còn.
+-- SHA partitions within an epoch are already isolated by offset: retries are gone, entity revisions remain.
 EXECUTE STATEMENT SET BEGIN
  INSERT INTO audit SELECT topic, epoch, kafka_partition, kafka_offset, record_sha256, entity_id, entity_revision FROM epoch_source;
  INSERT INTO kept SELECT topic, epoch, kafka_partition, kafka_offset, record_sha256, entity_id, entity_revision FROM (
@@ -45,7 +45,7 @@ EXECUTE STATEMENT SET BEGIN
    FROM epoch_source
  ) WHERE rn = 1;
 END;
--- DML sync chờ phần streaming hoàn tất; batch chỉ tính receipt tổng cuối cùng.
+-- Synchronous DML waits for the streaming part to finish; batch only computes the final receipt totals.
 SET 'execution.runtime-mode' = 'batch';
 CREATE TABLE lifecycle_count_source (
   feed STRING, record_sha256 STRING, entity_id STRING, entity_revision BIGINT,

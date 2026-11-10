@@ -1,14 +1,14 @@
-"""Bảng ánh xạ của Silver (trạng thái, fulfillment, quốc gia), không phụ thuộc pyspark.
+"""Silver mapping tables (status, fulfillment, country), with no pyspark dependency.
 
-Job Spark tra các dict này bằng `create_map`: khoá lạ ra NULL (riêng quốc gia giữ nguyên).
-Để ở Python thuần thì `pytest` kiểm được mà không cần Spark. `channel_status` giữ chữ
-nguồn, `order_status` là trạng thái chuẩn. Cột chỉ có một bản (`fulfillment_method`,
-`country`) thì phải chuẩn hoá.
+Spark jobs look these dicts up with `create_map`: unknown keys give NULL (except country, kept as is).
+Keeping them in plain Python lets `pytest` check them without Spark. `channel_status` keeps the source
+text, `order_status` is the canonical status. Columns that exist only once (`fulfillment_method`,
+`country`) must be normalized.
 """
 
 from __future__ import annotations
 
-# Trạng thái chuẩn (docs/shared/terminology.md).
+# Canonical statuses (docs/shared/terminology.md).
 PENDING_PAYMENT = "pending_payment"
 AWAITING_SHIPMENT = "awaiting_shipment"
 SHIPPED = "shipped"
@@ -16,8 +16,8 @@ DELIVERED = "delivered"
 COMPLETED = "completed"
 CANCELLED = "cancelled"
 
-# Amazon v0 `OrderStatus`. "Shipped" gộp cả shipped/delivered/completed: Amazon không báo
-# "đã giao" cho Seller.
+# Amazon v0 `OrderStatus`. "Shipped" covers shipped/delivered/completed: Amazon does not report
+# "delivered" to the Seller.
 AMAZON_V0_STATUS: dict[str, str] = {
     "Pending": PENDING_PAYMENT,
     "Unshipped": AWAITING_SHIPMENT,
@@ -25,7 +25,7 @@ AMAZON_V0_STATUS: dict[str, str] = {
     "Canceled": CANCELLED,
 }
 
-# Amazon 2026 `fulfillment.status`. Bảng riêng vì "Canceled" và "CANCELLED" khác cả cách viết.
+# Amazon 2026 `fulfillment.status`. A separate table because "Canceled" and "CANCELLED" even differ in spelling.
 AMAZON_2026_STATUS: dict[str, str] = {
     "PENDING": PENDING_PAYMENT,
     "UNSHIPPED": AWAITING_SHIPMENT,
@@ -33,8 +33,8 @@ AMAZON_2026_STATUS: dict[str, str] = {
     "CANCELLED": CANCELLED,
 }
 
-# Walmart "Delivered" gộp cả delivered lẫn completed. Chọn `delivered` vì luôn đúng:
-# đơn completed nào cũng đã qua delivered.
+# Walmart "Delivered" covers both delivered and completed. Pick `delivered` because it is always true:
+# every completed Order has passed through delivered.
 WALMART_STATUS: dict[str, str] = {
     "Created": PENDING_PAYMENT,
     "Acknowledged": AWAITING_SHIPMENT,
@@ -43,11 +43,11 @@ WALMART_STATUS: dict[str, str] = {
     "Cancelled": CANCELLED,
 }
 
-# Bên giao hàng.
-BY_CHANNEL = "channel"  # Channel giao (Amazon FBA / AFN)
-BY_SELLER = "seller"  # Seller tự giao (Amazon FBM / MFN)
+# Who ships the Order.
+BY_CHANNEL = "channel"  # Channel ships (Amazon FBA / AFN)
+BY_SELLER = "seller"  # Seller ships (Amazon FBM / MFN)
 
-# v0 dùng AFN/MFN, 2026 dùng AMAZON/MERCHANT; bốn chữ không trùng nên chung một bảng.
+# v0 uses AFN/MFN, 2026 uses AMAZON/MERCHANT; the four values do not overlap, so they share one table.
 AMAZON_FULFILLMENT: dict[str, str] = {
     "AFN": BY_CHANNEL,
     "AMAZON": BY_CHANNEL,
@@ -55,5 +55,5 @@ AMAZON_FULFILLMENT: dict[str, str] = {
     "MERCHANT": BY_SELLER,
 }
 
-# Walmart ghi "USA"; Amazon đã dùng mã 2 chữ.
+# Walmart writes "USA"; Amazon already uses 2-letter codes.
 COUNTRY_ALIASES: dict[str, str] = {"USA": "US"}

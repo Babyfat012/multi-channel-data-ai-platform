@@ -1,66 +1,66 @@
-# Chuẩn bị và triển khai cloud
+# Cloud preparation and deployment
 
-Đích triển khai là AWS cho cả Data Platform, ML Platform và LLM Platform. Người vận hành trực tiếp chạy các lệnh AWS, Terraform plan/apply và Ansible. Những kiểm tra offline của repo không xác nhận đã có tài nguyên hoặc workload chạy trên AWS.
+The deployment target is AWS for the Data Platform, ML Platform and LLM Platform. The operator runs the AWS commands, Terraform plan/apply and Ansible directly. The repo's offline checks do not confirm that resources or workloads are running on AWS.
 
-Cấu hình demo và ngân sách ghi các preset tài nguyên và lịch bật/tắt. Cấu hình đã ghi nhận: EC2 Data Platform và hai EKS worker `r6i.xlarge`, tổng 12 vCPU; xem [kiểm kê AWS](rubric_cloud_audit.md).
+The demo configuration and budget record resource presets and the start/stop schedule. Recorded configuration: the EC2 Data Platform instance and two EKS `r6i.xlarge` workers, 12 vCPU in total; see the [AWS validation status](aws_validation.md).
 
-## 1. Kiểm tài khoản trước khi tạo tài nguyên
+## 1. Check the account before creating resources
 
-Cần AWS CLI v2 đã đăng nhập bằng profile của bạn, Terraform, SSM plugin, Docker, kubectl, Helm, SSH/rsync và Ansible. Kiểm tra các công cụ này trên máy điều khiển trước khi chạy. Cài Ansible trong môi trường riêng theo [hướng dẫn chính thức](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html).
+You need AWS CLI v2 logged in with your profile, Terraform, the SSM plugin, Docker, kubectl, Helm, SSH/rsync and Ansible. Check these tools on the control machine before running anything. Install Ansible in a separate environment following the [official guide](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html).
 
 ```bash
-# Thay TEN_PROFILE bằng profile đã đăng nhập; không gửi access key/mật khẩu.
-export AWS_PROFILE=TEN_PROFILE
+# Replace PROFILE_NAME with a logged-in profile; never share access keys/passwords.
+export AWS_PROFILE=PROFILE_NAME
 export AWS_REGION=ap-southeast-2
 python3 scripts/evidence/check_aws_readiness.py --profile "$AWS_PROFILE" --region "$AWS_REGION"
 ```
 
-Script chỉ gọi API đọc: identity, account plan, quota Standard vCPU, thông số/offering EC2 và phiên bản EKS. Receipt riêng tư tại `out/cloud-preflight/` có quyền `0600`; lỗi đăng nhập dừng trước các probe dịch vụ khác. `AccessDenied` được ghi là thiếu kiểm chứng, không tự đổi quyền hoặc profile.
+The script only calls read APIs: identity, account plan, Standard vCPU quota, EC2 specs/offerings and EKS versions. The private receipt in `out/cloud-preflight/` has `0600` permissions; a login error stops before the other service probes. `AccessDenied` is recorded as missing verification; permissions or profiles are not changed automatically.
 
-Trước plan, chốt account/role, region, hai AZ, ngân sách gồm phần ngoài credit, loại/số node, phiên bản Kubernetes và IP egress quản trị. Quota là hạn mức, chưa trừ tài nguyên đang dùng; offering không đảm bảo có capacity. Giá, credit còn lại và quyền create vẫn cần kiểm trên tài khoản của bạn. Tham khảo [giá EKS](https://aws.amazon.com/eks/pricing/), [EC2](https://aws.amazon.com/ec2/pricing/) và [ECR](https://aws.amazon.com/ecr/pricing/).
+Before planning, settle the account/role, region, two AZs, a budget that includes the part not covered by credits, node type/count, Kubernetes version and the admin egress IP. A quota is a limit and does not subtract resources already in use; an offering does not guarantee capacity. Prices, remaining credits and create permissions still need to be checked on your account. See [EKS pricing](https://aws.amazon.com/eks/pricing/), [EC2](https://aws.amazon.com/ec2/pricing/) and [ECR](https://aws.amazon.com/ecr/pricing/).
 
-## 2. Data Platform, mạng và registry
+## 2. Data Platform, network and registry
 
-Root [Terraform Data Platform](../../infra/aws/terraform/README.md) quản lý EC2/EBS/S3. Các phần mới đều opt-in:
+The [Data Platform Terraform](../../infra/aws/terraform/README.md) root manages EC2/EBS/S3. The newer parts are all opt-in:
 
-- `enable_ecr = true`: chín repository image trong namespace dự án, immutable tag, scan-on-push, không force-delete image khi destroy.
-- `enable_kubernetes_network = true`: thêm subnet tại AZ thứ hai. Hai public subnet cung cấp egress cho node; không tạo NAT Gateway. Node có public IP, chưa có ingress Internet cho ứng dụng.
-- `secondary_availability_zone`: bắt buộc khác AZ đầu và cùng region.
+- `enable_ecr = true`: nine image repositories in the project namespace, immutable tags, scan-on-push, images not force-deleted on destroy.
+- `enable_kubernetes_network = true`: adds a subnet in a second AZ. The two public subnets provide egress for the nodes; no NAT Gateway is created. Nodes have public IPs; there is no Internet ingress for applications yet.
+- `secondary_availability_zone`: must differ from the first AZ and be in the same region.
 
 ```bash
 cd infra/aws/terraform
 cp terraform.tfvars.example terraform.tfvars
-# Điền SSH PUBLIC key, region/AZ, instance và ngân sách/email.
-# Bật enable_ecr, enable_kubernetes_network và điền secondary_availability_zone.
+# Fill in the SSH PUBLIC key, region/AZ, instance and budget/email.
+# Enable enable_ecr, enable_kubernetes_network and fill in secondary_availability_zone.
 terraform init
 terraform fmt -check
 terraform validate
 terraform plan -out data-platform.tfplan
-# Đọc plan, đối chiếu account/region và mọi create/replace/delete trước khi chạy tiếp.
+# Read the plan; check the account/region and every create/replace/delete before continuing.
 terraform apply data-platform.tfplan
 terraform output
 cd ../../..
 ```
 
-Không commit tfvars, state hoặc plan. Nếu đã có state cũ, xem hướng dẫn di chuyển trong Terraform README trước khi apply. Dựng runtime EC2 theo [Ansible](../../infra/aws/ansible/README.md); vẫn cần điền inventory/biến thật và mã hóa secret bằng Ansible Vault.
+Do not commit tfvars, state or plans. If you already have old state, read the migration guide in the Terraform README before applying. Set up the EC2 runtime with [Ansible](../../infra/aws/ansible/README.md); you still need to fill in the real inventory/variables and encrypt secrets with Ansible Vault.
 
-## 3. Kubernetes cho ML Platform / LLM Platform
+## 3. Kubernetes for the ML Platform / LLM Platform
 
-Root [Terraform Kubernetes](../../infra/aws/kubernetes/README.md) đọc outputs của state Data Platform. Root này tạo EKS thật và có chi phí riêng khi apply.
+The [Kubernetes Terraform](../../infra/aws/kubernetes/README.md) root reads the outputs of the Data Platform state. This root creates a real EKS cluster and has its own cost when applied.
 
 ```bash
 cd infra/aws/kubernetes
 cp terraform.tfvars.example terraform.tfvars
-# Điền data_platform_state, kubernetes_version đang được hỗ trợ,
-# admin_role_arn thường trực, api_allowed_cidrs và node_instance_types đã chốt.
+# Fill in data_platform_state, a currently supported kubernetes_version,
+# a permanent admin_role_arn, api_allowed_cidrs and the agreed node_instance_types.
 terraform init
 terraform fmt -check
 terraform validate
 terraform plan -out kubernetes.tfplan
-# Review số node, disk, role và endpoint trước khi apply.
+# Review node count, disk, roles and endpoint before applying.
 terraform apply kubernetes.tfplan
 terraform output -raw kubeconfig_command
-# Chạy lệnh update-kubeconfig vừa được in; alias mặc định là platform-apps.
+# Run the update-kubeconfig command just printed; the default alias is platform-apps.
 cd ../../..
 export KCTX=platform-apps
 kubectl --context "$KCTX" get nodes
@@ -69,56 +69,56 @@ kubectl --context "$KCTX" -n kube-system rollout status daemonset/eks-pod-identi
 kubectl --context "$KCTX" -n kube-system rollout status deployment/ebs-csi-controller --timeout=180s
 ```
 
-Cluster API luôn có endpoint private; endpoint public giới hạn CIDR quản trị `/24` hoặc hẹp hơn. Quyền admin gắn IAM role cụ thể, không tự cấp cho mọi principal tạo cluster. AWS profile dùng khi chạy kubectl phải tương ứng role đó; nếu dùng profile khác, cấu hình assume-role được phép trước khi lấy token. Workload lấy credential qua Pod Identity; node không có S3 data policy.
+The cluster API always has a private endpoint; the public endpoint is limited to an admin CIDR of `/24` or narrower. Admin access is bound to a specific IAM role and is not granted automatically to every principal that creates the cluster. The AWS profile used for kubectl must correspond to that role; if you use a different profile, configure an allowed assume-role before fetching a token. Workloads get credentials through Pod Identity; nodes have no S3 data policy.
 
-Kiểm storage class hiện có trước khi chọn default. Nếu đã có default class khác, đổi annotation của class cũ về `false`, rồi áp class gp3 của repo:
+Check the existing storage classes before choosing a default. If another class is already the default, set the old class's annotation to `false`, then apply the repo's gp3 class:
 
 ```bash
 kubectl --context "$KCTX" get storageclass
-# Chỉ khi gp2 hiện là default:
+# Only if gp2 is currently the default:
 # kubectl --context "$KCTX" annotate storageclass gp2 storageclass.kubernetes.io/is-default-class=false --overwrite
 kubectl --context "$KCTX" apply -f infra/k8s/storage-aws.yaml
 ```
 
-`gp3` dùng EBS CSI và `WaitForFirstConsumer`; PVC cần pod sử dụng mới bind. PV dùng `Retain`: xóa workload/PVC/cluster không tự đảm bảo đã dọn hết EBS. Cần lưu ý cả dữ liệu và chi phí khi dọn môi trường.
+`gp3` uses EBS CSI and `WaitForFirstConsumer`; a PVC only binds once a pod uses it. PVs use `Retain`: deleting the workload/PVC/cluster does not guarantee that all EBS volumes are cleaned up. Keep both data and cost in mind when tearing down the environment.
 
-## 4. Phát hành image và chọn context cloud
+## 4. Publish images and choose the cloud context
 
 ```bash
 export REGISTRY=$(terraform -chdir=infra/aws/terraform output -raw image_registry)
 export ECR_HOST=${REGISTRY%%/*}
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_HOST"
-export TAG="$(git rev-parse HEAD)-BUILD_ID"  # thay BUILD_ID cho mỗi build mới
-# Ví dụ build/push Feature API; các image khác dùng cùng helper và namespace.
+export TAG="$(git rev-parse HEAD)-BUILD_ID"  # replace BUILD_ID for each new build
+# Example: build/push the Feature API; other images use the same helper and namespace.
 docker build -f docker/Dockerfile.serving -t "platform-feature-api:$TAG" .
 scripts/run/push_images.sh "platform-feature-api:$TAG"
 ```
 
-Tag ECR bất biến: không push đè tag đã phát hành. Lưu commit SHA, build ID và digest khi thu evidence. Các script deploy nhận `KCTX`; script bootstrap `setup_kind_*` vẫn dành cho local và không chạy với EKS. Jenkins có tham số registry/context/kubeconfig credential, nhưng pipeline Compose cho RAG/stream vẫn cần cấu hình AWS riêng trước khi chạy toàn chuỗi.
+ECR tags are immutable: do not overwrite a published tag. Record the commit SHA, build ID and digest when collecting evidence. The deploy scripts take `KCTX`; the `setup_kind_*` bootstrap scripts are still for local use and do not run against EKS. Jenkins has registry/context/kubeconfig credential parameters, but the Compose pipelines for RAG/stream still need their own AWS configuration before running end to end.
 
-## 5. Feature API sau khi dependency đã sẵn sàng
+## 5. Feature API once its dependencies are ready
 
-Chỉ thực hiện khi Redis, pgvector, registry Feast trên S3 và KServe đã được triển khai/kiểm tra. Đây là bước kiểm tích hợp tiếp theo, không phải hệ quả tự động của Terraform apply.
+Only do this once Redis, pgvector, the Feast registry on S3 and KServe have been deployed/checked. This is the next integration check, not an automatic consequence of Terraform apply.
 
 ```bash
 export PLATFORM_STORAGE=s3
 export KCTX=platform-apps
 export LAKEHOUSE_BUCKET=$(terraform -chdir=infra/aws/terraform output -raw lakehouse_bucket)
-# POSTGRES_USER / POSTGRES_PASSWORD lấy từ nguồn secret của môi trường, không ghi vào Git.
+# POSTGRES_USER / POSTGRES_PASSWORD come from the environment's secret source, never written to Git.
 SKIP_BUILD_PUSH=1 bash scripts/setup/deploy_feature_api.sh "$TAG"
 kubectl --context "$KCTX" -n feature-store rollout status deployment/feature-api --timeout=180s
 ```
 
-Chart AWS dùng ClusterIP và ServiceAccount `feature-api` tại namespace `feature-store`, khớp Pod Identity. Secret không chứa key MinIO/AWS tĩnh. Helm `--atomic` rollback nếu pod không Ready. Gateway/ingress được triển khai riêng; `setup_ingress.sh` cần `INGRESS_DOMAIN` ở context cloud, không suy IP từ container kind. CA nội bộ trong script chưa thay cho cấu hình ACME/domain thật.
+The AWS chart uses ClusterIP and the `feature-api` ServiceAccount in the `feature-store` namespace, matching Pod Identity. The Secret contains no static MinIO/AWS keys. Helm `--atomic` rolls back if the pods do not become Ready. The gateway/ingress is deployed separately; `setup_ingress.sh` needs `INGRESS_DOMAIN` in a cloud context and does not infer the IP from the kind container. The internal CA in the script does not replace a real ACME/domain configuration.
 
-## 6. Gate để chuyển sang chạy pipeline
+## 6. Gate before moving on to running pipelines
 
-- EC2 truy cập được qua SSM; runtime Data Platform healthy; S3/Iceberg smoke đạt.
-- ECR push và node pull đúng digest; node Ready; Pod Identity/EBS CSI hoạt động; PVC smoke có kiểm đọc/ghi.
-- Đường kết nối EC2 ↔ EKS được kiểm thực tế. Terraform chỉ mở các cổng EC2 đã cho phép từ SG cluster; Compose Data Platform hiện bind loopback. Cần cấu hình listener private và endpoint của các service trước tích hợp, không mở UI/database ra Internet.
-- MLflow/KFP/KServe, Redis/pgvector, LLM/agent, Vault, ingress và observability trên cloud vẫn cần deploy workload sau khi nền hạ tầng đạt. Các script training hiện còn nhánh credential MinIO; chưa coi là cloud-ready chỉ vì đã nhận `KCTX`.
-- Thu receipt thực tế vào `out/`; chỉ đưa bản đã kiểm vào [evidence](../edai-1/evidence.md). Không cập nhật trạng thái “đã chạy cloud” từ kiểm schema hoặc render Helm.
+- EC2 is reachable via SSM; the Data Platform runtime is healthy; the S3/Iceberg smoke test passes.
+- ECR push works and nodes pull the right digest; nodes are Ready; Pod Identity/EBS CSI work; the PVC smoke test checks read/write.
+- The EC2 ↔ EKS connection is tested for real. Terraform only opens the EC2 ports allowed from the cluster SG; the Data Platform Compose stack currently binds to loopback. Configure private listeners and service endpoints before integration; do not expose UIs/databases to the Internet.
+- MLflow/KFP/KServe, Redis/pgvector, LLM/agents, Vault, ingress and observability on the cloud still need their workloads deployed once the base infrastructure passes. The training scripts still have a MinIO credential branch; they are not considered cloud-ready just because they accept `KCTX`.
+- Collect real receipts into `out/`; only move checked ones into [evidence](../data-platform/evidence.md). Do not update the status to “runs on the cloud” based on a schema check or a Helm render.
 
-Nguồn đối chiếu: [EKS networking](https://docs.aws.amazon.com/eks/latest/best-practices/subnets.html), [node IAM role](https://docs.aws.amazon.com/eks/latest/userguide/create-node-role.html), [Pod Identity trust](https://docs.aws.amazon.com/eks/latest/userguide/pod-id-role.html), [EBS CSI](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html).
+References: [EKS networking](https://docs.aws.amazon.com/eks/latest/best-practices/subnets.html), [node IAM role](https://docs.aws.amazon.com/eks/latest/userguide/create-node-role.html), [Pod Identity trust](https://docs.aws.amazon.com/eks/latest/userguide/pod-id-role.html), [EBS CSI](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html).
 
-[Mục lục tài liệu](../README.md)
+[Documentation index](../README.md)

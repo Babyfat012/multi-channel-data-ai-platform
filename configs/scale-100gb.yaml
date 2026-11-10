@@ -1,26 +1,26 @@
-# Cấu hình đạt ngưỡng 100 GB raw của bộ dữ liệu. Giống `default.yaml` trừ hai chỗ:
-# `orders_per_day` và `storage.output_root`.
+# Config that reaches the dataset's 100 GB raw threshold. Same as `default.yaml` except in two places:
+# `orders_per_day` and `storage.output_root`.
 #
-# Vì sao 851.506: ngưỡng đo bằng tổng `datasets[*].bytes` trong `run_manifest.json`
-# (byte thô của raw batch data). Hệ số KHÔNG suy từ `default.yaml` mà đo bằng một
-# lần chạy nháp 40.000 Order/ngày (x10): nó cho 4.697.556.950 byte, nên
-# 100,0 GB / 4.697.556.950 x 40.000 = 851.506. Lần nháp cũng xác nhận tổng trong
-# manifest bằng đúng byte thật trên đĩa (xem `tests/unit/generator/test_generate_order_snapshots.py`).
+# Why 851,506: the threshold is measured as the sum of `datasets[*].bytes` in `run_manifest.json`
+# (raw bytes of the raw batch data). The factor is NOT derived from `default.yaml` but measured with a
+# trial run of 40,000 Orders/day (x10): it produced 4,697,556,950 bytes, so
+# 100.0 GB / 4,697,556,950 x 40,000 = 851,506. The trial run also confirmed that the manifest total
+# equals the actual bytes on disk (see `tests/unit/generator/test_generate_order_snapshots.py`).
 #
-# Vì sao 100,0 GB thập phân chứ không phải 100 GiB: `/data` có 98 GiB dùng được.
-# 100 GiB không vừa; 100,0 GB = 93,1 GiB, vừa và còn dư ~5 GiB.
+# Why decimal 100.0 GB and not 100 GiB: `/data` has 98 GiB usable.
+# 100 GiB does not fit; 100.0 GB = 93.1 GiB fits with ~5 GiB to spare.
 #
-# Đo từ lần nháp x10 (546,7 giây, RAM đỉnh 472 MB): ~3,2 giờ trên 1 core.
-# RAM đỉnh rơi vào Prime Day (ngày 120, đơn Amazon x4), không phải ngày thường.
+# Measured from the x10 trial run (546.7 seconds, peak RAM 472 MB): ~3.2 hours on 1 core.
+# Peak RAM falls on Prime Day (day 120, Amazon orders x4), not on a normal day.
 seed: 42
 scale:
   n_skus: 2000
-  start_date: 2026-01-01     # ngày mô phỏng 1
-  days_history: 180          # từ ngày 1 tới cutoff
+  start_date: 2026-01-01     # simulated day 1
+  days_history: 180          # from day 1 to cutoff
   days_stream: 30            # sau cutoff
   orders_per_day: 851506
-  sku_zipf_exponent: 0.8     # SKU bán chạy nhất khoảng 5% Order Line (tính với 2.000 SKU)
-storefront_weights:          # skew theo Storefront, phải cộng lại bằng 1
+  sku_zipf_exponent: 0.8     # the best-selling SKU is about 5% of Order Lines (with 2,000 SKUs)
+storefront_weights:          # skew by Storefront, must sum to 1
   amazon_us: 0.45
   tiktok_shop_us: 0.15
   amazon_uk: 0.12
@@ -33,21 +33,21 @@ labels:
 offline_problems:
   duplicate_rate: 0.02
   overlap_days: 3
-  amazon_orders_api_switch_day: 100    # từ ngày này Amazon ghi theo Orders 2026-01-01
+  amazon_orders_api_switch_day: 100    # from this day Amazon records under Orders 2026-01-01
 storage:
   output_root: /data/raw
 streaming_problems:
   pacing:
     default_seconds_per_sim_day: 60
     segments:
-      - {from_day: 195, to_day: 195, seconds_per_sim_day: 600}   # ngày livestream phát chậm để thấy burst
+      - {from_day: 195, to_day: 195, seconds_per_sim_day: 600}   # livestream day replayed slowly to make the burst visible
   duplicate_rate: {tiktok_shop_us: 0.015}
   amazon_late: {median_minutes: 5, share_over_1h: 0.05}
 drift:
   tiktok_live: {day: 195, start_hour_utc: 12, duration_hours: 6, burst_multiplier: [5, 8]}
-  prime_day:                 # Sale Event trên các Storefront Amazon (covariate drift)
+  prime_day:                 # Sale Event on the Amazon Storefronts (covariate drift)
     day: 120
     days: 2
-    order_multiplier: 4      # số Order Amazon gấp 4 lần ngày thường
-    discount_share: 0.7      # 70% Order Line Amazon được giảm giá
-    deal_skus: 50            # số SKU được đẩy mạnh trong ngày sale
+    order_multiplier: 4      # Amazon Order count is 4x a normal day
+    discount_share: 0.7      # 70% of Amazon Order Lines are discounted
+    deal_skus: 50            # number of SKUs promoted on the sale day

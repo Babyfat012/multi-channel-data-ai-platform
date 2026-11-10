@@ -1,5 +1,5 @@
-# Người vận hành chạy playbook này trên EC2; mặc định không sinh nguồn hoặc smoke Cloud.
-- name: Chuẩn bị runtime Data Platform v2 trên một VM
+# The operator runs this playbook against the EC2; by default it neither generates sources nor runs the Cloud smoke test.
+- name: Prepare the Data Platform v2 runtime on a single VM
   hosts: aws
   become: true
   roles:

@@ -1,8 +1,8 @@
-"""SparkSession dùng chung, nối catalog Iceberg trên Lakekeeper, ghim múi giờ UTC.
+"""Shared SparkSession wired to the Iceberg catalog on Lakekeeper, pinned to UTC.
 
-Ghim UTC là bắt buộc: hàm ngày của Spark theo múi giờ phiên, mà nhãn Return dùng cửa sổ
-30 ngày, nên lệch múi giờ là lệch nhãn. Hai job Bronze v1 giữ bản `build_spark` riêng vì
-đã có số đo đi kèm trong `docs/edai-1/reference/spark.md`.
+Pinning UTC is mandatory: Spark date functions follow the session time zone, and the Return label
+uses a 30-day window, so a time zone shift is a label shift. The two Bronze v1 jobs keep their own
+`build_spark` because they come with measurements in `docs/data-platform/reference/spark.md`.
 """
 
 from __future__ import annotations
@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
-# Khớp tên catalog trong scripts/setup/setup_lakekeeper.sh.
+# Matches the catalog name in scripts/setup/setup_lakekeeper.sh.
 CATALOG = "lakehouse"
 
 
 def build_spark(app_name: str, shuffle_partitions: int | None = None) -> SparkSession:
-    """SparkSession nối Lakekeeper + MinIO, múi giờ UTC.
+    """SparkSession wired to Lakekeeper + MinIO, UTC time zone.
 
-    `shuffle_partitions=None` giữ mặc định của Spark (200).
+    `shuffle_partitions=None` keeps the Spark default (200).
     """
     from pyspark.sql import SparkSession
 
@@ -35,7 +35,7 @@ def build_spark(app_name: str, shuffle_partitions: int | None = None) -> SparkSe
 
 
 def catalog_conf(env) -> dict[str, str]:
-    """Cấu hình catalog dạng dict thuần; giữ nguyên các cặp cấu hình MinIO hiện có."""
+    """Catalog config as a plain dict; keeps the existing MinIO config pairs unchanged."""
     prefix = f"spark.sql.catalog.{CATALOG}"
     conf = {
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
@@ -59,16 +59,16 @@ def catalog_conf(env) -> dict[str, str]:
             }
         )
     elif storage == "s3":
-        # AWS thật: không endpoint/key; credential tạm lấy từ IAM role của EC2.
+        # Real AWS: no endpoint/key; temporary credentials come from the EC2 IAM role.
         region = env["AWS_REGION"]
         conf.update(
             {
                 f"{prefix}.io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
                 f"{prefix}.client.region": region,
-                # File raw đọc qua s3a:// (hadoop-aws); trỏ endpoint theo region để khỏi bị redirect.
+                # Raw files are read via s3a:// (hadoop-aws); point the endpoint at the region to avoid redirects.
                 "spark.hadoop.fs.s3a.endpoint": f"s3.{region}.amazonaws.com",
             }
         )
     else:
-        raise ValueError(f"PLATFORM_STORAGE không hỗ trợ: {storage!r}")
+        raise ValueError(f"unsupported PLATFORM_STORAGE: {storage!r}")
     return conf

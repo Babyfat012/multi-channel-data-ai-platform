@@ -1,7 +1,7 @@
-"""Iceberg maintenance: unittest Iceberg Hadoop local, không mạng; chỉ dùng jar đã cache trong ivy.
+"""Iceberg maintenance: unittest on a local Iceberg Hadoop catalog, offline; uses only jars cached in ivy.
 
-Chạy trong Docker. Receipt ghi /tmp, không sửa evidence trong repo.
-Chỉ xuất evidence khi cả suite xanh; stdout có JSON + sha256.
+Runs in Docker. The receipt is written to /tmp; repo evidence is not modified.
+Evidence is only exported when the whole suite is green; stdout has the JSON + sha256.
 """
 
 from __future__ import annotations
@@ -30,15 +30,15 @@ from spark_jobs.lib.maintenance_policy import plan_maintenance, validated_config
 
 
 class MaintenanceChecks(unittest.TestCase):
-    """Bảng nhiều append, generation giữa lịch sử và ba nhánh thi hành độc lập."""
+    """A table with many appends, a generation mid-history and three independent execution branches."""
 
     @classmethod
     def setUpClass(cls):
-        """Hadoop catalog tạm với extension CALL, không packages/network/service."""
+        """Temporary Hadoop catalog with the CALL extension, no packages/network/services."""
         cls.temp = tempfile.TemporaryDirectory(prefix="platform-maintenance-")
         jar = Path("/ivy/.ivy2/jars/org.apache.iceberg_iceberg-spark-runtime-3.5_2.12-1.11.0.jar")
         if not jar.is_file():
-            raise RuntimeError(f"Thiếu jar offline: {jar}")
+            raise RuntimeError(f"Missing offline jar: {jar}")
         cls.spark = (
             SparkSession.builder.master("local[2]")
             .appName("maintenance-regression")
@@ -62,12 +62,12 @@ class MaintenanceChecks(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        """Dọn warehouse local, không đụng volume project/service."""
+        """Clean up the local warehouse, never touching project/service volumes."""
         cls.spark.stop()
         cls.temp.cleanup()
 
     def demo(self, suffix):
-        """32 append tất định: mỗi file trải cả miền sku, hai partition identity."""
+        """32 deterministic appends: each file spans the whole sku domain, two identity partitions."""
         table = f"local.demo.maintenance_{suffix}"
         self.spark.sql(f"""CREATE TABLE {table} (
             id BIGINT, part INT, seller_sku STRING, created_at TIMESTAMP, payload STRING
@@ -88,7 +88,7 @@ class MaintenanceChecks(unittest.TestCase):
             if append == 15:
                 snap = job.snapshot_id(self.spark, table)
                 self.spark.sql(f"ALTER TABLE {table} CREATE TAG `gen-1` AS OF VERSION {snap}")
-        time.sleep(1.1)  # Tất cả append cũ hơn cutoff 1 giây ở lần lập kế hoạch đầu.
+        time.sleep(1.1)  # Every append is older than the 1-second cutoff at the first planning run.
         config = validated_config(
             {
                 "min_input_files": 12,
@@ -96,7 +96,7 @@ class MaintenanceChecks(unittest.TestCase):
                 "small_file_ratio": 1.0,
                 "zorder_columns": ["seller_sku", "created_at"],
                 "zorder_min_new_files": 20,
-                # Giữ 3 snapshot cuối: append cuối + compact + zorder, giúp lần hai thực sự no-op.
+                # Keep the last 3 snapshots: last append + compact + zorder, so the second run is truly a no-op.
                 "max_snapshot_age_hours": 1 / 3600,
                 "retain_last": 3,
                 "backoff_seconds": 0,
@@ -108,7 +108,7 @@ class MaintenanceChecks(unittest.TestCase):
         return table, config
 
     def success_case(self, suffix, transient=0):
-        """Chứng minh compact/zorder/expiry, dữ liệu/tag bất biến và lần hai no-op mutation."""
+        """Prove compact/zorder/expiry, unchanged data/tags and a no-op mutation on the second run."""
         table, config = self.demo(suffix)
         tag_before = job.fingerprint(self.spark, table, "gen-1")
         entry = {}
@@ -136,21 +136,21 @@ class MaintenanceChecks(unittest.TestCase):
         self.receipts.append(entry)
         receipt = {"status": "success", "tables": [entry]}
         job.validate_receipt(self.spark.newSession(), receipt)
-        # JSON roundtrip để kiểm timestamp/procedure outputs ghi được receipt.
+        # JSON roundtrip to check the timestamp/procedure outputs can be written to the receipt.
         path = Path(self.temp.name) / (suffix + ".json")
         job.write_receipt(path, receipt)
         job.validate_receipt(self.spark.newSession(), json.loads(path.read_text()))
 
     def test_01_maintenance_preserves_generation_and_prunes_files(self):
-        """Trường hợp thành công đầy đủ."""
+        """Full success case."""
         self.success_case("normal")
 
     def test_02_transient_retry_twice(self):
-        """Injection xảy ra trước CALL, lần thứ ba thành công."""
+        """Injection happens before CALL; the third attempt succeeds."""
         self.success_case("retry", transient=2)
 
     def test_03_fatal_preserves_snapshot_and_receipt(self):
-        """Fatal ở hành động đầu không đổi snapshot và không chạy tiếp."""
+        """A fatal error on the first action leaves the snapshot unchanged and does not continue."""
         table, config = self.demo("fatal")
         before = job.snapshot_id(self.spark, table)
         entry = {}
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     )
     if result.wasSuccessful():
         print(
-            "DE_N2_EVIDENCE_JSON="
+            "ICEBERG_MAINTENANCE_EVIDENCE_JSON="
             + json.dumps(
                 {
                     "suite": "tests.spark.check_iceberg_maintenance",

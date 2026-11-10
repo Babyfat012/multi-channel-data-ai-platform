@@ -1,8 +1,8 @@
-"""Fixture nguồn seller-source-v2 nhỏ, chỉ chạy local, độc lập với engine Batch v1.
+"""Small seller-source-v2 source fixture, local only, independent of the v1 Batch engine.
 
-Chạy `python -m generator.generate_order_lifecycle_fixture --output /new/local/root`. Module
-chỉ xuất nguồn: không publish nhãn, không nạp PostgreSQL, không chạy pipeline Data Platform.
-JSONL Walmart chỉ để dựng DB, không thay cho đường nạp JDBC.
+Run `python -m generator.generate_order_lifecycle_fixture --output /new/local/root`. The module
+only exports sources: it does not publish labels, load PostgreSQL, or run the Data Platform pipeline.
+The Walmart JSONL is only for building the DB, not a replacement for the JDBC load path.
 """
 
 from __future__ import annotations
@@ -87,25 +87,25 @@ PROFILES = {
 
 
 def canonical(value):
-    """JSON UTF-8 dạng chuẩn, dùng cho định danh và receipt của tập đã phát."""
+    """Canonical UTF-8 JSON, used for identities and receipts of the emitted set."""
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     )
 
 
 def digest(value):
-    """SHA-256 (hex) của dạng JSON chuẩn của một giá trị."""
+    """SHA-256 (hex) of a value's canonical JSON form."""
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
 def stable_id(kind, *parts):
-    """Mã ổn định từ một tuple có version; phân biệt được dấu phân cách, khoá thiếu và null."""
+    """Stable id from a versioned tuple; distinguishes separators, missing keys and null."""
     return kind + "-" + digest(["seller-source-v2/identity/1", kind, *parts])[:32]
 
 
 @dataclass(frozen=True)
 class FixtureConfig:
-    """Cấu hình fixture; giới hạn cứng để không lỡ tay sinh 100 GB qua API này."""
+    """Fixture config; hard limits so this API cannot accidentally generate 100 GB."""
 
     seed: int = 7
     start: str = "2026-01-01T00:00:00.000000Z"
@@ -115,7 +115,7 @@ class FixtureConfig:
     approval_lag_days: int = 29
 
     def validate(self):
-        """Từ chối cấu hình ngoài hợp đồng fixture; trả thời điểm bắt đầu UTC."""
+        """Reject configs outside the fixture contract; return the UTC start time."""
         if self.approval_lag_days not in (29, 31):
             raise ValueError("fixture approval_lag_days must be 29 or 31")
         if not 2 <= self.creation_days <= 7:
@@ -136,12 +136,12 @@ class FixtureConfig:
 
 
 def _stamp(value):
-    """Định dạng datetime thành ISO-8601 UTC, có micro giây và hậu tố Z."""
+    """Format a datetime as ISO-8601 UTC with microseconds and a Z suffix."""
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _world(config):
-    """Dựng thế giới vật lý tiền định: id, order, line dùng chung cho mọi Channel."""
+    """Build the deterministic physical world: ids, orders, lines shared by every Channel."""
     start = config.validate()
     world_config = {
         "seed": config.seed,
@@ -204,9 +204,9 @@ def _world(config):
 
 
 def _native(order, schema=1):
-    """Ảnh chụp dạng native nhỏ; tiền chỉ là số nguyên hoặc chuỗi thập phân.
+    """Small native-shaped snapshot; money is only integers or decimal strings.
 
-    Schema ID của fixture cố ý khác renderer v1; sự thật vận hành không bao giờ lọt vào payload native.
+    The fixture's schema ids deliberately differ from the v1 renderer; operational truth never leaks into native payloads.
     """
     oid, channel = order["native_order_id"], order["channel"]
     lines = order["lines"]
@@ -338,10 +338,10 @@ def _native(order, schema=1):
 
 
 class _Emitter:
-    """Gom dòng nguồn theo feed, đánh sequence theo producer và id sự kiện ổn định."""
+    """Group source rows by feed, assigning per-producer sequences and stable event ids."""
 
     def __init__(self, world, dataset, recorded_at):
-        """Khởi tạo các feed rỗng cho một dataset version của một thế giới."""
+        """Initialize empty feeds for one dataset version of one world."""
         self.world = world
         self.dataset = dataset
         self.recorded_at = recorded_at
@@ -361,7 +361,7 @@ class _Emitter:
         corrects=None,
         depends=(),
     ):
-        """Thêm một dòng nguồn vào feed và trả lại dòng đó."""
+        """Append a source row to a feed and return that row."""
         producer = "sim.seller." + FEEDS[feed][0]
         self.sequences[producer] += 1
         eid = stable_id(
@@ -399,20 +399,20 @@ class _Emitter:
 
 
 def _shift(stamp, days):
-    """Mốc ISO `...Z` cộng thêm `days` ngày, trả lại dạng contract."""
+    """ISO timestamp `...Z` plus `days` days, returned in contract form."""
     return _stamp(datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(days=days))
 
 
 class _StockChain:
-    """Chuỗi thao tác kho của MỘT line: thao tác sau phụ thuộc thao tác trước, delta cộng vào balance SKU."""
+    """Inventory operation chain of ONE line: each operation depends on the previous one, deltas add to the SKU balance."""
 
     def __init__(self, e, line_key, base, opening, balance):
-        """Bắt đầu chuỗi từ thao tác opening của SKU."""
+        """Start the chain from the SKU's opening operation."""
         self.e, self.line_key, self.base, self.balance = e, line_key, base, balance
         self.previous = opening
 
     def add(self, kind, qty, dh, dr, dn, effective, extra=None):
-        """Phát một thao tác kho và cộng delta vào balance hiện tại."""
+        """Emit one inventory operation and add its delta to the current balance."""
         opid = stable_id("stock-op", self.line_key, kind)
         p = {
             **self.base,
@@ -450,11 +450,11 @@ def _emit_sources(
     listing_corrections=True,
     inventory_day=45,
 ):
-    """Phát nguồn dùng chung; tham số mở rộng giữ nguyên nhánh fixture mặc định.
+    """Emit the shared sources; extension parameters keep the default fixture branch unchanged.
 
-    Bản scale gọi hàm này mỗi ngày một lần: `initialize` chỉ bật ngày đầu (opening tồn kho),
-    `finalize` chỉ bật ngày cuối (inbound + snapshot tồn). Trạng thái chạy giữa các ngày
-    (opening, balance, listing đã phát) giữ trên chính `e`.
+    The scale version calls this once per day: `initialize` is only on for the first day (inventory opening),
+    `finalize` only for the last day (inbound + inventory snapshot). Running state across days
+    (opening, balance, emitted listings) is kept on `e` itself.
     """
     at = lambda days, hours=0: _stamp(start + timedelta(days=days, hours=hours))  # noqa: E731
     _emit_openings(e, at, catalog or ("sku-A", "sku-B"), opening_quantity, initialize)
@@ -468,7 +468,7 @@ def _emit_sources(
 
 
 def _emit_openings(e, at, catalog, opening_quantity, initialize):
-    """Opening tồn kho cho mỗi SKU (chỉ khi `initialize`), rồi khởi tạo balance/listing trên `e`."""
+    """Inventory opening for each SKU (only with `initialize`), then initialize balance/listing on `e`."""
     openings = getattr(e, "openings", {})
     for sku in catalog if initialize else ():
         p = {
@@ -495,7 +495,7 @@ def _emit_openings(e, at, catalog, opening_quantity, initialize):
 
 
 def _emit_line(e, at, start, config, original_order, index, line, delivery_parts):
-    """Vòng đời một Order Line: cam kết → giữ hàng → (huỷ một phần) → giao → hậu mãi."""
+    """Lifecycle of an Order Line: commitment → reservation → (partial cancel) → delivery → after-sales."""
     scope = {
         "seller_id": "seller-1",
         "channel": original_order["channel"],
@@ -653,7 +653,7 @@ def _emit_line(e, at, start, config, original_order, index, line, delivery_parts
 
 
 def _emit_listing_once(e, at, scope, channel, sku):
-    """Listing opening của (Channel, SKU), phát đúng một lần trước lần bán đầu tiên."""
+    """Opening Listing of (Channel, SKU), emitted exactly once before the first sale."""
     listing = stable_id("listing", channel, sku)
     if listing not in e.listings:
         e.listings.add(listing)
@@ -684,7 +684,7 @@ def _emit_listing_once(e, at, scope, channel, sku):
 def _emit_first_shipment(
     e, stock, order, base, scope, alloc, allocation, planned, units, delivery_parts
 ):
-    """Xuất kho, giao (chia `delivery_parts` sự kiện) và chuyển allocation planned → shipped → delivered."""
+    """Issue stock, deliver (split into `delivery_parts` events) and move the allocation planned → shipped → delivered."""
     stock.add(
         "ship",
         len(units),
@@ -745,7 +745,7 @@ def _emit_first_shipment(
 
 
 def _emit_second_shipment(e, stock, order, line, allocation, initial, delivery_payload):
-    """Lô giao thứ hai (một unit) có allocation riêng; trả sự kiện giao của lô đó."""
+    """The second delivery batch (one unit) has its own allocation; return that batch's delivery event."""
     second_plan = line["delivery_plan"][1]
     second_alloc = stable_id("allocation", line["physical_line_id"], "second-shipment")
     second_payload = {
@@ -816,9 +816,9 @@ def _emit_second_shipment(e, stock, order, line, allocation, initial, delivery_p
 def _emit_postsales(
     e, at, start, config, stock, order, line, base, scope, key, alloc, units, delivery
 ):
-    """Hậu mãi của một line: Return (requested → approved → received) và/hoặc Refund.
+    """After-sales of a line: Return (requested → approved → received) and/or Refund.
 
-    Return và Refund độc lập (ADR-0010): `line["return"]` / `line["refund"]` bật riêng từng phía.
+    Return and Refund are independent (ADR-0010): `line["return"]` / `line["refund"]` toggle each side separately.
     """
     retid = stable_id("return", key)
     rp = {
@@ -890,11 +890,11 @@ def _emit_postsales(
 def _emit_refund(
     e, at, config, order, line, base, scope, key, alloc, requested, approved, requested_at
 ):
-    """Refund sản phẩm của một line, theo một trong hai ca.
+    """Product Refund of a line, in one of two cases.
 
-    * `refund_correction=False`: refund gắn thẳng line (có thể thất bại một lần rồi retry).
-    * `refund_correction=True` (mặc định): refund đầu chưa biết line nào (uncertainty), sau đó
-      một bản correction gắn lại đúng line; kèm một refund phí ship không phân bổ.
+    * `refund_correction=False`: the refund attaches directly to the line (may fail once, then retry).
+    * `refund_correction=True` (default): the first refund does not know its line (uncertainty), then
+      a correction reattaches it to the right line; plus an unallocated shipping-fee refund.
     """
     refundid = stable_id("refund", key)
     refund = {
@@ -1001,7 +1001,7 @@ def _emit_refund(
 
 
 def _emit_listing_corrections(e, at):
-    """Listing Amazon sku-A đổi pool (revision 2), rồi bị sửa lại vì ánh xạ sai SKU (correction)."""
+    """Amazon Listing sku-A changes pool (revision 2), then is corrected for a wrong SKU mapping (correction)."""
     listing = stable_id("listing", "amazon", "sku-A")
     opening_listing = next(
         r for r in e.rows["seller_catalog.listing_versions"] if r["entity_id"] == listing
@@ -1042,7 +1042,7 @@ def _emit_listing_corrections(e, at):
 
 
 def _emit_inventory_close(e, at, inventory_day):
-    """Cuối kỳ: mỗi SKU nhận một lô inbound (hứa 5, nhận 2, đóng thiếu 3) rồi chụp tồn kho."""
+    """End of period: each SKU receives an inbound batch (5 promised, 2 received, closed 3 short), then inventory is snapshotted."""
     for sku, balance in e.balances.items():
         inbound = "inbound-" + sku
         promise = e.add(
@@ -1122,16 +1122,16 @@ def _emit_inventory_close(e, at, inventory_day):
 
 
 def _fact_digest(row):
-    """Digest của dòng bỏ metadata thực thi, để nhận ra bản trùng thật."""
-    # recorded_at là giờ chạy máy, không phải sự thật nghiệp vụ hay quan sát nguồn.
+    """Digest of a row without execution metadata, to detect true duplicates."""
+    # recorded_at is the machine run time, not business truth or a source observation.
     return digest({k: v for k, v in row.items() if k != "recorded_at"})
 
 
 def inspect_records(records):
-    """Kiểm định danh, revision và tham chiếu nhân quả của nguồn, không áp sự thật.
+    """Check source identities, revisions and causal references, without applying truth.
 
-    Thứ tự đầu vào là thứ tự vận chuyển. Tham chiếu/revision còn thiếu thì để chờ; hàm này
-    không tính tồn kho, không đối soát số lượng, không dựng nhãn.
+    Input order is transport order. Missing references/revisions are left pending; this function
+    does not compute inventory, reconcile quantities, or build labels.
     """
     unique = {}
     duplicates = 0
@@ -1205,7 +1205,7 @@ def inspect_records(records):
 
 
 def _identity_probes(e):
-    """Dựng ca chẩn đoán (đổi số lượng, vắng mặt, correction) để thử cách xử lý định danh."""
+    """Build diagnostic cases (quantity change, absence, correction) to exercise identity handling."""
     operations = e.rows["seller_wms.stock_operations"]
     reserve = next(r for r in operations if r["payload"]["operation_type"] == "reserve")
     opening = next(
@@ -1273,10 +1273,10 @@ def _identity_probes(e):
 
 
 def coverage_receipt(rows, envelope):
-    """Kiểm một tập đã phát và đóng băng; đủ dữ liệu không xoá được sự mơ hồ về liên kết.
+    """Check an emitted, frozen set; complete data does not remove link ambiguity.
 
-    Dải sequence và partition kỳ vọng lấy từ envelope của producer, không từ dòng nhận được.
-    Đây là receipt của nguồn, không phải validator của Data Platform.
+    Expected sequence ranges and partitions come from the producer envelope, not from received rows.
+    This is a source receipt, not a Data Platform validator.
     """
     if envelope.get("capability_status") == "unavailable":
         return {"status": "unavailable", "reasons": ["missing_capability"]}
@@ -1331,7 +1331,7 @@ def coverage_receipt(rows, envelope):
 
 
 def _check_fixture_args(delivery_parts, native_schema, native_schemas):
-    """Chặn tổ hợp renderer mà fixture không hỗ trợ."""
+    """Reject renderer combinations the fixture does not support."""
     if delivery_parts not in (1, 2) or native_schema not in (1, 2):
         raise ValueError("fixture renderer supports delivery_parts/native_schema 1 or 2")
     if any(
@@ -1344,15 +1344,15 @@ def _check_fixture_args(delivery_parts, native_schema, native_schemas):
 
 
 def _fixture_identity(config, world, delivery_parts, native_schema, native_schemas):
-    """Mọi thứ quyết định `dataset_version`; hash renderer được pin cho nhánh mặc định."""
+    """Everything that determines `dataset_version`; the renderer hash is pinned for the default branch."""
     identity = {
         "configuration": asdict(config),
         "world_sha256": digest(world),
-        # Hash hợp đồng nguồn được pin như generator_sha256: sửa link/tên trong tài liệu không được đổi dataset_version.
+        # The source contract hash is pinned like generator_sha256: editing links/names in the doc must not change dataset_version.
         "contract_sha256": "84fa3bb73775e418e8e7ea5fc69be20f4f9324e99abc7f43a9aee0af7faacabf",
         "source_profiles": PROFILES,
         "fact_hash_policy": "canonical envelope excluding execution-only recorded_at; coverage hashes full emitted rows",
-        # Hash renderer gốc được pin để giữ dataset identity mặc định; override dùng hash code thật.
+        # The original renderer hash is pinned to keep the default dataset identity; overrides use the real code hash.
         "generator_sha256": (
             hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
             if native_schemas
@@ -1375,10 +1375,10 @@ def _fixture_identity(config, world, delivery_parts, native_schema, native_schem
 
 
 def _propagate_known_time(e):
-    """Một producer phía sau không thể biết một quan sát sớm hơn chính sự kiện nó tham chiếu.
+    """A downstream producer cannot know an observation earlier than the event it references.
 
-    Lặp tới điểm bất động: `source_observed_at` của mỗi dòng = max của nó và mọi dòng nó phụ thuộc.
-    Uncertainty cũng được đẩy theo sự kiện nó trỏ tới. Trả mọi dòng nguồn.
+    Iterate to a fixed point: each row's `source_observed_at` = max of itself and every row it depends on.
+    Uncertainty is also pushed along with the event it points to. Return every source row.
     """
     all_rows = [r for rows in e.rows.values() for r in rows]
     by_id = {r["source_event_id"]: r for r in all_rows}
@@ -1401,7 +1401,7 @@ def _propagate_known_time(e):
 
 
 def _resequence_by_observation(e):
-    """Sequence của producer theo đồng hồ quan sát, không theo thứ tự render."""
+    """Producer sequence by observation clock, not by render order."""
     by_producer = defaultdict(list)
     for rows in e.rows.values():
         for row in rows:
@@ -1416,7 +1416,7 @@ def _resequence_by_observation(e):
 
 
 def _delay_seconds(row):
-    """Độ trễ quan sát của một dòng: `source_observed_at − effective_at`, tính bằng giây."""
+    """Observation delay of a row: `source_observed_at − effective_at`, in seconds."""
     return (
         datetime.fromisoformat(row["source_observed_at"].replace("Z", "+00:00"))
         - datetime.fromisoformat(row["effective_at"].replace("Z", "+00:00"))
@@ -1424,14 +1424,14 @@ def _delay_seconds(row):
 
 
 class _PartitionWriter:
-    """Ghi từng partition JSONL dưới `root` và giữ metadata file cho manifest."""
+    """Write each JSONL partition under `root` and keep file metadata for the manifest."""
 
     def __init__(self, root, dataset):
-        """Chưa ghi gì; `files` lớn dần theo mỗi lần `write`."""
+        """Nothing written yet; `files` grows with each `write`."""
         self.root, self.dataset, self.files = root, dataset, []
 
     def write(self, feed, producer, rows, export_date):
-        """Ghi một partition JSONL và ghi đường dẫn, kích thước, sha256 vào manifest."""
+        """Write one JSONL partition and record its path, size and sha256 in the manifest."""
         rel = f"dataset_version={self.dataset}/producer={producer}/feed={feed}/export_date={export_date}/part-00000.jsonl"
         path = self.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1452,9 +1452,9 @@ class _PartitionWriter:
 
 
 def _write_native_snapshots(writer, world, native_schema, native_schemas, horizons):
-    """Ghi đơn native từng Channel (một file mỗi Channel) và trả mô tả snapshot cho manifest.
+    """Write native orders per Channel (one file per Channel) and return the snapshot description for the manifest.
 
-    Schema 2 của Shopee đổi tên khoá (phá vỡ); của TikTok Shop thêm trường tuỳ chọn (tương thích).
+    Shopee schema 2 renames keys (breaking); TikTok Shop schema 2 adds optional fields (compatible).
     """
     native_sources = {}
     for channel in CHANNELS:
@@ -1491,10 +1491,10 @@ def _write_native_snapshots(writer, world, native_schema, native_schemas, horizo
 
 
 def _fixture_coverage(e, dataset, start, config, horizons):
-    """Authority và coverage của fixture: một coverage cả kỳ mỗi feed, trả (authority, coverage).
+    """Fixture authority and coverage: one full-period coverage per feed, returning (authority, coverage).
 
-    Refund có thêm revision 2 (sau khi correction gỡ uncertainty). Feed thuộc pool do Channel
-    quản lý có thêm một coverage `unavailable`.
+    Refund also has revision 2 (after the correction resolves the uncertainty). Feeds of a Channel-managed
+    pool also get an `unavailable` coverage.
     """
     authority = []
     coverage = []
@@ -1655,8 +1655,8 @@ def generate_fixture(
 ):
     """Freeze sources to a new local root; no resume, restart, remote IO or services.
 
-    Các bước: phát sự kiện → đẩy known-time theo phụ thuộc → đánh sequence theo quan sát →
-    ghi feed nghiệp vụ, probe, đơn native → coverage + uncertainty → manifest.
+    Steps: emit events → push known-time along dependencies → assign sequence by observation →
+    write business feeds, probes, native orders → coverage + uncertainty → manifest.
     """
     began = time.perf_counter()
     native_schemas = native_schemas or {}
@@ -1798,7 +1798,7 @@ def generate_fixture(
 
 
 def require_same_world(left, right):
-    """Từ chối so sánh chỉ dựa trên seed: cả định danh vật lý lẫn digest phải khớp."""
+    """Refuse comparisons based on the seed alone: both the physical identity and the digest must match."""
     fields = ("world_id", "physical_outcome_sha256")
     if any(not left.get(k) or left.get(k) != right.get(k) for k in fields):
         raise ValueError(
@@ -1807,7 +1807,7 @@ def require_same_world(left, right):
 
 
 def main():
-    """Sinh fixture với override schema tùy Channel."""
+    """Generate the fixture with per-Channel schema overrides."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--native-schema-for", action="append", default=[], metavar="CHANNEL=N")
@@ -1815,7 +1815,7 @@ def main():
     try:
         overrides = {c: int(v) for c, v in (arg.split("=", 1) for arg in args.native_schema_for)}
     except ValueError:
-        parser.error("--native-schema-for cần CHANNEL=N")
+        parser.error("--native-schema-for needs CHANNEL=N")
     manifest = generate_fixture(args.output, native_schemas=overrides)
     print(
         json.dumps(

@@ -1,4 +1,4 @@
-# Cluster API private cho node; endpoint public chỉ nhận CIDR quản trị đã khai báo.
+# The cluster API is private for nodes; the public endpoint accepts only the declared admin CIDR.
 data "aws_iam_policy_document" "cluster_trust" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -41,7 +41,7 @@ resource "aws_eks_cluster" "apps" {
         data.terraform_remote_state.data.outputs.region == var.region &&
         length(data.terraform_remote_state.data.outputs.kubernetes_subnet_ids) >= 2
       )
-      error_message = "Root Data Platform phải cùng region, đã apply enable_kubernetes_network với hai subnet khác AZ."
+      error_message = "The Data Platform root must be in the same region and have applied enable_kubernetes_network with two subnets in different AZs."
     }
   }
 }
@@ -69,8 +69,8 @@ resource "aws_vpc_security_group_ingress_rule" "data_services" {
   description                  = "EKS workloads to Data Platform private endpoint"
 }
 
-# Chiều ngược lại: Airflow trên EC2 materialize Feast vào Redis NodePort 30379 (infra/k8s/feature-store/redis.yaml).
-# Chỉ mở đúng một cổng, chỉ từ SG của EC2 Data Platform; node dùng SG cluster vì launch template không gắn SG riêng.
+# Reverse direction: Airflow on EC2 materializes Feast into Redis NodePort 30379 (infra/k8s/feature-store/redis.yaml).
+# Opens exactly one port, only from the Data Platform EC2 SG; nodes use the cluster SG because the launch template attaches no SG of its own.
 resource "aws_vpc_security_group_ingress_rule" "data_to_redis" {
   security_group_id            = aws_eks_cluster.apps.vpc_config[0].cluster_security_group_id
   referenced_security_group_id = data.terraform_remote_state.data.outputs.data_security_group_id
@@ -80,7 +80,7 @@ resource "aws_vpc_security_group_ingress_rule" "data_to_redis" {
   description                  = "Data Platform Airflow to Feast Redis NodePort"
 }
 
-# Đợt 4: Airflow EC2 (ml_rag_ingest) ghi embedding vào pgvector NodePort 30432 (infra/k8s/rag/pgvector.yaml).
+# Wave 4: Airflow on EC2 (ml_rag_ingest) writes embeddings to pgvector NodePort 30432 (infra/k8s/rag/pgvector.yaml).
 resource "aws_vpc_security_group_ingress_rule" "data_to_pgvector" {
   security_group_id            = aws_eks_cluster.apps.vpc_config[0].cluster_security_group_id
   referenced_security_group_id = data.terraform_remote_state.data.outputs.data_security_group_id
@@ -90,9 +90,9 @@ resource "aws_vpc_security_group_ingress_rule" "data_to_pgvector" {
   description                  = "Data Platform Airflow to RAG pgvector NodePort"
 }
 
-# Jenkins trên EC2 (đợt 5): role EC2 vào cụm qua private endpoint với nhóm `platform-ci`, KHÔNG gắn access policy
-# AWS. Quyền thật nằm ở infra/k8s/ci/rbac.yaml: toàn quyền chỉ trong vài namespace CI deploy (Agent/RemoteMCPServer
-# của kagent là CRD, policy Edit của AWS không phủ).
+# Jenkins on EC2 (wave 5): the EC2 role enters the cluster via the private endpoint with group `platform-ci` and NO AWS access
+# policy. Real permissions live in infra/k8s/ci/rbac.yaml: full access only inside a few CI deploy namespaces (kagent's Agent/RemoteMCPServer
+# are CRDs, which the AWS Edit policy does not cover).
 data "aws_iam_role" "data_vm" {
   name = "${var.name_prefix}-data-platform-vm"
 }

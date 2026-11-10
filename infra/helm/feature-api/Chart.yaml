@@ -1,7 +1,7 @@
-# Helm chart của Web API feature (REST + MCP tool); deploy bằng scripts/setup/deploy_kind_feature_api.sh.
+# Helm chart for the feature Web API (REST + MCP tools); deployed by scripts/setup/deploy_kind_feature_api.sh.
 apiVersion: v2
 name: feature-api
-description: Web API + MCP tool kéo feature SKU từ Feast online store (ML Platform)
+description: Web API + MCP tools pulling SKU features from the Feast online store (ML Platform)
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

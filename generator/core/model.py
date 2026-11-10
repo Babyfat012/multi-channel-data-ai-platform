@@ -1,14 +1,14 @@
-"""Các đối tượng "sự thật" mà lõi mô phỏng sinh ra.
+"""The "truth" objects the simulation core generates.
 
-Lõi không biết Channel trông ra sao. Nó chỉ biết:
-- Order được tạo lúc nào, ở Storefront nào, gồm những Order Line nào.
-- Order đi qua các Order Status chuẩn vào những thời điểm nào (`timeline`).
-- Order Line nào bị trả, trả lúc nào, và nhãn thật là gì.
+The core does not know what Channels look like. It only knows:
+- When an Order was created, in which Storefront, and which Order Lines it has.
+- When the Order went through the canonical Order Statuses (`timeline`).
+- Which Order Lines were returned, when, and what the true label is.
 
-Renderer của từng Channel đọc các đối tượng này và "vẽ" chúng thành dạng gốc.
-Hàm quan trọng nhất cho renderer là `Order.status_at(t)`: trạng thái của Order
-tại một thời điểm bất kỳ, nhờ đó cùng một Order có thể được xuất ở nhiều
-thời điểm khác nhau (bản export cũ, bản export mới, ảnh chụp tại cutoff).
+Each Channel's renderer reads these objects and "draws" them in the native shape.
+The most important function for renderers is `Order.status_at(t)`: the Order's status
+at any point in time, so the same Order can be exported at many
+different times (old export, new export, snapshot at the Cutoff).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# Order Status chuẩn, theo thứ tự tiến triển (xem docs/shared/domain.md, mục 4).
+# Canonical Order Statuses, in progression order (see docs/shared/domain.md, section 4).
 PENDING_PAYMENT = "pending_payment"
 AWAITING_SHIPMENT = "awaiting_shipment"
 SHIPPED = "shipped"
@@ -24,14 +24,14 @@ DELIVERED = "delivered"
 COMPLETED = "completed"
 CANCELLED = "cancelled"
 
-# Fulfillment Method chuẩn: ai giao hàng.
+# Canonical Fulfillment Method: who delivers.
 FULFILLED_BY_CHANNEL = "channel"  # Amazon FBA, Walmart WFS, ...
-FULFILLED_BY_SELLER = "seller"  # Amazon MFN, Seller tự giao
+FULFILLED_BY_SELLER = "seller"  # Amazon MFN, Seller-fulfilled
 
 
 @dataclass(slots=True)
 class Buyer:
-    """Người mua, lõi biết đầy đủ. Renderer chỉ lộ phần Channel thật sự lộ."""
+    """The buyer, fully known to the core. Renderers expose only what the Channel actually exposes."""
 
     buyer_id: str
     country: str
@@ -42,10 +42,10 @@ class Buyer:
 
 @dataclass(slots=True)
 class Sku:
-    """Một SKU trong danh mục của Seller.
+    """A SKU in the Seller's catalog.
 
-    `defect_propensity` là "độ lỗi" ẩn: cộng thẳng vào logit xác suất trả.
-    Nó không bao giờ được ghi ra dữ liệu Channel, chỉ suy ra được từ lịch sử trả hàng.
+    `defect_propensity` is the hidden "defectiveness": added directly to the Return probability logit.
+    It is never written to Channel data and can only be inferred from Return history.
     """
 
     sku_id: str
@@ -58,11 +58,11 @@ class Sku:
 
 @dataclass(slots=True)
 class OrderLine:
-    """Một dòng sản phẩm trong Order.
+    """A product line in an Order.
 
-    Tiền (`unit_price`, `unit_discount`) tính theo tiền tệ gốc của Storefront.
-    `return_requested_at` là None nếu dòng không bị trả.
-    `label` là None khi chưa từng giao (Order bị hủy), còn lại là 0 hoặc 1.
+    Amounts (`unit_price`, `unit_discount`) are in the Storefront's original currency.
+    `return_requested_at` is None if the line is not returned.
+    `label` is None when never delivered (Order cancelled), otherwise 0 or 1.
     """
 
     order_line_id: str
@@ -77,7 +77,7 @@ class OrderLine:
 
 @dataclass(slots=True)
 class StatusChange:
-    """Order chuyển sang `status` vào lúc `at`."""
+    """The Order moves to `status` at time `at`."""
 
     at: datetime
     status: str
@@ -85,12 +85,12 @@ class StatusChange:
 
 @dataclass(slots=True)
 class Order:
-    """Một Order và toàn bộ vòng đời của nó.
+    """An Order and its whole lifecycle.
 
-    `timeline` luôn sắp theo thời gian và bắt đầu bằng `pending_payment`.
-    `promised_delivery` là cửa sổ ngày giao dự kiến Channel báo lúc đặt hàng,
-    `delivered_at` là ngày giao thật (None nếu bị hủy). Hai giá trị này khác nhau,
-    vì Amazon chỉ cho Seller thấy ngày dự kiến (xem generator-design.md, mục 4).
+    `timeline` is always time-ordered and starts with `pending_payment`.
+    `promised_delivery` is the estimated delivery window the Channel reports at order time,
+    `delivered_at` is the actual delivery date (None if cancelled). The two differ
+    because Amazon only shows the Seller the estimated date (see generator-design.md, section 4).
     """
 
     order_id: str
@@ -106,13 +106,13 @@ class Order:
     lines: list[OrderLine] = field(default_factory=list)
 
     def status_at(self, t: datetime) -> StatusChange:
-        """Trả về lần đổi trạng thái gần nhất tính đến thời điểm `t`.
+        """Return the latest status change up to time `t`.
 
-        Ví dụ: Order tạo ngày 1, giao ngày 5. Hỏi trạng thái ngày 3 sẽ ra `shipped`.
-        Gọi với `t` trước lúc tạo Order là lỗi, vì khi đó Order chưa tồn tại.
+        Example: an Order created on day 1 and delivered on day 5. Asking for day 3 gives `shipped`.
+        Calling with `t` before the Order is created is an error, since the Order does not exist yet.
         """
         if t < self.created_at:
-            raise ValueError(f"Order {self.order_id} chưa tồn tại tại {t}")
+            raise ValueError(f"Order {self.order_id} does not exist yet at {t}")
         current = self.timeline[0]
         for change in self.timeline[1:]:
             if change.at > t:
@@ -122,5 +122,5 @@ class Order:
 
     @property
     def shipped_at(self) -> datetime | None:
-        """Thời điểm giao cho đơn vị vận chuyển, None nếu chưa bao giờ gửi."""
+        """Time handed to the carrier, None if never shipped."""
         return next((c.at for c in self.timeline if c.status == SHIPPED), None)

@@ -1,9 +1,9 @@
-"""Vẽ chuỗi truy ngược model → run → dữ liệu từ receipt MLflow đã thu trên AWS (không gọi lại MLflow).
+"""Render the model → run → data trace-back chain from the MLflow receipt collected on AWS (no new MLflow calls).
 
 python -m scripts.evidence.render_model_lineage --receipt docs/evidence/aws/mlflow-model-lineage.json \
   --out docs/evidence/aws/model-lineage-chain.png
-Ảnh này dựng lại từ receipt của `mlflow_run_data_proof.py`, KHÔNG phải ảnh chụp giao diện MLflow
-(ảnh giao diện của run, Tags, Artifacts ở training_pipeline.md).
+This image is rebuilt from the `mlflow_run_data_proof.py` receipt, NOT an MLflow UI screenshot
+(UI screenshots of the run, Tags, Artifacts are in training_pipeline.md).
 """
 
 from __future__ import annotations
@@ -28,17 +28,17 @@ CSS = (
 
 
 def verdict(match: bool) -> str:
-    """Ô kết luận SHA-256: tính lại từ artifact có trùng tag của run hay không."""
-    return '<span class="ok">✓ khớp</span>' if match else '<span class="bad">✗ KHÔNG khớp</span>'
+    """SHA-256 verdict cell: whether the hash recomputed from the artifact matches the run tag."""
+    return '<span class="ok">✓ match</span>' if match else '<span class="bad">✗ MISMATCH</span>'
 
 
 def started(ms: int) -> str:
-    """Mốc bắt đầu run (epoch mili giây) → chuỗi UTC."""
+    """Run start time (epoch milliseconds) → UTC string."""
     return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def page(receipt: dict) -> str:
-    """HTML bốn khối nối nhau: model, run, tag dữ liệu, artifact dữ liệu kèm SHA-256."""
+    """HTML of four chained blocks: model, run, data tags, data artifacts with SHA-256."""
     model, tags, metrics = receipt["model"], receipt["tags"], receipt["metrics"]
     rows = "".join(
         f"<tr><td><code>{html.escape(a['path'])}</code></td><td>{a['bytes']:,} byte</td>"
@@ -49,29 +49,29 @@ def page(receipt: dict) -> str:
     )
     return (
         f"<meta charset=utf-8><style>{CSS}</style>"
-        "<h2>Truy ngược model <code>return-risk</code> về run và dữ liệu đã tạo ra nó (AWS)</h2>"
+        "<h2>Tracing model <code>return-risk</code> back to the run and data that produced it (AWS)</h2>"
         f'<div class="box"><b>① Model Registry</b>: <code>{html.escape(model["name"])}</code> '
         f"version <b>{html.escape(model['version'])}</b>, source <code>{html.escape(model['source'])}</code>, "
-        f'run_id đăng ký <code>{model["run_id"]}</code></div><div class="arrow">▼ run_id</div>'
+        f'registered run_id <code>{model["run_id"]}</code></div><div class="arrow">▼ run_id</div>'
         f'<div class="box"><b>② Run MLflow</b> <code>{html.escape(receipt["run_name"])}</code> '
         f"(<code>{receipt['run_id']}</code>, {started(receipt['started'])}): "
-        f"thuật toán {html.escape(receipt['params']['algo'])}, seed {html.escape(receipt['params']['seed'])}; "
-        f"PR-AUC model {metrics['pr_auc_model']:.4f} so với baseline {metrics['pr_auc_baseline']:.4f}, "
-        f'test_rows {int(metrics["test_rows"]):,}</div><div class="arrow">▼ tag <code>data.*</code> ghi lúc train</div>'
-        f'<div class="box"><b>③ Dữ liệu theo tag của run</b>: dataset <code>{html.escape(tags["data.dataset_version"])}</code>, '
+        f"algorithm {html.escape(receipt['params']['algo'])}, seed {html.escape(receipt['params']['seed'])}; "
+        f"PR-AUC model {metrics['pr_auc_model']:.4f} vs baseline {metrics['pr_auc_baseline']:.4f}, "
+        f'test_rows {int(metrics["test_rows"]):,}</div><div class="arrow">▼ tag <code>data.*</code> written at training time</div>'
+        f'<div class="box"><b>③ Data per the run tags</b>: dataset <code>{html.escape(tags["data.dataset_version"])}</code>, '
         f"generation <code>{html.escape(tags['data.generation_id'])}</code>, "
-        f"nguồn <code>{html.escape(tags['data.entity_path'])}</code></div>"
-        '<div class="arrow">▼ SHA-256 tính lại từ artifact của chính run</div>'
-        '<div class="box"><b>④ Artifact dữ liệu của run</b><table>'
-        "<tr><th>Artifact</th><th>Kích thước</th><th>SHA-256 tính lại</th><th>Tag của run</th><th>Kết luận</th></tr>"
+        f"source <code>{html.escape(tags['data.entity_path'])}</code></div>"
+        '<div class="arrow">▼ SHA-256 recomputed from the run\'s own artifacts</div>'
+        '<div class="box"><b>④ Run data artifacts</b><table>'
+        "<tr><th>Artifact</th><th>Size</th><th>Recomputed SHA-256</th><th>Run tag</th><th>Verdict</th></tr>"
         f"{rows}</table></div>"
-        "<p>Dựng lại từ receipt <code>mlflow-model-lineage.json</code> (04/11/2026). Liên kết với run KFP dựa vào "
-        "thời điểm, vì mã run KFP chưa được ghi thành tag MLflow.</p>"
+        "<p>Rebuilt from receipt <code>mlflow-model-lineage.json</code> (04/11/2026). The link to the KFP run relies on "
+        "timing, because the KFP run ID is not yet written as an MLflow tag.</p>"
     )
 
 
 def main(argv=None) -> None:
-    """CLI: receipt JSON → một PNG."""
+    """CLI: receipt JSON → one PNG."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)

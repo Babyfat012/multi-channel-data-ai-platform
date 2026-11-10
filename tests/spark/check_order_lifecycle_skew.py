@@ -1,7 +1,7 @@
-"""Planner: kiểm tương đương và tải sweep trên nguồn scale nóng; không đọc truth.
+"""Planner: check equivalence and sweep load on a hot scale source; does not read truth.
 
-Chạy bằng Docker được ghi ở docs/edai-1/reference/spark_order_lifecycle.md. JSON và event log ở /tmp;
-stdout in đầy đủ JSON để redirect ra file trên host.
+Running with Docker is documented in docs/data-platform/reference/spark_order_lifecycle.md. JSON and event logs go to /tmp;
+stdout prints the full JSON so it can be redirected to a file on the host.
 """
 
 import importlib.util
@@ -23,10 +23,10 @@ spec.loader.exec_module(measure)
 
 
 class SparkV2SkewChecks(unittest.TestCase):
-    """Một nguồn chung cho phép so đúng bag và đối chiếu per-task thay vì bấm giờ."""
+    """One shared source allows exact bag comparison and per-task comparison instead of timing."""
 
     def test_handcrafted_boundaries(self):
-        """So bag ở biên microsecond/bucket, SKU null, nhiều dataset và line thiếu giờ."""
+        """Compare bags at microsecond/bucket edges, null SKUs, multiple datasets and lines missing times."""
         from pyspark.sql import SparkSession
 
         from spark_jobs.lib.order_lifecycle_gold import sku_features
@@ -45,8 +45,8 @@ class SparkV2SkewChecks(unittest.TestCase):
         )
         spark.sparkContext.setLogLevel("ERROR")
         try:
-            # Epoch day 20460 là biên bucket 10 ngày. Cửa sổ [edge, edge+10d)
-            # có query ngay trước/sau mỗi biên, và query tự trừ chính history.
+            # Epoch day 20460 is a 10-day bucket edge. The window [edge, edge+10d)
+            # has queries right before/after each edge, and a query that subtracts its own history.
             edge = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(days=20460)
             micro = timedelta(microseconds=1)
             rows, segments = [], []
@@ -100,7 +100,7 @@ class SparkV2SkewChecks(unittest.TestCase):
             spark.stop()
 
     def test_scale_equivalence_and_sweep_load(self):
-        """Seed 7, 90 ngày có history thật; chỉ assert ratio khi tín hiệu phân bố rõ."""
+        """Seed 7, 90 days with real history; only assert the ratio when the distribution signal is clear."""
         workdir = Path(tempfile.mkdtemp(prefix="v2-skew-check-")).resolve()
         report = measure.run_measurement(
             workdir, days=90, orders_per_day=4, sku_count=32, seed=7, buckets=18, partitions=16
@@ -122,9 +122,10 @@ class SparkV2SkewChecks(unittest.TestCase):
             ]
             self.assertTrue(
                 stages,
-                "Không định vị được sweep exchange; kiểm sql_plans và event log ở " + str(workdir),
+                "Could not locate the sweep exchange; check sql_plans and the event log in "
+                + str(workdir),
             )
-            # Consumer nặng nhất: giữ nguyên mọi task rỗng trong median.
+            # Heaviest consumer: keep every empty task in the median.
             candidates[mode] = max(stages, key=lambda s: s["shuffle_records"]["max"])
         before, after = (candidates[m]["shuffle_records"] for m in ("baseline", "salted"))
         print(
@@ -151,7 +152,7 @@ class SparkV2SkewChecks(unittest.TestCase):
             self.assertLess(after["max_median"], before["max_median"])
         else:
             print(
-                "SKEW_INCONCLUSIVE: chưa đủ tín hiệu để assert ratio; không kết luận đã giảm skew.",
+                "SKEW_INCONCLUSIVE: not enough signal to assert the ratio; no conclusion that skew was reduced.",
                 flush=True,
             )
 

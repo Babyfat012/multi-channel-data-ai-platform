@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Cổng CI: hỏi A2A và chấm theo Feature API; không đổi/flush dữ liệu Redis.
+# CI gate: query A2A and score against the Feature API; never modifies/flushes Redis data.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p out
 EVAL_AGENT=${EVAL_AGENT:-data-agent}
-EVAL_TASK=${EVAL_TASK:-features}  # features | predict | policy (hai tool của model-agent)
-# Mỗi (agent, task) một file riêng: Jenkins chạy nhiều lần liên tiếp và archive out/agent-eval*.json*.
+EVAL_TASK=${EVAL_TASK:-features}  # features | predict | policy (the two model-agent tools)
+# One file per (agent, task): Jenkins runs several times in a row and archives out/agent-eval*.json*.
 tag="$EVAL_AGENT-$EVAL_TASK"
 rm -f "out/agent-eval-$tag.jsonl" "out/agent-eval-$tag-summary.json"
 export AGW_AGENT_KEY
-# Không bật xtrace: không in secret vào log Jenkins.
+# No xtrace: never print secrets into the Jenkins log.
 eval "$(scripts/setup/vault_env.sh agentgateway)"
 feature_port=${EVAL_FEATURE_PORT:-18000}
 gateway_port=${EVAL_GATEWAY_PORT:-18300}
@@ -21,7 +21,7 @@ gateway_pid=$!
 trap 'kill "$feature_pid" "$gateway_pid" 2>/dev/null || true' EXIT
 ready=0
 for _ in $(seq 1 30); do
-  kill -0 "$feature_pid" "$gateway_pid" 2>/dev/null || { echo "Port-forward eval đã dừng; xem out/eval-*-forward.log" >&2; exit 1; }
+  kill -0 "$feature_pid" "$gateway_pid" 2>/dev/null || { echo "Eval port-forward stopped; see out/eval-*-forward.log" >&2; exit 1; }
   if curl -fsS "http://localhost:$feature_port/healthz" >/dev/null && \
      curl -fsS -H "Authorization: Bearer $AGW_AGENT_KEY" \
        "http://localhost:$gateway_port/a2a/$EVAL_AGENT/.well-known/agent-card.json" >/dev/null; then
@@ -30,8 +30,8 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
-[[ "$ready" == 1 ]] || { echo "Port-forward eval chưa sẵn sàng" >&2; exit 1; }
-# Danh sách SKU tường minh, không dùng dấu … trong lệnh CI. AWS (pipeline A): EVAL_SKUS=APP-…,…
+[[ "$ready" == 1 ]] || { echo "Eval port-forward not ready" >&2; exit 1; }
+# Explicit SKU list, no … in CI commands. AWS (pipeline A): EVAL_SKUS=APP-…,…
 python3 -m ml.agent_eval --agent "$EVAL_AGENT" --task "$EVAL_TASK" \
   --skus "${EVAL_SKUS:-sku-00001,sku-00002,sku-00003,sku-00004,sku-00005,sku-00006,sku-00007,sku-00008,sku-00009,sku-00010,sku-00011,sku-00012}" \
   --gateway "http://localhost:$gateway_port" --feature-api "http://localhost:$feature_port" \

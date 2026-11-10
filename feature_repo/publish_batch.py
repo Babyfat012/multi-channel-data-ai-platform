@@ -1,4 +1,4 @@
-"""Nạp batch vào slot không phục vụ, đối soát rồi conditional publish; không ghi đè bản active."""
+"""Load the batch into a non-serving slot, reconcile, then publish conditionally; never overwrite the active release."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ else:
 
 
 def latest_expected(frame, end):
-    """Chọn snapshot mới nhất mỗi SKU đến end; khóa/timestamp trùng hoặc thiếu phải fail."""
+    """Pick the latest snapshot per SKU up to end; duplicate or missing keys/timestamps must fail."""
     import pandas as pd
 
     required = ["seller_sku", "event_timestamp", *BATCH_FIELDS]
@@ -78,7 +78,7 @@ def latest_expected(frame, end):
 
 
 def reconcile(store, expected, batch_size=500):
-    """So từng SKU/giá trị, gồm provenance; NULL hợp lệ chỉ khớp NULL, không chỉ so count."""
+    """Compare every SKU/value, including provenance; a valid NULL matches only NULL, not just a count comparison."""
     import pandas as pd
 
     for offset in range(0, len(expected), batch_size):
@@ -107,7 +107,7 @@ def reconcile(store, expected, batch_size=500):
 
 
 def publish_candidate(catalog, leases, build, *, full_reload=False, check_active=None):
-    """Điều phối độc lập transport: lỗi build/đối soát không được đổi active pointer."""
+    """Transport-independent orchestration: a build/reconciliation failure must not change the active pointer."""
     with leases.writer() as owner:
         pointer, etag = catalog.pointer()
         current = None
@@ -121,7 +121,7 @@ def publish_candidate(catalog, leases, build, *, full_reload=False, check_active
         database = 1 if current is None or current.database == 2 else 2
         release_id = uuid.uuid4().hex
         leases.prepare(database, release_id, owner)
-        # build phải trả manifest sau khi đã đối soát, không được tự publish.
+        # build must return the manifest after reconciling, and must not publish on its own.
         document = build(database, release_id)
         release = Release.from_document(document)
         if release.release_id != release_id or release.database != database:
@@ -132,7 +132,7 @@ def publish_candidate(catalog, leases, build, *, full_reload=False, check_active
 
 
 def snapshot_parquet(catalog, source, destination):
-    """Copy từng file Parquet với ETag nguồn, giữ offline của release bất biến trên S3."""
+    """Copy each Parquet file with its source ETag, keeping the release's offline data immutable on S3."""
     bucket, prefix = s3_location(source)
     target_bucket, target_prefix = s3_location(destination)
     pages = catalog.client.get_paginator("list_objects_v2").paginate(
@@ -156,7 +156,7 @@ def snapshot_parquet(catalog, source, destination):
 
 
 def main(argv=None):
-    """Chạy bởi DAG trong venv Feast; chỉ learner kích hoạt trên cloud."""
+    """Run by the DAG inside the Feast venv; enabled on cloud only by explicit opt-in."""
     import pandas as pd
     import s3fs
 
@@ -177,7 +177,7 @@ def main(argv=None):
     leases = RedisLeases(control)
 
     def check_active(release):
-        """Không tự chữa mất sạch bản active nếu chưa được yêu cầu full_reload."""
+        """Do not self-heal a fully lost active release unless full_reload was requested."""
         store = make_store(repo, redis_database(connection, release.database), release.registry_uri)
         client = redis_client(store, release.database)
         try:
@@ -186,7 +186,7 @@ def main(argv=None):
             client.close()
 
     def build(database, release_id):
-        """Chỉ xóa slot đã được fence, nạp từ snapshot riêng rồi so từng giá trị."""
+        """Clear only a fenced slot, load from a dedicated snapshot, then compare every value."""
         root = f"{catalog.root}/releases/{release_id}"
         offline, registry = f"{root}/sku_daily", f"{root}/registry.db"
         snapshot_parquet(catalog, os.environ["FEAST_SKU_DAILY_PATH"], offline)
@@ -204,7 +204,7 @@ def main(argv=None):
         with tempfile.TemporaryDirectory() as directory:
             target_repo = shutil.copytree(repo, Path(directory) / "repo")
             executable = str(Path(sys.executable).with_name("feast"))
-            # Tạo client cho đúng slot; Redis data cũ của slot đã hết lượt đọc mới được xóa.
+            # Create a client for the right slot; the slot's old Redis data is cleared only once no reads remain.
             store = make_store(target_repo, target_connection, registry)
             client = redis_client(store, database)
             try:
@@ -216,14 +216,14 @@ def main(argv=None):
                     subprocess.run(
                         [executable, *command], cwd=target_repo, env=env, check=True, timeout=1800
                     )
-                # Reload để nhận registry vừa apply/materialize, không dùng cache metadata cũ.
+                # Reload to pick up the just applied/materialized registry, not stale cached metadata.
                 store = make_store(target_repo, target_connection, registry)
                 reconcile(store, expected)
                 if client.dbsize() != len(expected):
                     raise ValueError("online SKU key count differs from validated snapshot")
             except Exception:
-                # Materialize subprocess đã dừng khi trả lỗi/timeout. Slot đã fence, không phải active.
-                # Dọn candidate lỗi để không giữ RAM và làm ảnh hưởng bản cũ.
+                # The materialize subprocess has stopped when it returns an error/timeout. The slot is fenced, not active.
+                # Clean up the failed candidate so it does not hold RAM or affect the old release.
                 with suppress(Exception):
                     client.flushdb()
                 raise

@@ -1,2 +1,2 @@
-# Udev của Ubuntu tạo symlink theo serial EBS: volume ID bỏ dấu gạch.
+# Ubuntu udev creates symlinks from the EBS serial: the volume ID without the hyphen.
 data_disk_path: "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_{{ data_volume_id | replace('-', '') }}"

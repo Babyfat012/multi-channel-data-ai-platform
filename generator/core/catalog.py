@@ -1,9 +1,9 @@
-"""Sinh danh mục SKU của Seller và độ phổ biến (Zipf) của từng SKU.
+"""Generate the Seller's SKU catalog and each SKU's (Zipf) popularity.
 
-Skew theo SKU: SKU được xếp hạng ngẫu nhiên, SKU hạng r có trọng số r^(-s)
-với s = `sku_zipf_exponent`. Với 2.000 SKU và s = 0,8, SKU hạng 1 chiếm
-khoảng 5% Order Line. Thứ hạng được xáo trộn nên SKU bán chạy nằm rải rác
-ở mọi danh mục, không dồn vào danh mục đầu tiên.
+SKU skew: SKUs are ranked randomly, and the SKU of rank r has weight r^(-s)
+with s = `sku_zipf_exponent`. With 2,000 SKUs and s = 0.8, the rank-1 SKU takes
+about 5% of Order Lines. Ranks are shuffled, so best sellers are scattered
+across all categories instead of piling into the first one.
 """
 
 from __future__ import annotations
@@ -17,21 +17,21 @@ from generator.core.model import Sku
 from generator.core.rngs import rng_for
 from generator.core.storefronts import CATEGORIES
 
-# Độ lệch chuẩn của SKU Defect Propensity trên thang logit.
-# 0,5 nghĩa là SKU "tệ" (+1 độ lệch chuẩn) có odds trả cao hơn khoảng 1,65 lần.
+# Standard deviation of SKU Defect Propensity on the logit scale.
+# 0.5 means a "bad" SKU (+1 standard deviation) has about 1.65 times higher Return odds.
 DEFECT_PROPENSITY_STD = 0.5
 
-# SKU deal được nhân trọng số bấy nhiêu lần trong ngày sale (covariate drift).
+# Weight multiplier for deal SKUs on sale days (covariate drift).
 DEAL_WEIGHT_MULTIPLIER = 5.0
 
 
 @dataclass(frozen=True)
 class Catalog:
-    """Danh mục SKU cùng xác suất mỗi SKU được chọn cho một Order Line.
+    """The SKU catalog with the probability of each SKU being picked for an Order Line.
 
-    `popularity[i]` là xác suất chọn `skus[i]`, tổng bằng 1.
-    `skus_by_id` để tra SKU theo `sku_id`.
-    `sale_popularity` là phân phối thay thế dùng trong ngày Sale Event.
+    `popularity[i]` is the probability of picking `skus[i]`; they sum to 1.
+    `skus_by_id` looks up a SKU by `sku_id`.
+    `sale_popularity` is the replacement distribution used on Sale Event days.
     """
 
     skus: list[Sku]
@@ -41,11 +41,11 @@ class Catalog:
 
 
 def build_catalog(config: GeneratorConfig) -> Catalog:
-    """Sinh `n_skus` SKU chia theo danh mục, kèm độ phổ biến Zipf."""
+    """Generate `n_skus` SKUs split by category, with Zipf popularity."""
     rng = rng_for(config.seed, "catalog")
     n = config.scale.n_skus
 
-    # Chia số SKU theo `sku_share` của từng danh mục, phần dư dồn vào danh mục cuối.
+    # Split the SKU count by each category's `sku_share`; the remainder goes to the last category.
     counts = [int(n * c.sku_share) for c in CATEGORIES]
     counts[-1] += n - sum(counts)
 
@@ -80,10 +80,10 @@ def build_catalog(config: GeneratorConfig) -> Catalog:
 def sale_popularity(
     popularity: np.ndarray, sale: PrimeDayConfig | None, rng: np.random.Generator
 ) -> np.ndarray:
-    """Độ phổ biến trong ngày sale: SKU deal được nhân trọng số rồi chuẩn hóa lại.
+    """Popularity on sale days: deal SKU weights are multiplied, then renormalized.
 
-    Không có Sale Event thì trả về chính `popularity`, tức ngày sale không đổi
-    phân phối SKU. Tập SKU deal rút một lần theo seed nên cố định giữa các ngày.
+    Without a Sale Event, return `popularity` itself, i.e. sale days do not change
+    the SKU distribution. The deal SKU set is drawn once from the seed, so it is fixed across days.
     """
     if sale is None:
         return popularity
@@ -94,10 +94,10 @@ def sale_popularity(
 
 
 def zipf_popularity(n: int, exponent: float, rng: np.random.Generator) -> np.ndarray:
-    """Trả về mảng xác suất Zipf độ dài `n`, thứ hạng đã xáo trộn.
+    """Return a Zipf probability array of length `n`, with shuffled ranks.
 
-    Ví dụ n = 3, exponent = 1: trọng số theo hạng là 1, 1/2, 1/3, chuẩn hóa
-    thành 0,55 / 0,27 / 0,18, rồi xáo để hạng 1 rơi vào một SKU ngẫu nhiên.
+    E.g. n = 3, exponent = 1: rank weights are 1, 1/2, 1/3, normalized
+    to 0.55 / 0.27 / 0.18, then shuffled so rank 1 lands on a random SKU.
     """
     ranks = np.arange(1, n + 1, dtype=float)
     weights = ranks ** (-exponent)

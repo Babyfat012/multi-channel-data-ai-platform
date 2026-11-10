@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Chạy một job Spark nguồn v2 (20_bronze / 21_silver) trong image Airflow, nối Lakekeeper/MinIO.
+# Run one v2 source Spark job (20_bronze / 21_silver) in the Airflow image, connected to Lakekeeper/MinIO.
 #
-# Cần stack đang chạy: docker compose --profile catalog up -d postgres minio lakekeeper
-# Walmart qua JDBC: nạp trước bằng scripts/setup/load_order_lifecycle_walmart.py rồi thêm --walmart-jdbc walmart_lifecycle.orders.
-# Fixture chỉ đọc; jar Iceberg/PostgreSQL lấy từ cache ivy trong volume platform_airflow-data (không tải mạng).
+# Requires the stack running: docker compose --profile catalog up -d postgres minio lakekeeper
+# Walmart via JDBC: load first with scripts/setup/load_order_lifecycle_walmart.py, then add --walmart-jdbc walmart_lifecycle.orders.
+# The fixture is read-only; Iceberg/PostgreSQL jars come from the ivy cache in the platform_airflow-data volume (no network downloads).
 #
 #   FIXTURE=out/source-v2-b-final-20261018-051930425055/default \
 #     scripts/run/run_order_lifecycle_spark.sh /opt/spark_jobs/bronze/ingest_order_lifecycle.py --root /data/order_lifecycle --run-id X
@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
-: "${FIXTURE:?đặt FIXTURE là thư mục một biến thể fixture (có manifest.json)}"
+: "${FIXTURE:?set FIXTURE to a fixture variant directory (with manifest.json)}"
 RECEIPTS="${RECEIPTS:-out/source-v2-receipts}"
 mkdir -p "$RECEIPTS" out/spark-events
 set -a; . ./.env; set +a

@@ -1,11 +1,11 @@
 # KServe InferenceService return-risk (RawDeployment, model-inside-image).
-# Image và version do scripts/run/deploy_return_risk.sh điền (@@IMAGE@@, @@VERSION@@).
+# Image and version filled in by scripts/run/deploy_return_risk.sh (@@IMAGE@@, @@VERSION@@).
 apiVersion: v1
 kind: Namespace
 metadata:
   name: ml-serving
 ---
-# Pod Identity (EKS) gắn quyền đọc S3 feature-store vào account này; kind không dùng tới.
+# Pod Identity (EKS) grants S3 feature-store read access to this account; unused on kind.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -19,19 +19,19 @@ metadata:
   namespace: ml-serving
   annotations:
     serving.kserve.io/deploymentMode: RawDeployment
-    # prometheus-server kéo /metrics (độ trễ KServe + metric nghiệp vụ return_risk_*). Khai thẳng cổng
-    # 8080: cờ enable-prometheus-scraping của KServe trỏ 9091 (sidecar gộp metric, RawDeployment không có).
+    # prometheus-server scrapes /metrics (KServe latency + return_risk_* business metrics). Port 8080 declared
+    # explicitly: KServe's enable-prometheus-scraping flag points at 9091 (metric-aggregation sidecar, absent in RawDeployment).
     prometheus.io/scrape: "true"
     prometheus.io/port: "8080"
     prometheus.io/path: /metrics
-    # KServe không tự tạo HPA (EKS không có metrics-server cho HPA CPU); KEDA bên dưới scale theo số dự đoán.
+    # KServe does not create an HPA itself (EKS has no metrics-server for CPU HPA); KEDA below scales on prediction count.
     serving.kserve.io/autoscalerClass: external
   labels:
     model-version: "@@VERSION@@"
 spec:
   predictor:
     serviceAccountName: return-risk
-    minReplicas: 2   # multi-replica: một pod chết vẫn còn pod trả dự đoán cho Model Agent
+    minReplicas: 2   # multi-replica: if one pod dies another still serves predictions to the Model Agent
     maxReplicas: 3
     containers:
       - name: kserve-container
@@ -41,20 +41,20 @@ spec:
         env:
           - {name: MIN_HISTORY, value: "20"}
           - {name: FEAST_REDIS, value: "redis.feature-store.svc.cluster.local:6379"}
-          # Script deploy điền: kind = s3://platform/feature-store (MinIO), EKS = S3 lakehouse.
+          # Filled in by the deploy script: kind = s3://platform/feature-store (MinIO), EKS = S3 lakehouse.
           - {name: FEAST_REGISTRY, value: "@@FEAST_ROOT@@/registry.db"}
           - {name: FEAST_PUBLICATION_ROOT, value: "@@FEAST_ROOT@@/publications"}
           - {name: FEAST_SKU_DAILY_PATH, value: "@@FEAST_ROOT@@/sku_daily"}
           - {name: FEAST_SKU_RETURN_24H_PATH, value: "@@FEAST_ROOT@@/sku_return_24h/"}
           - {name: AWS_REGION, value: "@@AWS_REGION@@"}
         envFrom:
-          # kind: key + endpoint MinIO; EKS không có Secret này, S3 qua Pod Identity.
+          # kind: MinIO key + endpoint; EKS has no such Secret, S3 via Pod Identity.
           - secretRef: {name: platform-minio, optional: true}
         resources:
           requests: {cpu: 100m, memory: 256Mi}
           limits: {memory: 768Mi}
 ---
-# Autoscale predictor theo tải thật: tốc độ dự đoán (metric nghiệp vụ return_risk_predictions_total), cùng cách với Agent.
+# Autoscale the predictor on real load: prediction rate (business metric return_risk_predictions_total), same approach as the Agents.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -62,7 +62,7 @@ metadata:
   namespace: ml-serving
 spec:
   scaleTargetRef:
-    name: return-risk-predictor   # Deployment KServe RawDeployment tạo: <isvc>-predictor
+    name: return-risk-predictor   # Deployment created by KServe RawDeployment: <isvc>-predictor
   minReplicaCount: 2
   maxReplicaCount: 3
   triggers:
@@ -70,4 +70,4 @@ spec:
       metadata:
         serverAddress: http://prometheus-server.observability.svc.cluster.local
         query: sum(rate(return_risk_predictions_total{namespace="ml-serving"}[1m]))
-        threshold: "5"   # dự đoán/giây mỗi pod
+        threshold: "5"   # predictions/s per pod

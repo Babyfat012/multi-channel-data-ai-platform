@@ -1,13 +1,13 @@
-"""Test cho `generator/lib/day_selection.py` — lọc file nguồn xuống N ngày export.
+"""Tests for `generator/lib/day_selection.py` — filtering source files down to N export days.
 
-Vì sao test phần này: nó đứng giữa 13 GB và 1,4 GB dữ liệu đưa vào PostgreSQL. Hai hành vi
-dễ làm sai mà hậu quả lặng lẽ:
+Why test this: it decides between 13 GB and 1.4 GB of data going into PostgreSQL. Two behaviors
+are easy to get wrong with silent consequences:
 
-  * Lọc sai hướng -> `seller.skus` bị loại sạch, bảng SKU rỗng, và không có lỗi nào báo.
-  * Lấy N ngày liền nhau ở cuối thay vì rải đều -> tập mẫu toàn ngày to, không đại diện.
+  * Filtering the wrong way -> `seller.skus` is dropped entirely, the SKU table is empty, and no error is raised.
+  * Taking the last N consecutive days instead of spreading them -> the sample is all large days, not representative.
 
-`spark_jobs/lib/day_selection.py` có bản `pick_sample_days` trùng nội dung, test riêng ở
-`tests/unit/spark_jobs/lib/test_day_selection.py`. Lý do trùng ghi trong docstring của module.
+`spark_jobs/lib/day_selection.py` has a duplicate `pick_sample_days`, tested separately in
+`tests/unit/spark_jobs/lib/test_day_selection.py`. The reason for the duplication is in the module docstring.
 """
 
 from __future__ import annotations
@@ -23,51 +23,51 @@ WALMART = [
 SKUS = ["pg-load/seller.skus/part-00000.jsonl"]
 
 
-def test_pick_khop_voi_ban_trong_spark_jobs():
-    """Hai bản trùng code phải cho cùng kết quả, nếu không lệch âm thầm giữa hai container."""
+def test_pick_matches_spark_jobs_copy():
+    """Both code copies must give the same result, otherwise the two containers silently diverge."""
     from spark_jobs.lib.day_selection import pick_sample_days as spark_pick
 
     for n in (0, 1, 2, 20, 180, 500):
         assert pick_sample_days(DAYS, n) == spark_pick(DAYS, n), n
 
 
-def test_day_of_lay_ngay_tu_ten_thu_muc():
-    """Ngày nằm trong tên thư mục `export_date=...`, không phải trong nội dung file."""
+def test_day_of_reads_day_from_directory_name():
+    """The day is in the `export_date=...` directory name, not in the file content."""
     assert day_of(WALMART[0]) == DAYS[0]
     assert day_of(SKUS[0]) is None
 
 
-def test_sample_days_0_giu_het():
-    """Mặc định 0 là 'nạp hết' — hành vi cũ không được đổi."""
+def test_sample_days_0_keeps_all():
+    """The default 0 means 'load all' — the old behavior must not change."""
     paths = WALMART + SKUS
     assert filter_to_sample_days(paths, 0) == paths
     assert filter_to_sample_days(paths, -3) == paths
 
 
-def test_giu_dung_n_ngay_phan_biet():
-    """20 ngày yêu cầu phải ra đúng 20 ngày khác nhau trong số file còn lại."""
+def test_keeps_exactly_n_distinct_days():
+    """Requesting 20 days must yield exactly 20 distinct days among the remaining files."""
     kept = filter_to_sample_days(WALMART, 20)
     assert len({day_of(p) for p in kept}) == 20
 
 
-def test_luon_con_ngay_dau_va_ngay_cuoi():
-    """Ngày đầu nhỏ nhất (~872 KB) và ngày cuối lớn nhất (~261 MB) — cần cả hai đầu dải."""
+def test_always_keeps_first_and_last_day():
+    """The first day is the smallest (~872 KB) and the last the largest (~261 MB) — both ends of the range are needed."""
     kept_days = {day_of(p) for p in filter_to_sample_days(WALMART, 20)}
     assert DAYS[0] in kept_days
     assert DAYS[-1] in kept_days
 
 
-def test_seller_skus_khong_bao_gio_bi_loai():
-    """File không có `export_date=` luôn được giữ, kể cả khi lọc rất chặt.
+def test_seller_skus_never_dropped():
+    """Files without `export_date=` are always kept, even with very tight filtering.
 
-    Nếu test này vỡ thì bảng `seller.skus` sẽ rỗng sau khi nạp, mà không có lỗi nào báo.
+    If this test breaks, table `seller.skus` will be empty after loading, with no error raised.
     """
     for n in (1, 2, 20):
         assert filter_to_sample_days(WALMART + SKUS, n)[-1:] == SKUS, n
 
 
-def test_chi_loai_bo_chu_khong_them_duong_dan_moi():
-    """Hàm chỉ được lọc; không tự sinh đường dẫn, không đổi thứ tự các file còn lại."""
+def test_only_removes_never_adds_paths():
+    """The function may only filter; it must not invent paths or reorder the remaining files."""
     paths = WALMART + SKUS
     kept = filter_to_sample_days(paths, 20)
     assert set(kept) <= set(paths)
@@ -75,11 +75,11 @@ def test_chi_loai_bo_chu_khong_them_duong_dan_moi():
 
 
 @pytest.mark.parametrize("n", [1, 2, 7, 20, 60])
-def test_khong_bao_gio_giu_nhieu_hon_ca_dai(n):
-    """Số file giữ lại không được vượt số file ban đầu, với mọi n."""
+def test_never_keeps_more_than_whole_range(n):
+    """The number of kept files must not exceed the original count, for every n."""
     assert len(filter_to_sample_days(WALMART, n)) <= len(WALMART)
 
 
-def test_khong_co_ngay_nao_thi_giu_het():
-    """Nguồn không chia theo ngày (chỉ có seller.skus) thì lọc là no-op, không trả rỗng."""
+def test_no_days_keeps_all():
+    """If the source is not split by day (only seller.skus), filtering is a no-op and does not return empty."""
     assert filter_to_sample_days(SKUS, 20) == SKUS

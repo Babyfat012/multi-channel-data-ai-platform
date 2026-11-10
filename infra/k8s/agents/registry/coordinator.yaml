@@ -1,11 +1,11 @@
-# Danh bạ agentregistry: Coordinator — chạy trên kagent (infra/k8s/agents/coordinator.yaml), model qua agentgateway.
+# agentregistry catalog: Coordinator — runs on kagent (infra/k8s/agents/coordinator.yaml), model via agentgateway.
 apiVersion: ar.dev/v1alpha1
 kind: Agent
 metadata:
   name: coordinator
 spec:
   title: Coordinator
-  description: "Điều phối câu hỏi của Seller tới Data Agent hoặc Model Agent qua A2A (agentgateway). Model: ModelConfig default-model-config (qua agentgateway)."
+  description: "Routes Seller questions to the Data Agent or the Model Agent over A2A (agentgateway). Model: ModelConfig default-model-config (via agentgateway)."
   source:
     image: ghcr.io/kagent-dev/kagent/golang-adk:0.10.3
     protocol: A2A

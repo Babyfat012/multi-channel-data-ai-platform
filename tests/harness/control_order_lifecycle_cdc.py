@@ -1,4 +1,4 @@
-"""Điều khiển readiness và poll offset của harness CDC v2; không dùng compose hiện có."""
+"""Drive readiness and offset polling for the CDC v2 harness; does not use the existing compose."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from spark_jobs.lib.order_lifecycle_cdc import compare_events, payload_sha256, w
 
 
 def wait_services(settings, connector=False):
-    """Đợi PostgreSQL/Kafka/Connect hoặc task và slot active, có timeout cứng."""
+    """Wait for PostgreSQL/Kafka/Connect or an active task and slot, with a hard timeout."""
     import psycopg
     from confluent_kafka.admin import AdminClient
 
@@ -38,7 +38,7 @@ def wait_services(settings, connector=False):
                         "SELECT 1 FROM pg_replication_slots WHERE slot_name=%s AND active", (SLOT,)
                     ).fetchone()
                 ):
-                    raise RuntimeError("Slot chưa active")
+                    raise RuntimeError("Slot not active yet")
             if connector:
                 with urllib.request.urlopen(
                     settings["DEBEZIUM_URL"] + f"/connectors/{CONNECTOR_NAME}/status", timeout=3
@@ -62,11 +62,11 @@ def wait_services(settings, connector=False):
         except Exception as exc:
             last = exc
             time.sleep(1)
-    raise TimeoutError(f"Readiness hết 120s: {last}")
+    raise TimeoutError(f"Readiness timed out after 120s: {last}")
 
 
 def wait_events(settings, oracle_path, receipt):
-    """Poll các offset thật đến khi đủ nội dung oracle, không dùng khoảng ngủ cố định."""
+    """Poll the real offsets until the oracle content is complete, without a fixed sleep."""
     from confluent_kafka import Consumer, TopicPartition
 
     oracle = json.loads(Path(oracle_path).read_text())
@@ -121,13 +121,13 @@ def wait_events(settings, oracle_path, receipt):
                     },
                 )
                 return
-        raise TimeoutError(f"CDC chưa khớp oracle sau 120s; offsets={rows}")
+        raise TimeoutError(f"CDC did not match the oracle after 120s; offsets={rows}")
     finally:
         consumer.close()
 
 
 def main():
-    """Chọn bước readiness hoặc chờ sự kiện cho shell harness."""
+    """Pick a readiness step or event wait for the shell harness."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["services", "connector", "events"])
     parser.add_argument("--env-file", type=Path, required=True)

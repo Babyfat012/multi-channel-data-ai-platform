@@ -1,4 +1,4 @@
-"""DAG warehouse: đủ năm Channel, 30 ngày trước cutoff của Gold A; lệch số dòng thì chặn."""
+"""Warehouse DAG: all five Channels, 30 days before the Gold A Cutoff; a row count mismatch blocks it."""
 
 from __future__ import annotations
 
@@ -10,20 +10,22 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_dag_exports_thirty_days_before_ml_cutoff():
-    """Cùng cutoff với ML (Gold A), cửa sổ 30 ngày, đúng job warehouse."""
+    """Same Cutoff as ML (Gold A), 30-day window, the right warehouse job."""
     text = (ROOT / "dags/dp4_warehouse.py").read_text()
     assert "/opt/spark_jobs/warehouse/export_order_snapshot_lines.py" in text
     assert "var.value.get('platform_ml_cutoff'" in text
     assert '"--days",\n            "30"' in text
-    assert 'runtime_groups=("iceberg", "postgres")' in text  # thiếu thì KeyError POSTGRES_PASSWORD
+    assert (
+        'runtime_groups=("iceberg", "postgres")' in text
+    )  # without it: KeyError POSTGRES_PASSWORD
     job = (ROOT / "spark_jobs/warehouse/export_order_snapshot_lines.py").read_text()
     assert 'F.col("channel") == "walmart"' not in job
-    # JDBC chỉ tạo bảng, không tạo schema: phải tạo trước lần ghi đầu (Postgres AWS mới tinh).
+    # JDBC creates only tables, not schemas: the schema must exist before the first write (brand-new AWS Postgres).
     assert job.index("CREATE SCHEMA IF NOT EXISTS warehouse") < job.index('.write.format("jdbc")')
 
 
 def test_count_mismatches_blocks_short_or_empty_channels():
-    """Khớp đủ thì rỗng; JDBC ghi thiếu một kênh hoặc Gold rỗng một kênh thì bị báo."""
+    """A full match is empty; a JDBC write missing a Channel or Gold empty for a Channel is reported."""
     gold = {c: 10 for c in CHANNELS}
     assert count_mismatches(gold, dict(gold)) == []
     assert count_mismatches(gold, gold | {"shopee": 9}) == ["shopee"]

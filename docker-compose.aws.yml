@@ -1,6 +1,6 @@
-# Overlay AWS (EC2 t3.xlarge 16 GiB): Compose >= 2.24.4 để thay hẳn port/volume bằng !override.
-# Chỉ khởi động catalog, spark, airflow; không bật profile disabled-aws. Không có access key:
-# Spark, Iceberg và Lakekeeper lấy credential tạm từ IAM role qua IMDSv2 (hop limit 2).
+# AWS overlay (EC2 t3.xlarge 16 GiB): Compose >= 2.24.4 to fully replace ports/volumes with !override.
+# Only starts catalog, spark, airflow; does not enable the disabled-aws profile. No access keys:
+# Spark, Iceberg and Lakekeeper get temporary credentials from the IAM role via IMDSv2 (hop limit 2).
 x-s3-env: &s3-env
   PLATFORM_STORAGE: s3
   AWS_REGION: ${AWS_REGION:?AWS_REGION_required}
@@ -60,8 +60,8 @@ services:
     cpus: "0.25"
     mem_limit: 512m
     image: platform-airflow:2.10.5-spark3.5.3
-    # Image Airflow có /entrypoint chuyển mọi lệnh lạ thành `airflow <lệnh>` => exit 2.
-    # Giữ dumb-init (PID 1 chuyển tín hiệu dừng), bỏ /entrypoint để chạy thẳng spark-class.
+    # Airflow image has an /entrypoint that turns any unknown command into `airflow <command>` => exit 2.
+    # Keep dumb-init (PID 1 forwards stop signals), drop /entrypoint to run spark-class directly.
     entrypoint: [/usr/bin/dumb-init, --]
     command: !override
       - /home/airflow/.local/lib/python3.10/site-packages/pyspark/bin/spark-class
@@ -84,8 +84,8 @@ services:
     cpus: "2"
     mem_limit: 3500m
     image: platform-airflow:2.10.5-spark3.5.3
-    # Image Airflow có /entrypoint chuyển mọi lệnh lạ thành `airflow <lệnh>` => exit 2.
-    # Giữ dumb-init (PID 1 chuyển tín hiệu dừng), bỏ /entrypoint để chạy thẳng spark-class.
+    # Airflow image has an /entrypoint that turns any unknown command into `airflow <command>` => exit 2.
+    # Keep dumb-init (PID 1 forwards stop signals), drop /entrypoint to run spark-class directly.
     entrypoint: [/usr/bin/dumb-init, --]
     command: !override
       - /home/airflow/.local/lib/python3.10/site-packages/pyspark/bin/spark-class
@@ -97,11 +97,11 @@ services:
       SPARK_HOME: /home/airflow/.local/lib/python3.10/site-packages/pyspark
       PYSPARK_PYTHON: /usr/local/bin/python
       PYSPARK_DRIVER_PYTHON: /usr/local/bin/python
-      # Phải chừa trong mem_limit 3500m: JVM worker (~0,5 GB) + overhead mỗi executor (≥384 MB).
-      # 3g từng cho 2 executor 1536m/worker ⇒ Docker OOM-kill (exit 137, dp3_walmart_labels 2026-10-28).
+      # Must fit within mem_limit 3500m: worker JVM (~0.5 GB) + per-executor overhead (≥384 MB).
+      # 3g once gave 2 executors of 1536m/worker ⇒ Docker OOM-kill (exit 137, dp3_walmart_labels 2026-10-28).
       SPARK_WORKER_MEMORY: 2560m
       SPARK_WORKER_CORES: "2"
-      # Mỗi app chép ~400 MB jar vào $SPARK_HOME/work trong container (ổ gốc 29 GB); 2026-10-27 đầy ổ sau ~19 app.
+      # Each app copies ~400 MB of jars into $SPARK_HOME/work inside the container (29 GB root disk); on 2026-10-27 the disk filled after ~19 apps.
       SPARK_WORKER_OPTS: -Dspark.worker.cleanup.enabled=true -Dspark.worker.cleanup.interval=600 -Dspark.worker.cleanup.appDataTtl=1800
     volumes: !override
       - ./spark_jobs:/opt/spark_jobs:ro
@@ -114,8 +114,8 @@ services:
     cpus: "2"
     mem_limit: 3500m
     image: platform-airflow:2.10.5-spark3.5.3
-    # Image Airflow có /entrypoint chuyển mọi lệnh lạ thành `airflow <lệnh>` => exit 2.
-    # Giữ dumb-init (PID 1 chuyển tín hiệu dừng), bỏ /entrypoint để chạy thẳng spark-class.
+    # Airflow image has an /entrypoint that turns any unknown command into `airflow <command>` => exit 2.
+    # Keep dumb-init (PID 1 forwards stop signals), drop /entrypoint to run spark-class directly.
     entrypoint: [/usr/bin/dumb-init, --]
     command: !override
       - /home/airflow/.local/lib/python3.10/site-packages/pyspark/bin/spark-class
@@ -127,11 +127,11 @@ services:
       SPARK_HOME: /home/airflow/.local/lib/python3.10/site-packages/pyspark
       PYSPARK_PYTHON: /usr/local/bin/python
       PYSPARK_DRIVER_PYTHON: /usr/local/bin/python
-      # Phải chừa trong mem_limit 3500m: JVM worker (~0,5 GB) + overhead mỗi executor (≥384 MB).
-      # 3g từng cho 2 executor 1536m/worker ⇒ Docker OOM-kill (exit 137, dp3_walmart_labels 2026-10-28).
+      # Must fit within mem_limit 3500m: worker JVM (~0.5 GB) + per-executor overhead (≥384 MB).
+      # 3g once gave 2 executors of 1536m/worker ⇒ Docker OOM-kill (exit 137, dp3_walmart_labels 2026-10-28).
       SPARK_WORKER_MEMORY: 2560m
       SPARK_WORKER_CORES: "2"
-      # Mỗi app chép ~400 MB jar vào $SPARK_HOME/work trong container (ổ gốc 29 GB); 2026-10-27 đầy ổ sau ~19 app.
+      # Each app copies ~400 MB of jars into $SPARK_HOME/work inside the container (29 GB root disk); on 2026-10-27 the disk filled after ~19 apps.
       SPARK_WORKER_OPTS: -Dspark.worker.cleanup.enabled=true -Dspark.worker.cleanup.interval=600 -Dspark.worker.cleanup.appDataTtl=1800
     volumes: !override
       - ./spark_jobs:/opt/spark_jobs:ro
@@ -157,33 +157,33 @@ services:
       AIRFLOW_VAR_PLATFORM_SPARK_PACKAGES: ${PLATFORM_SPARK_PACKAGES_AWS:?packages_required}
       AIRFLOW_VAR_PLATFORM_ORDER_LIFECYCLE_SOURCE_ROOT: s3a://${RAW_BUCKET}/order_lifecycle/${PLATFORM_DATASET_NAME:-fixture}
       AIRFLOW_VAR_PLATFORM_ORDER_LIFECYCLE_CUTOFF: ${PLATFORM_ORDER_LIFECYCLE_CUTOFF:-2026-06-01T00:00:00.000000Z}
-      # DAG v1 (dp1 -> dp2 -> dp3) đọc bộ 100 GB trên S3, đủ 180 ngày (window 0 = nạp hết).
+      # DAG v1 (dp1 -> dp2 -> dp3) reads the 100 GB dataset on S3, all 180 days (window 0 = load everything).
       AIRFLOW_VAR_PLATFORM_DP1_AMAZON_SOURCE: s3a://${RAW_BUCKET}/order_snapshots/source-exports/channel=amazon/dataset=orders
       AIRFLOW_VAR_PLATFORM_DP1_EXTRA_SOURCE_ROOT: s3a://${RAW_BUCKET}/order_snapshots/source-exports
       AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS: "0"
-      # dp3_return_labels: đáp án nhãn, sổ khóa 4 kênh và khóa nối nằm trên S3 (executor không có /data local).
+      # dp3_return_labels: the label answer key, the 4-channel key ledger and the join keys live on S3 (executors have no local /data).
       AIRFLOW_VAR_PLATFORM_DP3_GROUND_TRUTH: s3a://${RAW_BUCKET}/order_snapshots/ground-truth
       AIRFLOW_VAR_PLATFORM_DP3_WALMART_KEYS: s3a://${RAW_BUCKET}/order_snapshots/ground-truth-bridge/walmart-keys.parquet
-      # ML: Feast đọc/ghi S3 thật bằng IAM role; Redis online là NodePort trên EKS; cutoff của Gold A.
+      # ML: Feast reads/writes real S3 via the IAM role; online Redis is a NodePort on EKS; cutoff of Gold A.
       AIRFLOW_VAR_PLATFORM_FEAST_ROOT: s3://${LAKEHOUSE_BUCKET}/feature-store
       AIRFLOW_VAR_PLATFORM_FEAST_REDIS: ${PLATFORM_FEAST_REDIS:-}
-      # RAG (đợt 4): tài liệu + chunk trên S3 lakehouse; pgvector là NodePort trên node EKS (Ansible -e rag_pg).
+      # RAG (phase 4): documents + chunks on the S3 lakehouse; pgvector is a NodePort on an EKS node (Ansible -e rag_pg).
       AIRFLOW_VAR_PLATFORM_RAG_ROOT: s3://${LAKEHOUSE_BUCKET}/rag
       AIRFLOW_CONN_PLATFORM_RAG_PG: ${PLATFORM_RAG_PG_CONN:?PLATFORM_RAG_PG_CONN_required}
       AIRFLOW_VAR_PLATFORM_ML_CUTOFF: "2026-06-30T00:00:00Z"
-      # Task Walmart của DAG v1 đọc PostgreSQL qua JDBC ngay trong driver Airflow.
+      # The Walmart task of DAG v1 reads PostgreSQL over JDBC directly in the Airflow driver.
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_HOST: postgres
-      # spark-submit đọc biến này khi DAG không đặt executor memory; mặc định 1g quá chật cho Silver 100 GB.
+      # spark-submit reads this variable when the DAG does not set executor memory; the 1g default is too tight for Silver at 100 GB.
       SPARK_EXECUTOR_MEMORY: 2g
     volumes: !override
       - ./spark_jobs:/opt/spark_jobs:ro
       - ./generator:/opt/generator:ro
       - ./contracts:/opt/contracts:ro
       - ./sql:/opt/sql:ro
-      # Định nghĩa Feast cho ml_feature_materialize (feast apply/materialize chạy trong container này).
+      # Feast definitions for ml_feature_materialize (feast apply/materialize run in this container).
       - ./feature_repo:/opt/feature_repo:ro
       - ./rag:/opt/rag/rag:ro
       - /mnt/platform-data/spark-events:/spark-events
@@ -199,7 +199,7 @@ services:
   flink-taskmanager:
     profiles: !override [disabled-aws]
     scale: 0
-  # Trino liên nguồn (Novel #1): Iceberg trên S3 qua IAM role + PostgreSQL EC2; chỉ bật khi đo
+  # Federated Trino: Iceberg on S3 via the IAM role + EC2 PostgreSQL; enable only when measuring
   # (--profile query), nghe loopback, xem UI qua tunnel 8083.
   trino:
     profiles: !override [query]
@@ -227,9 +227,9 @@ services:
     scale: 0
     ports: !override
       - "127.0.0.1:${KAFKA_UI_PORT:-8085}:8080"
-  # MLflow trên EC2: sổ ghi ở DB mlflow của Postgres EC2, artifact ở S3 lakehouse qua IAM role (server
-  # proxy artifact nên pod KFP trên EKS không cần quyền S3). Nghe loopback (tunnel) + IP riêng VPC cho
-  # EKS (SG chỉ mở 5050 từ SG cluster), không 0.0.0.0.
+  # MLflow on EC2: ledger in the mlflow DB of the EC2 Postgres, artifacts on the S3 lakehouse via the IAM role (the server
+  # proxies artifacts, so KFP pods on EKS need no S3 permissions). Listens on loopback (tunnel) + the private VPC IP for
+  # EKS (the SG only opens 5050 from the cluster SG), not 0.0.0.0.
   mlflow:
     cpus: "0.25"
     mem_limit: 512m
@@ -245,8 +245,8 @@ services:
     ports: !override
       - "127.0.0.1:${MLFLOW_PORT:-5050}:5000"
       - "${PLATFORM_PRIVATE_IP:?PLATFORM_PRIVATE_IP_required}:${MLFLOW_PORT:-5050}:5000"
-  # Vault trên EC2 (secret tập trung: mật khẩu UI, token…). Chỉ loopback, script ở laptop đi qua tunnel
-  # 8200; dữ liệu trên EBS để stop/start EC2 không mất (cổng 8200 có sẵn trong data_service_ports).
+  # Vault on EC2 (centralized secrets: UI passwords, tokens…). Loopback only; laptop scripts go through tunnel
+  # 8200; data on EBS so EC2 stop/start loses nothing (port 8200 is already in data_service_ports).
   vault:
     cpus: "0.25"
     mem_limit: 256m
@@ -254,8 +254,8 @@ services:
       - "127.0.0.1:${VAULT_PORT:-8200}:8200"
     volumes: !override
       - /mnt/platform-data/vault:/vault/file
-  # Exporter cho Prometheus trên EKS (pull): nghe IP riêng VPC, SG chỉ mở 9100/9187 từ SG cluster
-  # (data_service_ports). Cảnh báo ổ đầy (#20) và WAL slot (#17) — luật ở prometheus-values-aws.yaml.
+  # Exporters for Prometheus on EKS (pull): listen on the private VPC IP, the SG only opens 9100/9187 from the cluster SG
+  # (data_service_ports). Disk-full (#20) and WAL slot (#17) alerts — rules in prometheus-values-aws.yaml.
   node-exporter:
     image: quay.io/prometheus/node-exporter:v1.9.1
     command: ["--path.rootfs=/host"]
@@ -278,12 +278,12 @@ services:
       DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
     ports:
       - "${PLATFORM_PRIVATE_IP:?PLATFORM_PRIVATE_IP_required}:9187:9187"
-  # Jenkins trên EC2 (đợt 5): build tại chỗ, deploy compose tại chỗ, push ECR + deploy EKS bằng IAM role EC2.
-  # Chỉ nghe loopback (network host) ⇒ UI qua tunnel 8090. Job lấy code từ git bundle (rsync không mang .git).
+  # Jenkins on EC2 (phase 5): builds in place, deploys compose in place, pushes to ECR + deploys to EKS via the EC2 IAM role.
+  # Listens on loopback only (host network) ⇒ UI via tunnel 8090. Jobs get code from a git bundle (rsync does not carry .git).
   jenkins:
     environment:
       JENKINS_OPTS: --httpPort=8090 --httpListenAddress=127.0.0.1
-      # Đường dẫn trơn, không `file://`: git chỉ nhận ra tệp bundle khi remote là path (file:// đòi thư mục repo).
+      # Plain path, not `file://`: git only recognizes a bundle file when the remote is a path (file:// requires a repo directory).
       CI_GIT_REMOTE: /repo/out/platform.bundle
       AWS_REGION: ${AWS_REGION:?AWS_REGION_required}
     mem_limit: 1536m

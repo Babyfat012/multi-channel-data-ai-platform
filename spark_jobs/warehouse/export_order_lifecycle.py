@@ -1,4 +1,4 @@
-"""Job 25: export Gold v2 đủ năm Channel qua staging, receipt và publish nguyên tử."""
+"""Export the five-Channel Gold v2 through staging, a receipt and an atomic publish."""
 
 from __future__ import annotations
 
@@ -10,14 +10,12 @@ from spark_jobs.lib.order_lifecycle_warehouse import TABLES, cutoff_utc, export_
 
 
 def main(argv=None):
-    """Pin từng snapshot Iceberg, chọn nhãn đúng run/cutoff và export qua JDBC."""
+    """Pin each Iceberg snapshot, select the labels of the right run/cutoff and export via JDBC."""
     parser = argparse.ArgumentParser(description="Gold v2 → PostgreSQL warehouse_lifecycle")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument(
-        "--tables", default=",".join(TABLES), help="Tên bảng phân cách bằng dấu phẩy"
-    )
+    parser.add_argument("--tables", default=",".join(TABLES), help="Comma-separated table names")
     parser.add_argument(
         "--sql-dir",
         type=Path,
@@ -26,11 +24,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     names = args.tables.split(",")
     if not args.run_id.strip() or len(names) != len(set(names)) or not set(names).issubset(TABLES):
-        parser.error("run-id hoặc tables không hợp lệ")
+        parser.error("invalid run-id or tables")
     cutoff = cutoff_utc(args.cutoff)
     for filename in ("001_tables.sql", "002_indexes.sql"):
         if not (args.sql_dir / filename).is_file():
-            parser.error(f"Thiếu migration {args.sql_dir / filename}")
+            parser.error(f"Missing migration {args.sql_dir / filename}")
     from pyspark.sql import functions as F
 
     from spark_jobs.lib.iceberg_session import CATALOG, build_spark

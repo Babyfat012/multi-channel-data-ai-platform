@@ -1,4 +1,4 @@
-"""Kiểm hợp đồng DAG v2 bằng AST, không cần cài Airflow hoặc chạy Spark."""
+"""Check the v2 DAG contract via AST, without installing Airflow or running Spark."""
 
 import ast
 import json
@@ -13,7 +13,7 @@ ORDER = ["check_contracts", "ingest_bronze", "build_silver", "build_gold", "vali
 
 
 def literal(node, names):
-    """Giải các hằng và danh sách args tĩnh để đối chiếu CLI thật."""
+    """Resolve constants and static args lists to compare against the real CLI."""
     if isinstance(node, ast.Name):
         return literal(names[node.id], names)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
@@ -24,7 +24,7 @@ def literal(node, names):
 
 
 def test_dag_contract_and_real_job_flags():
-    """DAG tạm dừng có đủ năm chặng, đúng CLI, Variables và thứ tự chạy."""
+    """The paused DAG has all five stages, the right CLI, Variables and run order."""
     source = DAG.read_text()
     tree = ast.parse(source)
     names = {
@@ -86,7 +86,7 @@ def test_dag_contract_and_real_job_flags():
     )
 
     def flatten(node):
-        """Đọc chuỗi phụ thuộc viết bằng toán tử dịch phải của Airflow."""
+        """Read the dependency chain written with Airflow's right-shift operator."""
         if isinstance(node, ast.Name):
             return [tasks[node.id]]
         return flatten(node.left) + flatten(node.right)
@@ -105,7 +105,7 @@ def test_dag_contract_and_real_job_flags():
 
 
 def test_v2_resource_variables_and_templates():
-    """Mọi Spark task v2 lấy ba tài nguyên từ Variable, gồm Bronze kế thừa."""
+    """Every v2 Spark task takes its three resources from Variables, including the inherited Bronze."""
     resources = {"driver_memory": "3g", "executor_memory": "4g", "executor_cores": "2"}
     setup = (ROOT / "scripts/setup/setup_airflow.sh").read_text()
     for field, default in resources.items():
@@ -122,7 +122,7 @@ def test_v2_resource_variables_and_templates():
             for n in resource_class.body
             if isinstance(n, ast.Assign) and n.targets[0].id == "template_fields"
         )
-        # Provider lưu tham số ở thuộc tính `_driver_memory`...; template tên công khai sẽ lỗi.
+        # The provider stores the parameters in `_driver_memory`...; templating the public names would fail.
         assert {f"_{field}" for field in resources} <= {
             n.value
             for n in ast.walk(assignment)
@@ -168,10 +168,10 @@ def test_v2_resource_variables_and_templates():
 @pytest.mark.parametrize("fails", [False, True])
 @pytest.mark.parametrize("jdbc", ["", "walmart_lifecycle.orders"])
 def test_bronze_preserves_spark_receipt_and_propagates_failure(tmp_path, fails, jdbc):
-    """Nạp lớp bằng AST với Spark stub: thành công giữ schema, lỗi ghi receipt lỗi."""
+    """Load the class via AST with a Spark stub: success keeps the schema, failure writes a failure receipt."""
     receipt = tmp_path / "ingest_bronze.json"
     original_args = ["--root", "/fixture", "--receipt", str(receipt)]
-    error = RuntimeError("Spark thất bại")
+    error = RuntimeError("Spark failed")
     spark_receipt = {
         "run_id": "run-test",
         "dataset_version": "dataset",
@@ -182,16 +182,16 @@ def test_bronze_preserves_spark_receipt_and_propagates_failure(tmp_path, fails, 
     encoded = json.dumps(spark_receipt).encode()
 
     class SparkStub:
-        """Chỉ giả lập biên execute của Spark, không import Airflow."""
+        """Simulate only Spark's execute boundary, without importing Airflow."""
 
         template_fields = ()
 
         def __init__(self, application_args):
-            """Giữ tham số dòng lệnh mà DAG truyền cho Spark."""
+            """Keep the command-line arguments the DAG passes to Spark."""
             self.application_args = application_args
 
         def execute(self, context):
-            """Kiểm tham số rồi ghi receipt giả thay cho job Spark."""
+            """Check the arguments, then write a fake receipt in place of the Spark job."""
             assert context == {"run_id": "run-test"}
             assert self.application_args == original_args + (
                 ["--walmart-jdbc", jdbc] if jdbc else []

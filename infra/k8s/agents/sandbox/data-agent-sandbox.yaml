@@ -1,5 +1,5 @@
-# Data Agent chạy trong sandbox gVisor (Agent Substrate): cùng model (qua agentgateway) và cùng tool MCP với
-# data-agent, nhưng mã Agent không chạm kernel node. Substrate chỉ hỗ trợ runtime Go (ADK Python chưa).
+# Data Agent running in a gVisor sandbox (Agent Substrate): same model (via agentgateway) and same MCP tools as
+# data-agent, but the Agent code never touches the node kernel. Substrate only supports the Go runtime (not ADK Python yet).
 apiVersion: kagent.dev/v1alpha2
 kind: SandboxAgent
 metadata:

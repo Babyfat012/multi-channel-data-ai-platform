@@ -1,4 +1,4 @@
-"""Kiểm hợp đồng scale, tính tái lập và bất biến fixture mặc định."""
+"""Check the scale contract, reproducibility and default fixture invariants."""
 
 import hashlib
 import json
@@ -20,15 +20,15 @@ from generator.generate_order_lifecycle_fixture import (
 
 
 def test_fixture_default_bytes_are_pinned(tmp_path, monkeypatch):
-    """Giữ đồng hồ thực thi cố định rồi so mọi digest đã lưu trước refactor."""
+    """Fix the execution clock, then compare every digest saved before the refactor."""
     import generator.generate_order_lifecycle_fixture as source
 
     class Fixed(datetime):
-        """Đồng hồ thực thi cố định của baseline."""
+        """Fixed execution clock of the baseline."""
 
         @classmethod
         def now(cls, tz=None):
-            """Trả thời điểm UTC baseline."""
+            """Return the baseline UTC time."""
             return cls(2026, 10, 19, tzinfo=timezone.utc)
 
     monkeypatch.setattr(source, "datetime", Fixed)
@@ -47,7 +47,7 @@ def test_fixture_default_bytes_are_pinned(tmp_path, monkeypatch):
 
 
 def test_seed_recreates_sources(tmp_path):
-    """Cùng seed giữ nguyên từng file; seed khác đổi physical world."""
+    """The same seed keeps every file identical; a different seed changes the physical world."""
     from generator.generate_order_lifecycle import ScaleConfig, generate_scaled
 
     a = generate_scaled(tmp_path / "a", ScaleConfig(days=2, orders_per_day=20))
@@ -61,7 +61,7 @@ def test_seed_recreates_sources(tmp_path):
 
 
 def rows_for(root, manifest, feed):
-    """Đọc đúng feed được liệt kê trong manifest nguồn."""
+    """Read exactly the feeds listed in the source manifest."""
     return [
         json.loads(row)
         for item in manifest["files"]
@@ -72,7 +72,7 @@ def rows_for(root, manifest, feed):
 
 @pytest.fixture(scope="module")
 def sample(tmp_path_factory):
-    """Một mẫu đúng 5.000 line cho kiểm tỉ lệ và oracle độc lập."""
+    """A sample of exactly 5,000 lines for ratio checks and the independent oracle."""
     root = tmp_path_factory.mktemp("scale-sample") / "data"
     config = ScaleConfig(days=1, orders_per_day=5000, lines_per_order=(1.0, 0.0, 0.0, 0.0))
     manifest = generate_scaled(root, config)
@@ -81,7 +81,7 @@ def sample(tmp_path_factory):
 
 
 def test_sampled_rates_and_sku_skew(sample):
-    """Mẫu 5.000 line có mọi kịch bản trong ±3 điểm %, SKU nóng >10%."""
+    """The 5,000-line sample has every scenario within ±3 percentage points, hot SKU >10%."""
     _, manifest, truth = sample
     assert len(truth) == 5000
     counts = Counter(row["scenario"] for row in truth)
@@ -93,7 +93,7 @@ def test_sampled_rates_and_sku_skew(sample):
 
 
 def test_uniform_skus_have_no_hot_rank(tmp_path):
-    """s=0 cho top SKU ít hơn hai lần trung bình ở cùng kích thước mẫu."""
+    """s=0 gives a top SKU below twice the mean at the same sample size."""
     root = tmp_path / "uniform"
     manifest = generate_scaled(
         root,
@@ -108,7 +108,7 @@ def test_uniform_skus_have_no_hot_rank(tmp_path):
 
 
 def test_source_contract_identities_coverage_and_profiles(sample):
-    """Mọi nguồn qua inspect/gate; coverage khớp receipt, đủ feed ba profile."""
+    """Every source passes inspect/gate; coverage matches receipts, all feeds of the three profiles present."""
     from spark_jobs.lib.data_contracts.gate import gate_root
     from spark_jobs.lib.data_contracts.registry import Registry
 
@@ -176,7 +176,7 @@ def test_source_contract_identities_coverage_and_profiles(sample):
 
 
 def test_truth_matches_physical_events_and_window_boundaries(sample):
-    """Oracle kiểm số lượng, times, retry/correction và censor bằng nguồn thực phát."""
+    """The oracle checks quantities, times, retry/correction and censoring against the actually emitted sources."""
     root, manifest, truth = sample
     deliveries = rows_for(root, manifest, "carrier.delivery_events")
     returns = rows_for(root, manifest, "seller_postsales.return_events")
@@ -260,7 +260,7 @@ def test_truth_matches_physical_events_and_window_boundaries(sample):
     ],
 )
 def test_validation_rejects_before_writing(tmp_path, config):
-    """Chặn tham số sai hoặc vượt trần trước mọi tác động filesystem."""
+    """Reject invalid or over-ceiling parameters before any filesystem effect."""
     with pytest.raises(ValueError):
         config.validate()
     with pytest.raises(ValueError):
@@ -269,7 +269,7 @@ def test_validation_rejects_before_writing(tmp_path, config):
 
 
 def test_configuration_is_frozen_and_horizon_supports_180_days():
-    """Cấu hình bất biến, hỗ trợ đủ miền 180 ngày khi số dòng hợp lệ."""
+    """Immutable config, supporting the full 180-day domain when the row count is valid."""
     config = ScaleConfig(days=180, orders_per_day=1)
     config.validate()
     with pytest.raises(FrozenInstanceError):
@@ -285,7 +285,7 @@ def test_configuration_is_frozen_and_horizon_supports_180_days():
     ],
 )
 def test_estimate_within_twenty_percent(tmp_path, config):
-    """Estimate trước sinh lệch dưới 20% ở số dòng và byte nguồn."""
+    """The pre-generation estimate is within 20% on source rows and bytes."""
     estimated = config.estimate()
     actual = generate_scaled(tmp_path / "estimated", config)
     records = sum(f["rows"] for f in actual["files"])
@@ -295,7 +295,7 @@ def test_estimate_within_twenty_percent(tmp_path, config):
 
 
 def test_spark_jobs_never_read_truth():
-    """Không có tham chiếu truth trong cây job Data Platform."""
+    """No truth references in the Data Platform job tree."""
     import re
 
     for path in Path("spark_jobs").rglob("*"):
@@ -306,7 +306,7 @@ def test_spark_jobs_never_read_truth():
 
 
 def test_native_schema_overrides_and_existing_root(tmp_path):
-    """Cùng physical world qua renderer override; bảo vệ thư mục đã tồn tại."""
+    """Same physical world across renderer overrides; existing directories are protected."""
     config = ScaleConfig(days=2, orders_per_day=50, lines_per_order=(0.0, 0.0, 0.0, 1.0))
     plain = generate_scaled(tmp_path / "plain", config)
     from dataclasses import replace
@@ -333,7 +333,7 @@ def test_native_schema_overrides_and_existing_root(tmp_path):
 
 
 def test_very_large_zipf_exponent_is_valid(tmp_path):
-    """Mọi s hữu hạn không âm đều hợp lệ, kể cả gần phân phối một SKU."""
+    """Every finite non-negative s is valid, even close to a single-SKU distribution."""
     config = ScaleConfig(days=1, orders_per_day=2, sku_count=10, sku_zipf_s=1000.0)
     config.validate()
     manifest = generate_scaled(tmp_path / "sharp", config)
@@ -341,7 +341,7 @@ def test_very_large_zipf_exponent_is_valid(tmp_path):
 
 
 def test_full_180_day_horizon_with_sparse_channels(tmp_path):
-    """Đủ miền 180 ngày, SKU nhỏ, Channel rỗng và inventory tail vẫn cân bằng."""
+    """Full 180-day domain, few SKUs, empty Channels, and the inventory tail still balances."""
     root = tmp_path / "long-tail"
     manifest = generate_scaled(
         root,
@@ -366,7 +366,7 @@ def test_full_180_day_horizon_with_sparse_channels(tmp_path):
 
 
 def test_sku_return_skew_creates_learnable_signal():
-    """skew > 0: tỷ lệ kịch bản dương khác nhau rõ giữa SKU và theo hệ số kênh; skew = 0 thì không."""
+    """skew > 0: positive scenario rates differ clearly across SKUs and by Channel factor; with skew = 0 they do not."""
     from collections import Counter
 
     from generator.generate_order_lifecycle import (

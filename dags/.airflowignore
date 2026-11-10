@@ -1,2 +1,2 @@
-# Đường B (order_lifecycle v2) không chạy: một pipeline duy nhất là dp1–dp4. Code giữ cho gap #18.
+# Path B (order_lifecycle v2) does not run: the single pipeline is dp1–dp4. Code kept for gap #18.
 dp_order_lifecycle.*\.py

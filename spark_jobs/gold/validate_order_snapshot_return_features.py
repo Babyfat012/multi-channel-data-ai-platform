@@ -1,4 +1,4 @@
-"""Validate offline feature table và ranh giới thời điểm dự đoán."""
+"""Validate the offline feature table and the prediction-time boundary."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def validate_feature_frames(fact, features, run_id):
         "source_export_date",
     }
     if forbidden.intersection(features.columns):
-        raise ValueError("Bảng feature có trường chỉ biết sau thời điểm đặt Order")
+        raise ValueError("Feature table has fields only known after the Order is placed")
     bad = (
         features.filter(
             F.col("order_line_key").isNull()
@@ -73,7 +73,7 @@ def validate_feature_frames(fact, features, run_id):
     if fact_rows != actual or any(
         result[key] for key in result if key not in {"fact_rows", "feature_rows"}
     ):
-        raise ValueError("Validate feature offline thất bại")
+        raise ValueError("Validate offline features failed")
     return result
 
 
@@ -86,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     for value in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
 
     spark = build_spark("validate-return-features", shuffle_partitions=32)
     try:

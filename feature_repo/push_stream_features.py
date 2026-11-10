@@ -1,8 +1,8 @@
-"""Luồng local (bản B, Flink SQL tra PostgreSQL): đọc Kafka `ml.sku_return_24h` rồi ghi Redis (Feast push
-ONLINE) + một file Parquet mới vào thư mục offline. AWS dùng job PyFlink flink_jobs/ml/sku_return_feature.py.
+"""Local Stream (variant B, Flink SQL looking up PostgreSQL): read Kafka `ml.sku_return_24h`, then write Redis (Feast push
+ONLINE) + one new Parquet file into the offline directory. AWS uses the PyFlink job flink_jobs/ml/sku_return_feature.py.
 
-Offline là THƯ MỤC nhiều file part (cùng bố cục job PyFlink offline ghi; Feast FileSource đọc cả thư mục).
-Commit offset Kafka SAU khi ghi (at-least-once): chạy lại có thể ghi trùng dòng offline cùng giá trị, PIT join không đổi.
+Offline is a DIRECTORY of part files (same layout the offline PyFlink job writes; Feast FileSource reads the whole directory).
+Kafka offsets are committed AFTER writing (at-least-once): a rerun may write duplicate offline rows with the same values, PIT join is unchanged.
 """
 
 import json
@@ -25,19 +25,19 @@ SCHEMA = pa.schema(
 
 
 def _fs():
-    """S3 thật (IAM) hoặc MinIO (FEAST_S3_ENDPOINT_URL)."""
+    """Real S3 (IAM) or MinIO (FEAST_S3_ENDPOINT_URL)."""
     return s3fs.S3FileSystem(endpoint_url=os.environ.get("FEAST_S3_ENDPOINT_URL"))
 
 
 def ensure_offline_file(path):
-    """Thư mục offline rỗng thì Feast không biết schema; ghi một part 0 dòng đúng schema nếu chưa có part nào."""
+    """An empty offline directory leaves Feast without a schema; write a 0-row part with the right schema if no part exists."""
     fs, key = _fs(), path.removeprefix("s3://").rstrip("/")
     if not fs.glob(f"{key}/part-*.parquet"):
         pq.write_table(SCHEMA.empty_table(), f"{key}/part-0-0-0.parquet", filesystem=fs)
 
 
 def write_offline_part(frame, path):
-    """Một file part mới mỗi lô; tên giống job PyFlink offline (min/max window_end ms, số dòng)."""
+    """One new part file per batch; named like the offline PyFlink job (min/max window_end ms, row count)."""
     ms = frame["event_timestamp"].astype("int64") // 1_000_000
     name = f"part-{ms.min()}-{ms.max()}-{len(frame)}.parquet"
     table = pa.Table.from_pandas(frame, schema=SCHEMA, preserve_index=False)
@@ -45,7 +45,7 @@ def write_offline_part(frame, path):
 
 
 def to_frame(messages):
-    """Tin JSON của Flink → DataFrame đúng kiểu; timestamp Flink là UTC không múi giờ."""
+    """Flink JSON messages → correctly typed DataFrame; Flink timestamps are UTC without a time zone."""
     rows = [json.loads(m.value()) for m in messages]
     frame = pd.DataFrame(rows, columns=SCHEMA.names)
     frame["event_timestamp"] = pd.to_datetime(frame["event_timestamp"], utc=True)
@@ -54,8 +54,8 @@ def to_frame(messages):
 
 
 def main():
-    """Vòng lặp: gom tối đa 500 tin hoặc 2 giây, push một lần, rồi commit."""
-    # Import ở đây: Airflow gọi ensure_offline_file từ venv Feast không có confluent_kafka.
+    """Loop: gather up to 500 messages or 2 seconds, push once, then commit."""
+    # Imported here: Airflow calls ensure_offline_file from the Feast venv, which has no confluent_kafka.
     from confluent_kafka import Consumer
 
     offline = os.environ["FEAST_SKU_RETURN_24H_PATH"]

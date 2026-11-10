@@ -1,7 +1,7 @@
-"""Logic train thuần, không phụ thuộc Kubeflow: lấy feature, chia theo thời gian, train, đánh giá.
+"""Pure training logic, no Kubeflow dependency: fetch features, split by time, train, evaluate.
 
-Mỗi bước KFP trong `ml/training_pipeline.py` chỉ gọi một hàm ở đây, nên test được bằng pytest.
-Score là tín hiệu XẾP HẠNG (Q38), không phải xác suất; baseline = tỷ lệ trả 90 ngày của SKU.
+Each KFP step in `ml/training_pipeline.py` calls just one function here, so it is testable with pytest.
+Score is a RANKING signal (Q38), not a probability; baseline = the SKU's 90-day return rate.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ FEATURES = CATEGORICAL + NUMERIC
 
 
 def add_order_features(frame: pd.DataFrame) -> pd.DataFrame:
-    """Thêm đơn giá; ép kiểu categorical cho LightGBM. Không đụng nhãn."""
+    """Add unit price; cast categoricals for LightGBM. Does not touch the label."""
     out = frame.copy()
     qty = out["ordered_basis_qty"].where(out["ordered_basis_qty"] > 0)
     out["unit_price_minor"] = out["ordered_product_net_minor"] / qty
@@ -39,23 +39,23 @@ def add_order_features(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def temporal_split(frame: pd.DataFrame, test_days: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Test = `test_days` ngày đặt đơn cuối cùng; train = phần trước đó. Không chia ngẫu nhiên."""
+    """Test = the last `test_days` order days; train = everything before. No random split."""
     ts = pd.to_datetime(frame["event_timestamp"], utc=True)
     boundary = ts.max().normalize() - pd.Timedelta(days=test_days - 1)
     train, test = frame[ts < boundary], frame[ts >= boundary]
     if train.empty or test.empty or test["label"].nunique() < 2:
-        raise ValueError(f"split rỗng hoặc test chỉ một lớp (boundary {boundary})")
+        raise ValueError(f"empty split or test has a single class (boundary {boundary})")
     return train, test
 
 
 def baseline_scores(train: pd.DataFrame, test: pd.DataFrame) -> np.ndarray:
-    """Baseline Q38: tỷ lệ trả lịch sử của SKU; SKU chưa có lịch sử nhận tỷ lệ chung của train."""
+    """Baseline Q38: the SKU's historical return rate; SKUs without history get the overall train rate."""
     prior = float(train["label"].mean())
     return test["return_or_refund_rate_90d"].fillna(prior).to_numpy()
 
 
 def train_model(train: pd.DataFrame, seed: int = 7):
-    """LightGBM nhỏ, cố định seed để chạy lại ra cùng model."""
+    """Small LightGBM with a fixed seed so reruns produce the same model."""
     import lightgbm as lgb
 
     model = lgb.LGBMClassifier(
@@ -76,7 +76,7 @@ def train_model(train: pd.DataFrame, seed: int = 7):
 
 
 def evaluate(test: pd.DataFrame, model_scores: np.ndarray, base_scores: np.ndarray) -> dict:
-    """PR-AUC (average precision) của model và baseline trên CÙNG tập test, cùng prevalence."""
+    """PR-AUC (average precision) of the model and baseline on the SAME test set, same prevalence."""
     from sklearn.metrics import average_precision_score
 
     y = test["label"].to_numpy()

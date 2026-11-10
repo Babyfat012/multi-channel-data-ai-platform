@@ -1,9 +1,9 @@
-"""Gold v2 mới (chỉ đọc Silver, tuyến tính) phải ra ĐÚNG Gold cũ (đọc Bronze, bậc hai).
+"""The new Gold v2 (reads only Silver, linear) must produce EXACTLY the old Gold (reads Bronze, quadratic).
 
-`tests/spark/reference_order_lifecycle_gold.py` là bản chụp module Gold trước refactor, chỉ giữ để so ở đây.
-Hai bộ nguồn: fixture mặc định và một nguồn scale nhỏ (nhiều SKU, late, correction, refund
-retry). So fact, nhãn (trừ `input_json` — bản mới chỉ chứa bằng chứng của line) và feature
-bằng `exceptAll` hai chiều + fingerprint. Chạy (Docker):
+`tests/spark/reference_order_lifecycle_gold.py` is a snapshot of the Gold module before the refactor, kept only for comparison here.
+Two source sets: the default fixture and a small scale source (many SKUs, late, correction, refund
+retry). Compares fact, labels (except `input_json`: the new version only holds the line's evidence) and features
+with two-way `exceptAll` + fingerprint. Run (Docker):
 
     docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g \\
       -e PYSPARK_SUBMIT_ARGS='--driver-memory 3g pyspark-shell' \\
@@ -75,7 +75,7 @@ class GoldV2Equivalence(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def _persist(self, root, side, tables):
-        """Vật chất hóa ba bảng được so vào /tmp, trả DataFrame đọc lại từ file."""
+        """Materialize the three compared tables into /tmp, returning DataFrames read back from the files."""
         out = {}
         for name in ("fact_order_lines", "label_return_v2", "feat_sku_return_rate_90d"):
             path = str(self.tmp / f"{root.name}-{side}-{name}")
@@ -87,8 +87,8 @@ class GoldV2Equivalence(unittest.TestCase):
         """Build Silver once, Gold both ways, assert identical outputs; return sizes for the log."""
         bronze = bronze_from_root(self.spark, str(root), "eq").cache()
         silver = build_silver(bronze=bronze, as_of=cutoff)
-        # Như job thật: Gold đọc Silver ĐÃ GHI. Plan Silver chưa vật chất hóa sâu dần theo số ngày
-        # (StackOverflowError lúc lập plan ở nguồn 90 ngày).
+        # Like the real job: Gold reads WRITTEN Silver. An unmaterialized Silver plan grows deeper with the number of days
+        # (StackOverflowError during planning on a 90-day source).
         for name in (
             "line_lifecycle",
             "native_order_lines",
@@ -105,7 +105,7 @@ class GoldV2Equivalence(unittest.TestCase):
             run_id="eq",
             computed_at=COMPUTED,
         )
-        # Ghi ra Parquet rồi đọc lại để cắt lineage: exceptAll trên plan chưa vật chất hóa OOM ở 6g.
+        # Write to Parquet and read back to cut lineage: exceptAll on an unmaterialized plan OOMs at 6g.
         fresh = {**fresh, **self._persist(root, "fresh", fresh)}
         legacy = {**legacy, **self._persist(root, "legacy", legacy)}
         diffs = {
@@ -128,7 +128,7 @@ class GoldV2Equivalence(unittest.TestCase):
             fresh["feat_sku_return_rate_90d"].filter("labeled_count_90d > 0").count()
         )
         sizes["segments"] = fresh["label_segments"].count()
-        # Mẫu = mọi line: oracle độc lập (label_line tại thời điểm đặt) kiểm TẤT CẢ feature.
+        # Sample = every line: the independent oracle (label_line at order time) checks ALL features.
         checks = new.validate_gold(silver, fresh, cutoff, feature_sample=100_000)["checks"]
         print(
             "EQUIVALENCE",
@@ -147,7 +147,7 @@ class GoldV2Equivalence(unittest.TestCase):
         self._compare(root, "2026-06-01T00:00:00.000000Z")
 
     def test_small_scale_has_real_features(self):
-        """Seeded scale source cỡ legacy chạy được: fact/nhãn/feature mới phải bằng hệt legacy."""
+        """A seeded legacy-sized scale source runs: the new fact/labels/features must equal legacy exactly."""
         root = self.tmp / "scale"
         generate_scaled(
             root,
@@ -161,9 +161,9 @@ class GoldV2Equivalence(unittest.TestCase):
             ),
         )
         sizes = self._compare(root, _cutoff(root))
-        # Không assert feature khác 0: bản legacy (nhân bản coverage theo line) OOM ở nguồn đủ dài để
-        # có feature khác 0. Feature khác 0 được kiểm ở tests/spark/check_order_lifecycle_skew.py và bằng oracle
-        # độc lập `pit_feature_mismatch` của validate_gold; ở đây chỉ in số để đọc.
+        # No assert that features are non-zero: the legacy version (replicating coverage per line) OOMs on a source long enough to
+        # have non-zero features. Non-zero features are checked in tests/spark/check_order_lifecycle_skew.py and by the independent
+        # `pit_feature_mismatch` oracle of validate_gold; here the numbers are only printed for reading.
         print("NONZERO_FEATURES", sizes["nonzero_features"], flush=True)
 
 

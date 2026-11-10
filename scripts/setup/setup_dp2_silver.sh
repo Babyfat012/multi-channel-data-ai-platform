@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nạp riêng Variables của chặng Silver DP2; không đặt lại cấu hình DP1.
+# Load only the DP2 Silver stage Variables; does not reset the DP1 configuration.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
@@ -15,4 +15,4 @@ airflow_cmd variables set platform_dp2_walmart_silver_table 'stg_walmart_order_l
 airflow_cmd variables set platform_dp2_gold_table 'fact_order_lines_dp2'
 airflow_cmd variables set platform_dp2_amazon_dim_table 'dim_amazon_order_dp2'
 
-printf 'DP2 Silver + Gold Variables đã nạp; nguồn *_dp1, đích *_dp2.\n'
+printf 'DP2 Silver + Gold Variables loaded; source *_dp1, target *_dp2.\n'

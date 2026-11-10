@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Feature API vào kubecontext đã chọn; S3 dùng Pod Identity, MinIO dùng credential local.
+# Deploy the Feature API to the selected kubecontext; S3 uses Pod Identity, MinIO uses local credentials.
 set -euo pipefail
 set +x
 cd "$(dirname "$0")/../.."
@@ -46,8 +46,8 @@ values = {
     "KSERVE_URL": env.get("KSERVE_URL", "http://return-risk-predictor.ml-serving.svc.cluster.local/v1/models/return-risk:predict"),
 }
 if cloud:
-    # RAG chỉ bật khi truyền FEAST_RAG_REGISTRY: thiếu file, Feast tự tạo registry mới (ghi S3) mà Pod
-    # Identity chỉ đọc ⇒ app chết lúc khởi động. Không có biến thì /chunks trả 503, phần còn lại chạy.
+    # RAG is enabled only when FEAST_RAG_REGISTRY is passed: if the file is missing, Feast creates a new registry (writing S3) while Pod
+    # Identity is read-only ⇒ the app dies on startup. Without the variable, /chunks returns 503 and the rest runs.
     if not env.get("FEAST_RAG_REGISTRY"):
         del values["FEAST_RAG_REGISTRY"]
     values["AWS_REGION"] = env["AWS_REGION"]
@@ -69,7 +69,7 @@ fi
 kubectl --context "$KCTX" create namespace "$namespace" --dry-run=client -o yaml | "${K[@]}" apply -f -
 printf '%s\n' "$secret_env" | "${K[@]}" create secret generic feature-api-env \
   --from-env-file=/dev/stdin --dry-run=client -o yaml | "${K[@]}" apply -f -
-# Dấu vân tay Secret gắn vào pod: env đổi ⇒ pod template đổi ⇒ Kubernetes thay pod (Secret đổi một mình thì không).
+# Secret fingerprint attached to the pod: env changes ⇒ pod template changes ⇒ Kubernetes replaces the pod (a Secret change alone does not).
 env_checksum=$(printf '%s\n' "$secret_env" | sha256sum | cut -c1-16)
 unset secret_env
 H=(helm --kube-context "$KCTX" -n "$namespace")
@@ -79,7 +79,7 @@ extra=()
   --set-string image.repository="${REGISTRY%/}/platform-feature-api" --set-string image.tag="$TAG" \
   --set replicas="${REPLICAS:-2}" --set-string envChecksum="$env_checksum" --atomic --timeout 4m
 "${H[@]}" history feature-api --max 5
-# MCP server: release riêng, cùng chart/image/Secret, API_SURFACE=mcp (values-mcp.yaml đặt sau để dùng lại ServiceAccount).
+# MCP server: separate release, same chart/image/Secret, API_SURFACE=mcp (values-mcp.yaml comes last to reuse the ServiceAccount).
 "${H[@]}" upgrade --install feature-mcp infra/helm/feature-api "${extra[@]}" -f infra/helm/feature-api/values-mcp.yaml \
   --set-string image.repository="${REGISTRY%/}/platform-feature-api" --set-string image.tag="$TAG" \
   --set replicas="${REPLICAS:-2}" --set-string envChecksum="$env_checksum" --atomic --timeout 4m

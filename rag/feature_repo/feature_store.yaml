@@ -1,5 +1,5 @@
-# Feast thứ hai, riêng cho RAG: online store Postgres + pgvector (tìm theo vector), khác Feast SKU dùng Redis.
-# Biến môi trường do DAG/pod truyền vào; Postgres chạy trong kind (ns rag).
+# Second Feast, dedicated to RAG: Postgres + pgvector online store (vector search), unlike the SKU Feast which uses Redis.
+# Environment variables are passed in by the DAG/pod; Postgres runs in kind (ns rag).
 project: platform_rag
 provider: local
 registry: ${FEAST_RAG_REGISTRY}
@@ -13,6 +13,6 @@ online_store:
   db_schema: public
   user: ${RAG_PG_USER}
   password: ${RAG_PG_PASSWORD}
-  sslmode: disable          # pgvector local trong kind không bật TLS; lên Cloud SQL đổi thành require
+  sslmode: disable          # local pgvector in kind has no TLS; switch to require on Cloud SQL
   vector_enabled: true
 entity_key_serialization_version: 3

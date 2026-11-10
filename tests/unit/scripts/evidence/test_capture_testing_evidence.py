@@ -1,4 +1,4 @@
-"""Phần dựng output mutation của capture_testing_evidence (không cần Chrome hay chạy lại mutmut)."""
+"""The mutation output rendering of capture_testing_evidence (no Chrome or mutmut re-run needed)."""
 
 import json
 
@@ -8,7 +8,7 @@ from scripts.evidence.capture_testing_evidence import mutation_output
 
 
 def run_dir(tmp_path, status="passed", progress="⠦ 245/245  🎉 219 🫥 14  ⏰ 0  🤔 0  🙁 12  🔇 0"):
-    """Thư mục kết quả giả cùng cấu trúc `run_changed_mutation.py`: run.txt (có spinner) và manifest.json."""
+    """Fake output directory with the `run_changed_mutation.py` structure: run.txt (with spinner) and manifest.json."""
     spinner = "⠋ 1/245  🎉 0 🫥 1  ⏰ 0  🤔 0  🙁 0  🔇 0\r"
     (tmp_path / "run.txt").write_text(spinner + progress + "\n1.79 mutations/second\n")
     manifest = {
@@ -28,7 +28,7 @@ def run_dir(tmp_path, status="passed", progress="⠦ 245/245  🎉 219 🫥 14  
 
 
 def test_mutation_output_uses_final_progress_line_not_first_spinner(tmp_path):
-    """Lấy dòng tiến độ CUỐI (kết quả), không lấy dòng spinner đầu; ghi cả score và mốc Git."""
+    """Takes the LAST progress line (the result), not the first spinner line; records both score and Git refs."""
     text, code = mutation_output(run_dir(tmp_path))
     assert code == 0
     assert "245/245  killed 219  no tests 14  timeout 0  suspicious 0  survived 12" in text
@@ -37,13 +37,13 @@ def test_mutation_output_uses_final_progress_line_not_first_spinner(tmp_path):
 
 
 def test_mutation_output_fails_when_manifest_not_passed_or_no_progress(tmp_path):
-    """Manifest không passed ⇒ mã thoát 1; run.txt không có dòng tiến độ ⇒ lỗi rõ, không chụp ảnh rỗng."""
+    """Manifest not passed ⇒ exit code 1; run.txt without a progress line ⇒ clear error, no empty screenshot."""
     failed = tmp_path / "failed"
     failed.mkdir()
     assert mutation_output(run_dir(failed, status="failed"))[1] == 1
     empty = tmp_path / "empty"
     empty.mkdir()
     run_dir(empty)
-    (empty / "run.txt").write_text("không có tiến độ\n")
-    with pytest.raises(ValueError, match="không có dòng tiến độ"):
+    (empty / "run.txt").write_text("no progress\n")
+    with pytest.raises(ValueError, match="has no mutmut progress line"):
         mutation_output(empty)

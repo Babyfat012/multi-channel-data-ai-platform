@@ -1,8 +1,8 @@
-"""Kiểm đầu ra Silver của chặng DP2 sau khi Spark ghi bảng Iceberg.
+"""Validate the Silver output of the DP2 stage after Spark writes the Iceberg table.
 
-Bronze là Order, Silver là Order Line, nên không so số dòng bằng nhau. Job kiểm
-đầu ra không rỗng, số Order Line ít nhất bằng số Order nguồn, khoá không trùng,
-các cột thiết yếu có giá trị, và mọi dòng thuộc đúng lần chạy Airflow.
+Bronze is Orders, Silver is Order Lines, so row counts are not compared for equality. The job checks
+the output is non-empty, the Order Line count is at least the source Order count, keys are unique,
+essential columns have values, and every row belongs to the right Airflow run.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ RULES = {
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc tên kênh, bảng nguồn/đích và mã lần chạy từ Airflow."""
+    """Read the Channel name, source/target tables and run id from Airflow."""
     parser = argparse.ArgumentParser(description="Validate Silver Order Line")
     parser.add_argument("--channel", choices=RULES, required=True)
     parser.add_argument("--source-table", required=True)
@@ -62,12 +62,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     for name in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(name):
-            parser.error(f"Tên bảng không hợp lệ: {name!r}")
+            parser.error(f"Invalid table name: {name!r}")
     return args
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Đọc Bronze/Silver và trả mã lỗi khi bất kỳ điều kiện nào không đạt."""
+    """Read Bronze/Silver and return an error code when any condition fails."""
     args = parse_args(argv)
     rule = RULES[args.channel]
     source = f"{CATALOG}.bronze.{args.source_table}"
@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         silver = spark.table(target)
         missing = sorted(set(rule["required"]) - set(silver.columns))
         if missing:
-            raise ValueError(f"{target} thiếu cột: {missing}")
+            raise ValueError(f"{target} is missing columns: {missing}")
 
         source_count = bronze.count()
         bad_value = F.lit(False)
@@ -98,23 +98,23 @@ def main(argv: list[str] | None = None) -> int:
             silver.groupBy(*rule["keys"]).count().filter(F.col("count") > 1).limit(1).count()
         )
 
-        print(f"nguồn Bronze      = {source}")
-        print(f"đích Silver       = {target}")
-        print(f"run_id            = {args.run_id}")
-        print(f"Order nguồn       = {source_count:,}")
-        print(f"Order Line Silver = {target_count:,}")
-        print(f"dòng không hợp lệ = {invalid_count:,}")
-        print(f"có khoá trùng     = {bool(duplicate_groups)}")
+        print(f"source Bronze             = {source}")
+        print(f"target Silver             = {target}")
+        print(f"run_id                    = {args.run_id}")
+        print(f"source Orders             = {source_count:,}")
+        print(f"Order Line Silver         = {target_count:,}")
+        print(f"invalid rows              = {invalid_count:,}")
+        print(f"duplicate Order Line keys = {bool(duplicate_groups)}")
 
         errors = []
         if source_count == 0 or target_count < source_count:
-            errors.append("số Order Line nhỏ hơn số Order nguồn hoặc nguồn rỗng")
+            errors.append("Order Line count below source Order count or source empty")
         if invalid_count:
-            errors.append(f"{invalid_count:,} dòng thiếu giá trị hoặc sai run_id/schema")
+            errors.append(f"{invalid_count:,} rows with missing values or wrong run_id/schema")
         if duplicate_groups:
-            errors.append("khoá Order Line còn trùng")
+            errors.append("Order Line keys still duplicated")
         if errors:
-            raise ValueError("Silver validate thất bại: " + "; ".join(errors))
+            raise ValueError("Silver validate failed: " + "; ".join(errors))
         print("Silver validate: PASS")
         return 0
     finally:

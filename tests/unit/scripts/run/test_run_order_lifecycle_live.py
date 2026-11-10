@@ -1,4 +1,4 @@
-"""Kiểm runbook và route v2 hoàn toàn offline, không cần Docker/Chrome."""
+"""Check the runbook and v2 routes fully offline, without Docker/Chrome."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ RUNBOOK = ROOT / "scripts/run/run_order_lifecycle_live.sh"
 
 
 def test_bash_syntax():
-    """Kiểm cú pháp Bash của runbook."""
+    """Check the runbook's Bash syntax."""
     subprocess.run(["bash", "-n", str(RUNBOOK)], check=True)
 
 
@@ -28,19 +28,19 @@ def test_bash_syntax():
     [
         (["--help"], 0, "--phase"),
         (["--phase"], 2, "--phase"),
-        (["--phase", "wrong"], 2, "Pha không hợp lệ"),
-        (["--unknown"], 2, "Cờ không hợp lệ"),
+        (["--phase", "wrong"], 2, "Invalid phase"),
+        (["--unknown"], 2, "Invalid flag"),
     ],
 )
 def test_cli_flags_without_docker(args, code, token):
-    """Kiểm help và lỗi tham số CLI mà không khởi động Docker."""
+    """Check help and CLI argument errors without starting Docker."""
     result = subprocess.run(["bash", str(RUNBOOK), *args], capture_output=True, text=True)
     assert result.returncode == code
     assert token in result.stdout + result.stderr
 
 
 def test_compose_mounts_v2_only_expected_services():
-    """Kiểm mount nguồn v2 chỉ xuất hiện ở các service dự kiến."""
+    """Check the v2 source mount appears only on the expected services."""
     services = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
     fixture = "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"
     mounted = {name for name, service in services.items() if fixture in service.get("volumes", [])}
@@ -49,7 +49,7 @@ def test_compose_mounts_v2_only_expected_services():
 
 
 def test_capture_routes_without_browser():
-    """Kiểm URL và đường dẫn ảnh DataHub mà không mở trình duyệt."""
+    """Check DataHub URLs and screenshot paths without opening a browser."""
     result = subprocess.run(
         [
             sys.executable,
@@ -84,7 +84,7 @@ def test_capture_routes_without_browser():
 
 
 def test_quality_accepts_multiple_checks_and_rejects_failure():
-    """Kiểm nhiều assertion cùng thành công và phát hiện assertion lỗi."""
+    """Check multiple assertions passing together and detection of failing assertions."""
     spec = importlib.util.spec_from_file_location(
         "capture_v2", ROOT / "scripts/evidence/capture_order_lifecycle_datahub_evidence.py"
     )
@@ -92,26 +92,26 @@ def test_quality_accepts_multiple_checks_and_rejects_failure():
     spec.loader.exec_module(module)
 
     class Page:
-        """Trang Playwright giả, trả nội dung cố định."""
+        """Fake Playwright page returning fixed content."""
 
         def __init__(self, body):
-            """Giữ nội dung trang sẽ trả về."""
+            """Store the page content to return."""
             self.body = body
 
         async def evaluate(self, expression):
-            """Bỏ qua biểu thức, trả nội dung đã giữ."""
+            """Ignore the expression, return the stored content."""
             return self.body
 
     import asyncio
 
     assert asyncio.run(module.wait_for_quality(Page("Quality 19 Passing 0 Failing")))
-    with pytest.raises(RuntimeError, match="assertion lỗi"):
+    with pytest.raises(RuntimeError, match="failing assertions"):
         asyncio.run(module.wait_for_quality(Page("Quality 19 Passing 1 Failing")))
 
 
 @pytest.fixture
 def fake_runtime(tmp_path):
-    """Docker giả ghi argv, trả state/receipt; không tạo kết nối hay chạy Spark."""
+    """Fake Docker records argv, returns state/receipts; no connections or Spark runs."""
     executable = tmp_path / "docker"
     executable.write_text("""#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -166,8 +166,8 @@ elif "cp" in args:
 
 @pytest.mark.parametrize("phase", ["source", "airflow", "datahub", "capture", "all"])
 def test_all_phase_flags_parse(fake_runtime, phase):
-    # Với source không cần Docker; các pha khác được kiểm sâu riêng.
-    """Kiểm mọi tên pha được CLI nhận diện."""
+    # source needs no Docker; the other phases are checked in depth separately.
+    """Check every phase name is recognized by the CLI."""
     env, _, _ = fake_runtime
     if phase != "source":
         env["PLATFORM_V2_TIMEOUT"] = "invalid"
@@ -182,13 +182,13 @@ def test_all_phase_flags_parse(fake_runtime, phase):
         capture_output=True,
         text=True,
     )
-    assert "Pha không hợp lệ" not in result.stderr
+    assert "Invalid phase" not in result.stderr
     assert result.returncode == (0 if phase == "source" else 2)
 
 
 @pytest.mark.parametrize("state", ["success", "failed"])
 def test_airflow_copies_run_receipts_before_stop(fake_runtime, state):
-    """Kiểm Airflow sao chép receipt của run trước khi dừng service."""
+    """Check Airflow copies the run's receipts before stopping services."""
     env, log, run_id = fake_runtime
     env["FAKE_RUN_STATE"] = state
     result = subprocess.run(
@@ -218,11 +218,11 @@ def test_airflow_copies_run_receipts_before_stop(fake_runtime, state):
     assert "stop" in calls[-1]
     assert (Path(env["FAKE_PROJECT"]) / copy[-1] / "build_gold.json").is_file()
     if state == "failed":
-        assert "không publish" in result.stderr
+        assert "not publishing" in result.stderr
 
 
 def test_source_refuses_partial_directory(fake_runtime):
-    """Kiểm từ chối thư mục nguồn dở dang để tránh ghi đè dữ liệu."""
+    """Check a half-written source directory is refused to avoid overwriting data."""
     env, _, _ = fake_runtime
     source = Path(env["PLATFORM_ORDER_LIFECYCLE_DIR"])
     (source / "manifest.json").unlink()
@@ -237,7 +237,7 @@ def test_source_refuses_partial_directory(fake_runtime):
 @pytest.mark.parametrize("invalid", [False, True])
 @pytest.mark.parametrize("storage", ["minio", "s3"])
 def test_datahub_phase_stops_spark_then_publishes_same_arguments(fake_runtime, invalid, storage):
-    """Kiểm dừng Spark trước khi publish DataHub với đúng tham số run."""
+    """Check Spark is stopped before publishing to DataHub with the right run arguments."""
     env, log, run_id = fake_runtime
     project = Path(env["FAKE_PROJECT"])
     receipts = project / "out/receipts-v2-run" / run_id
@@ -267,7 +267,7 @@ print("[]")
     )
     assert result.returncode == (1 if invalid else 0), result.stderr
     if invalid:
-        assert "Sai run_id" in result.stderr
+        assert "Wrong run_id" in result.stderr
         assert not log.exists()
         return
     calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -287,7 +287,7 @@ print("[]")
 
 @pytest.mark.parametrize("from_dotenv", [False, True])
 def test_s3_airflow_uses_remote_source_without_minio(fake_runtime, from_dotenv):
-    """Chạy thật Bash với Docker/aws giả: S3 conf, receipt và ưu tiên environment."""
+    """Run real Bash with fake Docker/aws: S3 conf, receipts and environment precedence."""
     env, log, run_id = fake_runtime
     project = Path(env["FAKE_PROJECT"])
     aws = project.parent / "aws"
@@ -308,7 +308,7 @@ def test_s3_airflow_uses_remote_source_without_minio(fake_runtime, from_dotenv):
     else:
         env.update(settings)
         (project / ".env").write_text("PLATFORM_STORAGE=minio\nRAW_BUCKET=wrong\n")
-    # Không có fixture host: nhánh AWS phải kiểm manifest S3, không sinh local.
+    # No host fixture: the AWS branch must check the S3 manifest, not generate locally.
     shutil.rmtree(env["PLATFORM_ORDER_LIFECYCLE_DIR"])
     result = subprocess.run(
         ["bash", str(project / "scripts/run/run_order_lifecycle_live.sh"), "--phase", "airflow"],
@@ -332,7 +332,7 @@ def test_s3_airflow_uses_remote_source_without_minio(fake_runtime, from_dotenv):
 
 @pytest.mark.parametrize("what", ["skew", "maintenance", "warehouse"])
 def test_aws_measurement_invocations_use_cluster_and_collect_evidence(fake_runtime, what):
-    """Kiểm lệnh wrapper trên Docker giả: packages AWS, resource, JSON và sao chép log."""
+    """Check wrapper commands on fake Docker: AWS packages, resources, JSON and log copy."""
     env, log, _ = fake_runtime
     env.update(
         PLATFORM_STORAGE="s3",

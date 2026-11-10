@@ -1,7 +1,7 @@
-"""Kiểm `sku_daily_features` bằng dữ liệu dựng tay, local[1], không catalog.
+"""Check `sku_daily_features` with hand-built data, local[1], no catalog.
 
-Hai điều phải đúng: (1) khớp phép đếm Python thuần trên cùng cửa sổ; (2) line đặt đúng 00:00
-nhận cùng số với ảnh chụp ngày đó, tức train và serve cùng một định nghĩa.
+Two things must hold: (1) it matches a pure-Python count over the same window; (2) a line placed exactly at 00:00
+gets the same value as that day's snapshot, i.e. training and serving share one definition.
 
 docker run --rm --network none --read-only --tmpfs /tmp:rw,exec,size=1g \
   --mount type=bind,src=$PWD,dst=/workspace,readonly --entrypoint python \
@@ -29,7 +29,7 @@ D = "ds1"
 
 
 def ts(day, hour=0):
-    """Mốc UTC trong tháng 1/2026."""
+    """UTC timestamp in January 2026."""
     return datetime(2026, 1, day, hour, tzinfo=timezone.utc)
 
 
@@ -39,12 +39,12 @@ FACT = [
     ("l2", "A", ts(2, 15)),
     ("l3", "A", ts(3, 8)),
     ("l4", "B", ts(1, 10)),
-    ("l5", "A", ts(20)),  # đặt đúng 00:00 → phải bằng ảnh chụp ngày 20
+    ("l5", "A", ts(20)),  # placed exactly at 00:00 → must equal the day-20 snapshot
 ]
 # (line_id, start_exclusive, end_inclusive, label, cohort_date)
 SEGMENTS = [
     ("l1", ts(4), None, 1, date(2026, 1, 3)),
-    ("l2", ts(5), ts(12, 6), 0, date(2026, 1, 4)),  # đoạn đóng giữa chừng
+    ("l2", ts(5), ts(12, 6), 0, date(2026, 1, 4)),  # segment closes midway
     ("l3", ts(6), None, 0, date(2026, 1, 5)),
     ("l4", ts(6), None, 1, date(2026, 1, 5)),
 ]
@@ -52,7 +52,7 @@ CUTOFF = ts(25)
 
 
 def oracle(sku, at):
-    """Đếm tay: đoạn mở trong [a, b) với a, b như `return_label.feature_window`."""
+    """Count by hand: segments open in [a, b) with a, b as in `return_label.feature_window`."""
     micro = timedelta(microseconds=1)
     skus = {line: s for line, s, _ in FACT}
     n = p = 0
@@ -72,7 +72,7 @@ def oracle(sku, at):
 
 
 def main():
-    """Chạy hai kiểm; assert thất bại thì thoát mã khác 0."""
+    """Run both checks; a failed assert exits non-zero."""
     spark = (
         SparkSession.builder.master("local[1]")
         .config("spark.sql.shuffle.partitions", "1")
@@ -88,7 +88,7 @@ def main():
         SEGMENT_DDL,
     )
     daily = sku_daily_features(fact, segments, CUTOFF).collect()
-    assert daily, "không có dòng nào"
+    assert daily, "no rows"
     for row in daily:
         at = row["event_timestamp"].replace(tzinfo=timezone.utc)
         got = (row["labeled_count_90d"], row["positive_count_90d"])
@@ -99,7 +99,7 @@ def main():
     line = [r for r in sku_features(fact, segments).collect() if r["line_id"] == "l5"][0]
     for col in ("labeled_count_90d", "positive_count_90d", "return_or_refund_rate_90d"):
         assert snap[col] == line[col], (col, snap[col], line[col])
-    print(f"OK: {len(daily)} dòng khớp oracle; ảnh chụp ngày 20 = feature line l5 ({line})")
+    print(f"OK: {len(daily)} rows match the oracle; day-20 snapshot = feature of line l5 ({line})")
     spark.stop()
 
 

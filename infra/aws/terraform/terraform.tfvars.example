@@ -1,4 +1,4 @@
-# Cấu hình minh họa: sao chép thành terraform.tfvars rồi điền giá trị thật chỉ trên máy bạn.
+# Illustrative config: copy to terraform.tfvars and fill in real values only on your machine.
 ssh_public_key = "ssh-ed25519 AAAA_YOUR_PUBLIC_KEY you@laptop"
 # region            = "ap-southeast-1"
 # availability_zone = "ap-southeast-1a"
@@ -8,13 +8,13 @@ ssh_public_key = "ssh-ed25519 AAAA_YOUR_PUBLIC_KEY you@laptop"
 # boot_disk_gb      = 30
 # data_disk_gb      = 100
 # enable_budget     = false
-# budget_email      = null # Điền email khi bật budget.
+# budget_email      = null # Fill in an email when enabling the budget.
 # budget_amount_usd = 30
 # force_destroy             = false
 # noncurrent_retention_days = 30
 # temp_retention_days       = 7
 # tags = { project = "platform", environment = "learning" }
-# Cho đợt triển khai cả ba platform: review plan trước khi apply.
+# For deploying all three platforms: review the plan before applying.
 # enable_ecr                 = true
 # enable_kubernetes_network  = true
 # secondary_availability_zone = "ap-southeast-1b"

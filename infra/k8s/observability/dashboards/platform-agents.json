@@ -20,7 +20,7 @@
   },
   {
    "type": "stat",
-   "title": "Tổng request LLM",
+   "title": "Total LLM requests",
    "gridPos": {
     "x": 0,
     "y": 1,
@@ -95,7 +95,7 @@
   },
   {
    "type": "stat",
-   "title": "Tổng token",
+   "title": "Total tokens",
    "gridPos": {
     "x": 18,
     "y": 1,
@@ -120,7 +120,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Token/giây theo loại",
+   "title": "Tokens/s by type",
    "gridPos": {
     "x": 0,
     "y": 5,
@@ -147,7 +147,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Thời gian 1 lượt LLM (round-trip)",
+   "title": "LLM turn time (round-trip)",
    "gridPos": {
     "x": 12,
     "y": 5,
@@ -179,7 +179,7 @@
   },
   {
    "type": "timeseries",
-   "title": "llama.cpp: token sinh ra/giây, request đang xử lý",
+   "title": "llama.cpp: generated tokens/s, requests in flight",
    "gridPos": {
     "x": 0,
     "y": 13,
@@ -205,13 +205,13 @@
     {
      "refId": "B",
      "expr": "llamacpp:requests_processing",
-     "legendFormat": "đang xử lý"
+     "legendFormat": "in flight"
     }
    ]
   },
   {
    "type": "row",
-   "title": "Agent và MCP tool",
+   "title": "Agents and MCP tools",
    "gridPos": {
     "x": 0,
     "y": 21,
@@ -221,7 +221,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Số lần gọi mỗi Agent (A2A qua gateway)",
+   "title": "Calls per Agent (A2A via gateway)",
    "gridPos": {
     "x": 0,
     "y": 22,
@@ -248,7 +248,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Số lần gọi mỗi MCP tool",
+   "title": "Calls per MCP tool",
    "gridPos": {
     "x": 12,
     "y": 22,
@@ -275,7 +275,7 @@
   },
   {
    "type": "stat",
-   "title": "Tổng lần gọi Agent",
+   "title": "Total Agent calls",
    "gridPos": {
     "x": 0,
     "y": 30,
@@ -300,7 +300,7 @@
   },
   {
    "type": "stat",
-   "title": "Tổng lần gọi MCP tool",
+   "title": "Total MCP tool calls",
    "gridPos": {
     "x": 6,
     "y": 30,
@@ -335,7 +335,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Request/giây theo route",
+   "title": "Requests/s by route",
    "gridPos": {
     "x": 0,
     "y": 35,
@@ -362,7 +362,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Request lỗi/giây theo status",
+   "title": "Error requests/s by status",
    "gridPos": {
     "x": 12,
     "y": 35,
@@ -389,7 +389,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Feature API: request/giây và lỗi",
+   "title": "Feature API: requests/s and errors",
    "gridPos": {
     "x": 0,
     "y": 43,
@@ -421,7 +421,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Feature API: độ trễ p95",
+   "title": "Feature API: p95 latency",
    "gridPos": {
     "x": 12,
     "y": 43,
@@ -458,7 +458,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Dự đoán/giây (abstain hay không)",
+   "title": "Predictions/s (abstain or not)",
    "gridPos": {
     "x": 0,
     "y": 52,
@@ -485,7 +485,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Lỗi dự đoán/giây",
+   "title": "Prediction errors/s",
    "gridPos": {
     "x": 8,
     "y": 52,
@@ -512,7 +512,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Thời gian tra Feast của model p95",
+   "title": "Model Feast lookup time p95",
    "gridPos": {
     "x": 16,
     "y": 52,
@@ -539,7 +539,7 @@
   },
   {
    "type": "row",
-   "title": "LLM: TTFT, tốc độ sinh, PII",
+   "title": "LLM: TTFT, generation speed, PII",
    "gridPos": {
     "x": 0,
     "y": 60,
@@ -581,7 +581,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Thời gian mỗi token ra",
+   "title": "Time per output token",
    "gridPos": {
     "x": 8,
     "y": 61,
@@ -608,7 +608,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Guardrail PII theo kết quả",
+   "title": "PII guardrail by result",
    "gridPos": {
     "x": 16,
     "y": 61,
@@ -635,7 +635,7 @@
   },
   {
    "type": "stat",
-   "title": "Tổng request bị chặn vì PII",
+   "title": "Total requests blocked for PII",
    "gridPos": {
     "x": 0,
     "y": 69,
@@ -655,7 +655,7 @@
   },
   {
    "type": "stat",
-   "title": "Tỷ lệ chặn PII",
+   "title": "PII block rate",
    "gridPos": {
     "x": 6,
     "y": 69,
@@ -675,7 +675,7 @@
   },
   {
    "type": "row",
-   "title": "MCP tool: thành công / lỗi (Feature API)",
+   "title": "MCP tool: success / error (Feature API)",
    "gridPos": {
     "x": 0,
     "y": 73,
@@ -685,7 +685,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Lượt gọi tool theo kết quả",
+   "title": "Tool calls by result",
    "gridPos": {
     "x": 0,
     "y": 74,
@@ -712,7 +712,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Tổng lỗi mỗi tool",
+   "title": "Total errors per tool",
    "gridPos": {
     "x": 12,
     "y": 74,
@@ -739,7 +739,7 @@
   },
   {
    "type": "row",
-   "title": "Agent: thành công / thất bại theo từng Agent (HTTP qua gateway)",
+   "title": "Agent: success / failure per Agent (HTTP via gateway)",
    "gridPos": {
     "x": 0,
     "y": 82,
@@ -749,7 +749,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Thành công (2xx) mỗi Agent",
+   "title": "Successes (2xx) per Agent",
    "gridPos": {
     "x": 0,
     "y": 83,
@@ -776,7 +776,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Thất bại (non-2xx) mỗi Agent, theo status",
+   "title": "Failures (non-2xx) per Agent, by status",
    "gridPos": {
     "x": 8,
     "y": 83,
@@ -803,7 +803,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Tỷ lệ thành công mỗi Agent",
+   "title": "Success rate per Agent",
    "gridPos": {
     "x": 16,
     "y": 83,

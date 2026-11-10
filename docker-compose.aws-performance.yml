@@ -1,5 +1,5 @@
-# Overlay sau docker-compose.aws.yml, chỉ cho VM ít nhất 8 vCPU/32 GiB; không mở port hay thêm service.
-# Chọn qua Ansible aws_runtime_profile=performance, kiểm metric thực trước khi bật thêm các stack khác.
+# Overlay after docker-compose.aws.yml, only for VMs with at least 8 vCPU/32 GiB; opens no ports and adds no services.
+# Selected via Ansible aws_runtime_profile=performance; check real metrics before enabling additional stacks.
 services:
   spark-worker-1:
     cpus: "2"

@@ -102,7 +102,7 @@ def _feature(target, windows):
 
 
 def test_scale_60_days_has_generated_targets_with_pit_history(tmp_path):
-    """Nguồn thật 60 ngày có lịch sử biết trước lúc đặt Order, không thêm probe."""
+    """A real 60-day source has history known before the Order is placed, with no added probes."""
     root = tmp_path / "scale"
     manifest = generate_scaled(root, ScaleConfig(days=60, orders_per_day=4, sku_count=3))
     lines = _source_lines(root, manifest)
@@ -111,7 +111,7 @@ def test_scale_60_days_has_generated_targets_with_pit_history(tmp_path):
     positive = [line for line, count in zip(lines, counts) if count[0] > 0]
     assert positive
     assert len({line["line_id"] for line in positive}) == len(positive)
-    # Đối chiếu phép sweep với policy as-of ở target thật, gồm trước/sau khi có nhãn.
+    # Compare the sweep against the as-of policy on real targets, including before/after a label exists.
     for target in (lines[0], positive[0], positive[-1]):
         brute = sku_return_feature(target, lines)
         assert _feature(target, windows) == (
@@ -119,7 +119,7 @@ def test_scale_60_days_has_generated_targets_with_pit_history(tmp_path):
             brute["positive_count_90d"],
         )
     coverage_counts = [sum(e["kind"] == "coverage" for e in line["events"]) for line in lines]
-    # Tối đa 7 tuần giao với khoảng 20 ngày split + 30 ngày qualification, mỗi 5 feed.
+    # At most 7 weeks intersect the 20-day split + 30-day qualification window, times 5 feeds.
     assert max(coverage_counts) <= 7 * 5
     print(
         "scale60:",

@@ -1,7 +1,7 @@
-# RBAC cho Jenkins trên EC2 (nhóm `platform-ci` từ EKS access entry, infra/aws/kubernetes/cluster.tf).
-# Toàn quyền CHỈ trong các namespace CI deploy (kagent: Agent/ModelConfig là CRD; feature-store: helm Feature API;
-# agentgateway: pod smoke; langfuse: port-forward đọc prompt). Ngoài đó chỉ được đọc Namespace (kubectl apply
-# của script deploy đọc namespace trước). Admin apply 1 lần: kubectl --context platform-apps apply -f infra/k8s/ci/rbac.yaml
+# RBAC for Jenkins on EC2 (group `platform-ci` from the EKS access entry, infra/aws/kubernetes/cluster.tf).
+# Full access ONLY in the namespaces CI deploys to (kagent: Agent/ModelConfig are CRDs; feature-store: Feature API helm;
+# agentgateway: smoke pod; langfuse: port-forward to read prompts). Outside those, only Namespace read (the deploy script's kubectl apply
+# reads the namespace first). Admin applies once: kubectl --context platform-apps apply -f infra/k8s/ci/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

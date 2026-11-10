@@ -1,8 +1,8 @@
-"""Gold A → Parquet ảnh chụp feature SKU theo ngày, làm kho offline cho Feast.
+"""Gold A → Parquet of daily SKU feature snapshots, the offline store for Feast.
 
-Đọc `fact_order_lines_dp2` + `fact_return_labels_dp3` (năm Channel), tính tỷ lệ trả 90 ngày
-mỗi 00:00 UTC chỉ từ nhãn đã có tại lúc chụp, rồi ghi đè thư mục Parquet (`s3a://`: MinIO
-local, S3 thật qua IAM role trên AWS). Khoá Feast là `seller_sku` trơn.
+Reads `fact_order_lines_dp2` + `fact_return_labels_dp3` (five Channels), computes the 90-day return rate
+at each 00:00 UTC only from labels known at snapshot time, then overwrites the Parquet directory (`s3a://`: local
+MinIO, real S3 via IAM role on AWS). The Feast key is plain `seller_sku`.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from spark_jobs.lib.order_snapshot_ml import configure_output, sku_daily_feature
 
 
 def main(argv=None):
-    """Đọc Gold hiện tại, ghi Parquet và in số dòng."""
+    """Read the current Gold, write Parquet and print the row count."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--output", required=True, help="vd s3a://platform/feature-store/sku_daily")
@@ -30,7 +30,7 @@ def main(argv=None):
         labels = spark.table(f"{CATALOG}.gold.{args.labels_table}")
         runs = labels.select("run_id").distinct().collect()
         if len(runs) != 1:
-            raise ValueError(f"cần đúng 1 run_id trong bảng nhãn, có {runs}")
+            raise ValueError(f"expected exactly 1 run_id in the label table, got {runs}")
         fact = spark.table(f"{CATALOG}.gold.{args.fact_table}")
         daily = sku_daily_features(fact, labels, args.cutoff).withColumn(
             "generation_id", F.lit(runs[0]["run_id"])

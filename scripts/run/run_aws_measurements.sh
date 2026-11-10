@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Đo trên bảng/nguồn thật ở EC2; gọi sau DAG v2, trước pha DataHub.
+# Measure on the real tables/sources on EC2; call after the v2 DAG, before the DataHub phase.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 usage() {
-  echo 'Cách chạy: bash scripts/run/run_aws_measurements.sh --what skew|maintenance|warehouse'
-  echo 'Đọc .env AWS. Kết quả: out/aws-evidence/<ngày>/<what>-<run>/ (JSON, log, events).'
-  echo 'Skew dùng prefix nguồn S3 hiện tại; cần nguồn scale đủ history để kết luận skew.'
+  echo 'Usage: bash scripts/run/run_aws_measurements.sh --what skew|maintenance|warehouse'
+  echo 'Reads the AWS .env. Output: out/aws-evidence/<date>/<what>-<run>/ (JSON, logs, events).'
+  echo 'Skew uses the current S3 source prefix; a scale source with enough history is needed to conclude on skew.'
 }
 what=
 while (($#)); do
@@ -16,7 +16,7 @@ while (($#)); do
   esac
 done
 case "$what" in skew|maintenance|warehouse) ;; *) usage >&2; exit 2 ;; esac
-# Chỉ export cấu hình runtime; Docker Compose tự đọc secret từ .env.
+# Export only runtime config; Docker Compose reads secrets from .env itself.
 if [[ -f .env ]]; then
   for key in PLATFORM_STORAGE AWS_REGION RAW_BUCKET PLATFORM_DATASET_NAME PLATFORM_SPARK_PACKAGES_AWS COMPOSE_FILE PLATFORM_ORDER_LIFECYCLE_CUTOFF; do
     if [[ ! -v "$key" ]]; then
@@ -25,11 +25,11 @@ if [[ -f .env ]]; then
     fi
   done
 fi
-[[ "${PLATFORM_STORAGE:-}" = s3 ]] || { echo 'Chỉ chạy với PLATFORM_STORAGE=s3' >&2; exit 2; }
+[[ "${PLATFORM_STORAGE:-}" = s3 ]] || { echo 'Only runs with PLATFORM_STORAGE=s3' >&2; exit 2; }
 : "${RAW_BUCKET:?}" "${AWS_REGION:?}" "${PLATFORM_SPARK_PACKAGES_AWS:?}"
 compose=(docker compose --profile airflow --profile spark)
 if [[ -n "$(docker ps -q --filter label=com.docker.compose.project=datahub)" ]]; then
-  echo 'Dừng pha DataHub trước khi đo để đủ RAM.' >&2; exit 1
+  echo 'Stop the DataHub phase before measuring to free enough RAM.' >&2; exit 1
 fi
 day="$(date -u +%F)"
 stamp="$(date -u +%Y%m%dT%H%M%S)-$$"
@@ -39,12 +39,12 @@ mkdir -p "$output"
 "${compose[@]}" up -d --wait --wait-timeout 600 airflow spark-master spark-worker-1 spark-worker-2
 "${compose[@]}" exec -T airflow mkdir -p "$work/events"
 "${compose[@]}" images --format json > "$output/runtime-images.json"
-# Luôn sao chép bằng chứng kể cả Spark lỗi; không dừng stack trước phép đo tiếp theo.
+# Always copy the evidence even if Spark fails; do not stop the stack before the next measurement.
 collect() {
   local code=$?
   trap - EXIT
   "${compose[@]}" cp "airflow:$work/." "$output/" || { [[ "$code" != 0 ]] || code=1; }
-  echo "Bằng chứng $what: $output (exit $code)"
+  echo "Evidence $what: $output (exit $code)"
   exit "$code"
 }
 trap collect EXIT
@@ -64,7 +64,7 @@ case "$what" in
       --buckets 18 --partitions 16 2>&1 | tee "$output/run.log"
     ;;
   maintenance)
-    # Dùng cùng policy hiện có trên Gold fact thật, không dùng bảng demo.
+    # Use the same existing policy on the real Gold fact, not the demo table.
     config=$(python3 - <<'PY'
 import json
 from pathlib import Path
@@ -83,7 +83,7 @@ PY
     submit /opt/spark_jobs/warehouse/export_order_lifecycle.py \
       --run-id "$run_id" --cutoff "$cutoff" --sql-dir /opt/sql/warehouse_lifecycle \
       --receipt "$work/warehouse-export.json" 2>&1 | tee "$output/run.log"
-    # Chọn SKU/dataset/thời điểm từ feature vừa export, không đoán giá trị fixture.
+    # Pick SKU/dataset/timestamp from the freshly exported features, never guess fixture values.
     "${compose[@]}" exec -T airflow python - "$cutoff" "$work/warehouse-explain.json" <<'PY' 2>&1 | tee "$output/explain.log"
 import importlib.util
 import sys
@@ -101,7 +101,7 @@ try:
             ORDER BY labeled_count_90d DESC, dataset_version, line_id LIMIT 1''')
         row = cur.fetchone()
         if row is None:
-            raise ValueError('Không có feature để đo; không ghi bằng chứng rỗng')
+            raise ValueError('No features to measure; not writing empty evidence')
 finally:
     conn.close()
 module.main(['--cutoff', sys.argv[1], '--receipt', sys.argv[2], '--dataset', row[0],

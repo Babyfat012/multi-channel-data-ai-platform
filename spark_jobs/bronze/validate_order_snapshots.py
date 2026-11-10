@@ -1,8 +1,8 @@
-"""DP1 Validate — đối chiếu bảng Bronze với nguồn và kiểm provenance/payload.
+"""DP1 Validate: reconcile the Bronze table with the source and check provenance/payload.
 
-Bronze phải giữ cả bản trùng và hai dạng schema Amazon. Vì vậy validation kiểm dữ liệu
-được chép đủ và truy ngược được, không đòi khóa duy nhất hay một schema JSON duy nhất.
-Job chạy sau mỗi lần Spark ingest; lỗi bất kỳ điều kiện nào làm task Airflow đỏ.
+Bronze must keep both duplicates and both Amazon schema shapes. So validation checks the data
+was copied completely and is traceable, without requiring a unique key or a single JSON schema.
+The job runs after every Spark ingest; any failed condition turns the Airflow task red.
 """
 
 from __future__ import annotations
@@ -22,21 +22,21 @@ WALMART_SOURCE = "walmart.orders"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc đúng nguồn, bảng đích và phạm vi ngày của lần ingest vừa chạy."""
+    """Read exactly the source, target table and day range of the ingest that just ran."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--channel", choices=("amazon", "walmart"), required=True)
     parser.add_argument("--table", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--window-days", type=int, default=0)
     parser.add_argument("--window-start", default=None)
-    parser.add_argument("--source", default=AMAZON_SOURCE, help="Gốc export_date=*/ của Amazon.")
+    parser.add_argument("--source", default=AMAZON_SOURCE, help="Amazon export_date=*/ root.")
     return parser.parse_args(argv)
 
 
 def amazon_source_rows(
     spark: SparkSession, window_days: int, window_start: str | None, source: str = AMAZON_SOURCE
 ) -> int:
-    """Đếm chính các dòng JSONL mà job Amazon đã chọn để nạp."""
+    """Count exactly the JSONL rows the Amazon job selected to load."""
     if window_days <= 0:
         return spark.read.text(source).count()
     path = spark._jvm.org.apache.hadoop.fs.Path(source)
@@ -48,12 +48,12 @@ def amazon_source_rows(
     )
     selected = pick_window_days(days, window_days, window_start)
     if not selected:
-        raise ValueError("Không có ngày Amazon nào để validate")
+        raise ValueError("No Amazon days to validate")
     return spark.read.text([f"{source}/export_date={day}" for day in selected]).count()
 
 
 def walmart_source_rows(spark: SparkSession) -> int:
-    """Đếm bảng nguồn PostgreSQL qua JDBC, không đếm lại bảng Bronze."""
+    """Count the PostgreSQL source table via JDBC, not the Bronze table again."""
     query = f"(SELECT count(*) AS n FROM {WALMART_SOURCE}) AS source_count"
     jdbc = {
         "url": f"jdbc:postgresql://{os.environ.get('POSTGRES_HOST', 'postgres')}:"
@@ -67,7 +67,7 @@ def walmart_source_rows(spark: SparkSession) -> int:
 
 
 def validate(spark: SparkSession, channel: str, table: str, run_id: str, source_rows: int) -> None:
-    """Kiểm bảng có dòng, đủ cột, đủ số dòng và không có provenance/payload hỏng."""
+    """Check the table has rows, all columns, the full row count and no broken provenance/payload."""
     full_name = f"lakehouse.bronze.{table}"
     df = spark.table(full_name)
     required = (
@@ -84,7 +84,7 @@ def validate(spark: SparkSession, channel: str, table: str, run_id: str, source_
     )
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"{full_name}: thiếu cột Bronze {sorted(missing)}")
+        raise ValueError(f"{full_name}: missing Bronze columns {sorted(missing)}")
 
     if channel == "amazon":
         source_id = F.coalesce(
@@ -123,14 +123,18 @@ def validate(spark: SparkSession, channel: str, table: str, run_id: str, source_
     ).first()
     target_rows = int(result["rows"])
     invalid_rows = int(result["invalid_rows"] or 0)
-    print(f"nguồn={source_rows:,} Bronze={target_rows:,} lỗi={invalid_rows:,} bảng={full_name}")
+    print(
+        f"source={source_rows:,} Bronze={target_rows:,} invalid={invalid_rows:,} table={full_name}"
+    )
     if source_rows <= 0 or target_rows != source_rows or invalid_rows:
-        raise ValueError("DP1 Validate thất bại: nguồn và Bronze lệch hoặc provenance/payload hỏng")
-    print("DP1 Validate đạt")
+        raise ValueError(
+            "DP1 Validate failed: source and Bronze differ or provenance/payload is broken"
+        )
+    print("DP1 Validate passed")
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Dựng SparkSession, đo nguồn và kiểm bảng Bronze của cùng Airflow run."""
+    """Build the SparkSession, measure the source and check the Bronze table of the same Airflow run."""
     args = parse_args(argv)
     spark = build_spark(f"dp1-validate-{args.channel}-{args.table}")
     try:

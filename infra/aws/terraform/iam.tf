@@ -1,4 +1,4 @@
-# VM nhận credential tạm qua instance profile, chỉ có quyền dữ liệu trên hai bucket; không tạo access key.
+# The VM gets temporary credentials via the instance profile, with data access to the two buckets only; no access keys.
 data "aws_iam_policy_document" "assume_ec2" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -33,19 +33,19 @@ resource "aws_iam_role_policy" "buckets" {
   policy = data.aws_iam_policy_document.buckets.json
 }
 
-# Policy có sẵn của AWS cho SSM agent; thay vai IAP + OS Login bên GCP.
+# AWS managed policy for the SSM agent; replaces IAP + OS Login on GCP.
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.vm.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# Lớp "vỏ" để gắn role vào EC2; GCP không có lớp này.
+# The "wrapper" that attaches the role to EC2; GCP has no such layer.
 resource "aws_iam_instance_profile" "vm" {
   name = "${var.name_prefix}-data-platform-vm"
   role = aws_iam_role.vm.name
 }
 
-# Jenkins trên EC2 (đợt 5) push/pull image vào đúng các repo ECR của dự án; không xoá repo/image.
+# Jenkins on EC2 (wave 5) pushes/pulls images to exactly the project's ECR repos; it cannot delete repos/images.
 data "aws_iam_policy_document" "ci_ecr" {
   statement {
     sid       = "EcrLogin"
@@ -61,7 +61,7 @@ data "aws_iam_policy_document" "ci_ecr" {
     ]
     resources = [for repo in aws_ecr_repository.application : repo.arn]
   }
-  # `aws eks update-kubeconfig` cần DescribeCluster; quyền trong cluster vẫn do access entry `ci` + RBAC quyết.
+  # `aws eks update-kubeconfig` needs DescribeCluster; in-cluster permissions are still decided by access entry `ci` + RBAC.
   statement {
     sid       = "EksDescribe"
     actions   = ["eks:DescribeCluster"]

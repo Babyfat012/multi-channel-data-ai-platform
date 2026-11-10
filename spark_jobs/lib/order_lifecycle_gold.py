@@ -1,15 +1,15 @@
-"""Gold v2: DataFrame Silver vào, DataFrame Gold ra; chỉ đọc Silver.
+"""Gold v2: Silver DataFrames in, Gold DataFrames out; reads only Silver.
 
-Luật nhãn nằm trọn ở `return_label`; Spark chỉ chuyển bằng chứng và gọi luật đó trong worker.
-Hai lựa chọn giữ chi phí tuyến tính thay vì bậc hai:
+Label rules live entirely in `return_label`; Spark only ships evidence and calls those rules in workers.
+Two choices keep the cost linear instead of quadratic:
 
-- Bằng chứng mỗi line lấy theo khoá từ `silver.lifecycle_stg_observed_evidence` (line, order,
-  correction của sự kiện thuộc line). Chỉ bản ghi không khoá (coverage, scope cả Channel) được
-  gửi một lần tới mỗi worker. Digest coverage được Silver kiểm một lần.
-- Feature PIT dùng `return_label.label_segments`: nhãn của line chỉ đổi ở thời điểm quan sát
-  của chính nó hoặc lúc hết hạn chờ, nên đếm theo SKU là một lần quét các cửa sổ nửa mở.
+- Per-line evidence is fetched by key from `silver.lifecycle_stg_observed_evidence` (line, order,
+  corrections of events belonging to the line). Only keyless records (coverage, Channel-wide scope) are
+  sent once to each worker. The coverage digest is checked once by Silver.
+- PIT features use `return_label.label_segments`: a line's label only changes at its own observation
+  times or when the wait expires, so counting per SKU is a single sweep over half-open windows.
 
-`tests/spark/check_order_lifecycle_gold_equivalence.py` kiểm kết quả giống bản bậc hai cũ.
+`tests/spark/check_order_lifecycle_gold_equivalence.py` checks the result matches the old quadratic version.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ GOLD_TABLES = (
 
 
 def read_silver(spark, cutoff):
-    """Đọc Silver đã publish; từ chối ảnh chụp không dựng với `as_of == cutoff`."""
+    """Read published Silver; reject snapshots not built with `as_of == cutoff`."""
     info = spark.table(f"{CATALOG}.silver.lifecycle_stg_build_info").collect()
     if len(info) != 1 or info[0]["as_of"] is None or utc(info[0]["as_of"]) != utc(cutoff):
         raise ValueError(
@@ -71,16 +71,16 @@ SEGMENT_DDL = (
     "dataset_version string, line_id string, start_exclusive timestamp, end_inclusive timestamp, label int, "
     "cohort_date date, maturity_end timestamp, decision_observed_at timestamp, qualifying_event_id string"
 )
-# Giới hạn driver: 39 tuần × 9 feeds = 351 complete envelope/dataset, dưới 10.000.
-# source_line lọc interval tại worker trước khi tạo input_json; không nhân tuần vào từng line.
+# Driver limit: 39 weeks × 9 feeds = 351 complete envelopes/dataset, below 10,000.
+# source_line filters the interval in the worker before building input_json; weeks are not multiplied into each line.
 MAX_KEYLESS_EVIDENCE = 10_000
-# Chỉ dùng để Silver kiểm coverage (`coverage_validity`); khi đã có `coverage_status`, return_label không
-# đọc. Trường này dài theo dữ liệu (hàng trăm KB ở scale), nên bỏ trước khi gửi tới từng line.
+# Used only by Silver to check coverage (`coverage_validity`); once `coverage_status` exists, return_label does not
+# read it. This field grows with the data (hundreds of KB at scale), so drop it before sending to each line.
 VERIFICATION_ONLY_FIELDS = ("source_sequence_ranges",)
 
 
 def _slim(raw_json: str) -> str:
-    """Bỏ trường chỉ phục vụ kiểm coverage khỏi một bản ghi keyless."""
+    """Drop fields used only for coverage checks from a keyless record."""
     record = json.loads(raw_json)
     for name in VERIFICATION_ONLY_FIELDS:
         record.pop(name, None)
@@ -90,8 +90,8 @@ def _slim(raw_json: str) -> str:
 def _input_row(row, statuses, keyless=None):
     """Normalize one line's candidate observations in a Spark worker (exact filtering is in return_label).
 
-    `keyless` = {dataset_version: [raw_json]}: bản ghi không gắn line/Order, gửi một lần cho cả
-    worker thay vì nhân bản theo từng line trong Spark (chi phí số line × kích thước bản ghi).
+    `keyless` = {dataset_version: [raw_json]}: records not tied to a line/Order, sent once per
+    worker instead of being replicated per line in Spark (cost: line count × record size).
     """
     identity = {key: row[key] for key in IDENTITY}
     raws = [r for r in row["raw_records"] if r is not None]
@@ -106,7 +106,7 @@ def _input_row(row, statuses, keyless=None):
 
 
 def _label_row(row, cutoff, generation, computed):
-    """Gọi luật nhãn thuần duy nhất; giữ mọi cột bằng chứng."""
+    """Call the single pure label rule; keep every evidence column."""
     data = json.loads(row["input_json"])
     result = asdict(label_line(data, cutoff))
     return dict(
@@ -121,7 +121,7 @@ def _label_row(row, cutoff, generation, computed):
 
 
 def _segment_rows(row):
-    """Mọi đoạn cutoff có nhãn của một line (`return_label.label_segments`)."""
+    """Every labeled cutoff segment of a line (`return_label.label_segments`)."""
     for segment in label_segments(json.loads(row["input_json"])):
         yield (
             row["dataset_version"],
@@ -137,7 +137,7 @@ def _segment_rows(row):
 
 
 def label_inputs(inputs: DataFrame, cutoff, run_id: str, computed_at=None) -> DataFrame:
-    """Tính một nhãn cho mỗi line đầu vào tại một ảnh chụp quan sát."""
+    """Compute one label per input line at one observation snapshot."""
     computed = computed_at or datetime.now(timezone.utc)
     return inputs.sparkSession.createDataFrame(
         inputs.rdd.map(lambda row: _label_row(row, cutoff, run_id, computed)), LABEL_DDL
@@ -145,10 +145,10 @@ def label_inputs(inputs: DataFrame, cutoff, run_id: str, computed_at=None) -> Da
 
 
 def keyless_evidence(evidence: DataFrame) -> dict:
-    """{dataset_version: [raw_json đã bỏ trường kiểm coverage]} cho bản ghi đi tới MỌI line.
+    """{dataset_version: [raw_json without coverage-check fields]} for records that go to EVERY line.
 
-    Gồm bản ghi không có scope line/Order, và correction của chính các bản ghi đó (vì bản bị
-    sửa nằm ở mọi line). Thu về driver một lần; số lượng bị chặn bởi MAX_KEYLESS_EVIDENCE.
+    Includes records with no line/Order scope, and corrections of those same records (because the
+    corrected record sits on every line). Collected to the driver once; count is capped by MAX_KEYLESS_EVIDENCE.
     """
     has_line = F.col("ev_line_id").isNotNull() | F.col("ev_line_ids").isNotNull()
     has_order = F.col("ev_order_id").isNotNull() | F.col("ev_order_ids").isNotNull()
@@ -178,11 +178,11 @@ def keyless_evidence(evidence: DataFrame) -> dict:
 
 
 def line_evidence(lines: DataFrame, evidence: DataFrame) -> DataFrame:
-    """Cặp (line, raw_json) cho bản ghi CÓ khoá; là tập cha của thứ `visible_events` giữ.
+    """(line, raw_json) pairs for KEYED records; a superset of what `visible_events` keeps.
 
-    Khoá giống `scope_matches`: bản ghi gắn line đi tới line đó, gắn order đi tới mọi line của
-    order, correction đi thêm tới line chứa bản ghi nó sửa. Bản ghi không khoá đi qua
-    `keyless_evidence`, không join lines × records.
+    Keys match `scope_matches`: a line-scoped record goes to that line, an order-scoped one to every line of
+    the order, and a correction also goes to the line holding the record it corrects. Keyless records go through
+    `keyless_evidence`, with no lines × records join.
     """
     ev = evidence.select(
         "dataset_version",
@@ -242,7 +242,7 @@ def line_evidence(lines: DataFrame, evidence: DataFrame) -> DataFrame:
 
 
 def _feature_windows(segments: DataFrame, skus: DataFrame) -> DataFrame:
-    """Khoảng thời điểm đặt [a, b) mà một đoạn có nhãn được đếm (giống `return_label.feature_window`)."""
+    """Order-time ranges [a, b) in which a labeled segment is counted (same as `return_label.feature_window`)."""
     micro = F.expr("INTERVAL 1 MICROSECOND")
     begin = F.greatest(
         F.col("start_exclusive") + micro, F.to_timestamp(F.date_add("cohort_date", 1))
@@ -256,10 +256,10 @@ def _feature_windows(segments: DataFrame, skus: DataFrame) -> DataFrame:
 
 
 def _sweep(windows: DataFrame, queries: DataFrame) -> DataFrame:
-    """Tổng dồn (n, p) của các cửa sổ đang mở tại mỗi truy vấn (dataset, SKU, time, line_id).
+    """Running totals (n, p) of the windows open at each query (dataset, SKU, time, line_id).
 
-    +1/+nhãn khi cửa sổ mở, −1/−nhãn khi đóng. Cùng timestamp thì đổi cửa sổ xếp trước truy
-    vấn (a ≤ t được đếm, b ≤ t không).
+    +1/+label when a window opens, −1/−label when it closes. At equal timestamps window changes sort before
+    queries (a ≤ t is counted, b ≤ t is not).
     """
     group = ["dataset_version", "seller_sku"]
     opens = windows.select(
@@ -300,7 +300,7 @@ def _sweep(windows: DataFrame, queries: DataFrame) -> DataFrame:
 
 
 def _with_rate(frame: DataFrame) -> DataFrame:
-    """Tỷ lệ = dương / có nhãn; NULL khi chưa có line nào có nhãn."""
+    """Rate = positive / labeled; NULL when no line has a label yet."""
     return frame.withColumn(
         "return_or_refund_rate_90d",
         F.when(
@@ -311,9 +311,9 @@ def _with_rate(frame: DataFrame) -> DataFrame:
 
 
 def sku_features(fact: DataFrame, segments: DataFrame) -> DataFrame:
-    """Feature mỗi line: lịch sử có nhãn của cùng SKU, biết tại thời điểm đặt, 90 ngày cohort.
+    """Per-line features: labeled history of the same SKU, known at order time, 90-day cohort.
 
-    Đọc tổng dồn của `_sweep` tại thời điểm đặt rồi trừ đi cửa sổ của chính line.
+    Reads the `_sweep` running totals at order time, then subtracts the line's own window.
     """
     windows = _feature_windows(segments, fact.select(*KEY, "seller_sku"))
     queries = fact.filter(F.col("created_at").isNotNull()).select(
@@ -343,11 +343,11 @@ def sku_features(fact: DataFrame, segments: DataFrame) -> DataFrame:
 
 
 def sku_daily_features(fact: DataFrame, segments: DataFrame, cutoff) -> DataFrame:
-    """Ảnh chụp feature SKU tại 00:00 UTC mỗi ngày, từ ngày đặt đầu tiên của SKU tới cutoff.
+    """SKU feature snapshot at 00:00 UTC each day, from the SKU's first order day to the cutoff.
 
-    Cùng định nghĩa với `sku_features` (cùng cửa sổ, cùng `_sweep`) nhưng hỏi theo ngày thay vì
-    theo line, nên Feast dùng được cho cả train (PIT join) lẫn serve (bản mới nhất). Không có
-    "line của chính mình" để trừ. `event_timestamp` = mốc ảnh chụp.
+    Same definition as `sku_features` (same windows, same `_sweep`) but queried per day instead of
+    per line, so Feast can use it for both training (PIT join) and serving (latest value). There is no
+    "own line" to subtract. `event_timestamp` = snapshot time.
     """
     windows = _feature_windows(segments, fact.select(*KEY, "seller_sku"))
     days = (
@@ -380,10 +380,10 @@ def sku_daily_features(fact: DataFrame, segments: DataFrame, cutoff) -> DataFram
 
 
 def build_gold(silver: dict, cutoff, run_id: str, computed_at=None) -> dict:
-    """Dựng fact, nhãn ảnh chụp, đoạn nhãn và feature PIT, chỉ từ Silver.
+    """Build the fact, snapshot labels, label segments and PIT features from Silver only.
 
-    Cần `line_lifecycle`, `native_order_lines`, `observed_evidence`, `coverage_validity` (do
-    `order_lifecycle_lakehouse.build_silver` tạo với `as_of = cutoff`).
+    Needs `line_lifecycle`, `native_order_lines`, `observed_evidence`, `coverage_validity` (built
+    by `order_lifecycle_lakehouse.build_silver` with `as_of = cutoff`).
     """
     spark = silver["line_lifecycle"].sparkSession
     spark.conf.set("spark.sql.session.timeZone", "UTC")
@@ -393,7 +393,7 @@ def build_gold(silver: dict, cutoff, run_id: str, computed_at=None) -> dict:
         "dataset_version", "channel", "native_order_id", "native_line_id", "seller_sku"
     )
     native_key = ["dataset_version", "channel", "native_order_id", "native_line_id"]
-    # Ánh xạ mơ hồ thì báo lỗi, không lặng lẽ bỏ hay gộp line nguồn.
+    # Ambiguous mappings raise an error instead of silently dropping or merging source lines.
     if native.groupBy(*native_key).count().filter("count != 1").limit(1).count():
         raise ValueError("Ambiguous native line identity")
     base = silver["line_lifecycle"].join(native, native_key, "left")
@@ -439,7 +439,7 @@ def build_gold(silver: dict, cutoff, run_id: str, computed_at=None) -> dict:
 
 
 def _recompute_feature(target, history_inputs):
-    """Oracle độc lập theo định nghĩa gốc: `label_line` tại thời điểm đặt của line đích."""
+    """Independent oracle per the original definition: `label_line` at the target line's order time."""
     timestamp = utc(target["created_at"])
     n = p = 0
     for candidate in history_inputs:
@@ -460,10 +460,10 @@ def _recompute_feature(target, history_inputs):
 def validate_gold(
     silver: dict, gold: dict, cutoff, sample_limit: int = 200, feature_sample: int = 50
 ) -> dict:
-    """Đếm vi phạm; feature PIT của một mẫu được tính lại bằng `label_line` thuần.
+    """Count violations; the PIT feature of a sample is recomputed with the pure `label_line`.
 
-    Oracle mẫu không dùng chung code với đường quét/đoạn, nên feature đếm nhầm một nhãn chưa
-    biết lúc đặt (hoặc bỏ sót) sẽ hiện thành `pit_feature_mismatch`.
+    The sample oracle shares no code with the sweep/segment path, so a feature that counts a label not
+    yet known at order time (or misses one) shows up as `pit_feature_mismatch`.
     """
     fact, labels, feat = (
         gold[name] for name in ("fact_order_lines", "label_return_v2", "feat_sku_return_rate_90d")
@@ -474,7 +474,7 @@ def validate_gold(
     checks["fact_line_count_delta"] = abs(fact.count() - silver["line_lifecycle"].count())
 
     def total(frame):
-        """So tổng tiền (đơn vị nhỏ nhất), kể cả khi dataset rỗng."""
+        """Compare money totals (minor units), even when the dataset is empty."""
         return frame.agg(F.coalesce(F.sum("headline_product_net_minor"), F.lit(0))).first()[0]
 
     checks["fact_headline_delta_minor"] = abs(total(fact) - total(silver["line_lifecycle"]))
@@ -546,7 +546,7 @@ def validate_gold(
             )
         )
     ).count()
-    # PIT: đoạn chỉ mở khi đã qua cả thời điểm quyết định lẫn hạn chờ.
+    # PIT: a segment only opens after both the decision time and the wait deadline have passed.
     checks["pit_segment_before_known"] = (
         gold["label_segments"]
         .filter(
@@ -557,7 +557,7 @@ def validate_gold(
         )
         .count()
     )
-    # Tính lại feature PIT trên mẫu, độc lập với code đoạn/quét.
+    # Recompute PIT features on the sample, independently of the segment/sweep code.
     targets = (
         feat.filter(F.col("created_at").isNotNull())
         .withColumn("h", F.xxhash64(*KEY))
@@ -572,8 +572,8 @@ def validate_gold(
             "dataset_version", "seller_sku", F.col("line_id").alias("history_line_id"), "input_json"
         )
     )
-    # Gom theo (dataset, SKU): lịch sử một SKU nạp MỘT lần cho mọi target của SKU đó. Gom theo
-    # từng target thì SKU nóng bị chép lại cho mỗi target (từng gây OOM).
+    # Group by (dataset, SKU): one SKU's history is loaded ONCE for all of its targets. Grouping per
+    # target copies a hot SKU once for each target (this once caused an OOM).
     history = history.join(
         targets.select("dataset_version", "seller_sku").distinct(),
         ["dataset_version", "seller_sku"],
@@ -581,11 +581,11 @@ def validate_gold(
     )
 
     def sku_key(row):
-        """Khoá gom của một dòng target hoặc lịch sử."""
+        """Grouping key of a target or history row."""
         return (row["dataset_version"], row["seller_sku"])
 
     def oracle(group):
-        """Group = (SKU key, (targets, history)); đếm target có feature lệch định nghĩa gốc."""
+        """Group = (SKU key, (targets, history)); count targets whose feature deviates from the original definition."""
         _, (target_rows, history_rows) = group
         inputs = [
             dict(line_id=r["history_line_id"], input_json=r["input_json"])
@@ -631,7 +631,7 @@ def validate_gold(
 
 
 def write_receipt(path, receipt):
-    """In kết quả kiểm và, nếu có đường dẫn, ghi receipt để xem lại."""
+    """Print check results and, if a path is given, write the receipt for later review."""
     if path:
         receipt.setdefault("completed_at", completed_at_utc())
     text = json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2)

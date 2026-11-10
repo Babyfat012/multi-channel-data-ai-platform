@@ -1,1 +1,1 @@
-"""Renderer theo Channel: đổi Order của lõi thành bản ghi đúng dạng gốc của Channel."""
+"""Per-Channel renderers: turn core Orders into records in each Channel's native shape."""

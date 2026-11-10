@@ -1,4 +1,4 @@
-"""Kiểm receipt/schema offline bằng thư viện chuẩn, không cần Spark hoặc DataHub."""
+"""Check receipts/schemas offline with the standard library, without Spark or DataHub."""
 
 import json
 from datetime import datetime, timezone
@@ -41,7 +41,7 @@ SCHEMA = {
 
 
 def publisher_args(receipt):
-    """Trỏ publisher vào đúng receipt vừa tạo, không dùng schema contract thay thế."""
+    """Point the publisher at exactly the receipt just created, without substituting the contract schema."""
     return SimpleNamespace(
         receipt_dir=None,
         receipt=[f"build_gold={receipt}"],
@@ -52,7 +52,7 @@ def publisher_args(receipt):
 
 
 def test_relative_schema_round_trip_and_completed_at(tmp_path, monkeypatch):
-    """Receipt tự mang đường dẫn tương đối và giờ hoàn tất, độc lập cwd/mtime."""
+    """The receipt carries its own relative path and completion time, independent of cwd/mtime."""
     receipt = tmp_path / "run" / "build_gold.json"
     relative = receipt_schemas.write_receipt_schemas({TABLE: SCHEMA}, str(receipt))
     assert relative == "schemas.json"
@@ -95,7 +95,7 @@ def test_relative_schema_round_trip_and_completed_at(tmp_path, monkeypatch):
 
 
 def test_atomic_replace_preserves_other_jobs(tmp_path, monkeypatch):
-    """Rename chỉ diễn ra sau khi JSON hoàn chỉnh; giữ schema Bronze khi ghi Gold."""
+    """The rename only happens after the JSON is complete; Bronze schemas are kept when writing Gold."""
     bronze = "lakehouse.bronze.lifecycle_raw_records"
     receipt_schemas.write_receipt_schemas({bronze: SCHEMA}, tmp_path / "ingest_bronze.json")
     destination = tmp_path / "schemas.json"
@@ -104,7 +104,7 @@ def test_atomic_replace_preserves_other_jobs(tmp_path, monkeypatch):
     calls = []
 
     def inspect_replace(source, target):
-        """Quan sát file cũ và file tạm ngay trước thao tác atomic thực tế."""
+        """Observe the old file and the temp file right before the actual atomic operation."""
         assert target == destination
         assert source.parent == target.parent
         assert source != target
@@ -121,12 +121,12 @@ def test_atomic_replace_preserves_other_jobs(tmp_path, monkeypatch):
 
 
 def test_replace_failure_preserves_previous_schema(tmp_path, monkeypatch):
-    """Lỗi rename giữ nguyên schema cũ và dọn file tạm."""
+    """A rename error keeps the old schema and cleans up the temp file."""
     receipt_schemas.write_receipt_schemas({TABLE: SCHEMA}, tmp_path / "receipt.json")
     original = (tmp_path / "schemas.json").read_bytes()
 
     def fail_replace(*args):
-        """Giả lập lỗi đĩa ngay tại ranh giới publish file."""
+        """Simulate a disk error right at the file publish boundary."""
         raise OSError("rename failed")
 
     monkeypatch.setattr(receipt_schemas.os, "replace", fail_replace)
@@ -152,7 +152,7 @@ def test_replace_failure_preserves_previous_schema(tmp_path, monkeypatch):
     ],
 )
 def test_refuse_empty_or_incomplete_schema(tmp_path, tables, message):
-    """Schema lỗi bị từ chối rõ ràng, không làm hỏng file của job trước."""
+    """Bad schemas are rejected explicitly without corrupting the previous job's file."""
     receipt = tmp_path / "build_gold.json"
     receipt_schemas.write_receipt_schemas({TABLE: SCHEMA}, receipt)
     original = (tmp_path / "schemas.json").read_bytes()
@@ -162,7 +162,7 @@ def test_refuse_empty_or_incomplete_schema(tmp_path, tables, message):
 
 
 def test_completed_at_is_current_utc():
-    """Giờ hoàn tất có hậu tố Z và nằm giữa hai lần đọc đồng hồ UTC."""
+    """The completion time has a Z suffix and lies between two UTC clock reads."""
     before = datetime.now(timezone.utc)
     completed = receipt_schemas.completed_at_utc()
     after = datetime.now(timezone.utc)

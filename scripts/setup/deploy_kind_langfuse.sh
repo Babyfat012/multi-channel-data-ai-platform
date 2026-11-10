@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Dựng Langfuse v2 trong kind (ns langfuse), DB = database `langfuse` trên pgvector, rồi nạp 3 system prompt của Agent
-# (chỉ khi Langfuse chưa có prompt đó) và đồng bộ sang ConfigMap. Khoá API sinh 1 lần, giữ trong Secret.
+# Deploy Langfuse v2 in kind (ns langfuse), DB = database `langfuse` on pgvector, then load the 3 Agent system prompts
+# (only if Langfuse does not have them yet) and sync them to the ConfigMap. API keys are generated once and kept in a Secret.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 KC="kubectl --context ${KCTX:-kind-platform}"
-# Tài khoản DB = chính tài khoản của pgvector (Secret rag-pg), không lấy .env/biến shell: lệch là app không vào được DB.
+# DB account = pgvector's own account (Secret rag-pg), never .env/shell variables: any mismatch locks the app out of the DB.
 pg() { $KC -n rag get secret rag-pg -o jsonpath="{.data.$1}" | base64 -d; }
 POSTGRES_USER=$(pg POSTGRES_USER); POSTGRES_PASSWORD=$(pg POSTGRES_PASSWORD)
 $KC -n rag exec deploy/pgvector -- sh -c \
@@ -22,7 +22,7 @@ $KC -n langfuse create secret generic langfuse-env --dry-run=client -o yaml \
   --from-literal=LANGFUSE_INIT_PROJECT_PUBLIC_KEY="$PK" --from-literal=LANGFUSE_INIT_PROJECT_SECRET_KEY="$SK" \
   --from-literal=LANGFUSE_INIT_USER_EMAIL=admin@platform.local --from-literal=LANGFUSE_INIT_USER_PASSWORD="$PW" \
   | $KC apply -f -
-# Khoá cho script đồng bộ / Jenkins (ns kagent), cùng giá trị.
+# Keys for the sync script / Jenkins (ns kagent), same values.
 $KC -n kagent create secret generic langfuse-api --dry-run=client -o yaml \
   --from-literal=LANGFUSE_PUBLIC_KEY="$PK" --from-literal=LANGFUSE_SECRET_KEY="$SK" | $KC apply -f -
 $KC -n langfuse rollout restart deploy/langfuse >/dev/null

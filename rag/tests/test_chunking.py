@@ -1,4 +1,4 @@
-"""Test cắt chunk: thuần Python, chạy cùng pytest của repo."""
+"""Chunking tests: pure Python, run with the repo's pytest."""
 
 from pathlib import Path
 
@@ -32,7 +32,7 @@ def test_long_section_split_with_overlap():
     ]
     assert len(long) > 1
     assert all(len(c["text"]) <= 300 + 50 + len("Shop — Returns — Long: ") + 40 for c in long)
-    # đuôi đoạn trước xuất hiện lại ở đầu đoạn sau
+    # the tail of the previous part reappears at the start of the next one
     tail = long[0]["text"][-30:]
     assert tail in long[1]["text"]
 

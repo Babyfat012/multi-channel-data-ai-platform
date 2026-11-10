@@ -1,4 +1,4 @@
-"""Tập nhãn trả hàng năm Channel riêng cho huấn luyện, nối Gold qua sổ khóa ground truth."""
+"""Separate five-Channel return label set for training, joined to Gold through the ground-truth key ledger."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from platform_spark_operator import PlatformSparkSubmitOperator as SparkSubmitOp
 
 with DAG(
     dag_id="dp3_return_labels",
-    description="Nối nhãn năm Channel với Gold fact vào một bảng nhãn",
+    description="Join five-Channel labels with the Gold fact into one label table",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,
@@ -26,7 +26,7 @@ with DAG(
             "{{ var.value.platform_dp3_gold_source_table }}",
             "--run-id",
             "{{ run_id }}",
-            # Executor đọc trực tiếp hai đường này: local là bind mount, AWS là S3.
+            # Executors read these two paths directly: local is a bind mount, AWS is S3.
             "--ground-truth",
             "{{ var.value.get('platform_dp3_ground_truth', '/data/ground-truth') }}",
             "--keys-path",

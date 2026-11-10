@@ -1,11 +1,11 @@
-# Giá trị Helm cho kagent 0.10.3 bản tối giản trên máy 14 GB: tắt mọi agent/tool mẫu, chỉ giữ controller, UI,
-# Postgres đi kèm và kmcp. Model mặc định trỏ qua agentgateway (không gọi thẳng LLM).
+# Helm values for a minimal kagent 0.10.3 on a 14 GB machine: disable all sample agents/tools, keep only controller, UI,
+# bundled Postgres and kmcp. The default model routes through agentgateway (never calls the LLM directly).
 providers:
   default: openAI
   openAI:
     provider: OpenAI
     model: qwen2.5-1.5b-instruct
-    apiKeySecretRef: kagent-agw-key          # tạo bởi scripts/setup/deploy_kind_agents.sh
+    apiKeySecretRef: kagent-agw-key          # created by scripts/setup/deploy_kind_agents.sh
     apiKeySecretKey: AGW_AGENT_KEY
     config:
       baseUrl: http://agentgateway.agentgateway.svc.cluster.local:3000/v1
@@ -24,7 +24,7 @@ database:
       resources:
         requests: {cpu: 50m, memory: 128Mi}
         limits: {memory: 384Mi}
-# Lời gọi Agent→Agent (Agent-as-tool) và tới MCP có URL nội bộ đi qua agentgateway (A2A/MCP gateway).
+# Agent→Agent calls (Agent-as-tool) and calls to MCP with an internal URL go through agentgateway (A2A/MCP gateway).
 proxy:
   url: http://agentgateway.agentgateway.svc.cluster.local:3000
 kagent-tools: {enabled: false}
@@ -39,7 +39,7 @@ helm-agent: {enabled: false}
 cilium-policy-agent: {enabled: false}
 cilium-manager-agent: {enabled: false}
 cilium-debug-agent: {enabled: false}
-# Trace của controller và Agent (mỗi lượt LLM, tool call) gửi Jaeger.
+# Controller and Agent traces (every LLM turn, tool call) are sent to Jaeger.
 otel:
   tracing:
     enabled: true

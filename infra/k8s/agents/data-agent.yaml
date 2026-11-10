@@ -1,13 +1,13 @@
-# Agent 1 (Data Agent): kéo dữ liệu từ Online Feature Store theo ID qua MCP tool: feature theo SKU
-# (`get_sku_features`) và chunk chính sách theo chunk_id (`get_policy_chunks`).
-# Tool đi qua agentgateway (/mcp, cần API key), không gọi thẳng Feature API; model dùng default-model-config.
+# Agent 1 (Data Agent): pulls data from the Online Feature Store by ID via MCP tools: features by SKU
+# (`get_sku_features`) and policy chunks by chunk_id (`get_policy_chunks`).
+# Tools go through agentgateway (/mcp, API key required), never calling the Feature API directly; model uses default-model-config.
 apiVersion: kagent.dev/v1alpha2
 kind: RemoteMCPServer
 metadata:
   name: feature-tools
   namespace: kagent
 spec:
-  description: Feature tỷ lệ trả hàng theo SKU (Feast online store), qua agentgateway
+  description: Per-SKU return rate features (Feast online store), via agentgateway
   protocol: STREAMABLE_HTTP
   url: http://agentgateway.agentgateway.svc.cluster.local:3000/mcp
   headersFrom:
@@ -22,13 +22,13 @@ metadata:
   namespace: kagent
 spec:
   type: Declarative
-  # Mô tả = mô tả tool mà Coordinator thấy ⇒ tiếng Anh, có từ khoá.
+  # Description = the tool description the Coordinator sees ⇒ English, with keywords.
   description: Looks up the return history numbers of a SKU (return rate 90 days, returns 24 hours) and chunk text by chunk id.
   declarative:
     modelConfig: default-model-config
     stream: false
-    # System prompt quản lý trên Langfuse (prompt platform-data-agent, label production); scripts/setup/sync_agent_prompts.py
-    # đẩy bản production vào ConfigMap agent-prompts. Bản gốc lần đầu: infra/k8s/agents/prompts/data-agent.txt.
+    # System prompt managed in Langfuse (prompt platform-data-agent, label production); scripts/setup/sync_agent_prompts.py
+    # pushes the production version into ConfigMap agent-prompts. Initial seed: infra/k8s/agents/prompts/data-agent.txt.
     systemMessageFrom: {type: ConfigMap, name: agent-prompts, key: data-agent}
     tools:
       - type: McpServer
@@ -38,11 +38,11 @@ spec:
           name: feature-tools
           toolNames: [get_sku_features, get_policy_chunks]
     deployment:
-      # Không khai `replicas`: số replica do KEDA quyết định (data-agent-keda.yaml).
+      # No `replicas`: the replica count is decided by KEDA (data-agent-keda.yaml).
       resources:
         requests: {cpu: 50m, memory: 192Mi}
         limits: {memory: 512Mi}
-      # Ưu tiên rải replica sang worker khác: một node chết vẫn còn bản chạy. 'preferred' để kind 1 node vẫn chạy được.
+      # Prefer spreading replicas across workers: one dead node still leaves a running copy. 'preferred' so a 1-node kind still runs.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

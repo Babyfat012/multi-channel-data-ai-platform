@@ -1,4 +1,4 @@
-"""Đo skew trên AWS: spark-submit chạy trong container airflow, nguồn s3a và gói AWS từ biến của container."""
+"""Skew measurement on AWS: spark-submit runs in the airflow container, s3a source and AWS packages from container variables."""
 
 import os
 import stat
@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_aws_mode_submits_from_airflow_with_s3_source(tmp_path):
-    """skew_b trên AWS: docker compose exec airflow, --source từ biến, distribution-mode=none giữ nguyên."""
+    """skew_b on AWS: docker compose exec airflow, --source from a variable, distribution-mode=none preserved."""
     calls = tmp_path / "calls"
     fake = tmp_path / "bin" / "docker"
     fake.parent.mkdir()

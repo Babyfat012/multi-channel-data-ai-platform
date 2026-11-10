@@ -1,5 +1,5 @@
-# Agent 2 (Model + RAG Agent): dữ liệu từ Online Feature Store + 2 tool chính: dự đoán qua KServe
-# (`predict_return_risk`) và RAG (`search_policy_chunks`, Feast pgvector). Mọi tool đi qua agentgateway /mcp.
+# Agent 2 (Model + RAG Agent): data from the Online Feature Store + 2 main tools: prediction via KServe
+# (`predict_return_risk`) and RAG (`search_policy_chunks`, Feast pgvector). All tools go through agentgateway /mcp.
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
@@ -7,13 +7,13 @@ metadata:
   namespace: kagent
 spec:
   type: Declarative
-  # Mô tả này là mô tả tool mà Coordinator (LLM) thấy ⇒ tiếng Anh, có từ khoá để model nhỏ chọn đúng.
+  # This description is the tool description the Coordinator (LLM) sees ⇒ English, with keywords so a small model picks correctly.
   description: Answers ALL return/refund policy questions (Amazon, Walmart, Shopify, TikTok Shop, Shopee, seller playbook) from documents, and scores the return risk of a new order.
   declarative:
     modelConfig: default-model-config
     stream: false
-    # System prompt quản lý trên Langfuse (prompt platform-model-agent, label production); scripts/setup/sync_agent_prompts.py
-    # đẩy bản production vào ConfigMap agent-prompts. Bản gốc lần đầu: infra/k8s/agents/prompts/model-agent.txt.
+    # System prompt managed in Langfuse (prompt platform-model-agent, label production); scripts/setup/sync_agent_prompts.py
+    # pushes the production version into ConfigMap agent-prompts. Initial seed: infra/k8s/agents/prompts/model-agent.txt.
     systemMessageFrom: {type: ConfigMap, name: agent-prompts, key: model-agent}
     tools:
       - type: McpServer
@@ -23,11 +23,11 @@ spec:
           name: feature-tools
           toolNames: [get_sku_features, predict_return_risk, search_policy_chunks]
     deployment:
-      # Không khai `replicas`: số replica do KEDA quyết định (model-agent-keda.yaml).
+      # No `replicas`: the replica count is decided by KEDA (model-agent-keda.yaml).
       resources:
         requests: {cpu: 50m, memory: 192Mi}
         limits: {memory: 512Mi}
-      # Ưu tiên rải replica sang worker khác: một node chết vẫn còn bản chạy. 'preferred' để kind 1 node vẫn chạy được.
+      # Prefer spreading replicas across workers: one dead node still leaves a running copy. 'preferred' so a 1-node kind still runs.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

@@ -1,5 +1,5 @@
-# Jenkins controller cho CI/CD local: plugin cố định + công cụ mà Jenkinsfile gọi
-# (docker CLI/compose, kubectl, helm, kind, uv). Build chạy trên chính controller (1 executor).
+# Jenkins controller for local CI/CD: pinned plugins + the tools the Jenkinsfile calls
+# (docker CLI/compose, kubectl, helm, kind, uv). Builds run on the controller itself (1 executor).
 FROM jenkins/jenkins:2.580.1-lts-jdk21
 USER root
 RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates curl gnupg python3 \
@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install --no-install-recommends -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
-# kubectl lệch tối đa 1 minor với cụm: EKS 1.37 (kind local cũng chạy được với 1.37).
+# kubectl may skew at most 1 minor version from the cluster: EKS 1.37 (local kind also works with 1.37).
 RUN curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl \
     && curl -fsSLo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64 \
     && curl -fsSL https://get.helm.sh/helm-v3.18.4-linux-amd64.tar.gz | tar -xz -C /tmp \
@@ -17,12 +17,12 @@ RUN curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/v1.37.2/bin/lin
     && curl -fsSL https://github.com/astral-sh/uv/releases/download/0.9.5/uv-x86_64-unknown-linux-gnu.tar.gz \
        | tar -xz --strip-components=1 -C /usr/local/bin uv-x86_64-unknown-linux-gnu/uv \
     && chmod +x /usr/local/bin/kubectl /usr/local/bin/kind
-# AWS CLI: token EKS (exec plugin của kubeconfig) và đăng nhập ECR, credential từ IAM role EC2 (IMDS).
+# AWS CLI: EKS token (kubeconfig exec plugin) and ECR login, credentials from the EC2 IAM role (IMDS).
 RUN apt-get update && apt-get install --no-install-recommends -y unzip && rm -rf /var/lib/apt/lists/* \
     && curl -fsSLo /tmp/awscli.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.31.0.zip \
     && unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/aws /tmp/awscli.zip
 USER jenkins
 RUN jenkins-plugin-cli --plugins workflow-aggregator git credentials-binding configuration-as-code \
     job-dsl timestamper pipeline-stage-view
-# Job lấy code từ repo mount chỉ-đọc (/repo, git bundle trên EC2); plugin git mặc định chặn remote file://.
+# Jobs get code from a read-only mounted repo (/repo, git bundle on EC2); the git plugin blocks file:// remotes by default.
 ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true -Xmx512m"

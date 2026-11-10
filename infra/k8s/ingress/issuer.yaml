@@ -1,5 +1,5 @@
-# CA nội bộ cho HTTPS local: self-signed → cert CA (10 năm) → ClusterIssuer `platform-local-ca`.
-# Trên GKE với domain thật thay bằng ClusterIssuer ACME (Let's Encrypt).
+# Internal CA for local HTTPS: self-signed → CA cert (10 years) → ClusterIssuer `platform-local-ca`.
+# On GKE with a real domain, replace with an ACME ClusterIssuer (Let's Encrypt).
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata: {name: selfsigned}

@@ -1,4 +1,4 @@
-"""Đọc nhiều file Walmart scale; tái dùng transaction của script nạp Walmart hiện có."""
+"""Read multiple scaled Walmart files; reuse the transaction of the existing Walmart load script."""
 
 import argparse
 import json
@@ -12,7 +12,7 @@ from scripts.setup.setup_order_snapshots_debezium import load_settings  # noqa: 
 
 
 def main():
-    """Nạp tất cả file Walmart trong manifest scale vào cùng transaction."""
+    """Load every Walmart file in the scale manifest in a single transaction."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
@@ -41,12 +41,14 @@ def main():
                 )
                 count += 1
         if count != item["rows"]:
-            raise ValueError("Số dòng Walmart khác manifest")
+            raise ValueError("Walmart row count differs from the manifest")
     if not rows:
-        raise ValueError("Không có Walmart để kiểm JDBC; tăng mẫu hoặc chọn fixture")
+        raise ValueError(
+            "No Walmart rows to check over JDBC; increase the sample or pick a fixture"
+        )
     count = load(rows, load_settings(Path(".env")))
     if count != len(rows):
-        raise ValueError("Đối soát Walmart thất bại")
+        raise ValueError("Walmart reconciliation failed")
     print(f"Walmart scale: {count} orders")
 
 

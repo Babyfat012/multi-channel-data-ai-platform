@@ -1,4 +1,4 @@
-"""Kiểm ml/drift.summarize: đọc đúng chiều p-value (nhỏ = drift) và khoảng cách (lớn = drift)."""
+"""Check ml/drift.summarize: reads p-value (small = drift) and distance (large = drift) in the right direction."""
 
 import pandas as pd
 import pytest
@@ -7,7 +7,7 @@ from ml.drift import comparisons, summarize
 
 
 def snapshot(*metrics):
-    """Hình dạng tối thiểu của Snapshot.dict() mà summarize đọc."""
+    """Minimal shape of Snapshot.dict() that summarize reads."""
     return {"metrics": [{"metric_name": n, "value": v} for n, v in metrics]}
 
 
@@ -21,7 +21,7 @@ def snapshot(*metrics):
     ],
 )
 def test_direction_and_boundary(method, threshold, score, drift):
-    """Biên ngưỡng theo từng loại phương pháp."""
+    """Threshold boundary for each method type."""
     out = summarize(
         snapshot((f"ValueDrift(column=x,method={method},threshold={threshold})", score))
     )
@@ -29,7 +29,7 @@ def test_direction_and_boundary(method, threshold, score, drift):
 
 
 def test_alert_when_any_column_drifts_and_ignores_other_metrics():
-    """Một cột drift là đủ cảnh báo; metric không phải ValueDrift bị bỏ qua."""
+    """One drifted column is enough to alert; metrics other than ValueDrift are ignored."""
     out = summarize(
         snapshot(
             ("DriftedColumnsCount(drift_share=0.5)", {"count": 1.0, "share": 0.5}),
@@ -41,7 +41,7 @@ def test_alert_when_any_column_drifts_and_ignores_other_metrics():
 
 
 def test_comparisons_split_by_reference_window_and_channel():
-    """N ngày đầu là tham chiếu; channel_shift chỉ giữ phần sau của một kênh; kênh vắng ⇒ báo lỗi rõ."""
+    """The first N days are the reference; channel_shift keeps only the later part of one Channel; an absent Channel ⇒ clear error."""
     frame = pd.DataFrame(
         {
             "event_timestamp": pd.to_datetime(

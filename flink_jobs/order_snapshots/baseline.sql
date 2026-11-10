@@ -1,10 +1,10 @@
--- Baseline Flink: đọc topic Amazon đã phát, giữ đúng ID và event time.
--- Chạy liên tục (không bounded) nên job ở trạng thái RUNNING; file CSV đóng mỗi ~30 s.
+-- Flink baseline: read the published Amazon topic, keeping the exact IDs and event time.
+-- Runs continuously (not bounded), so the job stays RUNNING; CSV files close every ~30 s.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'flink-baseline-amazon';
 SET 'execution.checkpointing.interval' = '10s';
--- Checkpoint ra đĩa EBS (mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB).
+-- Checkpoints to the EBS disk (the default keeps them in JobManager memory, max 5 MB).
 SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
 
 CREATE TABLE amazon_notifications (

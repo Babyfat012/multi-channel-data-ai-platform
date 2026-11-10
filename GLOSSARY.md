@@ -1,115 +1,115 @@
 # Data & AI Platform
 
-Các định nghĩa nền về Seller, SKU, Listing, Storefront, Order Line và Return
-Label tiếp tục dùng [thuật ngữ Data & AI Platform](docs/shared/terminology.md). Các mục dưới đây bổ
-sung ngôn ngữ cho phần mở rộng phân tích phía Seller.
+The core definitions of Seller, SKU, Listing, Storefront, Order Line and Return
+Label live in the [Data & AI Platform terminology](docs/shared/terminology.md). The entries below
+add vocabulary for the Seller-side analytics extension.
 
 ## Language
 
 **Data Platform**:
-Phần hệ thống cung cấp dữ liệu bán hàng đã chuẩn hóa, có kiểm tra chất lượng và truy vết để phân tích và làm đầu vào cho ML Platform, LLM Platform.
-_Avoid_: DE, Data Engineering (khi dùng làm tên phần của hệ thống)
+The part of the system that provides normalized sales data, with quality checks and lineage, for analytics and as input to the ML Platform and LLM Platform.
+_Avoid_: DE, Data Engineering (as the name of a part of the system)
 
 **ML Platform**:
-Phần hệ thống quản lý feature và vòng đời mô hình dự đoán, từ huấn luyện đến phục vụ và giám sát.
+The part of the system that manages features and the lifecycle of predictive models, from training to serving and monitoring.
 _Avoid_: MLE, Feature + ML platform
 
 **LLM Platform**:
-Phần hệ thống cung cấp hội thoại và hỗ trợ Seller bằng LLM, truy xuất tài liệu và các agent sử dụng dữ liệu, mô hình.
-_Avoid_: LLM/Agent platform, tầng 3
+The part of the system that provides conversation and Seller assistance through LLMs, document retrieval, and agents that use data and models.
+_Avoid_: LLM/Agent platform, layer 3
 
 **SKU Insight**:
-Thông tin phân tích về tình hình của một SKU, giúp Seller nhận biết kết quả
-và những thay đổi đáng chú ý khi xem SKU đó.
-_Avoid_: Product recommendation, dự đoán trả hàng
+Analytical information about how a SKU is doing, helping the Seller notice results
+and notable changes when looking at that SKU.
+_Avoid_: Product recommendation, return prediction
 
 **Seller Recommendation**:
-Gợi ý hành động dành cho Seller dựa trên dữ liệu hoặc thông tin nghiệp vụ
-liên quan; phân biệt với gợi ý sản phẩm cho người mua.
-_Avoid_: Product recommendation, kết luận nguyên nhân
+A suggested action for the Seller based on related data or business information;
+distinct from product recommendations for buyers.
+_Avoid_: Product recommendation, root-cause conclusion
 
-**Giá trị hàng đặt**:
-Giá trị tiền hàng sau discount, theo tiền gốc. Q60: headline sales trừ phần
-hủy trước ship; ordered, canceled và product Refund là measures riêng.
-Đặt300/hủy100/Refund100 cho headline200. Chỉ số không xác nhận tiền đã thu.
-_Avoid_: Lợi nhuận, doanh thu thực thu, paid GMV
+**Ordered Value**:
+Merchandise value after discounts, in the original currency. Headline sales subtract
+cancellations before shipping; ordered, canceled and product Refund are separate measures.
+Ordered 300 / canceled 100 / Refund 100 gives headline 200. The metric does not confirm money was collected.
+_Avoid_: Profit, realized revenue, paid GMV
 
-**Return** (trả hàng):
-Khách **gửi hàng về** cho Seller (yêu cầu được chấp nhận). Thường kèm hoàn tiền nhưng không bắt buộc:
-đổi hàng, voucher/store credit, hoặc hàng gửi về bị từ chối sau kiểm thì có Return mà không có Refund.
-_Avoid_: Coi Return là đồng nghĩa với hoàn tiền
+**Return**:
+The buyer **ships goods back** to the Seller (request accepted). Usually comes with a refund, but not always:
+exchanges, vouchers/store credit, or returned goods rejected on inspection produce a Return without a Refund.
+_Avoid_: Treating Return as a synonym for refund
 
-**Refund** (hoàn tiền):
-**Tiền về** cho khách. Có thể đi kèm Return, hoặc **refund-only** (returnless refund: khách giữ hàng).
-Chỉ Refund thành phần sản phẩm (`component = product`) mới liên quan nhãn; shipping/tax/fee/goodwill thì không.
-_Avoid_: Coi mọi Refund là có hàng gửi về
+**Refund**:
+**Money goes back** to the buyer. It can come with a Return, or be **refund-only** (returnless refund: the buyer keeps the goods).
+Only Refunds of the product component (`component = product`) affect the label; shipping/tax/fee/goodwill do not.
+_Avoid_: Assuming every Refund involves goods being shipped back
 
-**Ba ca hậu mãi** (`positive_kind` của nhãn v2):
-`return_and_refund` (hàng về + tiền về), `refund_only` (tiền về, khách giữ hàng), `return_only` (hàng về,
-không có tiền về). Return và Refund là **hai sự kiện độc lập**; "đi cùng nhau" = cùng Order Line và cùng nằm
-trong cửa sổ 30 ngày, chưa bắt buộc nối theo `return_id` (không phải Channel nào cũng gửi liên kết đó).
+**Three post-sale cases** (`positive_kind` of label v2):
+`return_and_refund` (goods back + money back), `refund_only` (money back, buyer keeps goods), `return_only` (goods back,
+no money back). Return and Refund are **two independent events**; "together" means the same Order Line and both within
+the 30-day window, without requiring a `return_id` join (not every Channel sends that link).
 
-**Tỷ lệ Return-hoặc-Refund lịch sử** (`return_or_refund_rate_90d`; tên cũ `return_rate_90d`):
-Tỷ lệ Order Line có nhãn v2 dương trong nhóm đã chốt giao/hủy, đủ maturity
-của mọi phần giao và đủ coverage tại cutoff. Luôn đi kèm tử/mẫu số, cohort
-theo lần giao cuối phần thực giao và phiên bản nhãn. Đếm cả refund-only, nên **không** phải tỷ lệ hàng
-vật lý bị gửi về; muốn tách thì lọc theo `positive_kind`.
-_Avoid_: Xác suất trả hàng dự đoán, tỷ lệ trên mọi đơn mới đặt, "tỷ lệ trả hàng" (thiếu chữ Refund)
+**Historical Return-or-Refund rate** (`return_or_refund_rate_90d`; formerly `return_rate_90d`):
+Share of Order Lines with a positive v2 label among those whose delivery/cancellation is settled, with every
+delivered portion mature and full coverage at the cutoff. Always reported with numerator/denominator, the cohort
+(by last delivery of the delivered portion) and the label version. It counts refund-only, so it is **not** the rate of
+goods physically shipped back; filter by `positive_kind` to separate them.
+_Avoid_: Predicted return probability, rate over all newly placed orders, "return rate" (missing the word Refund)
 
-**Điểm rủi ro trả hàng**:
-Tín hiệu xếp hạng giúp Seller biết SKU/Listing nào nên kiểm tra trước, suy ra
-tại thời điểm đặt đơn với điều kiện đơn sẽ được giao. Là thứ hạng kèm căn cứ,
-không phải xác suất vô điều kiện cho mọi đơn mới.
-_Avoid_: Xác suất trả hàng, dự báo chắc chắn
+**Return Risk Score**:
+A ranking signal that tells the Seller which SKU/Listing to check first, inferred
+at order time conditional on the order being delivered. It is a ranking with supporting evidence,
+not an unconditional probability for every new order.
+_Avoid_: Return probability, certain forecast
 
-**Chế độ xem trực tiếp**:
-Trạng thái hoạt động gần đây lấy từ Stream (đơn mới, đổi Order Status, Return
-đến muộn), tách biệt với số liệu chính thức theo ngày.
-_Avoid_: Số liệu chính thức, báo cáo chốt
+**Live View**:
+Recent activity derived from the Stream (new orders, Order Status changes, late
+Returns), kept separate from official daily figures.
+_Avoid_: Official figures, closed report
 
-**Số liệu chính thức theo ngày**:
-Con số chốt theo ngày hoàn chỉnh, gắn nhãn thời điểm dữ liệu và phiên bản
-công bố. Khi có sửa đổi hợp lệ, lần công bố mới cập nhật số hiện hành và
-giữ phiên bản cũ để truy lại.
+**Official Daily Figures**:
+Numbers closed per complete day, labeled with the data timestamp and the publication
+version. When a valid correction arrives, a new publication updates the current numbers and
+keeps the old version for traceability.
 _Avoid_: Live, real-time
 
-**Phiên bản công bố**:
-Một lần công bố dữ liệu đã qua kiểm tra, gồm mọi đầu ra bắt buộc của cùng một
-lần refresh; yêu cầu phục vụ ghim vào đúng một phiên bản để không trộn số.
+**Publication Version**:
+One published, validated set of data containing every required output of the same
+refresh; serving requests pin exactly one version so numbers never mix.
 _Avoid_: Snapshot, deployment, release
 
-**Phiên bản dataset**:
-Một lần sinh dữ liệu giả lập cố định (catalog, cutoff, cấu hình, lịch sử),
-được định danh để proof, feature và model trỏ về đúng một bộ dữ liệu tái lập.
-_Avoid_: Snapshot ngày, data version ẩn
+**Dataset Version**:
+One fixed run of the data simulator (catalog, cutoff, configuration, history),
+identified so that proofs, features and models point to exactly one reproducible dataset.
+_Avoid_: Daily snapshot, hidden data version
 
-**Nguồn Seller operational giả lập**:
-Feed OMS/WMS/carrier/post-sales được simulator xuất riêng theo Q61, có
-authority, liên kết native identity và thời điểm quan sát; đi qua Bronze/Silver.
-Không làm mọi Channel/pool có coverage đầy đủ.
-_Avoid_: API Channel thật, ground truth dùng trực tiếp làm feature
+**Simulated Seller operational sources**:
+OMS/WMS/carrier/post-sales feeds exported separately by the simulator, with
+authority, native identity links and observation time; they flow through Bronze/Silver.
+They do not give every Channel/pool full coverage.
+_Avoid_: Real Channel API, ground truth used directly as a feature
 
 **Inventory Pool**:
-Nhóm tồn vật lý của Seller được dùng cấp hàng cho một hoặc nhiều Storefront.
-Nhiều Storefront cùng sử dụng một pool không làm tăng lượng tồn vật lý của nó.
-_Avoid_: Tồn của Channel, tổng tồn theo Storefront
+A group of the Seller's physical stock used to supply one or more Storefronts.
+Several Storefronts sharing a pool does not increase its physical stock.
+_Avoid_: Channel stock, total stock per Storefront
 
 **Location**:
-Địa điểm giữ hoặc xử lý hàng của một Inventory Pool, như kho Seller hoặc kho
-do Channel vận hành.
-_Avoid_: Storefront, Marketplace, địa chỉ buyer
+A place that holds or handles goods for an Inventory Pool, such as a Seller warehouse or a
+Channel-operated warehouse.
+_Avoid_: Storefront, Marketplace, buyer address
 
 **Reservation**:
-Phần số lượng của một SKU trong pool được giữ cho một nhu cầu cụ thể và chưa
-được giải phóng hoặc xuất giao.
-_Avoid_: Đã bán, đã giao, tồn vật lý giảm
+The quantity of a SKU in a pool held for a specific demand and not yet
+released or shipped.
+_Avoid_: Sold, shipped, physical stock decrease
 
 **Inbound**:
-Lượng hàng dự kiến đi vào pool/location nhưng chưa được xác nhận nhận thực tế.
-_Avoid_: Tồn sẵn bán, hàng đã nhận
+Quantity expected to arrive at a pool/location but not yet confirmed as received.
+_Avoid_: Available-to-sell stock, received goods
 
-**Hàng đợi kiểm tra SKU**:
-Danh sách SKU trong từng Storefront cần Seller xem xét, kèm lý do, độ phủ
-và bằng chứng để drilldown. Ba nhóm return-risk, inventory/Listing
-availability và biến động sales có thứ tự ưu tiên riêng, không tự thực hiện hành động bán hàng.
-_Avoid_: Danh sách hủy đơn, sản phẩm đề xuất cho buyer, xác suất thiệt hại
+**SKU Review Queue**:
+A per-Storefront list of SKUs the Seller should look at, with reason, coverage
+and drill-down evidence. The three groups (return risk, inventory/Listing
+availability and sales swings) have their own priority order and never take sales actions automatically.
+_Avoid_: Order cancellation list, products recommended to buyers, loss probability

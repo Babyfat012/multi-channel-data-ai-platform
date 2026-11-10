@@ -1,4 +1,4 @@
-"""Kiểm quyết định bảo trì Iceberg qua giao diện Python thuần, không cần Spark."""
+"""Check Iceberg maintenance decisions through the pure-Python interface, without Spark."""
 
 from datetime import datetime, timezone
 
@@ -8,7 +8,7 @@ NOW = datetime(2026, 10, 18, tzinfo=timezone.utc)
 
 
 def test_compact_only_small_crowded_partition():
-    """Partition ít file hoặc file to không bị gom nhầm."""
+    """Partitions with few files or large files are not compacted by mistake."""
     metadata = {
         "files": [
             {"partition": {"day": day}, "file_size_in_bytes": size}
@@ -26,7 +26,7 @@ def test_compact_only_small_crowded_partition():
 
 
 def metadata_snapshots():
-    """Lịch sử nhỏ có mốc z-order và generation cũ."""
+    """Small history with a z-order marker and an old generation."""
     return {
         "files": [],
         "properties": {},
@@ -48,7 +48,7 @@ def metadata_snapshots():
 
 
 def test_zorder_first_run_then_only_after_threshold():
-    """Mốc snapshot ngăn z-order thừa; file mới đủ ngưỡng mới kích hoạt."""
+    """The snapshot marker prevents redundant z-order; only enough new files trigger it."""
     metadata = metadata_snapshots()
     config = {"zorder_columns": ["seller_sku"], "zorder_min_new_files": 3}
     assert "zorder" in [a["kind"] for a in plan_maintenance(metadata, config, NOW)["actions"]]
@@ -59,7 +59,7 @@ def test_zorder_first_run_then_only_after_threshold():
 
 
 def test_generation_and_branch_protected_even_when_old():
-    """Không đưa snapshot bị bất kỳ tag/branch trỏ tới vào danh sách hết hạn."""
+    """Never put a snapshot referenced by any tag/branch on the expiry list."""
     plan = plan_maintenance(metadata_snapshots(), {"retain_last": 1}, NOW)
     expire = next(a for a in plan["actions"] if a["kind"] == "expire_snapshots")
     assert expire["snapshot_ids"] == [2, 3]
@@ -68,7 +68,7 @@ def test_generation_and_branch_protected_even_when_old():
 
 
 def test_no_mutation_has_reason_and_orphans_always_dry_run():
-    """No-op về mutation vẫn có kiểm kê orphan theo luật luôn lập kế hoạch."""
+    """A mutation no-op still has the orphan inventory, per the always-plan rule."""
     plan = plan_maintenance({}, {}, NOW)
     assert plan["no_op"] and "no-op" in plan["reason"]
     assert len(plan["actions"]) == 1
@@ -77,7 +77,7 @@ def test_no_mutation_has_reason_and_orphans_always_dry_run():
 
 
 def test_retry_transient_twice_and_stop_at_fatal():
-    """Receipt có 3 lần thử; lỗi fatal dừng trước hành động tiếp theo."""
+    """The receipt has 3 attempts; a fatal error stops before the next action."""
     import pytest
 
     from spark_jobs.lib.maintenance_policy import execute_actions
@@ -85,7 +85,7 @@ def test_retry_transient_twice_and_stop_at_fatal():
     attempts, called, delays = [], [], []
 
     def transient(action):
-        """Giả commit conflict hai lần, rồi trả kết quả procedure."""
+        """Fake a commit conflict twice, then return the procedure result."""
         called.append(action["kind"])
         if len(called) < 3:
             raise RuntimeError("CommitFailedException: conflicting commit")
@@ -97,7 +97,7 @@ def test_retry_transient_twice_and_stop_at_fatal():
     called.clear()
 
     def fatal(action):
-        """Giả lỗi cấu hình không được retry."""
+        """Fake a config error that must not be retried."""
         called.append(action["kind"])
         raise ValueError("bad column")
 
@@ -107,7 +107,7 @@ def test_retry_transient_twice_and_stop_at_fatal():
 
 
 def test_validation_error_requires_concurrency_and_retry_is_bounded():
-    """Không retry schema invalid; không thử quá max_attempts."""
+    """Do not retry an invalid schema; never try more than max_attempts."""
     import pytest
 
     from spark_jobs.lib.maintenance_policy import execute_actions, is_transient
@@ -117,7 +117,7 @@ def test_validation_error_requires_concurrency_and_retry_is_bounded():
     attempts = []
 
     def fail(action):
-        """Giả lỗi tạm không tự hết."""
+        """Fake a transient error that never clears."""
         raise RuntimeError("CommitFailedException")
 
     with pytest.raises(RuntimeError):
@@ -129,7 +129,7 @@ def test_validation_error_requires_concurrency_and_retry_is_bounded():
 
 
 def test_project_configuration_valid_and_unsafe_orphan_rejected():
-    """JSON thật nạp được; cutoff xoá orphan dưới 72h bị chặn."""
+    """The real JSON loads; an orphan-delete cutoff under 72h is blocked."""
     from pathlib import Path
 
     import pytest
@@ -144,7 +144,7 @@ def test_project_configuration_valid_and_unsafe_orphan_rejected():
 
 
 def test_probe_missing_metrics_conservatively_reads_file():
-    """Probe đếm giao khoảng; thiếu bound không được coi là bỏ qua file."""
+    """The probe counts range intersections; a missing bound must not be treated as skipping the file."""
     from spark_jobs.lib.maintenance_policy import count_probe_files
 
     files = [
@@ -156,7 +156,7 @@ def test_probe_missing_metrics_conservatively_reads_file():
 
 
 def test_probe_timestamp_accepts_iso_range_without_wrong_pruning():
-    """Chuẩn hoá thời gian có chữ T/múi giờ trước khi so với metric datetime."""
+    """Normalize times with a T/time zone before comparing with datetime metrics."""
     from spark_jobs.lib.maintenance_policy import count_probe_files
 
     files = [
@@ -176,7 +176,7 @@ def test_probe_timestamp_accepts_iso_range_without_wrong_pruning():
 
 
 def test_sql_where_is_passed_as_one_escaped_argument():
-    """CLI module nạp không cần pyspark; literal chứa quote không mất dấu quote."""
+    """The CLI module loads without pyspark; a literal containing quotes keeps its quotes."""
     import importlib.util
     import sys
     from pathlib import Path
@@ -196,12 +196,12 @@ def test_sql_where_is_passed_as_one_escaped_argument():
         "lakehouse.bronze.orders",
         {"kind": "remove_orphans", "older_than": "2026-10-25T00:00:00+00:00", "dry_run": True},
     )
-    # S3 trên AWS: Hadoop FileSystem không đọc được s3://, phải liệt kê qua FileIO.
+    # S3 on AWS: Hadoop FileSystem cannot read s3://, so listing must go through FileIO.
     assert "prefix_listing => true" in orphans and "dry_run => true" in orphans
 
 
 def test_expiring_reference_retention_is_rejected_before_deletion():
-    """Không để expire_snapshots tự bỏ ref hết TTL rồi xoá generation cũ."""
+    """Do not let expire_snapshots drop an expired-TTL ref and then delete the old generation."""
     import pytest
 
     from spark_jobs.lib.maintenance_policy import ensure_refs_survive_expiration

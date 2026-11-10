@@ -1,4 +1,4 @@
-# Feast chỉ đọc định nghĩa feature (features.py); script chạy trong image feast-pusher không được import khi `feast apply`.
+# Feast only reads feature definitions (features.py); scripts that run in the feast-pusher image must not be imported during `feast apply`.
 replay_return_events.py
 push_stream_features.py
 check_online_store.py

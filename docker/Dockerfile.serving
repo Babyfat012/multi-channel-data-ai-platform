@@ -1,10 +1,10 @@
-# Web API kéo feature + chunk RAG (serving/app.py). Dựng trên image Feast có sẵn để dùng chung layer feast
-# (đỡ ~1 GB đĩa); build platform-feast:0.66.0 trước (docker/Dockerfile.feast).
+# Web API that fetches features + RAG chunks (serving/app.py). Built on the existing Feast image to share the feast layer
+# (saves ~1 GB of disk); build platform-feast:0.66.0 first (docker/Dockerfile.feast).
 FROM platform-feast:0.66.0
 USER root
 RUN pip install --no-cache-dir "fastapi==0.156.4" "uvicorn==0.54.0" "mcp==2.3.0" \
     "feast[postgres]==0.66.0" "fastembed==0.8.1"
-# Model embedding nằm sẵn trong image: pod khởi động không cần tải từ Hugging Face.
+# The embedding model is baked into the image: pods start without downloading from Hugging Face.
 ENV RAG_MODEL_CACHE=/opt/models
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/models')" \
     && chmod -R a+rX /opt/models

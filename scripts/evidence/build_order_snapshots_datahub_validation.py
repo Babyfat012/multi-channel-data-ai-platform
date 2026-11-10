@@ -3,11 +3,11 @@
 Mount the PLATFORM Airflow volume read-only at ``--logs-root``. Every check is
 parsed from the successful attempt of a specific documented DAG run.
 
-Log của hai validator có hai dạng. Dạng cũ (run 2026-10-13/14) là bằng chứng
-lịch sử của CDC v1 và feature validator cũ. Dạng mới in thêm `thừa`/`sai payload`
-(CDC v2) và một dict khóa/thời gian (feature). Parser đọc cả hai và gắn dạng log
-vào metrics; muốn dùng run mới thì truyền ``--run`` và ``--output`` riêng để
-không ghi đè manifest lịch sử.
+The two validators log in two formats. The old format (runs 2026-10-13/14) is the
+historical evidence of CDC v1 and the old feature validator. The new format also prints
+`extra`/`payload mismatch` (CDC v2) and a key/time dict (feature). The parser reads both
+and attaches the log format to the metrics; to use a new run, pass a separate ``--run``
+and ``--output`` so the historical manifest is not overwritten.
 """
 
 from __future__ import annotations
@@ -24,13 +24,13 @@ RUNS = {
     "dp1_cdc": "manual__2026-10-13T22:34:22+00:00",
     "dp2_silver": "manual__2026-10-14T03:53:52+00:00",
     "dp3_features": "manual__2026-10-14T04:11:15+00:00",
-    # Chưa có run mặc định (bản Walmart-only cũ chạy 2026-10-14): truyền --run dp3_return_labels=...
+    # No default run (the old Walmart-only version ran 2026-10-14): pass --run dp3_return_labels=...
     "dp3_return_labels": "",
     "dp4_warehouse": "",
 }
 CHANNELS = ("amazon", "walmart", "tiktok_shop", "shopify", "shopee")
 LEGACY_CDC_TABLE = "lakehouse.bronze.raw_walmart_cdc"
-# Metric có tên bắt đầu bằng các tiền tố này phải bằng 0 thì check mới PASS.
+# Metrics whose names start with these prefixes must be 0 for the check to PASS.
 FAILURE_PREFIXES = (
     "invalid",
     "duplicate",
@@ -46,7 +46,7 @@ FAILURE_PREFIXES = (
 
 
 def number(pattern: str, log: str) -> int:
-    """Lấy một số nguyên có dấu phẩy ngăn cách từ log task."""
+    """Extract a comma-separated integer from a task log."""
     match = re.search(pattern, log)
     if match is None:
         raise ValueError(f"Missing metric: {pattern}")
@@ -54,7 +54,7 @@ def number(pattern: str, log: str) -> int:
 
 
 def success_log(root: Path, dag: str, task: str, run_id: str) -> tuple[str, str, str]:
-    """Lần chạy thành công gần nhất: đường dẫn tương đối và giờ kết thúc."""
+    """Latest successful attempt: relative path and completion time."""
     directory = root / f"dag_id={dag}" / f"run_id={run_id}" / f"task_id={task}"
     attempts = sorted(
         directory.glob("attempt=*.log"),
@@ -75,27 +75,27 @@ def success_log(root: Path, dag: str, task: str, run_id: str) -> tuple[str, str,
 
 
 def cdc_metrics(log: str) -> tuple[dict[str, int], str, str]:
-    """Parse validator CDC; dạng v2 có thêm offset thừa và payload lệch."""
+    """Parse the CDC validator; the v2 format adds extra offsets and payload mismatches."""
     metrics = {
         "source_rows": number(r"Kafka=([\d,]+)", log),
         "dataset_rows": number(r"Bronze=([\d,]+)", log),
-        "unique_offsets": number(r"offsets duy nhất=([\d,]+)", log),
-        "missing_rows": number(r"thiếu=([\d,]+)", log),
-        "invalid_rows": number(r"lỗi=([\d,]+)", log),
+        "unique_offsets": number(r"unique offsets=([\d,]+)", log),
+        "missing_rows": number(r"missing=([\d,]+)", log),
+        "invalid_rows": number(r"invalid=([\d,]+)", log),
     }
-    if "thừa=" not in log:
-        return metrics, "Kafka = Bronze = số offset duy nhất; không thiếu và không lỗi", "cdc-v1"
-    metrics["extra_rows"] = number(r"thừa=([\d,]+)", log)
-    metrics["payload_mismatch_rows"] = number(r"sai payload=([\d,]+)", log)
+    if "extra=" not in log:
+        return metrics, "Kafka = Bronze = unique offset count; no missing and no invalid", "cdc-v1"
+    metrics["extra_rows"] = number(r"extra=([\d,]+)", log)
+    metrics["payload_mismatch_rows"] = number(r"payload mismatch=([\d,]+)", log)
     rule = (
-        "Trong khoảng offset đã đóng băng của run và đúng source epoch: Kafka = Bronze "
-        "= số offset duy nhất; không thiếu, không thừa, payload khớp, không lỗi"
+        "Within the run's frozen offset range and matching source epoch: Kafka = Bronze "
+        "= unique offset count; no missing, no extra, payload matches, no invalid"
     )
     return metrics, rule, "cdc-v2"
 
 
 def feature_metrics(log: str) -> tuple[dict[str, int], str, str]:
-    """Parse validator feature; dạng mới in một dict so khóa và event time với Gold."""
+    """Parse the feature validator; the new format prints a dict comparing keys and event time with Gold."""
     match = re.search(r"(\{'fact_rows': [^\n]+?\})", log)
     if match is None:
         metrics = {
@@ -106,7 +106,7 @@ def feature_metrics(log: str) -> tuple[dict[str, int], str, str]:
         }
         return (
             metrics,
-            "Feature bằng Gold; không lỗi, không trùng khóa, không rò rỉ nhãn",
+            "Feature equals Gold; no invalid, no duplicate keys, no label leakage",
             "feature-v1",
         )
     raw = ast.literal_eval(match.group(1))
@@ -122,29 +122,29 @@ def feature_metrics(log: str) -> tuple[dict[str, int], str, str]:
         "wrong_event_time_rows": raw["wrong_event_time"],
     }
     rule = (
-        "Feature và Gold cùng tập khóa Order Line (không thiếu, không thừa), không trùng "
-        "khóa, event_timestamp = created_at của Gold, không rò rỉ nhãn. Chưa phải PIT đầy đủ"
+        "Feature and Gold share the same Order Line key set (no missing, no extra), no duplicate "
+        "keys, event_timestamp = Gold created_at, no label leakage. Not full PIT yet"
     )
     return metrics, rule, "feature-v2"
 
 
 def metrics_for(dag: str, task: str, log: str) -> tuple[dict[str, int], str, str]:
-    """Đọc số đếm, luật kiểm và dạng log của một lần validate Spark."""
+    """Read the counts, check rule and log format of one Spark validate run."""
     log_format = "v1"
     if dag == "dp1_bronze":
         if task in {"validate_amazon", "validate_walmart"}:
             metrics = {
-                "source_rows": number(r"nguồn=([\d,]+)", log),
+                "source_rows": number(r"source=([\d,]+)", log),
                 "dataset_rows": number(r"Bronze=([\d,]+)", log),
-                "invalid_rows": number(r"lỗi=([\d,]+) bảng=", log),
+                "invalid_rows": number(r"invalid=([\d,]+) table=", log),
             }
         else:
             metrics = {
-                "source_rows": number(r"dòng nguồn\s*=\s*([\d,]+)", log),
-                "dataset_rows": number(r"dòng Bronze\s*=\s*([\d,]+)", log),
-                "invalid_rows": number(r"dòng lỗi\s*=\s*([\d,]+)", log),
+                "source_rows": number(r"source rows\s*=\s*([\d,]+)", log),
+                "dataset_rows": number(r"Bronze rows\s*=\s*([\d,]+)", log),
+                "invalid_rows": number(r"invalid rows\s*=\s*([\d,]+)", log),
             }
-        rule = "Nguồn có dòng; số dòng nguồn = Bronze; dữ liệu và provenance hợp lệ"
+        rule = "Source has rows; source row count = Bronze; data and provenance valid"
         if metrics["source_rows"] <= 0 or metrics["source_rows"] != metrics["dataset_rows"]:
             raise ValueError(f"Bronze row mismatch: {task}")
     elif dag == "dp1_cdc":
@@ -152,18 +152,18 @@ def metrics_for(dag: str, task: str, log: str) -> tuple[dict[str, int], str, str
         if not metrics["source_rows"] == metrics["dataset_rows"] == metrics["unique_offsets"]:
             raise ValueError("CDC row mismatch")
     elif dag == "dp2_silver" and task.endswith("_silver"):
-        source_pattern = r"Order nguồn(?: duy nhất)?\s*=\s*([\d,]+)"
+        source_pattern = r"source Orders(?: unique)?\s*=\s*([\d,]+)"
         target_pattern = r"Order Line Silver\s*=\s*([\d,]+)"
-        duplicate_match = re.search(r"có (?:khóa Order Line|khoá) trùng\s*=\s*(True|False)", log)
+        duplicate_match = re.search(r"duplicate Order Line keys\s*=\s*(True|False)", log)
         if duplicate_match is None:
             raise ValueError(f"Missing duplicate-key result: {task}")
         metrics = {
             "source_orders": number(source_pattern, log),
             "dataset_rows": number(target_pattern, log),
-            "invalid_rows": number(r"dòng (?:không hợp lệ|lỗi)\s*=\s*([\d,]+)", log),
+            "invalid_rows": number(r"invalid rows\s*=\s*([\d,]+)", log),
             "duplicate_keys": int(duplicate_match.group(1) == "True"),
         }
-        rule = "Order Line >= Order nguồn; cột bắt buộc, run_id và khóa hợp lệ"
+        rule = "Order Line >= source Orders; required columns, run_id and keys valid"
         if metrics["source_orders"] <= 0 or metrics["dataset_rows"] < metrics["source_orders"]:
             raise ValueError(f"Silver row mismatch: {task}")
     elif task == "validate_gold_order_lines":
@@ -179,27 +179,29 @@ def metrics_for(dag: str, task: str, log: str) -> tuple[dict[str, int], str, str
             "invalid_rows": number(r"Gold invalid=([\d,]+)", log),
             "duplicate_order_line_key": number(r"duplicate_order_line_key=([\d,]+)", log),
         }
-        rule = "Gold khớp Silver theo từng Channel; không lỗi và không trùng khóa"
+        rule = "Gold matches Silver per Channel; no invalid and no duplicate keys"
     elif task == "validate_amazon_order_dim":
         current = number(r"is_current=True, count=([\d,]+)", log)
         historic = number(r"is_current=False, count=([\d,]+)", log)
         metrics = {"dataset_rows": current + historic}
         for key in ("invalid", "duplicate", "multiple_current", "bad_fact", "missing_version"):
             metrics[f"{key}_rows"] = number(rf"{key}=([\d,]+)", log)
-        rule = "Một phiên bản hiện hành mỗi Order; khóa fact trỏ đúng phiên bản; không lỗi"
+        rule = "One current version per Order; fact keys point to the correct version; no invalid"
     elif task == "validate_return_features":
         metrics, rule, log_format = feature_metrics(log)
         if metrics["source_rows"] != metrics["dataset_rows"]:
             raise ValueError("Feature row mismatch")
     elif task == "build_and_validate_return_labels":
         metrics = {
-            "dataset_rows": number(r"Bridge nhãn: rows=([\d,]+)", log),
-            "duplicate_keys": number(r"Bridge nhãn: rows=[\d,]+, duplicate=([\d,]+)", log),
+            "dataset_rows": number(r"Label bridge: rows=([\d,]+)", log),
+            "duplicate_keys": number(r"Label bridge: rows=[\d,]+, duplicate=([\d,]+)", log),
             "invalid_rows": number(
-                r"Bridge nhãn: rows=[\d,]+, duplicate=[\d,]+, invalid=([\d,]+)", log
+                r"Label bridge: rows=[\d,]+, duplicate=[\d,]+, invalid=([\d,]+)", log
             ),
         }
-        rule = "Bridge nhãn năm Channel có dòng ở mọi kênh; không lỗi và không trùng khóa"
+        rule = (
+            "Five-Channel label bridge has rows in every Channel; no invalid and no duplicate keys"
+        )
     elif task == "export_and_index_warehouse":
         match = re.search(r"gold=(\{[^}]*\}) postgres=(\{[^}]*\})", log)
         if match is None:
@@ -211,7 +213,9 @@ def metrics_for(dag: str, task: str, log: str) -> tuple[dict[str, int], str, str
             "bad_channel_counts": sum(gold.get(c, 0) != loaded.get(c, 0) for c in CHANNELS),
             "missing_channels": sum(gold.get(c, 0) <= 0 for c in CHANNELS),
         }
-        rule = "Warehouse 30 ngày khớp Gold theo từng Channel (đủ 5 kênh) trước khi tạo index"
+        rule = (
+            "30-day warehouse matches Gold per Channel (all 5 Channels) before creating the index"
+        )
     else:
         raise ValueError(f"Unknown validation task: {dag}.{task}")
     if metrics.get("dataset_rows", 0) <= 0 or any(
@@ -222,26 +226,24 @@ def metrics_for(dag: str, task: str, log: str) -> tuple[dict[str, int], str, str
 
 
 def check_cdc_table(log_format: str, table: str) -> None:
-    """Chặn gắn log CDC v2 vào bảng v1 (hoặc ngược lại) trên DataHub."""
+    """Block attaching a CDC v2 log to the v1 table (or vice versa) in DataHub."""
     if (log_format == "cdc-v2") == (table == LEGACY_CDC_TABLE):
-        raise ValueError(f"Log {log_format} không khớp bảng CDC {table}")
+        raise ValueError(f"Log {log_format} does not match CDC table {table}")
 
 
 def parse_runs(overrides: list[str]) -> dict[str, str]:
-    """Ghép run mặc định với các ``dag=run_id`` truyền vào."""
+    """Merge the default runs with the given ``dag=run_id`` overrides."""
     runs = dict(RUNS)
     for item in overrides:
         dag, sep, run_id = item.partition("=")
         if not sep or dag not in RUNS or not run_id:
-            raise ValueError(
-                f"--run phải có dạng dag=run_id với dag thuộc {sorted(RUNS)}: {item!r}"
-            )
+            raise ValueError(f"--run must be dag=run_id with dag in {sorted(RUNS)}: {item!r}")
         runs[dag] = run_id
     return runs
 
 
 def main() -> None:
-    """Chỉ ghi manifest khi mọi check được chọn đều đọc được và PASS."""
+    """Write the manifest only when every selected check is readable and PASSes."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logs-root", type=Path, required=True)
     parser.add_argument(
@@ -252,19 +254,19 @@ def main() -> None:
         action="append",
         default=[],
         metavar="DAG=RUN_ID",
-        help="Thay run mặc định của một DAG; lặp lại cho nhiều DAG",
+        help="Override the default run of one DAG; repeat for several DAGs",
     )
     parser.add_argument(
         "--cdc-table",
         default=LEGACY_CDC_TABLE,
-        help="Bảng CDC mà run dp1_cdc đã ghi (Airflow Variable platform_dp1_cdc_table)",
+        help="CDC table the dp1_cdc run wrote (Airflow Variable platform_dp1_cdc_table)",
     )
     parser.add_argument(
         "--dags",
         nargs="+",
         choices=sorted(RUNS),
         default=sorted(RUNS),
-        help="Chỉ đọc các DAG đã chạy thật trên môi trường này (mặc định: cả năm)",
+        help="Only read DAGs that actually ran in this environment (default: all of them)",
     )
     args = parser.parse_args()
     runs = parse_runs(args.run)

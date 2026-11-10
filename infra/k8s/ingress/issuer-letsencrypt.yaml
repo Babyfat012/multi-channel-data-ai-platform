@@ -1,5 +1,5 @@
-# DuckDNS webhook cộng đồng: https://github.com/ebrianne/cert-manager-webhook-duckdns
-# Render bởi setup_letsencrypt.sh; staging mặc định, prod chỉ khi LE_ENV=production.
+# Community DuckDNS webhook: https://github.com/ebrianne/cert-manager-webhook-duckdns
+# Rendered by setup_letsencrypt.sh; staging by default, prod only when LE_ENV=production.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:

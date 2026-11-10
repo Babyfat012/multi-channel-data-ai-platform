@@ -1,11 +1,12 @@
-"""ML-N1: eval harness cho agent + cổng hồi quy (regression gate).
+"""Agent eval harness and regression gate.
 
-Hỏi agent (qua agentgateway, giao thức A2A) cùng một bộ câu về SKU; đáp án chuẩn lấy từ Feature API
-(chính nguồn agent phải gọi tool). Agent được yêu cầu trả JSON ba trường; không có JSON thì đọc câu
-văn, số phải đứng cạnh tên trường. Với agent coordinator chỉ chấm định tuyến (gọi đúng tool agent con, có câu trả lời cuối): model 1,5B hay
-làm rơi chữ số khi chép lại, còn độ đúng của số do eval từng agent con đảm nhiệm. ĐẠT khi số line có nhãn, số line bị trả và tỷ lệ trả 90 ngày đều đúng
-TRƯỜNG. Độ chính xác dưới ngưỡng ⇒ thoát mã 1 ⇒ CI báo build đỏ sau deploy agent.
-Chạy: `python -m ml.agent_eval --agent data-agent --skus sku-00001,sku-00002 --min-accuracy 0.6`.
+Ask the agent (through agentgateway, A2A protocol) the same set of SKU questions; the ground truth comes
+from the Feature API (the very source the agent must call as a tool). The agent is asked to reply with a
+three-field JSON; without JSON the prose is parsed and a number must sit next to the field name. The
+coordinator agent is graded on routing only (calls the right sub-agent tool, gives a final answer): the 1.5B model
+often drops digits when copying, and numeric correctness is covered by each sub-agent's eval. PASS when the labeled
+line count, returned line count and 90-day return rate are all CORRECT. Accuracy below threshold ⇒ exit code 1 ⇒ CI marks the build red after an agent deploy.
+Run: `python -m ml.agent_eval --agent data-agent --skus sku-00001,sku-00002 --min-accuracy 0.6`.
 """
 
 from __future__ import annotations
@@ -22,12 +23,12 @@ import urllib.request
 import uuid
 
 NUMBER = re.compile(r"(?<![\w.])-?\d+(?:[.,]\d+)?%?")
-# Mã SKU dạng chữ-số: local `sku-00001`, pipeline A trên AWS `APP-00042`; số trong mã không phải đáp án.
+# SKU ids are letters-digits: local `sku-00001`, pipeline A on AWS `APP-00042`; digits in an id are not answers.
 SKU_ID = re.compile(r"\b[A-Za-z]+-\d+\b")
-# Cửa sổ thời gian ("last 90 days", "24 hours") là ngữ cảnh, không phải giá trị cần chấm.
+# Time windows ("last 90 days", "24 hours") are context, not values to grade.
 WINDOW = re.compile(r"\b\d+[- ]?(?:days?|hours?)\b", re.IGNORECASE)
-CLAUSE = re.compile(r"[;\n]|[.,](?=\s|$)")  # "0.333", "33,3%" không bị cắt
-FIELDS = {  # tên trường → cách agent hay gọi nó trong câu văn
+CLAUSE = re.compile(r"[;\n]|[.,](?=\s|$)")  # "0.333", "33,3%" are not split
+FIELDS = {  # field name → how the agent usually refers to it in prose
     "labeled_count_90d": re.compile(r"\w*label\w*", re.IGNORECASE),
     "positive_count_90d": re.compile(r"\w*(?:positive|returned|refunded)\w*", re.IGNORECASE),
     "return_or_refund_rate_90d": re.compile(r"\w*rate\w*", re.IGNORECASE),
@@ -39,7 +40,7 @@ ASK_JSON = (
 
 
 def value(raw: str) -> str:
-    """Chuẩn hoá một số: '33.3%' → '0.333', '0,25' → '0.25', '7' → '7'."""
+    """Normalize a number: '33.3%' → '0.333', '0,25' → '0.25', '7' → '7'."""
     number = float(raw.rstrip("%").replace(",", "."))
     if raw.endswith("%"):
         number /= 100
@@ -47,12 +48,12 @@ def value(raw: str) -> str:
 
 
 def numbers(text: str) -> set[str]:
-    """Mọi số trong câu, đã chuẩn hoá."""
-    return {value(raw) for raw in NUMBER.findall(SKU_ID.sub(" ", text))}  # "sku-00002" không phải 2
+    """Every number in the text, normalized."""
+    return {value(raw) for raw in NUMBER.findall(SKU_ID.sub(" ", text))}  # "sku-00002" is not 2
 
 
 def expected(features: dict) -> dict[str, str] | None:
-    """Ba con số agent phải nói. None khi SKU chưa có lịch sử (không chấm được bằng số)."""
+    """The three numbers the agent must state. None when the SKU has no history (not gradable by numbers)."""
     labeled, positive = features.get("labeled_count_90d"), features.get("positive_count_90d")
     rate = features.get("return_or_refund_rate_90d")
     if not labeled or rate is None:
@@ -65,30 +66,30 @@ def expected(features: dict) -> dict[str, str] | None:
 
 
 def rate_close(found: set[str], target: str) -> bool:
-    """Tỷ lệ đạt khi có một số lệch ≤ 0,005 (agent hay làm tròn 2 chữ số hoặc nói phần trăm)."""
+    """The rate passes when some number is within ≤ 0.005 (agents often round to 2 digits or say a percentage)."""
     return any(abs(float(x) - float(target)) <= 0.005 for x in found if float(x) <= 1)
 
 
 def from_json(answer: str) -> dict[str, set[str]] | None:
-    """Đọc 'phiếu có ô': object JSON đầu tiên có đủ ba trường. None khi agent không trả JSON."""
+    """Read the 'form with fields': the first JSON object with all three fields. None when the agent returns no JSON."""
     for chunk in re.findall(r"\{[^{}]*\}", answer):
         try:
             data = json.loads(chunk)
             if isinstance(data, dict) and set(FIELDS) <= data.keys():
                 return {field: {value(str(data[field]))} for field in FIELDS}
-        except ValueError:  # JSON hỏng hoặc ô không phải số ⇒ thử chunk sau, rồi về câu văn
+        except ValueError:  # bad JSON or non-numeric field ⇒ try next chunk, then prose
             continue
     return None
 
 
 def from_text(answer: str) -> dict[str, set[str]]:
-    """Đọc câu văn: mỗi lần nhắc tên trường lấy số GẦN nó nhất trong cùng mệnh đề (hoà ⇒ số đứng sau).
+    """Parse prose: each mention of a field name takes the number CLOSEST to it in the same clause (tie ⇒ the later number).
 
-    Số không đứng cạnh tên trường nào thì không tính ⇒ câu đoán mò "10, 30, 0.333" trượt; câu tráo
-    "labeled 10, positive 30" trượt; nhắc một trường hai lần với hai số khác nhau cũng trượt.
+    Numbers not next to any field name do not count ⇒ a blind guess "10, 30, 0.333" fails; a swapped
+    "labeled 10, positive 30" fails; mentioning one field twice with two different numbers also fails.
     """
-    # Giới hạn: heuristic khoảng cách ký tự, câu lòng vòng có thể chấm sai; JSON là đường chính,
-    # cột mode cho biết bao nhiêu câu đi đường này.
+    # Limitation: a character-distance heuristic, roundabout sentences can be misgraded; JSON is the main path,
+    # the mode column shows how many answers take this path.
     out: dict[str, set[str]] = {field: set() for field in FIELDS}
     for clause in CLAUSE.split(WINDOW.sub(" ", SKU_ID.sub(" ", answer))):
         nums = [(m.start(), m.end(), m.group()) for m in NUMBER.finditer(clause)]
@@ -108,7 +109,7 @@ def from_text(answer: str) -> dict[str, set[str]]:
 
 
 def score(answer: str, features: dict) -> dict:
-    """Chấm một câu trả lời: mỗi trường phải có đúng MỘT giá trị và giá trị đó đúng."""
+    """Grade one answer: each field must have exactly ONE value and that value must be correct."""
     want = expected(features)
     if want is None:
         return {"gradable": False, "pass": None}
@@ -133,7 +134,7 @@ def score(answer: str, features: dict) -> dict:
     }
 
 
-# Agent 2 (model-agent), tool RAG: câu hỏi → con số phải có trong câu trả lời (đối chiếu rag/corpus/*.md).
+# Agent 2 (model-agent), RAG tool: question → the number that must appear in the answer (checked against rag/corpus/*.md).
 POLICY_CASES = [
     ("How many days does a Shopee buyer have to request a return after delivery?", "15"),
     ("What is the TikTok Shop return window for most categories, in days?", "15"),
@@ -145,16 +146,16 @@ ABSTAIN = re.compile(r"abstain|too little|insufficient|not enough", re.IGNORECAS
 
 
 def score_policy(answer: str, want: str) -> dict:
-    """Câu hỏi chính sách đạt khi con số đúng có trong câu trả lời (số trong mã SKU đã loại)."""
+    """A policy question passes when the correct number appears in the answer (digits in SKU ids excluded)."""
     found = numbers(WINDOW.sub(lambda m: m.group().split()[0], answer))
     return {"gradable": True, "pass": want in found, "mode": "policy", "expected": want}
 
 
 def score_predict(answer: str, truth: dict) -> dict:
-    """Dự đoán đạt khi score lệch ≤ 0,005 so với Feature API /predict (hoặc cùng abstain)."""
+    """A prediction passes when score is within ≤ 0.005 of Feature API /predict (or both abstain)."""
     if truth.get("abstain") or truth.get("score") is None:
         return {"gradable": True, "pass": bool(ABSTAIN.search(answer)), "mode": "predict"}
-    want = str(truth["score"])  # chưa làm tròn: agent hay làm tròn 2 chữ số
+    want = str(truth["score"])  # not rounded: agents often round to 2 digits
     return {
         "gradable": True,
         "pass": rate_close(numbers(answer), want),
@@ -164,14 +165,14 @@ def score_predict(answer: str, truth: dict) -> dict:
 
 
 def score_route(result: dict, tool: str) -> dict:
-    """Coordinator đạt khi history có lệnh gọi tool `tool` và có câu trả lời cuối; số liệu do eval của agent con chấm."""
+    """The coordinator passes when history has a call to tool `tool` and there is a final answer; numbers are graded by the sub-agent evals."""
     routed = tool in json.dumps(result.get("history") or [])
     answered = bool(" ".join(texts(result.get("artifacts") or [])).strip())
     return {"gradable": True, "pass": routed and answered, "mode": "route", "expected": tool}
 
 
 def texts(node) -> list[str]:
-    """Gom mọi trường "text" trong kết quả A2A (artifacts/parts/status.message), theo thứ tự."""
+    """Collect every "text" field in an A2A result (artifacts/parts/status.message), in order."""
     if isinstance(node, dict):
         own = [node["text"]] if isinstance(node.get("text"), str) else []
         return own + [t for v in node.values() for t in texts(v)]
@@ -181,7 +182,7 @@ def texts(node) -> list[str]:
 
 
 def post(url: str, body: dict, headers: dict, context=None, timeout=180) -> dict:
-    """POST JSON, trả JSON."""
+    """POST JSON, return JSON."""
     req = urllib.request.Request(
         url, json.dumps(body).encode(), {"Content-Type": "application/json", **headers}
     )
@@ -189,17 +190,17 @@ def post(url: str, body: dict, headers: dict, context=None, timeout=180) -> dict
 
 
 def main(argv=None) -> int:
-    """Hỏi agent từng SKU, chấm, ghi JSONL, trả mã 1 nếu độ chính xác < ngưỡng."""
+    """Ask the agent about each SKU, grade, write JSONL, return code 1 if accuracy < threshold."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--agent", required=True, help="tên route A2A: data-agent, data-agent-b, data-agent-ab"
+        "--agent", required=True, help="A2A route name: data-agent, data-agent-b, data-agent-ab"
     )
-    parser.add_argument("--skus", default="", help="bắt buộc với --task features/predict")
+    parser.add_argument("--skus", default="", help="required with --task features/predict")
     parser.add_argument(
         "--task",
         choices=("features", "predict", "policy"),
         default="features",
-        help="features: Agent 1; predict + policy: hai tool của Agent 2 (model-agent)",
+        help="features: Agent 1; predict + policy: the two tools of Agent 2 (model-agent)",
     )
     parser.add_argument("--gateway", default="http://localhost:13000")
     parser.add_argument("--feature-api", default="https://api.172-25-0-2.sslip.io:30443")
@@ -207,7 +208,10 @@ def main(argv=None) -> int:
     parser.add_argument("--min-accuracy", type=float, default=0.6)
     parser.add_argument("--out", default="out/agent-eval.jsonl")
     parser.add_argument(
-        "--timeout", type=int, default=180, help="giây chờ mỗi câu hỏi agent (CPU chậm: tăng)"
+        "--timeout",
+        type=int,
+        default=180,
+        help="seconds to wait per agent question (slow CPU: raise it)",
     )
     args = parser.parse_args(argv)
     key = {"Authorization": f"Bearer {os.environ['AGW_AGENT_KEY']}"}
@@ -217,12 +221,12 @@ def main(argv=None) -> int:
         else None
     )
     skus = [x for x in args.skus.split(",") if x]
-    jobs = []  # (nhãn, câu hỏi, hàm chấm)
+    jobs = []  # (label, question, grading function)
     if args.task == "policy":
         jobs = [(q, q, lambda a, w=w: score_policy(a, w)) for q, w in POLICY_CASES]
     else:
         if not skus:
-            parser.error("--skus bắt buộc với --task features/predict")
+            parser.error("--skus is required with --task features/predict")
         if args.task == "features":
             truth = post(f"{args.feature_api}/features", {"seller_skus": skus}, {}, context)[
                 "features"
@@ -252,11 +256,11 @@ def main(argv=None) -> int:
                 jobs.append((sku, question, lambda a, t=truth: score_predict(a, t)))
     tool = "data_agent" if args.task == "features" else "model_agent"
     rows = []
-    timeouts = 0  # quá hạn liên tiếp
+    timeouts = 0  # consecutive timeouts
     for label, question, grade in jobs:
         if timeouts >= 2:
-            # Agent vẫn xử lý câu quá hạn ở nền: hỏi tiếp chỉ chất thêm phiên mồ côi lên LLM (vòng xoáy 04/11 và 06/11).
-            # Câu bỏ dở tính là trượt (accuracy vẫn chia cho cả bộ).
+            # The agent keeps processing timed-out questions in the background: asking more only piles orphan sessions onto the LLM (spirals on 04/11 and 06/11).
+            # Skipped questions count as failures (accuracy is still divided by the full set).
             rows.append(
                 {
                     "agent": args.agent,
@@ -290,12 +294,12 @@ def main(argv=None) -> int:
                 timeout=args.timeout,
             )
             result = reply.get("result", {})
-            # Chỉ câu trả lời cuối (artifacts): history chứa câu hỏi echo và tool-call, làm nhiễu phép chấm.
+            # Only the final answer (artifacts): history holds the echoed question and tool calls, which would skew grading.
             answer = " ".join(texts(result.get("artifacts") or result))
         except (
             urllib.error.URLError,
             TimeoutError,
-        ) as error:  # agent hỏng = câu trượt, không dừng harness
+        ) as error:  # a broken agent = a failed question, the harness keeps going
             answer = f"ERROR {error}"
         timeouts = timeouts + 1 if answer.startswith("ERROR") else 0
         rows.append(

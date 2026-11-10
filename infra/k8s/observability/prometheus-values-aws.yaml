@@ -1,6 +1,6 @@
-# Chỉ cho EKS (deploy_kind_observability.sh nạp khi KCTX không phải kind-*): Prometheus pull exporter trên
-# EC2 qua IP riêng (SG mở 9100/9187 từ SG cluster). Không Alertmanager: luật hiện ở trang Alerts của
-# Prometheus/Grafana. Giới hạn: không ai được báo nếu không mở trang; prod thêm Alertmanager + mail.
+# EKS only (deploy_kind_observability.sh loads it when KCTX is not kind-*): Prometheus pulls exporters on
+# EC2 over private IP (SG opens 9100/9187 from the cluster SG). No Alertmanager: rules show on the Alerts page of
+# Prometheus/Grafana. Limitation: nobody is notified unless the page is open; prod adds Alertmanager + mail.
 extraScrapeConfigs: |
   - job_name: ec2-node
     static_configs: [{targets: ["10.42.0.151:9100"]}]
@@ -11,15 +11,15 @@ serverFiles:
     groups:
       - name: ec2-data-platform
         rules:
-          # Pull: EC2/exporter chết thì lần scrape fail tự ra up=0 — không cần luật "im lặng".
+          # Pull: a dead EC2/exporter makes the scrape fail and yields up=0 by itself — no "silence" rule needed.
           - alert: EC2ExporterDown
             expr: up{job=~"ec2-.*"} == 0
             for: 2m
-          # Gap #20: 28/10 shuffle Spark làm đầy EBS ⇒ Postgres chết, không ai biết.
+          # Gap #20: on 28/10 a Spark shuffle filled the EBS ⇒ Postgres died, nobody noticed.
           - alert: EC2DataDiskAlmostFull
             expr: 1 - node_filesystem_avail_bytes{mountpoint="/mnt/platform-data"} / node_filesystem_size_bytes{mountpoint="/mnt/platform-data"} > 0.8
             for: 5m
-          # Gap #17: slot replication (Debezium) không đọc ⇒ Postgres giữ WAL mãi ⇒ đầy ổ.
+          # Gap #17: a replication slot (Debezium) not being read ⇒ Postgres keeps WAL forever ⇒ disk full.
           - alert: PostgresSlotWalRetained
             expr: pg_replication_slot_slot_current_wal_lsn - pg_replication_slot_slot_confirmed_flush_lsn > 1073741824
             for: 10m

@@ -1,10 +1,10 @@
--- Cùng một luồng Order UNPAID, hai cửa sổ để so thời điểm phát hiện burst.
--- TUMBLE 5 phút cập nhật mỗi 5 phút; HOP 5 phút cập nhật mỗi 1 phút.
+-- The same stream of UNPAID Orders, two windows to compare burst detection time.
+-- TUMBLE 5 minutes updates every 5 minutes; HOP 5 minutes updates every 1 minute.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'flink-window-tiktok';
 SET 'execution.checkpointing.interval' = '10s';
--- Checkpoint ra đĩa EBS (mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB).
+-- Checkpoints to the EBS disk (the default keeps them in JobManager memory, max 5 MB).
 SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
 SET 'table.exec.source.idle-timeout' = '10s';
 

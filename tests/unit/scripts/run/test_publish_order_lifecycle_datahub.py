@@ -1,4 +1,4 @@
-"""Kiểm publisher qua CLI JSON offline bằng receipt mẫu độc lập với Spark."""
+"""Check the publisher via the offline JSON CLI with sample receipts independent of Spark."""
 
 import ast
 import json
@@ -12,7 +12,7 @@ SCRIPT = ROOT / "scripts/run/publish_order_lifecycle_datahub.py"
 
 
 def dry_run(tmp_path, extra=()):
-    """Dựng receipt mẫu có check sạch/lỗi, chạy CLI không dùng DataHub SDK."""
+    """Build sample receipts with clean/failing checks, run the CLI without the DataHub SDK."""
     for task, checks in {
         "build_silver": {"orphan_allocations": 0, "native_record_balance": -1},
         "build_gold": {"duplicate_fact": 0},
@@ -29,10 +29,10 @@ def dry_run(tmp_path, extra=()):
             )
         )
     (tmp_path / "sitecustomize.py").write_text(
-        '"""Chặn mọi socket trong subprocess dry-run của test."""\n'
+        '"""Block every socket in the test dry-run subprocess."""\n'
         "import socket\n"
         "def forbidden(*args, **kwargs):\n"
-        '    """Làm test thất bại nếu publisher thử gọi mạng."""\n'
+        '    """Fail the test if the publisher tries to call the network."""\n'
         '    raise AssertionError("dry-run attempted network")\n'
         "socket.socket.connect = forbidden\n"
         "socket.create_connection = forbidden\n"
@@ -59,14 +59,14 @@ def dry_run(tmp_path, extra=()):
 
 
 def aspects(mcps, name):
-    """Đọc chính phần aspect trong các MCP chuẩn gửi cho REST emitter."""
+    """Read the aspect part of the standard MCPs sent to the REST emitter."""
     return {
         m["entityUrn"]: json.loads(m["aspect"]["value"]) for m in mcps if m["aspectName"] == name
     }
 
 
 def test_offline_complete_inventory_lineage_and_failures(tmp_path):
-    """Xuất đúng bảng thật, năm job, cạnh lineage và FAIL có run_id gốc."""
+    """Emit the real tables, five jobs, lineage edges, and FAIL with the original run_id."""
     mcps = dry_run(tmp_path)
     datasets = aspects(mcps, "datasetProperties")
     assert len(datasets) == 41  # 16 feed file + PostgreSQL + 1 Bronze + 18 Silver + 5 Gold.
@@ -83,7 +83,7 @@ def test_offline_complete_inventory_lineage_and_failures(tmp_path):
     assert any("lakehouse.gold.lifecycle_label_segments," in urn for urn in datasets)
     assert any("lakehouse.silver.lifecycle_stg_observed_evidence," in urn for urn in datasets)
     assert all(
-        "chưa có schema field" in value["description"]
+        "no schema fields yet" in value["description"]
         for urn, value in datasets.items()
         if "dataPlatform:iceberg," in urn
     )
@@ -99,7 +99,7 @@ def test_offline_complete_inventory_lineage_and_failures(tmp_path):
     assert by_task["check_contracts"]["inputDatasets"] == []
     assert len(by_task["ingest_bronze"]["inputDatasets"]) == 16
     assert len(by_task["build_silver"]["outputDatasets"]) == 18
-    assert len(by_task["build_gold"]["inputDatasets"]) == 4  # Chỉ Silver, không Bronze.
+    assert len(by_task["build_gold"]["inputDatasets"]) == 4  # Silver only, no Bronze.
     assert not any("ingest_bronze" in urn for urn in by_task["build_gold"]["inputDatasets"])
     assert len(by_task["build_gold"]["outputDatasets"]) == 5
     assert len(by_task["validate_gold"]["inputDatasets"]) == 9
@@ -140,7 +140,7 @@ def test_offline_complete_inventory_lineage_and_failures(tmp_path):
 
 
 def test_schema_file_from_receipt_and_original_receipt_cli(tmp_path):
-    """Chỉ lấy schema bảng từ file receipt chỉ định; hỗ trợ receipt tên bất kỳ."""
+    """Take table schemas only from the given receipt file; any receipt name is supported."""
     table = "lakehouse.gold.lifecycle_fact_order_lines"
     (tmp_path / "schema.json").write_text(
         json.dumps(
@@ -180,7 +180,7 @@ def test_schema_file_from_receipt_and_original_receipt_cli(tmp_path):
 
 
 def test_refuse_evidence_without_original_run_id(tmp_path):
-    """Không tự bịa run_id khi receipt bị thiếu provenance."""
+    """Never invent a run_id when a receipt lacks provenance."""
     path = tmp_path / "invalid.json"
     path.write_text(json.dumps({"checks": {"bad": 0}}))
     result = subprocess.run(
@@ -189,11 +189,11 @@ def test_refuse_evidence_without_original_run_id(tmp_path):
         capture_output=True,
     )
     assert result.returncode != 0
-    assert "run_id gốc" in result.stderr
+    assert "original run_id" in result.stderr
 
 
 def test_s3_source_uri_is_preserved_in_lineage(tmp_path):
-    """CLI giữ s3a:// nguyên vẹn, dry-run không đọc nguồn hay gọi mạng."""
+    """The CLI keeps s3a:// intact; dry-run neither reads sources nor calls the network."""
     proposals = dry_run(tmp_path, ("--source-root", "s3a://test-raw/order_lifecycle/scale90"))
     serialized = json.dumps(proposals)
     assert "s3a://test-raw/order_lifecycle/scale90/dataset_version=*" in serialized

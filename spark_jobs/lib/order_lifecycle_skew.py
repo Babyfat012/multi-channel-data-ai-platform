@@ -1,4 +1,4 @@
-"""Sweep SKU chia bucket UTC; tách riêng, không đụng job Gold đang dùng."""
+"""SKU sweep split into UTC buckets; kept separate, does not touch the Gold job in use."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from datetime import datetime, timezone
 
 
 def bucket_width_days(buckets: int) -> int:
-    """Chia horizon 180 ngày thành xấp xỉ buckets khoảng cố định, ít nhất một ngày."""
+    """Split the 180-day horizon into roughly `buckets` fixed ranges, at least one day each."""
     if type(buckets) is not int or not 1 <= buckets <= 180:
         raise ValueError("buckets must be an integer in 1..180")
     return (180 + buckets - 1) // buckets
 
 
 def time_bucket(timestamp: datetime, buckets: int) -> int:
-    """Mã khoảng tính từ epoch UTC; không phụ thuộc timezone của máy chạy."""
+    """Range id counted from the UTC epoch; independent of the host time zone."""
     if timestamp.tzinfo is None:
         raise ValueError("timestamp must have a timezone")
     days = (timestamp.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)).days
@@ -21,7 +21,7 @@ def time_bucket(timestamp: datetime, buckets: int) -> int:
 
 
 def bucket_prefix(totals: dict[int, tuple[int, int]]) -> dict[int, tuple[int, int]]:
-    """Oracle Python: tổng dc/dp của các bucket trước, kể cả bucket rỗng/query-only."""
+    """Python oracle: dc/dp totals of earlier buckets, including empty/query-only buckets."""
     n = p = 0
     result = {}
     for bucket in sorted(totals):
@@ -32,12 +32,12 @@ def bucket_prefix(totals: dict[int, tuple[int, int]]) -> dict[int, tuple[int, in
 
 
 def sku_features_salted(fact, segments, buckets: int):
-    """Tương đương sku_features: prefix bucket + sweep cục bộ, rồi trừ cửa sổ của line.
+    """Equivalent to sku_features: bucket prefix + local sweep, then subtract the line's window.
 
-    Chia mọi SKU theo thời gian (không cần collect danh sách SKU nóng). Mỗi bucket
-    có cả change lẫn query; prefix chỉ nhận một dòng tổng/bucket. Delta ở cùng
-    timestamp luôn đứng trước query, giữ cửa sổ nửa mở [a,b) và biên microsecond.
-    buckets là số khoảng mục tiêu trên 180 ngày, không phải số hash partition.
+    Splits every SKU by time (no need to collect the list of hot SKUs). Each bucket
+    has both changes and queries; the prefix only gets one total row per bucket. Deltas at the same
+    timestamp always come before queries, preserving the half-open window [a,b) and the microsecond edge.
+    buckets is the target number of ranges over 180 days, not the number of hash partitions.
     """
     from pyspark.sql import Window
     from pyspark.sql import functions as F
@@ -97,7 +97,7 @@ def sku_features_salted(fact, segments, buckets: int):
         .orderBy("time", "kind")
         .rowsBetween(Window.unboundedPreceding, 0)
     )
-    # Tính window trước join để Spark buộc chia sweep theo SKU + bucket.
+    # Compute the window before the join so Spark is forced to split the sweep by SKU + bucket.
     swept = (
         events.withColumn("_n", F.sum("dc").over(local))
         .withColumn("_p", F.sum("dp").over(local))

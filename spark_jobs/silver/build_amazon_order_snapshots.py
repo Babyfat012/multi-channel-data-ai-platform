@@ -1,16 +1,16 @@
 """Silver: `bronze.raw_amazon_orders` -> `silver.stg_amazon_order_lines`.
 
-Amazon đổi schema giữa kỳ: dạng v0 (PascalCase) rồi dạng 2026 (camelCase, lồng sâu hơn).
-Job parse mỗi dạng bằng schema riêng, gộp về một bộ cột, nổ thành Order Line rồi dedup.
+Amazon changes schema mid-period: the v0 shape (PascalCase), then the 2026 shape (camelCase, more deeply nested).
+The job parses each shape with its own schema, merges them into one column set, explodes into Order Lines, then dedups.
 
-Phải parse trước rồi mới dedup: cùng một đơn có thể có một bản v0 và một bản 2026, chưa
-quy tên khoá về một dạng thì không nhận ra là trùng. Bản trùng nằm ở `export_date` khác
-nhau nên dedup cần window toàn cục (một lần shuffle).
+Parsing must come before dedup: the same Order may have one v0 copy and one 2026 copy, and until
+key names are normalized to one shape they are not recognized as duplicates. Duplicates sit in different
+`export_date` values, so dedup needs a global window (one shuffle).
 
-Amazon không báo "đã giao", nên `order_status` không bao giờ là `delivered`/`completed`.
-Thiết kế: `docs/edai-1/reference/silver.md`.
+Amazon does not report "delivered", so `order_status` is never `delivered`/`completed`.
+Design: `docs/data-platform/reference/silver.md`.
 
-Chạy:
+Run:
     spark-submit ... silver/build_amazon_order_snapshots.py
     spark-submit ... silver/build_amazon_order_snapshots.py \
         --source-table raw_amazon_orders_sample --table stg_amazon_order_lines_sample
@@ -45,8 +45,8 @@ from spark_jobs.lib.order_snapshot_mapping import (
 BRONZE_NS = "bronze"
 SILVER_NS = "silver"
 
-# Schema khai tay thay vì để Spark tự suy: tự suy phải quét dữ liệu, và kết quả đổi theo lô.
-# Tiền là chuỗi trong JSON nguồn, ép sang decimal ở bước sau.
+# Schemas are declared by hand instead of letting Spark infer them: inference scans the data and the result varies by batch.
+# Money is a string in the source JSON, cast to decimal in a later step.
 
 _V0_ITEM = StructType(
     [
@@ -210,12 +210,12 @@ SCHEMA_2026 = StructType(
     ]
 )
 
-# Hai nhánh parse phải ra đúng bộ cột này.
+# Both parse branches must produce exactly this column set.
 OUTPUT_COLUMNS = [
-    # khoá + độ hạt
+    # key + grain
     "order_id",
     "order_item_id",
-    # mức Order
+    # Order level
     "created_at",
     "last_updated_time",
     "order_status",
@@ -233,7 +233,7 @@ OUTPUT_COLUMNS = [
     "city",
     "postal_code",
     "country",
-    # mức Order Line
+    # Order Line level
     "asin",
     "seller_sku",
     "quantity_ordered",
@@ -241,10 +241,10 @@ OUTPUT_COLUMNS = [
     "line_gross_amount",
     "line_discount_amount",
     "line_net_amount",
-    # provenance từ Bronze
+    # provenance from Bronze
     "export_date",
     "source_file",
-    # cột của riêng Silver
+    # Silver-only columns
     "schema_form",
     "processed_at",
     "run_id",
@@ -254,38 +254,40 @@ MONEY = "decimal(14,2)"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc tham số dòng lệnh."""
+    """Parse command-line arguments."""
     p = argparse.ArgumentParser(description="Silver: Amazon Order Line")
     p.add_argument(
         "--source-table",
         default="raw_amazon_orders",
-        help="bảng Bronze nguồn, trong namespace `bronze`.",
+        help="source Bronze table, in the `bronze` namespace.",
     )
     p.add_argument(
         "--table",
         default="stg_amazon_order_lines",
-        help="bảng Silver đích, trong namespace `silver`.",
+        help="target Silver table, in the `silver` namespace.",
     )
     p.add_argument(
         "--shuffle-partitions",
         type=int,
         default=None,
-        help="spark.sql.shuffle.partitions. Để trống thì giữ mặc định 200.",
+        help="spark.sql.shuffle.partitions. Empty keeps the default of 200.",
     )
     p.add_argument(
-        "--run-id", default=None, help="mã lần chạy ghi vào cột run_id. Để trống thì sinh uuid4."
+        "--run-id",
+        default=None,
+        help="run id written to the run_id column. Empty generates a uuid4.",
     )
     return p.parse_args(argv)
 
 
 def _lookup(table: dict[str, str], col):
-    """Tra bảng ánh xạ bằng map literal của Spark; giá trị lạ ra NULL để đếm được."""
+    """Look up a mapping table with a Spark literal map; unknown values give NULL so they can be counted."""
     pairs = [F.lit(x) for kv in table.items() for x in kv]
     return F.create_map(*pairs)[col]
 
 
 def parse_v0(bronze: DataFrame) -> DataFrame:
-    """Parse dạng v0 (PascalCase) và nổ `OrderItems` thành Order Line."""
+    """Parse the v0 shape (PascalCase) and explode `OrderItems` into Order Lines."""
     doc = F.from_json(F.col("payload"), V0_SCHEMA).alias("d")
     df = bronze.select("payload", "source_file", "export_date", doc)
     item = F.col("item")
@@ -327,9 +329,9 @@ def parse_v0(bronze: DataFrame) -> DataFrame:
 
 
 def parse_2026(bronze: DataFrame) -> DataFrame:
-    """Parse dạng 2026 về cùng bộ cột với v0.
+    """Parse the 2026 shape into the same column set as v0.
 
-    Dạng 2026 không có số lượng đã giao; ba cột đó để NULL thay vì suy từ trạng thái.
+    The 2026 shape has no shipped quantities; those three columns are NULL instead of inferred from the status.
     """
     doc = F.from_json(F.col("payload"), SCHEMA_2026).alias("d")
     df = bronze.select("payload", "source_file", "export_date", doc)
@@ -346,7 +348,7 @@ def parse_2026(bronze: DataFrame) -> DataFrame:
         _lookup(AMAZON_FULFILLMENT, F.col("d.fulfillment.fulfilledBy")).alias("fulfillment_method"),
         F.col("d.salesChannel.channelName").alias("sales_channel"),
         F.col("d.salesChannel.marketplaceId").alias("marketplace_id"),
-        # `programs` chỉ là `["PRIME"]` hoặc `[]`, nên quy về boolean.
+        # `programs` is only `["PRIME"]` or `[]`, so reduce it to a boolean.
         F.array_contains(F.col("d.programs"), "PRIME").alias("is_prime"),
         F.col("d.proceeds.grandTotal.amount").cast(MONEY).alias("order_total_amount"),
         F.col("d.proceeds.grandTotal.currencyCode").alias("currency"),
@@ -377,23 +379,23 @@ def parse_2026(bronze: DataFrame) -> DataFrame:
 
 
 def _country(col):
-    """Quy mã quốc gia về ISO alpha-2; mã lạ giữ nguyên (không có cột gốc đi kèm)."""
+    """Normalize country codes to ISO alpha-2; unknown codes are kept (no original column alongside)."""
     pairs = [F.lit(x) for kv in COUNTRY_ALIASES.items() for x in kv]
     return F.coalesce(F.create_map(*pairs)[col], col)
 
 
 def split_by_form(bronze: DataFrame) -> tuple[DataFrame, DataFrame]:
-    """Chia dòng Bronze theo dạng schema, nhìn khoá định danh ở gốc JSON."""
+    """Split Bronze rows by schema shape, looking at the identity key at the JSON root."""
     is_v0 = F.get_json_object(F.col("payload"), "$.AmazonOrderId").isNotNull()
     is_2026 = F.get_json_object(F.col("payload"), "$.orderId").isNotNull()
     return bronze.filter(is_v0), bronze.filter(is_2026)
 
 
 def dedup(df: DataFrame) -> DataFrame:
-    """Giữ bản mới nhất của mỗi `(order_id, order_item_id)`.
+    """Keep the latest copy of each `(order_id, order_item_id)`.
 
-    Thứ tự: `last_updated_time` lớn nhất, hoà thì `export_date` lớn nhất. Khoá phải có
-    `order_item_id`: chỉ theo `order_id` sẽ xoá nhầm các line khác của cùng đơn.
+    Order: largest `last_updated_time`, ties broken by largest `export_date`. The key must include
+    `order_item_id`: keying only on `order_id` would wrongly delete other lines of the same Order.
     """
     newest = Window.partitionBy("order_id", "order_item_id").orderBy(
         F.col("last_updated_time").desc_nulls_last(),
@@ -403,10 +405,10 @@ def dedup(df: DataFrame) -> DataFrame:
 
 
 def write_silver(spark: SparkSession, df: DataFrame, table: str) -> None:
-    """Ghi đè bảng Silver trong một commit, partition theo `days(created_at)`.
+    """Overwrite the Silver table in one commit, partitioned by `days(created_at)`.
 
-    Không partition theo `export_date`: sau dedup nó chỉ là ngày của bản thắng, nên một đơn
-    sẽ nhảy partition mỗi lần có bản mới.
+    Not partitioned by `export_date`: after dedup it is only the date of the winning copy, so an Order
+    would jump partitions every time a new copy arrives.
     """
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.{SILVER_NS}")
     full_name = f"{CATALOG}.{SILVER_NS}.{table}"
@@ -414,7 +416,7 @@ def write_silver(spark: SparkSession, df: DataFrame, table: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Chạy job và in số dòng trước/sau dedup."""
+    """Run the job and print row counts before/after dedup."""
     args = parse_args(argv)
     run_id = args.run_id or str(uuid.uuid4())
     source = f"{CATALOG}.{BRONZE_NS}.{args.source_table}"
@@ -424,8 +426,8 @@ def main(argv: list[str] | None = None) -> int:
         v0_rows, rows_2026 = split_by_form(bronze)
 
         print(f"run_id          = {run_id}")
-        print(f"bảng nguồn      = {source}")
-        print(f"bảng đích       = {CATALOG}.{SILVER_NS}.{args.table}")
+        print(f"source table    = {source}")
+        print(f"target table    = {CATALOG}.{SILVER_NS}.{args.table}")
 
         started = time.monotonic()
         lines = parse_v0(v0_rows).unionByName(parse_2026(rows_2026))
@@ -440,12 +442,12 @@ def main(argv: list[str] | None = None) -> int:
         elapsed = time.monotonic() - started
 
         after = spark.table(f"{CATALOG}.{SILVER_NS}.{args.table}").count()
-        print(f"Order Line trước dedup = {before:,}")
-        print(f"Order Line sau  dedup  = {after:,}")
-        print(f"bản trùng đã bỏ        = {before - after:,}")
+        print(f"Order Line before dedup = {before:,}")
+        print(f"Order Line after dedup  = {after:,}")
+        print(f"duplicates dropped      = {before - after:,}")
         if before:
-            print(f"tỉ lệ trùng            = {(before - after) / before:.6f}")
-        print(f"XONG sau               = {elapsed:.1f}s")
+            print(f"duplicate ratio         = {(before - after) / before:.6f}")
+        print(f"DONE in                 = {elapsed:.1f}s")
         return 0
     finally:
         spark.stop()

@@ -1,4 +1,4 @@
-# Image Feast nhỏ cho ML Platform (pusher stream feature; sau này bước train/serve dùng lại).
+# Small Feast image for the ML Platform (stream feature pusher; later reused by train/serve steps).
 FROM python:3.12-slim
 RUN pip install --no-cache-dir "feast[redis,aws]==0.66.0" "s3fs==2026.9.0" "confluent-kafka==2.15.1"
 COPY feature_repo /opt/feature_repo

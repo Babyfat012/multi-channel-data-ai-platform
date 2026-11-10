@@ -1,9 +1,9 @@
-"""Nối nhãn trả hàng của cả năm Channel với Gold fact vào một bảng nhãn duy nhất.
+"""Join Return labels for all five Channels with the Gold fact into a single label table.
 
-Bridge chỉ dành cho dữ liệu mô phỏng. Bốn Channel nối qua sổ khóa của generator
-(`ground-truth/order_line_keys/<channel>/`); Walmart cần thêm customer_order_id được tái
-tạo từ seed bởi bước chuẩn bị khóa trên host. Nhãn nằm ở bảng riêng, không vào fact hoặc
-feature dùng khi dự đoán.
+The bridge is only for simulated data. Four Channels join via the generator's key ledger
+(`ground-truth/order_line_keys/<channel>/`); Walmart also needs customer_order_id, regenerated
+from the seed by the key-preparation step on the host. Labels live in a separate table, not in the fact or
+the features used at prediction time.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ FACT_COLUMNS = (
 
 def main(argv: list[str] | None = None) -> int:
     """Join source labels to Gold rows of all five Channels and validate per Channel."""
-    parser = argparse.ArgumentParser(description="Bridge nhãn trả hàng năm Channel")
+    parser = argparse.ArgumentParser(description="Return label bridge for the five Channels")
     parser.add_argument("--fact-table", default="fact_order_lines_dp2")
     parser.add_argument("--table", default="fact_return_labels_dp3")
     parser.add_argument("--ground-truth", default="/data/ground-truth")
@@ -39,9 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     for value in (args.fact_table, args.table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
 
-    # 256 thay 32: Amazon ~150 triệu line, 32 mảnh ~700 MB/mảnh với executor 1536m.
+    # 256 instead of 32: Amazon has ~150 million lines, 32 slices is ~700 MB/slice with a 1536m executor.
     spark = build_spark("return-label-bridge", shuffle_partitions=256)
     try:
         fact = spark.table(f"{CATALOG}.gold.{args.fact_table}").select(*FACT_COLUMNS)
@@ -110,12 +110,14 @@ def main(argv: list[str] | None = None) -> int:
         totals = {r["channel"]: r["count"] for r in fact.groupBy("channel").count().collect()}
         for channel in sorted(totals):
             labeled = counts.get(channel, 0)
-            print(f"Nhãn {channel}: {labeled}/{totals[channel]} ({labeled / totals[channel]:.1%})")
+            print(
+                f"Labels {channel}: {labeled}/{totals[channel]} ({labeled / totals[channel]:.1%})"
+            )
         missing = missing_channels(counts)
-        print(f"Bridge nhãn: rows={rows}, duplicate={duplicate}, invalid={invalid}")
+        print(f"Label bridge: rows={rows}, duplicate={duplicate}, invalid={invalid}")
         if not rows or duplicate or invalid or missing:
-            raise ValueError(f"Bridge nhãn không hợp lệ; kênh không có nhãn: {missing}")
-        print(f"Bridge nhãn năm Channel đã ghi: {target}")
+            raise ValueError(f"Invalid label bridge; Channels without labels: {missing}")
+        print(f"Label bridge for five Channels written: {target}")
         return 0
     finally:
         spark.stop()

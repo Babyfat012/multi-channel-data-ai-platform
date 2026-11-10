@@ -1,4 +1,4 @@
-"""Oracle stdlib độc lập: chỉ đọc nguồn quan sát và receipt producer, không đọc Flink."""
+"""Independent stdlib oracle: reads only the observed sources and producer receipts, never Flink."""
 
 from __future__ import annotations
 
@@ -18,12 +18,12 @@ FEEDS = {
 
 
 def canonical(value):
-    """Mã hóa riêng của oracle để xác minh digest receipt producer."""
+    """The oracle's own encoding to verify producer receipt digests."""
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
 
 
 def _load_source_records(root, manifest):
-    """Đọc mọi dòng nguồn của các feed stream, kiểm checksum file; khoá theo `record_sha256`."""
+    """Read every source row of the stream feeds and check file checksums; keyed by `record_sha256`."""
     records = {}
     for item in manifest["files"]:
         if item["feed"] not in FEEDS or item.get("role", "source") != "source":
@@ -38,7 +38,7 @@ def _load_source_records(root, manifest):
             raise ValueError("source checksum mismatch")
         for line in raw.splitlines():
             row = json.loads(line)
-            # Export hiện hành chưa có hash từng record: dùng SHA256 dòng nguồn không LF.
+            # The current export has no per-record hash yet: use the SHA256 of the source row without LF.
             sha = row.setdefault("record_sha256", hashlib.sha256(line).hexdigest())
             if sha in records:
                 raise ValueError("duplicate source record")
@@ -47,7 +47,7 @@ def _load_source_records(root, manifest):
 
 
 def _window_metric(row):
-    """Tên metric cửa sổ ngày mà sự kiện này đóng góp, hoặc None."""
+    """Name of the daily window metric this event contributes to, or None."""
     payload = row["payload"]
     if (
         row["feed"] == "seller_postsales.return_events"
@@ -66,10 +66,10 @@ def _window_metric(row):
 
 
 def _event_time(row):
-    """Thời điểm sự kiện, cắt về mili-giây như Flink.
+    """Event time, truncated to milliseconds like Flink.
 
-    effective_at là thời điểm lifecycle cụ thể: requested/approved/received,
-    refund failed/success, stock operation; delivery dùng actual_delivered_at.
+    effective_at is the specific lifecycle time: requested/approved/received,
+    refund failed/success, stock operation; delivery uses actual_delivered_at.
     """
     ts = datetime.fromisoformat(
         row["payload"].get("actual_delivered_at", row["effective_at"]).replace("Z", "+00:00")
@@ -78,7 +78,7 @@ def _event_time(row):
 
 
 def _check_manifest_counts(stream, groups, source_counts, duplicates):
-    """Số bản ghi và offset theo topic/partition phải khớp manifest producer; trả tổng theo topic."""
+    """Record counts and offsets per topic/partition must match the producer manifest; return totals per topic."""
     totals = {
         t: sum(v["input"] for (topic, _), v in groups.items() if topic == t)
         for t in stream["topics"]
@@ -103,7 +103,7 @@ def _check_manifest_counts(stream, groups, source_counts, duplicates):
 
 
 def _expected_dedup(records, totals, prefix, epoch):
-    """Sau dedup: mỗi bản ghi nguồn còn đúng một lần; revision khác của cùng entity vẫn giữ."""
+    """After dedup: each source record remains exactly once; other revisions of the same entity are kept."""
     dedup = []
     for topic in totals:
         rows = [r for r in records.values() if prefix + r["feed"] == topic]
@@ -122,11 +122,11 @@ def _expected_dedup(records, totals, prefix, epoch):
 
 
 def expected(source, stream_manifest, delay_seconds=3600):
-    """Tính baseline, late mô phỏng, dedup và daily windows từ nguồn cùng ledger offset.
+    """Compute baseline, simulated late, dedup and daily windows from the sources and the offset ledger.
 
-    Phát lại ledger Kafka theo đúng thứ tự gửi: mỗi message cập nhật thống kê offset,
-    watermark (max event time trước đó − delay, theo topic/partition) để xếp main/late,
-    và — lần đầu thấy bản ghi — đếm vào cửa sổ ngày.
+    Replay the Kafka ledger in send order: each message updates the offset stats,
+    the watermark (previous max event time − delay, per topic/partition) to classify main/late,
+    and — the first time a record is seen — counts into the daily window.
     """
     if delay_seconds < 0:
         raise ValueError("negative watermark delay")
@@ -230,7 +230,7 @@ def expected(source, stream_manifest, delay_seconds=3600):
 
 
 def main():
-    """Ghi oracle riêng, tuyệt đối không nhận tham số đầu ra Flink."""
+    """Write the oracle separately; never accept Flink output arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True)
     parser.add_argument("--manifest", required=True)

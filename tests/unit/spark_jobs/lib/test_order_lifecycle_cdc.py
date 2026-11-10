@@ -1,4 +1,4 @@
-"""Kiểm CDC v2 không service: seed, contract, đối soát oracle và cấu trúc DAG/harness."""
+"""Check CDC v2 without services: seed, contract, oracle reconciliation and DAG/harness structure."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ EPOCH = "cluster/topic-uuid"
 
 @pytest.fixture
 def plan(tmp_path):
-    """Sinh fixture chuẩn bằng producer rồi dựng chuỗi mutation từ dòng loader."""
+    """Generate the standard fixture with the producer, then build the mutation chain from loader rows."""
     root = tmp_path / "fixture"
     generate_fixture(root)
     sample = bootstrap_rows(root)[0]._asdict()
@@ -30,7 +30,7 @@ def plan(tmp_path):
 
 
 def bronze_rows(plan):
-    """Dựng dữ liệu Bronze sạch theo định dạng thật để kiểm hàm thuần."""
+    """Build clean Bronze data in the real format to test the pure functions."""
     return [
         {
             **e,
@@ -48,7 +48,7 @@ def bronze_rows(plan):
 
 
 def test_seed_and_contract(plan):
-    """Cùng seed cho oracle như nhau, seed khác đổi khóa; c/u đúng contract thật."""
+    """The same seed gives the same oracle, a different seed changes keys; c/u match the real contract."""
     events, sample = plan
     assert events == mutation_plan(sample, 11)
     assert events[0]["purchase_order_id"] != mutation_plan(sample, 12)[0]["purchase_order_id"]
@@ -71,7 +71,7 @@ def test_seed_and_contract(plan):
 
 
 def test_clean_and_arrival_order(plan):
-    """Thứ tự collect không có nghĩa; thứ tự Kafka theo offset mới là bằng chứng."""
+    """Collect order is meaningless; Kafka order by offset is the evidence."""
     events, _ = plan
     rows = bronze_rows(events)
     assert not any(compare_events(events, rows[::-1], EPOCH).values())
@@ -81,7 +81,7 @@ def test_clean_and_arrival_order(plan):
     "kind", ["missing", "extra", "payload_mismatch", "order_mismatch", "epoch_mismatch"]
 )
 def test_oracle_detects_errors(plan, kind):
-    """Từng lỗi độc lập phải được đối soát phát hiện, kể cả hash cột bị giả mạo."""
+    """Each independent error must be caught by reconciliation, including a forged column hash."""
     events, _ = plan
     rows = bronze_rows(events)
     if kind == "missing":
@@ -89,7 +89,7 @@ def test_oracle_detects_errors(plan, kind):
     elif kind == "extra":
         rows.append({**rows[0], "purchase_order_id": "fake", "kafka_offset": 99})
     elif kind == "payload_mismatch":
-        rows[0]["payload_after"] = "payload bị sửa nhưng vẫn giữ hash cũ"
+        rows[0]["payload_after"] = "payload modified but still keeping the old hash"
     elif kind == "order_mismatch":
         rows[0]["kafka_offset"], rows[1]["kafka_offset"] = 1, 0
     else:
@@ -98,7 +98,7 @@ def test_oracle_detects_errors(plan, kind):
 
 
 def test_duplicate_delete_payload_and_boundary(plan):
-    """Không che dòng ngoài range; lặp offset hoặc after của delete đều bị bắt."""
+    """Do not hide rows outside the range; repeated offsets or a delete's after are both caught."""
     events, _ = plan
     rows = bronze_rows(events)
     boundary = {"topic": "topic", "starting_offsets": {"0": 0}, "ending_offsets": {"0": 3}}
@@ -115,7 +115,7 @@ def test_duplicate_delete_payload_and_boundary(plan):
 
 
 def test_contract_rejects_bad_sample(plan):
-    """Mutation không được tạo oracle cho payload thiếu trường required."""
+    """Mutation must not build an oracle for a payload missing required fields."""
     _, sample = plan
     sample = {
         **sample,
@@ -126,7 +126,7 @@ def test_contract_rejects_bad_sample(plan):
 
 
 def test_dataset_is_part_of_key(plan):
-    """Cùng purchase_order_id nhưng dataset khác phải là thiếu và thừa."""
+    """The same purchase_order_id with a different dataset must count as both missing and extra."""
     events, _ = plan
     rows = bronze_rows(events)
     rows[0]["dataset_version"] = "other-dataset"
@@ -135,7 +135,7 @@ def test_dataset_is_part_of_key(plan):
 
 
 def test_dag_ast_and_setup():
-    """DAG paused, trigger tay, hai task đúng thứ tự và Variables được setup đủ."""
+    """DAG paused, manual trigger, two tasks in the right order and Variables fully set up."""
     source = (ROOT / "dags/dp_order_lifecycle_cdc.py").read_text()
     tree = ast.parse(source)
     dag = next(
@@ -180,8 +180,8 @@ def test_dag_ast_and_setup():
     )
 
 
-def test_all_new_python_functions_have_vietnamese_docstrings():
-    """Các hàm mới đều có docstring; parse không cần Airflow/Spark."""
+def test_all_new_python_functions_have_docstrings():
+    """All new functions have docstrings; parsing needs no Airflow/Spark."""
     files = [
         "scripts/setup/setup_order_lifecycle_debezium.py",
         "scripts/run/mutate_order_lifecycle_cdc.py",
@@ -201,7 +201,7 @@ def test_all_new_python_functions_have_vietnamese_docstrings():
 
 
 def test_two_updates_same_key_reordered(plan):
-    """Đảo hai UPDATE vẫn phải báo sai thứ tự dù chuỗi op c/u/u/d không đổi."""
+    """Swapping two UPDATEs must still report a wrong order even though the c/u/u/d op sequence is unchanged."""
     events, _ = plan
     events = deepcopy(events)
     second_update = {

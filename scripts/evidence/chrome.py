@@ -14,18 +14,18 @@ import aiohttp
 
 
 class ChromePage:
-    """Gửi lệnh CDP đến một tab Chrome và nhận đúng response theo id."""
+    """Send CDP commands to a Chrome tab and receive the matching response by id."""
 
     def __init__(
         self, websocket: aiohttp.ClientWebSocketResponse, *, await_promises: bool = True
     ) -> None:
-        """Giữ kết nối và bộ đếm request của tab."""
+        """Hold the tab's connection and request counter."""
         self.websocket = websocket
         self.next_id = 0
         self.await_promises = await_promises
 
     async def call(self, method: str, params: dict | None = None) -> dict:
-        """Thực thi một lệnh CDP, bỏ qua event chạy xen giữa."""
+        """Execute one CDP command, skipping interleaved events."""
         self.next_id += 1
         request_id = self.next_id
         await self.websocket.send_json({"id": request_id, "method": method, "params": params or {}})
@@ -38,17 +38,17 @@ class ChromePage:
             return message.get("result", {})
 
     async def navigate(self, url: str) -> None:
-        """Mở URL và chờ trang DOM load xong."""
+        """Open a URL and wait for the DOM to finish loading."""
         await self.call("Page.navigate", {"url": url})
         for _ in range(60):
             result = await self.evaluate("document.readyState")
             if result == "complete":
                 return
             await asyncio.sleep(0.5)
-        raise TimeoutError(f"Trang không load xong: {url}")
+        raise TimeoutError(f"Page did not finish loading: {url}")
 
     async def evaluate(self, expression: str):
-        """Chạy JavaScript trong tab và trả về giá trị đơn giản."""
+        """Run JavaScript in the tab and return a simple value."""
         result = await self.call(
             "Runtime.evaluate",
             {
@@ -63,13 +63,13 @@ class ChromePage:
 
 
 async def wait_for_chrome(profile: Path) -> int:
-    """Đọc port DevTools mà Chrome ghi sau khi khởi động."""
+    """Read the DevTools port that Chrome writes after startup."""
     port_file = profile / "DevToolsActivePort"
     for _ in range(100):
         if port_file.exists():
             return int(port_file.read_text().splitlines()[0])
         await asyncio.sleep(0.1)
-    raise TimeoutError("Chrome chưa mở DevTools port")
+    raise TimeoutError("Chrome has not opened the DevTools port")
 
 
 @asynccontextmanager

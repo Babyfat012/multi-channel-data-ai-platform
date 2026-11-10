@@ -1,7 +1,7 @@
-"""DAG chạy tay nguồn v2 → Silver có hợp đồng → Gold và kiểm nhãn/feature.
+"""Manually triggered DAG: v2 source → contract-checked Silver → Gold, with label/feature checks.
 
-Chỉ đọc cấu hình tại runtime; Spark xuất receipt Bronze có schema thật.
-Operator chỉ ghi receipt lỗi khi Spark thất bại.
+Reads configuration only at runtime; Spark emits a Bronze receipt with the real schema.
+The operator writes a failure receipt only when Spark fails.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from platform_spark_operator import PlatformSparkSubmitOperator
 
 
 class OrderLifecycleSparkSubmitOperator(PlatformSparkSubmitOperator):
-    """Render tài nguyên v2 kể cả khi provider không template các trường này."""
+    """Render v2 resources even when the provider does not template these fields."""
 
     template_fields = tuple(
         dict.fromkeys(
@@ -46,7 +46,7 @@ CONF = {
 
 
 def write_receipt(path, document):
-    """Lưu receipt có thời gian hoàn tất thật vào thư mục của lần chạy."""
+    """Save the receipt with the real completion time into the run's directory."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     document["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -54,7 +54,7 @@ def write_receipt(path, document):
 
 
 def check_registry(receipt, run_id):
-    """Chạy CLI hợp đồng bằng Python sẵn có, lưu cả lỗi rồi truyền exit code."""
+    """Run the contract CLI with the bundled Python, save errors too, then pass on the exit code."""
     result = subprocess.run(
         [
             sys.executable,
@@ -81,11 +81,11 @@ def check_registry(receipt, run_id):
         },
     )
     if result.returncode:
-        raise RuntimeError(f"check-registry thất bại; xem receipt {receipt}")
+        raise RuntimeError(f"check-registry failed; see receipt {receipt}")
 
 
 class OrderLifecycleBronzeOperator(OrderLifecycleSparkSubmitOperator):
-    """Bổ sung JDBC tùy chọn và receipt lỗi cho job 20."""
+    """Add optional JDBC and a failure receipt for job 20."""
 
     template_fields = (
         *OrderLifecycleSparkSubmitOperator.template_fields,
@@ -94,13 +94,13 @@ class OrderLifecycleBronzeOperator(OrderLifecycleSparkSubmitOperator):
     )
 
     def __init__(self, *, receipt_path, walmart_jdbc, **kwargs):
-        """Nhận đường dẫn receipt và tên bảng JDBC đã được Airflow template."""
+        """Take the receipt path and JDBC table name already templated by Airflow."""
         self.receipt_path = receipt_path
         self.walmart_jdbc = walmart_jdbc
         super().__init__(**kwargs)
 
     def execute(self, context):
-        """Giữ receipt Spark thành công; ghi receipt lỗi rồi truyền nguyên lỗi Spark."""
+        """Keep a successful Spark receipt; write a failure receipt, then re-raise the Spark error unchanged."""
         original_args = self.application_args
         document = {
             "run_id": context["run_id"],
@@ -108,7 +108,7 @@ class OrderLifecycleBronzeOperator(OrderLifecycleSparkSubmitOperator):
             "status": "failed",
             "checks_available": False,
             "tables": {"raw_source_records": "lakehouse.bronze.lifecycle_raw_records"},
-            "note": "Spark thất bại; xem log job 20, receipt lỗi không xác nhận metrics/schema.",
+            "note": "Spark failed; see the job 20 log, a failure receipt does not confirm metrics/schema.",
         }
         try:
             self.application_args = list(original_args)
@@ -124,7 +124,7 @@ class OrderLifecycleBronzeOperator(OrderLifecycleSparkSubmitOperator):
 
 with DAG(
     dag_id="dp_order_lifecycle",
-    description="Hợp đồng → Bronze v2 → Silver v2 → Gold v2 → Validate",
+    description="Contracts → Bronze v2 → Silver v2 → Gold v2 → Validate",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,
@@ -136,19 +136,19 @@ with DAG(
             None,
             type=["null", "string"],
             minLength=1,
-            description="Thư mục fixture trong container; null dùng Variable",
+            description="Fixture directory in the container; null uses the Variable",
         ),
         "cutoff": Param(
             None,
             type=["null", "string"],
             format="date-time",
-            description="Cutoff UTC; null dùng Variable",
+            description="Cutoff UTC; null uses the Variable",
         ),
         "walmart_jdbc": Param(
             None,
             type=["null", "string"],
             pattern=r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$",
-            description="Ví dụ walmart_lifecycle.orders; null đọc bootstrap file",
+            description="E.g. walmart_lifecycle.orders; null reads the bootstrap file",
         ),
     },
     tags=["platform", "v2", "contracts"],

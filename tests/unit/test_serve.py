@@ -1,4 +1,4 @@
-"""Kiểm ml/serve.py không cần KServe/Redis thật: ghép feature online, chấm điểm, cờ abstain."""
+"""Check ml/serve.py without real KServe/Redis: online feature join, scoring, abstain flag."""
 
 import sys
 import types
@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# kserve/lightgbm có thể không cài trong môi trường test: thay bằng module giả tối thiểu.
+# kserve/lightgbm may not be installed in the test environment: replace them with minimal fake modules.
 sys.modules.setdefault("lightgbm", types.SimpleNamespace(Booster=object))
 fake_kserve = types.ModuleType("kserve")
 fake_kserve.Model = type("Model", (), {"__init__": lambda self, name: setattr(self, "name", name)})
@@ -22,14 +22,14 @@ from ml.serve import ReturnRisk  # noqa: E402
 
 
 class FakeStore:
-    """Feast online giả: trả số line có nhãn theo bảng tra."""
+    """Fake Feast online: returns labeled line counts from a lookup table."""
 
     def __init__(self, history):
         """history: {sku: labeled_count_90d}."""
         self.history = history
 
     def get_online_features(self, features, entity_rows):
-        """Cùng hình dạng kết quả với Feast: đối tượng có to_df()."""
+        """Same result shape as Feast: an object with to_df()."""
         skus = [r["seller_sku"] for r in entity_rows]
         return types.SimpleNamespace(
             to_df=lambda: pd.DataFrame(
@@ -44,15 +44,15 @@ class FakeStore:
 
 
 class FakeBooster:
-    """Booster giả trả điểm hằng số."""
+    """Fake booster returning a constant score."""
 
     def predict(self, frame):
-        """Điểm hằng số cho mọi dòng."""
+        """Constant score for every row."""
         return np.full(len(frame), 0.42)
 
 
 def model(history):
-    """Predictor đã nạp store/booster giả, ngưỡng 20."""
+    """Predictor with a fake store/booster loaded, threshold 20."""
     m = ReturnRisk("return-risk")
     m.min_history, m.version = 20, "7"
     m.store, m.booster = FakeStore(history), FakeBooster()
@@ -72,7 +72,7 @@ ORDER = {
     [(None, True), (0, True), (19, True), (20, False), (500, False)],
 )
 def test_abstain_boundary(history, abstain):
-    """Biên 20 giữ nguyên; count thiếu phải có lý do riêng và không có điểm số."""
+    """Boundary 20 is kept; a missing count must have its own reason and no score."""
     out = model({"sku-1": history}).predict({"instances": [{"seller_sku": "sku-1", **ORDER}]})
     p = out["predictions"][0]
     assert p["abstain"] is abstain and p["model_version"] == "7"
@@ -85,7 +85,7 @@ def test_abstain_boundary(history, abstain):
 
 @pytest.mark.parametrize("history", [None, np.nan, pd.NA])
 def test_missing_required_feature_never_calls_booster(history):
-    """Các dạng dữ liệu thiếu đều phải bỏ qua LightGBM, không chỉ đổi nhãn sau khi chấm."""
+    """Every form of missing data must skip LightGBM, not just relabel after scoring."""
     m = model({"sku-1": history})
     m.booster.predict = Mock(side_effect=AssertionError("must not score missing history"))
     result = m.predict({"instances": [{"seller_sku": "sku-1", **ORDER}]})
@@ -104,7 +104,7 @@ def test_missing_required_feature_never_calls_booster(history):
 
 
 def test_mixed_batch_only_scores_available_rows_in_original_order():
-    """Batch có SKU thiếu vẫn chấm phần hợp lệ, không tráo điểm giữa SKU hay các đơn cùng SKU."""
+    """A batch with missing SKUs still scores the valid part, without swapping scores between SKUs or orders of the same SKU."""
     m = model({"missing": None, "known": 1000, "new": 0})
     m.booster.predict = Mock(side_effect=lambda frame: frame["ordered_basis_qty"].to_numpy() / 10)
     rows = [
@@ -126,7 +126,7 @@ def test_mixed_batch_only_scores_available_rows_in_original_order():
 
 
 def test_nullable_features_do_not_block_known_history():
-    """Feature tùy chọn thiếu không bị coi là thiếu count bắt buộc; giữ cách LightGBM xử lý NaN."""
+    """A missing optional feature is not treated as a missing required count; keep LightGBM's NaN handling."""
     m = model({"known": 1000})
     m.booster.predict = Mock(wraps=m.booster.predict)
     result = m.predict({"instances": [{"seller_sku": "known", **ORDER}]})["predictions"][0]
@@ -136,7 +136,7 @@ def test_nullable_features_do_not_block_known_history():
 
 
 def test_missing_order_field_is_rejected():
-    """Thiếu thuộc tính đơn ⇒ lỗi rõ ràng, không chấm trên NaN."""
+    """Missing order attributes ⇒ a clear error, no scoring on NaN."""
     from kserve.errors import InvalidInput
 
     with pytest.raises(InvalidInput, match="channel"):
@@ -155,7 +155,7 @@ def test_missing_order_field_is_rejected():
 
 
 def test_order_of_rows_kept_for_many_skus():
-    """Nhiều instance: kết quả giữ đúng thứ tự SKU đầu vào."""
+    """Multiple instances: results keep the input SKU order."""
     rows = [{"seller_sku": s, **ORDER} for s in ("b", "a", "c")]
     out = model({"a": 50, "b": 1, "c": 50}).predict({"instances": rows})
     assert [p["seller_sku"] for p in out["predictions"]] == ["b", "a", "c"]
@@ -163,7 +163,7 @@ def test_order_of_rows_kept_for_many_skus():
 
 
 def test_publication_failure_returns_unavailable_without_scoring():
-    """Con trỏ/lease batch lỗi phải từ chối dự đoán, không che thành ít lịch sử."""
+    """A broken batch pointer/lease must abstain from predicting, not disguise it as insufficient history."""
     from feature_repo.publication import FeatureDataUnavailable
 
     m = model({"sku-1": 1000})

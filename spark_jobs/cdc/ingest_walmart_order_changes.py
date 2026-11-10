@@ -38,7 +38,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--boundary-dir", required=True)
     args = parser.parse_args(argv)
     if not IDENTIFIER.fullmatch(args.table):
-        parser.error(f"Tên bảng không hợp lệ: {args.table!r}")
+        parser.error(f"Invalid table name: {args.table!r}")
     return args
 
 
@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             args.boundary_dir, run_id, capture_kafka_boundary(spark, args.bootstrap, args.topic)
         )
         if incoming == 0:
-            raise ValueError(f"Topic {args.topic} chưa có sự kiện CDC")
+            raise ValueError(f"Topic {args.topic} has no CDC events yet")
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.bronze")
         if spark.catalog.tableExists(target):
             events.createOrReplaceTempView("cdc_updates")
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             events.writeTo(target).create()
         total = spark.table(target).count()
-        print(f"Kafka={incoming:,}, Bronze={total:,}, bảng={target}, run_id={run_id}")
+        print(f"Kafka={incoming:,}, Bronze={total:,}, table={target}, run_id={run_id}")
         return 0
     finally:
         spark.stop()

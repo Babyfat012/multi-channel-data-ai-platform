@@ -1,5 +1,5 @@
-# Cấu hình Feast. Biến môi trường do DAG/pod truyền vào, nên cùng file chạy được
-# local (MinIO + Redis trong kind) và GCP (gs:// + Redis trên GKE).
+# Feast config. Environment variables are passed in by the DAG/pod, so the same file works
+# locally (MinIO + Redis in kind) and on GCP (gs:// + Redis on GKE).
 project: platform
 provider: local
 registry: ${FEAST_REGISTRY}

@@ -1,4 +1,4 @@
-"""Tạo chiều SCD2 của trạng thái Amazon Order từ các snapshot Bronze đã thấy."""
+"""Build the SCD2 dimension of Amazon Order status from the Bronze snapshots seen."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ V2026 = T.StructType(
 
 
 def status_lookup(mapping: dict[str, str], source):
-    """Ánh xạ chữ trạng thái gốc bằng bảng dùng ở Silver."""
+    """Map original status text using the table used in Silver."""
     pairs = [F.lit(value) for item in mapping.items() for value in item]
     return F.create_map(*pairs)[source]
 
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     for value in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
 
     spark = build_spark("dim-amazon-order-scd2", shuffle_partitions=64)
     try:
@@ -90,13 +90,13 @@ def main(argv: list[str] | None = None) -> int:
             .count()
         )
         if bad:
-            raise ValueError("Bronze Amazon thiếu mã, thời gian hoặc trạng thái SCD2")
+            raise ValueError("Amazon Bronze is missing the id, time or status for SCD2")
 
         versions = observed.groupBy("order_id", "valid_from_ts").agg(
             F.min("export_date").alias("first_observed_export_date"),
             F.min("order_status").alias("order_status"),
-            # Cùng trạng thái chuẩn có thể viết "Shipped" ở v0 và
-            # "SHIPPED" ở schema 2026. Giữ chữ nguồn của export mới nhất.
+            # The same canonical status may be written "Shipped" in v0 and
+            # "SHIPPED" in the 2026 schema. Keep the source text of the latest export.
             F.max_by(F.col("channel_status"), F.struct("export_date", "channel_status")).alias(
                 "channel_status"
             ),
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         conflicts = versions.filter(F.col("_distinct_statuses") != 1).limit(1).count()
         if conflicts:
-            raise ValueError("Cùng Order và thời điểm đổi nhưng trạng thái mâu thuẫn")
+            raise ValueError("Same Order and change time but conflicting statuses")
 
         timeline = Window.partitionBy("order_id").orderBy("valid_from_ts")
         dimension = (
@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         target = f"{CATALOG}.gold.{args.table}"
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.gold")
         dimension.writeTo(target).partitionedBy(F.days("valid_from_ts")).createOrReplace()
-        print(f"Amazon SCD2 đã ghi: {target}; run_id={args.run_id}")
+        print(f"Amazon SCD2 written: {target}; run_id={args.run_id}")
         return 0
     finally:
         spark.stop()

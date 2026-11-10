@@ -1,4 +1,4 @@
-"""BẢN CHỤP TRƯỚC REFACTOR (2026-10-19) — chỉ để tests/spark/check_order_lifecycle_gold_equivalence.py so; không dùng ở job.
+"""SNAPSHOT BEFORE THE REFACTOR (2026-10-19): only for tests/spark/check_order_lifecycle_gold_equivalence.py to compare against; not used by jobs.
 
 Gold v2 for small fixtures: Silver DataFrames in, Gold DataFrames out.
 
@@ -80,7 +80,7 @@ def build_gold(silver: dict, cutoff, run_id: str, computed_at=None) -> dict:
         from spark_jobs.lib.order_lifecycle_lakehouse import OPERATIONAL_FEEDS
     spark = silver["line_lifecycle"].sparkSession
     spark.conf.set("spark.sql.session.timeZone", "UTC")
-    # Bản chụp nằm ở tests/: worker cần return_label của spark_jobs và chính file này.
+    # The snapshot lives in tests/: workers need spark_jobs' return_label and this file itself.
     from spark_jobs.lib.package_distribution import distribute_python_packages
 
     distribute_python_packages(spark.sparkContext, include_tests=True)

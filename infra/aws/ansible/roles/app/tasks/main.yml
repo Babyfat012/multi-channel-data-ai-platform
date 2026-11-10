@@ -1,5 +1,5 @@
-# Đồng bộ mã và triển khai Compose; không chép credential hay dữ liệu local lên VM.
-- name: Kiểm biến bắt buộc và secret đã điền
+# Sync code and deploy Compose; never copy credentials or local data to the VM.
+- name: Check required variables and filled-in secrets
   ansible.builtin.assert:
     that:
       - aws_region is match('^[a-z]{2}-[a-z]+-[0-9]$')
@@ -13,27 +13,27 @@
       - warehouse_name is match('^[a-zA-Z0-9_-]+$')
       - (aws_runtime_profile | default('standard')) in ['standard', 'performance']
   no_log: true
-- name: Kiểm tài nguyên trước khi bật profile performance
+- name: Check resources before enabling the performance profile
   ansible.builtin.assert:
     that:
       - ansible_facts['processor_vcpus'] | int >= 8
       - ansible_facts['memtotal_mb'] | int >= 30000
-    fail_msg: Profile performance yêu cầu VM ít nhất 8 vCPU/32 GiB.
+    fail_msg: The performance profile requires a VM with at least 8 vCPU/32 GiB.
   when: (aws_runtime_profile | default('standard')) == 'performance'
-- name: Kiểm Compose hỗ trợ override
+- name: Check that Compose supports override
   ansible.builtin.command: docker compose version --short
   register: compose_version
   changed_when: false
-- name: Yêu cầu Compose tối thiểu 2.24.4
+- name: Require Compose 2.24.4 or newer
   ansible.builtin.assert:
     that: (compose_version.stdout | trim | regex_replace('^v', '')) is version('2.24.4', '>=')
-- name: Tạo thư mục app
+- name: Create the app directory
   ansible.builtin.file:
     path: '{{ app_dir }}'
     owner: '{{ ansible_user }}'
     state: directory
     mode: '0755'
-- name: Đồng bộ repo bằng rsync, loại secret và thư mục phát sinh
+- name: Sync the repo with rsync, excluding secrets and generated directories
   ansible.posix.synchronize:
     src: '{{ repo_local }}/'
     dest: '{{ app_dir }}/'
@@ -56,10 +56,10 @@
       - '--exclude=infra/aws/kubernetes/'
       - '--exclude=.archive/'
   register: app_sync
-  # --tags code: chỉ đồng bộ code (dags/, spark_jobs/, scripts/, trino/ được bind mount nên không cần
-  # restart). Đổi compose/.env/Dockerfile thì vẫn chạy cả playbook.
+  # --tags code: sync code only (dags/, spark_jobs/, scripts/, trino/ are bind mounts, so no
+  # restart is needed). Changes to compose/.env/Dockerfile still need the full playbook.
   tags: [code]
-- name: Tạo các thư mục persistent cho Spark
+- name: Create persistent directories for Spark
   ansible.builtin.file:
     path: '/mnt/platform-data/{{ item }}'
     state: directory
@@ -67,48 +67,48 @@
     owner: '{{ airflow_uid }}'
     group: '0'
   loop: [airflow, spark-events, spark-worker-1, spark-worker-2, source]
-- name: Tạo thư mục PostgreSQL riêng
+- name: Create a dedicated PostgreSQL directory
   ansible.builtin.file:
     path: /mnt/platform-data/postgres
     state: directory
     mode: '0700'
-- name: Sinh env từ biến đã điền
+- name: Render env from the filled-in variables
   ansible.builtin.template:
     src: env.j2
     dest: '{{ app_dir }}/.env'
     owner: '{{ ansible_user }}'
     mode: '0600'
   no_log: true
-- name: Kiểm image đã được build
+- name: Check whether the image has been built
   ansible.builtin.command: docker image inspect platform-airflow:2.10.5-spark3.5.3
   register: airflow_image
   changed_when: false
   failed_when: false
-# Code được mount vào container, image chỉ chứa Java + thư viện: build lại khi Dockerfile đổi, không phải khi code đổi.
-- name: Đọc checksum Dockerfile airflow
+# Code is mounted into the container and the image holds only Java + libraries: rebuild when the Dockerfile changes, not when code changes.
+- name: Read the airflow Dockerfile checksum
   ansible.builtin.stat:
     path: '{{ app_dir }}/docker/Dockerfile.airflow'
   register: airflow_dockerfile
-- name: So checksum với lần build trước
+- name: Compare the checksum with the previous build
   ansible.builtin.copy:
     content: '{{ airflow_dockerfile.stat.checksum }}'
     dest: /mnt/platform-data/airflow/.dockerfile.sha1
     mode: '0644'
   check_mode: true
   register: airflow_dockerfile_stamp
-- name: Build image driver và executor cùng Python 3.10
+- name: Build the driver and executor image on the same Python 3.10
   ansible.builtin.command: docker compose --profile airflow build airflow
   args:
     chdir: '{{ app_dir }}'
   when: airflow_dockerfile_stamp.changed or airflow_image.rc != 0
   changed_when: true
-# Ghi dấu SAU khi build thành công: build lỗi thì lần sau vẫn build lại.
-- name: Ghi checksum Dockerfile đã build
+# Write the marker AFTER a successful build: a failed build is retried on the next run.
+- name: Record the built Dockerfile checksum
   ansible.builtin.copy:
     content: '{{ airflow_dockerfile.stat.checksum }}'
     dest: /mnt/platform-data/airflow/.dockerfile.sha1
     mode: '0644'
-- name: Tạo khóa Fernet một lần trước khi Airflow khởi động
+- name: Create the Fernet key once before Airflow starts
   ansible.builtin.command:
     argv:
       - python3
@@ -119,7 +119,7 @@
   register: fernet_setup
   changed_when: "'created' in fernet_setup.stdout"
   no_log: true
-- name: Bật đúng dịch vụ Data Platform v2, chờ healthcheck
+- name: Start exactly the Data Platform v2 services and wait for healthchecks
   ansible.builtin.command: >-
     docker compose --profile catalog --profile spark --profile airflow up -d --wait --wait-timeout 300
     postgres lakekeeper spark-master spark-worker-1 spark-worker-2 airflow node-exporter postgres-exporter
@@ -133,14 +133,14 @@
   args:
     chdir: '{{ app_dir }}'
   changed_when: false
-- name: Bật MLflow (chỉ mlflow + db-init, không bật registry local)
+- name: Start MLflow (mlflow + db-init only, no local registry)
   ansible.builtin.command: docker compose --profile ml up -d --wait --wait-timeout 180 mlflow
   args:
     chdir: '{{ app_dir }}'
   register: mlflow_up
   changed_when: "'Started' in mlflow_up.stderr or 'Created' in mlflow_up.stderr or 'Recreated' in mlflow_up.stderr"
   no_log: true
-- name: Chờ Airflow metadata và scheduler sẵn sàng
+- name: Wait for Airflow metadata and scheduler to be ready
   ansible.builtin.uri:
     url: http://127.0.0.1:8081/health
     return_content: true
@@ -151,13 +151,13 @@
     airflow_health.json.scheduler.status == 'healthy'
   retries: 60
   delay: 5
-- name: Bootstrap Lakekeeper S3 và kiểm cấu hình warehouse khi chạy lại
+- name: Bootstrap Lakekeeper S3 and check the warehouse config on reruns
   ansible.builtin.command: bash scripts/setup/setup_lakekeeper_s3.sh
   args:
     chdir: '{{ app_dir }}'
   register: warehouse_setup
-  changed_when: "'Đã tạo' in warehouse_setup.stdout"
-- name: Nạp cấu hình Airflow và các Variable AWS
+  changed_when: "'Created the S3 warehouse' in warehouse_setup.stdout"
+- name: Load Airflow config and AWS Variables
   ansible.builtin.shell: |
     set -a
     source .env
@@ -166,14 +166,14 @@
   args:
     executable: /bin/bash
     chdir: '{{ app_dir }}'
-  # Các lệnh upsert đưa DB về cùng cấu hình, không tạo bản ghi trùng.
+  # The upsert commands converge the DB to the same config without duplicate records.
   changed_when: false
   no_log: true
-- name: Chuẩn bị venv cho sinh nguồn và nạp PostgreSQL
+- name: Prepare the venv for source generation and PostgreSQL loading
   ansible.builtin.pip:
     name:
       - 'psycopg[binary]==3.2.13'
-      # Loader Walmart dùng load_settings từ setup_debezium, nơi import client Kafka.
+      # The Walmart loader uses load_settings from setup_debezium, which imports the Kafka client.
       - 'confluent-kafka==2.15.1'
     virtualenv: /mnt/platform-data/venv
     virtualenv_command: python3 -m venv

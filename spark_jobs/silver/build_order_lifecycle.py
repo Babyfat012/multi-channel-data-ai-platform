@@ -1,8 +1,8 @@
-"""Bronze v2 -> các bảng Silver theo thực thể (`silver.lifecycle_stg_*`), rồi đối soát.
+"""Bronze v2 -> per-entity Silver tables (`silver.lifecycle_stg_*`), then reconcile.
 
-Logic và các bất biến ở `lib/order_lifecycle_lakehouse.py`. Đối soát chạy trên bảng VỪA GHI (đọc lại
-từ catalog), không trên DataFrame trong bộ nhớ. Bất kỳ check nào khác 0 thì job lỗi.
-Số cách ly không làm fail job. Receipt JSON (checks/info/bảng/run) in ra log và ghi file nếu có `--receipt`.
+The logic and invariants live in `lib/order_lifecycle_lakehouse.py`. Reconciliation runs on the tables JUST WRITTEN (read back
+from the catalog), not on in-memory DataFrames. Any non-zero check fails the job.
+Quarantine counts do not fail the job. The JSON receipt (checks/info/tables/run) is printed to the log and written to a file if `--receipt` is set.
 """
 
 from __future__ import annotations
@@ -40,23 +40,23 @@ TABLES = (
     "observed_evidence",
     "coverage_validity",
 )
-# Lịch sử quan sát: Gold đọc theo thời điểm biết ⇒ partition theo ngày quan sát, không theo created_at.
+# Observation history: Gold reads by time known ⇒ partition by observation date, not by created_at.
 PARTITION_BY_OBSERVED = ("observed_evidence",)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Ghi Silver v2, đối soát trên bảng đã ghi, dừng lỗi nếu có vi phạm."""
-    parser = argparse.ArgumentParser(description="Silver nguồn v2")
+    """Write Silver v2, reconcile on the written tables, fail on any violation."""
+    parser = argparse.ArgumentParser(description="Silver for the v2 source")
     parser.add_argument("--bronze-table", default="lifecycle_raw_records")
     parser.add_argument("--run-id", required=True)
     parser.add_argument(
-        "--as-of", default=None, help="Chỉ dùng dòng quan sát trước thời điểm này (UTC)"
+        "--as-of", default=None, help="Use only rows observed before this time (UTC)"
     )
     parser.add_argument("--contracts-dir", default=None)
     parser.add_argument("--receipt", type=Path, default=None)
     args = parser.parse_args(argv)
     if not IDENTIFIER.fullmatch(args.bronze_table):
-        parser.error(f"Tên bảng không hợp lệ: {args.bronze_table!r}")
+        parser.error(f"Invalid table name: {args.bronze_table!r}")
 
     spark = build_spark("silver-order-lifecycle", shuffle_partitions=4)
     try:
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
                 writer = writer.partitionedBy(F.days("source_observed_at"))
             writer.createOrReplace()
             names[name] = target
-        # Gold kiểm Silver được dựng đúng `as_of = cutoff` qua bảng này (một dòng mỗi lần dựng).
+        # Gold checks Silver was built with exactly `as_of = cutoff` through this table (one row per build).
         info_target = f"{CATALOG}.{NAMESPACE}.lifecycle_stg_build_info"
         build_info = spark.createDataFrame(
             [(args.run_id, args.as_of)], "run_id string, as_of string"
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         failed = {k: v for k, v in result["checks"].items() if v}
         if failed:
-            raise ValueError(f"Đối soát Silver v2 thất bại: {failed}")
+            raise ValueError(f"Silver v2 reconciliation failed: {failed}")
         print("Validate Silver v2: PASS")
         return 0
     finally:

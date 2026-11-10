@@ -1,1 +1,1 @@
-"""Hợp đồng dữ liệu thuần thư viện chuẩn, dùng chung Python và Spark driver."""
+"""Data contracts using only the standard library, shared by Python and the Spark driver."""

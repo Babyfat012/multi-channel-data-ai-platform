@@ -1,6 +1,6 @@
 FROM flink:1.20.3-scala_2.12
 
-# SQL Kafka connector tương thích Flink 1.20, dùng chung ở client và TaskManager.
+# SQL Kafka connector compatible with Flink 1.20, shared by the client and the TaskManager.
 # JDBC + driver PostgreSQL: lookup join line_id → SKU cho stream feature (ML Platform).
 RUN wget -q -P /opt/flink/lib \
     https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.4.0-1.20/flink-sql-connector-kafka-3.4.0-1.20.jar \
