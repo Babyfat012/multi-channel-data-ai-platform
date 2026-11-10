@@ -16,7 +16,7 @@ bash tests/harness/run_order_lifecycle_scale.sh --profile medium --driver-memory
 
 Small = 50 orders/day × 45 days; medium (the default) = 500 × 60, seed 7.
 `--orders-per-day`, `--days`, `--seed`, `--sku-count`, `--sku-zipf-s`,
-`--cutoff` and `--run-id` can be passed through the harness. `--source /workspace/out/nguon-co-san` uses
+`--cutoff` and `--run-id` can be passed through the harness. `--source /workspace/out/existing-source` uses
 a source already generated in the repo; this path is inside the container. The source is mounted read-only.
 Do not pass `--receipt` again through the harness: it already sets `/proof/receipt.json`.
 

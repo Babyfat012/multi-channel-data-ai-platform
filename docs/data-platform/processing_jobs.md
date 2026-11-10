@@ -178,7 +178,7 @@ Real example rows from the `late-amazon-live` output (AWS EC2, continuous run):
 | `5i4wg38o-v0ee-…` | 2026-06-30 08:04:34 | 2026-06-30 12:42:02 | 11:34:14 | 1 | event_time < watermark, more than 3 hours behind the watermark |
 | `b98ozk0b-uiw7-…` | 2026-06-30 17:25:59 | 2026-06-30 22:26:34 | 21:08:20 | 1 | event_time < watermark, more than 4 hours behind the watermark |
 
-Check over the whole output: all **6,674** rows of this run have `event_time <= watermark_time` (the check command prints `TONG 6674 dong, event_time<=watermark: 6674`, i.e. "TOTAL 6674 rows").
+Check over the whole output: all **6,674** rows of this run have `event_time <= watermark_time` (the check command prints `TOTAL 6674 rows, event_time<=watermark: 6674`, i.e. "TOTAL 6674 rows").
 Messages that are late but not beyond the one-hour threshold do not go into this file. That is why the row count here is smaller than the number of out-of-order messages the generator created (19,729).
 The Completed Jobs screenshot and graph below only prove that the job ran; **the evidence that the job processes correctly is the `watermark_time` column above**.
 The rows above come from `/mnt/platform-data/flink/late-amazon-live/part-*` on EC2; see the [verbatim output](../evidence/aws/flink-live-output-20261104.txt) and the Job status section.
@@ -188,7 +188,7 @@ The rows above come from `/mnt/platform-data/flink/late-amazon-live/part-*` on E
 Command that extracts the 3 example rows and checks the late condition on the output (run on EC2, results in the table above):
 
 ```bash
-cat /mnt/platform-data/flink/late-amazon-live/part-* | tr -d '"' | awk -F, '{e=$2;sub("T"," ",e);sub("Z","",e);p=$3;sub("T"," ",p);sub("Z","",p);w=substr($4,1,19);t++;if(e<=w)ok++; if(t%80==1&&n<3){n++;printf "| `%s` | %s | %s | %s | %s |\n",$1,e,p,substr($4,12,8),$5}} END{printf "TONG %d dong, event_time<=watermark: %d\n",t,ok}'
+cat /mnt/platform-data/flink/late-amazon-live/part-* | tr -d '"' | awk -F, '{e=$2;sub("T"," ",e);sub("Z","",e);p=$3;sub("T"," ",p);sub("Z","",p);w=substr($4,1,19);t++;if(e<=w)ok++; if(t%80==1&&n<3){n++;printf "| `%s` | %s | %s | %s | %s |\n",$1,e,p,substr($4,12,8),$5}} END{printf "TOTAL %d rows, event_time<=watermark: %d\n",t,ok}'
 ```
 
 **Job status.** The first run was the bounded version: it used `scan.bounded.mode = latest-offset`, so all four SQL jobs read up to the last offset and then stopped in the `FINISHED` state.

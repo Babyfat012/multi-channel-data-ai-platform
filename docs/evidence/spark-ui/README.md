@@ -26,13 +26,13 @@ job, so it cannot capture a 19-minute job). Source: three event logs in `out/spa
 
 Restart the History Server to view them yourself:
 ```bash
-cd /home/phattl/eonsr/FSDS
-docker run -d --rm --name fsds-spark-history -p 18080:18080 --user root \
+cd <repo-root>
+docker run -d --rm --name platform-spark-history -p 18080:18080 --user root \
   -v "$PWD/out/spark-events:/spark-events:ro" \
   -e SPARK_HISTORY_OPTS="-Dspark.history.fs.logDirectory=file:///spark-events" \
   apache/spark:3.5.3-java17 /opt/spark/bin/spark-class \
   org.apache.spark.deploy.history.HistoryServer
-# then open http://localhost:18080 ; when done: docker stop fsds-spark-history
+# then open http://localhost:18080 ; when done: docker stop platform-spark-history
 ```
 
 | Run | App ID | Configuration | Time |

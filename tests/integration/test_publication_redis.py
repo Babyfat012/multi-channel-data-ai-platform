@@ -1,4 +1,4 @@
-"""Check publication against a dedicated local Redis 7.4; opt in with FSDS_TEST_REDIS_URL."""
+"""Check publication against a dedicated local Redis 7.4; opt in with PLATFORM_TEST_REDIS_URL."""
 
 import os
 import uuid
@@ -27,9 +27,9 @@ from feature_repo.publish_batch import latest_expected, reconcile
 @pytest.fixture
 def redis_client():
     """Connect only to the specified test endpoint; never use the platform's Redis variables."""
-    url = os.environ.get("FSDS_TEST_REDIS_URL")
+    url = os.environ.get("PLATFORM_TEST_REDIS_URL")
     if not url:
-        pytest.skip("set FSDS_TEST_REDIS_URL to a disposable Redis 7.4")
+        pytest.skip("set PLATFORM_TEST_REDIS_URL to a disposable Redis 7.4")
     assert urlsplit(url).hostname in ("127.0.0.1", "localhost"), "test Redis must be local"
     redis = pytest.importorskip("redis")
     client = redis.Redis.from_url(url)
