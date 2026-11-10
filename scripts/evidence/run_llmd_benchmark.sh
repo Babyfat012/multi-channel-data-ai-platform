@@ -32,7 +32,8 @@ extra=()
 # Mặc định chạy --no-pvc: kết quả copy thẳng từ pod harness. Có PVC dùng chung (EFS) thì đặt BENCH_PVC=1.
 pvc=(--no-pvc)
 [[ -z "${BENCH_PVC:-}" ]] || pvc=()
-"$bench" "${extra[@]}" --base-dir "$src" --spec "${LLMD_SPEC:-cpu}" --workspace out/llmd-benchmark run \
+# LABEL tách thư mục kết quả từng cấu hình (baseline / optimized), xem run_llmd_ab.sh.
+"$bench" "${extra[@]}" --base-dir "$src" --spec "${LLMD_SPEC:-cpu}" --workspace "out/llmd-benchmark/${LABEL:-optimized}" run \
   --kubeconfig "$kubeconfig" --endpoint-url "$endpoint" --model "$model" --namespace "$ns" \
   --harness inference-perf --workload-file-path infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml \
   --wait-timeout 1800 "${pvc[@]}"
