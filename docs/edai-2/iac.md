@@ -1,10 +1,16 @@
 # Infrastructure as Code trên AWS
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+EDAI-2, dòng 44–45: dựng hạ tầng AWS bằng code (Terraform) và cấu hình máy bằng code (Ansible).
+
+**Kết luận:** `terraform plan` trên hạ tầng thật báo **No changes**, nghĩa là hạ tầng đang chạy khớp hoàn toàn với code.
+Playbook Ansible chạy trên EC2 kết thúc với `failed=0`.
+
+Các kết quả dưới đây là của những lần chạy trên AWS; tài liệu không khẳng định dịch vụ hiện vẫn đang bật.
 
 ## Phạm vi triển khai
 
-Hạ tầng đã ghi nhận tại Sydney (`ap-southeast-2`): EC2 Data Platform, S3 raw/lakehouse, ECR và EKS `platform-apps`. EC2 và hai EKS worker dùng `r6i.xlarge`; các lần chạy cũ giữ đúng cấu hình máy tại thời điểm đo.
+Hạ tầng được dựng ở region Sydney (`ap-southeast-2`), gồm: máy EC2 chạy Data Platform, hai bucket S3 (raw và lakehouse), ECR và cụm EKS `platform-apps`.
+EC2 và hai worker của EKS dùng loại máy `r6i.xlarge`. Số liệu của các lần chạy cũ vẫn ghi đúng loại máy tại thời điểm đo.
 
 | Thành phần | Code và nhiệm vụ |
 |---|---|
@@ -12,28 +18,36 @@ Hạ tầng đã ghi nhận tại Sydney (`ap-southeast-2`): EC2 Data Platform, 
 | Terraform EKS | [Root module](../../infra/aws/kubernetes/README.md): cluster, node, identity và quyền workload |
 | Ansible | [Playbook/roles](../../infra/aws/ansible/README.md): base, data disk, app, DataHub, source data và smoke trên EC2 |
 
-Workload EC2 dùng IAM role, workload EKS dùng Pod Identity; secret không đặt trong repository. Trình tự chạy: [Cloud setup](../shared/cloud_setup.md), [AWS runbook](../shared/aws_deploy.md).
+Ứng dụng trên EC2 lấy quyền AWS qua IAM role; ứng dụng trên EKS lấy quyền qua Pod Identity. Không có secret nào nằm trong repository. Trình tự chạy: [Cloud setup](../shared/cloud_setup.md), [AWS runbook](../shared/aws_deploy.md).
 
 ## Terraform đã chạy
 
-`terraform plan` trên hạ tầng đang chạy: Terraform đọc lại từng tài nguyên thật (VPC, subnet, SG, EC2, EBS, S3 raw/lakehouse,
-IAM role + policy `platform-ci-ecr`, ECR repo, budget) và so với code ⇒ **No changes**: hạ tầng khớp code, kể cả sau
-sự cố (EC2 bị thay khi stop, đã sửa bằng `lifecycle.ignore_changes`).
+Chạy `terraform plan` trên hạ tầng đang chạy. Terraform đọc lại trạng thái thật của từng tài nguyên (VPC, subnet, security group, EC2, EBS,
+S3 raw/lakehouse, IAM role và policy `platform-ci-ecr`, ECR repo, budget) rồi so với code.
+
+Kết quả là **No changes**: không có tài nguyên nào lệch so với code. Điều này vẫn đúng sau một sự cố trước đó:
+EC2 từng bị Terraform thay mới khi máy được stop, lỗi này đã sửa bằng `lifecycle.ignore_changes`.
 
 ![terraform plan: refresh từng tài nguyên AWS, No changes](../evidence/aws/terraform-plan-no-changes-20261031.png)
 
 ## Ansible đã chạy
 
-Playbook đầy đủ `site.yml` trên EC2 qua SSM, truyền IP node EKS hiện tại cho Redis/pgvector (`-e feast_redis=…
--e rag_pg=…`; thiếu thì `.env` về IP mặc định cũ). Task theo role `app` (checksum Dockerfile, Fernet, compose up,
-MLflow, Lakekeeper, Variable Airflow) và `datahub`; trong ảnh thấy 2 trong 4 `changed` (bật dịch vụ Data Platform, bật MLflow); phần lớn task `ok` vì chạy lại không đổi gì.
+Chạy toàn bộ playbook `site.yml` lên EC2 qua SSM (Session Manager).
+Lệnh truyền IP hiện tại của node EKS cho Redis và pgvector bằng `-e feast_redis=… -e rag_pg=…`. Nếu thiếu hai tham số này, file `.env` sẽ quay về IP mặc định cũ.
+
+Ảnh dưới cho thấy các task của role `app` (kiểm checksum Dockerfile, tạo khoá Fernet, compose up, MLflow, Lakekeeper, Variable Airflow) và role `datahub`.
+Kết quả cuối (PLAY RECAP) có 4 task `changed`; trong ảnh thấy được 2 trong số đó (bật dịch vụ Data Platform, bật MLflow).
+Phần lớn task là `ok` vì đây là lần chạy lại, không có gì cần thay đổi.
 
 ![Ansible site.yml: các task role app/datahub, PLAY RECAP ok=51 changed=4 failed=0](../evidence/aws/ansible-play-recap-20261031.png)
 
-Ảnh plan xác nhận trạng thái đối chiếu hạ tầng; không dùng `terraform validate` thay bằng chứng triển khai. Quy trình thu pipeline/ảnh theo từng dòng Data Platform
-ở [bảng evidence](../shared/aws_deploy.md#anh). Khi nghỉ
-[dừng EC2](../shared/aws_deploy.md#dung-don); EBS/S3 còn tính tiền. Khi hủy môi trường sao lưu rồi
-`terraform destroy`, kiểm bucket version và tài nguyên còn lại trong Console.
+Bằng chứng triển khai là ảnh `terraform plan` (so code với hạ tầng thật), không phải `terraform validate` (chỉ kiểm cú pháp code).
+Cách chạy pipeline và chụp ảnh cho từng dòng Data Platform nằm ở [bảng evidence](../shared/aws_deploy.md#anh).
+
+Vận hành:
+
+- Khi không dùng, [dừng EC2](../shared/aws_deploy.md#dung-don). EBS và S3 vẫn bị tính tiền khi máy dừng.
+- Khi muốn huỷ hẳn môi trường: sao lưu trước, rồi chạy `terraform destroy`, sau đó vào Console kiểm các version còn lại trong bucket và tài nguyên còn sót.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
@@ -45,21 +59,23 @@ Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng ch�
 
 | Tài nguyên | Cấu hình / quyết định bảo mật |
 |---|---|
-| VPC, public subnet, Internet Gateway, route và association | VPC riêng `10.42.0.0/16`, subnet `10.42.0.0/24`; egress kéo image, gọi SSM và S3. Dùng public IPv4 thay NAT Gateway ở cấu hình hiện hành |
-| Security group | **Không ingress**, egress IPv4; không mở SSH/UI ra Internet. SSM agent chủ động gọi ra AWS, SSH chạy qua Session Manager |
+| VPC, public subnet, Internet Gateway, route và association | VPC riêng `10.42.0.0/16`, subnet `10.42.0.0/24`. Chiều ra (egress) dùng để kéo image, gọi SSM và S3. Cấu hình hiện hành dùng public IPv4 thay cho NAT Gateway |
+| Security group | **Không cho kết nối vào (ingress)**, chỉ cho kết nối ra IPv4; không mở SSH hay UI ra Internet. SSM agent trên máy tự gọi ra AWS, nên SSH đi qua Session Manager |
 | EC2 + key pair | Ubuntu 24.04 Canonical, `t3.xlarge` 4 vCPU/16 GiB; chỉ đưa public key vào Terraform. Key private giữ trên laptop; CPU credit `standard` tránh phí surplus |
-| Metadata EC2 | Bắt buộc **IMDSv2**, hop limit **2** cho container lấy credential qua thêm một hop; không nhúng access key vào Compose |
+| Metadata EC2 | Bắt buộc **IMDSv2**. Hop limit đặt **2** để container (nằm sau thêm một tầng mạng) vẫn lấy được credential; không nhúng access key vào Compose |
 | EBS root + EBS data/attachment | gp3 mặc định 30 + 100 GiB, **encrypted=true**. Disk data độc lập để thay EC2 vẫn giữ dữ liệu; `terraform destroy` vẫn xóa disk. EC2/EBS cùng AZ |
 | IAM role, inline policy, instance profile | EC2 nhận credential tạm; quyền list/location trên hai bucket và đọc/ghi/xóa object trong chính hai bucket. Không có quyền S3 toàn tài khoản; gắn `AmazonSSMManagedInstanceCore` cho SSM |
 | Hai S3 bucket `raw`, `lakehouse` | Tên kèm account ID tránh trùng toàn cầu; **block public** cả bốn tùy chọn, `BucketOwnerEnforced` tắt ACL, quyền qua IAM |
 | S3 versioning + lifecycle | Giữ version; xóa noncurrent sau 30 ngày, `tmp/` sau 7 ngày và multipart chưa xong sau 7 ngày. Không đặt dữ liệu chính dưới `tmp/`; không có rule xóa current Iceberg toàn bucket |
 | Budget (bật trong runbook) | Email khi vượt 50/90/100% ngân sách; không trừ credit khi tính cảnh báo. Không phải giới hạn cứng hay lịch dừng máy |
 
-SSM yêu cầu profile người vận hành có quyền mở phiên và EC2 agent online.
-Không ingress không đồng nghĩa EC2 không ra Internet: subnet có route qua IGW
-và máy có IPv4 public. Ansible/ứng dụng giữ port UI ở loopback và mở tunnel
-SSH theo output Terraform. IAM role có quyền xóa object để quản lý Iceberg;
-versioning có retention hữu hạn, không thay sao lưu.
+Để dùng SSM, profile AWS của người vận hành phải có quyền mở phiên, và agent SSM trên EC2 phải đang online.
+
+Lưu ý:
+
+- Không cho kết nối vào không có nghĩa là EC2 không ra được Internet: subnet có route qua Internet Gateway và máy có IPv4 public.
+- Ansible và ứng dụng chỉ mở port UI ở loopback (`127.0.0.1`). Muốn xem UI thì mở tunnel SSH theo output của Terraform.
+- IAM role có quyền xoá object vì Iceberg cần xoá file khi quản lý bảng. Versioning chỉ giữ bản cũ trong thời gian có hạn, nên không thay được sao lưu.
 
 ## Cấu trúc và Ansible roles
 
@@ -111,12 +127,12 @@ ansible-playbook -i inventory.ini site.yml --ask-vault-pass --tags source_data
 ansible-playbook -i inventory.ini site.yml --ask-vault-pass --tags smoke
 ```
 
-Mong đợi: Terraform tạo đúng tài nguyên trong bảng; PLAY RECAP `failed=0` và
-smoke thành công. Lỗi IAM/quota/SSM/key/secret và cách xử lý tại
-[Terraform](../shared/aws_deploy.md#terraform), [Ansible](../shared/aws_deploy.md#ansible).
-State local, plan, inventory, `.env`, secret và vault password giữ ngoài hồ
-sơ công khai; chỉ ảnh/receipt đã kiểm mới đặt trong `docs/`.
+Kết quả mong đợi: Terraform tạo đúng các tài nguyên trong bảng; PLAY RECAP có `failed=0` và bước smoke thành công.
+Các lỗi thường gặp (IAM, quota, SSM, key, secret) và cách xử lý: [Terraform](../shared/aws_deploy.md#terraform), [Ansible](../shared/aws_deploy.md#ansible).
+
+State local, file plan, inventory, `.env`, secret và vault password không được đưa vào hồ sơ công khai.
+Chỉ ảnh và receipt (file biên nhận kết quả) đã kiểm mới được đặt trong `docs/`.
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
