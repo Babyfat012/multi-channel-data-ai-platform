@@ -6,10 +6,11 @@ Trên cụm EKS `platform-apps`, llama.cpp (một server chạy LLM) tự host m
 Model ở định dạng GGUF, nén Q4_K_M (lượng tử hoá 4 bit), và được lưu trên PVC (ổ đĩa gắn cho pod).
 Đây là model có sẵn đem về tự host; chưa có bằng chứng fine-tuning riêng. Agent gọi model qua agentgateway bằng API tương thích OpenAI.
 
-**Kết luận:** model chạy ổn trên EKS. Đo bằng llm-d-benchmark ở 3 mức tải được 42 request, không lỗi.
-Một pod LLM với 3 luồng CPU phục vụ được khoảng 0,3 request/giây; trên mức đó hệ bị quá tải (chi tiết ở mục benchmark).
+**Kết luận:** model chạy ổn trên EKS. Đã đo bằng llm-d-benchmark cả cấu hình baseline lẫn optimized, trên cùng cụm và cùng workload: mỗi cấu hình 42 request, không lỗi.
+Khi tải cao (0,4 request/giây), optimized giảm TTFT p50 46% và TTFT p90 40% so với baseline. Khi tải thấp, baseline nhanh hơn vì dùng nhiều luồng CPU hơn.
+Một pod LLM phục vụ được khoảng 0,3 request/giây; trên mức đó hệ bị quá tải (chi tiết ở mục benchmark).
 
-Code: [`llm.yaml`](../../infra/k8s/agents/llm.yaml), [gateway](../../infra/k8s/agents/agentgateway.yaml), [benchmark](../../scripts/evidence/bench_llm.py).
+Code: [`llm.yaml`](../../infra/k8s/agents/llm.yaml), [gateway](../../infra/k8s/agents/agentgateway.yaml), [benchmark](../../scripts/evidence/bench_llm.py), [llm-d baseline vs optimized](../../scripts/evidence/run_llmd_ab.sh).
 
 ## Cách setup trên EKS
 
@@ -163,31 +164,57 @@ Kết luận: llama.cpp đủ tương thích để chạy llm-d-benchmark. Các 
 2. Công cụ tạo pod harness. Pod tải tokenizer từ Hugging Face rồi chạy lần lượt ba mức tải.
 3. Pod kết thúc với `harness_rc: 0` (mã thoát thành công) sau 3 phút 52 giây.
 
-Kết quả đầy đủ trong [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
+Lần chạy đầu (04/11) chỉ đo cấu hình đã tối ưu. Kết quả đầy đủ trong [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
 (`run_metadata.yaml`, báo cáo từng mức, `stdout.log`).
 
-| Mức tải (yêu cầu/giây, 60 s) | Thành công / lỗi | TTFT trung vị / p90 | TPOT trung vị | Request p50 / p90 | Đạt được (yêu cầu/giây) | Token sinh/giây |
-|---|---:|---:|---:|---:|---:|---:|
-| 0,1 | 6 / 0 | 1,88 s / 2,86 s | 85 ms | 5,49 s / 6,30 s | 0,092 | 2,95 |
-| 0,2 | 12 / 0 | 1,96 s / 4,23 s | 135 ms | 7,22 s / 9,97 s | 0,232 | 7,08 |
-| 0,4 | 24 / 0 | 5,62 s / 15,0 s | 255 ms | 13,6 s / 20,6 s | 0,340 | 10,2 |
+### Baseline so với optimized (10/11/2026)
+
+Để thấy phần tối ưu đem lại gì, đo lại bằng llm-d-benchmark **hai cấu hình llama.cpp trên cùng cụm, cùng ngày, cùng workload**, chỉ đổi tham số của Deployment `qwen`:
+
+| Cấu hình | Tham số llama.cpp |
+|---|---|
+| baseline | cấu hình A ban đầu: `--threads 4`, `--parallel 2`, `--ctx-size 8192`, KV cache f16, `--flash-attn off` |
+| optimized | cấu hình hiện hành trong [`llm.yaml`](../../infra/k8s/agents/llm.yaml): `--threads 3`, `--parallel 4`, `--ctx-size 16384`, KV cache `q8_0`, `--flash-attn on` |
+
+Lệnh chạy: [`run_llmd_ab.sh`](../../scripts/evidence/run_llmd_ab.sh). Script patch Deployment về baseline, đo, `apply` lại `llm.yaml`, đo lần nữa,
+rồi in bảng bằng [`compare_llmd_runs.py`](../../scripts/evidence/compare_llmd_runs.py).
+Baseline chạy lúc 05:09 UTC. Lần đo optimized đầu tiên bị lỗi vì máy quản trị mất kết nối tới API EKS (IP ra Internet không nằm trong danh sách được phép), nên đo lại lúc 06:07 UTC.
+Cả hai lần đều `harness_rc: 0`, mỗi lần 42/42 request thành công.
+Kết quả: [`baseline-20261110/`](../evidence/aws/llmd-benchmark/baseline-20261110/summary_lifecycle_metrics.json),
+[`optimized-20261110/`](../evidence/aws/llmd-benchmark/optimized-20261110/summary_lifecycle_metrics.json).
+
+| Tải (req/s, 60 s) | Cấu hình | OK / lỗi | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Đạt (req/s) | Token ra/s |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 0,1 | baseline | 6 / 0 | 1,79 / 2,37 | 66 | 3,78 / 5,67 | 0,097 | 2,87 |
+| | optimized | 6 / 0 | 1,95 / 2,84 | 103 | 5,34 / 8,70 | 0,099 | 2,80 |
+| 0,2 | baseline | 12 / 0 | 1,77 / 2,89 | 95 | 5,44 / 6,59 | 0,189 | 6,09 |
+| | optimized | 12 / 0 | 1,97 / 3,88 | 141 | 7,73 / 9,24 | 0,189 | 5,75 |
+| 0,4 | baseline | 24 / 0 | 9,41 / 21,10 | 151 | 14,20 / 25,56 | 0,316 | 9,84 |
+| | optimized | 24 / 0 | **5,12 / 12,73** | 253 | 13,50 / **19,52** | **0,335** | **10,61** |
 
 Đọc kết quả:
 
-- Tổng 42 request, không request nào lỗi.
-- Ở mức 0,1 và 0,2 request/giây, hệ phục vụ ổn.
-- Ở mức 0,4 request/giây, hệ **bão hòa** (quá tải): TTFT trung vị tăng gần ba lần (từ 1,96 s lên 5,62 s), p90 chạm 15 s, và
-  hệ chỉ xử lý được 0,34 request/giây trong khi tải gửi vào là 0,4.
-- Với CPU 3 luồng và prompt ~128 token, giới hạn thực tế vào khoảng 0,3 request/giây cho mỗi pod LLM. Điều này khớp với việc chuỗi Agent gọi LLM nhiều lượt bị chậm
-  khi các request chồng lên nhau ([Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026)).
-- Đây là một lần chạy ngắn trên EKS, không tính khoảng tin cậy.
+- **Ở mức 0,4 request/giây (hệ đã bão hòa), optimized tốt hơn rõ.** So với baseline: TTFT p50 giảm 46% (9,41 s → 5,12 s), TTFT p90 giảm 40% (21,1 s → 12,7 s),
+  request p90 giảm 24%, số request xử lý được mỗi giây tăng 6%, số token sinh ra mỗi giây tăng 8%.
+  Lý do: baseline chỉ có 2 slot, request thứ ba trở đi phải xếp hàng. Thời gian chờ trong hàng tính vào TTFT, nên TTFT của baseline tăng vọt.
+  TPOT của baseline thấp hơn (151 ms so với 253 ms) vì mỗi lúc chỉ 2 request chia CPU, nhưng người dùng vẫn phải chờ lâu hơn để nhận token đầu tiên.
+- **Ở mức 0,1–0,2 request/giây, baseline nhanh hơn.** TPOT thấp hơn 33–36%, request p50 nhanh hơn khoảng 30%.
+  Lý do: baseline dùng 4 luồng, optimized chỉ 3 luồng (chừa 1 vCPU cho pod khác). Khớp với bảng đo số luồng ở mục dưới: 4 luồng nhanh nhất khi chỉ có 1 request.
+- **Vẫn giữ optimized.** Tải thật của hệ có nhiều request chồng nhau: Coordinator gọi 2 Agent song song, thành 2–4 request LLM cùng lúc.
+  Với tải này, độ trễ đuôi (p90) và thời gian chờ token đầu quan trọng hơn tốc độ của một request đơn lẻ.
+- **Giới hạn của phép so.** Hai cấu hình khác nhau ở nhiều tham số cùng lúc, nên bảng này không tách được tác dụng của từng tham số.
+  Phần tách từng tham số nằm ở bảng `bench_llm.py` (laptop: A với B; EKS: 6/3/4 luồng). Mỗi mức tải chỉ có 6–24 request và mỗi cấu hình đo một lần,
+  nên không tính khoảng tin cậy. Coi chênh lệch dưới ~10% là hoà.
+- Lần chạy optimized ngày 04/11 cho số gần với lần 10/11: ở 0,4 req/s, TTFT p50 là 5,62 s so với 5,12 s, đạt 0,340 so với 0,335 req/s.
+  Giới hạn thực tế vẫn vào khoảng 0,3 request/giây cho mỗi pod LLM. Điều này khớp với việc chuỗi Agent gọi LLM nhiều lượt bị chậm khi các request chồng lên nhau
+  ([Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026)).
 
 Hai điều chỉnh bắt buộc để llm-d-benchmark chạy được trên cụm EKS này (đã đưa vào script):
 
 1. Dùng `--no-pvc`. Mặc định công cụ tạo PVC `ReadWriteMany` 20 GiB, nhưng EBS `gp3` chỉ hỗ trợ `ReadWriteOnce`, nên báo lỗi `Volume capabilities not supported`.
 2. Hạ tài nguyên của pod harness từ mặc định 16 CPU / 32 GiB xuống 1 CPU / 2 GiB. Nếu không, pod bị kẹt ở `Pending` (`Insufficient cpu/memory`) vì node chỉ có 4 vCPU.
 
-Số trong bảng ở mục dưới do một công cụ khác là [`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, đo với cấu hình khác (số luồng, mức đồng thời), nên không so trực tiếp với bảng trên.
+Số trong bảng ở mục dưới do một công cụ khác là [`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, đo với cấu hình khác (số luồng, mức đồng thời), nên không so trực tiếp với các bảng llm-d-benchmark ở trên.
 
 ## Đo lại trên EKS
 

@@ -37,7 +37,7 @@ Bằng chứng: [LLM và agent](../edai-2/agents.md),
 
 | Dòng rubric | Điểm | Trạng thái | Việc còn lại |
 |---|---|---|---|
-| LLM inference platform + benchmark | 2+2 | ✅ | llama.cpp Qwen 2.5 1,5B trên EKS; bench 6/3/4 luồng (`bench-llm-eks-t*.json`), chọn 3. ảnh triển khai (pod, PVC, log) và **llm-d-benchmark** chạy run-only vào endpoint llama.cpp: 3 mức tải, 42 request, 0 lỗi, bão hòa ở 0,4 req/s ([LLM](../edai-2/llm_inference_platform.md)) |
+| LLM inference platform + benchmark | 2+2 | ✅ | llama.cpp Qwen 2.5 1,5B trên EKS; bench 6/3/4 luồng (`bench-llm-eks-t*.json`), chọn 3. ảnh triển khai (pod, PVC, log) và **llm-d-benchmark** chạy run-only vào endpoint llama.cpp, đo cả **baseline lẫn optimized** trên cùng cụm (10/11): mỗi cấu hình 3 mức tải, 42/42 request, 0 lỗi; ở 0,4 req/s optimized giảm TTFT p50 46%, p90 40%; ở tải thấp baseline nhanh hơn (4 luồng so với 3) ([LLM](../edai-2/llm_inference_platform.md#baseline-so-với-optimized-10112026)) |
 | Custom LLM model | 2 | ✅ | GGUF tự host trên EKS |
 | agentgateway + security/policy | 1 | ✅ | `gateway-smoke-20261109.json` **24/24** sau khi tách pod MCP, có bảng allow/deny theo policy (API key 401, PII 403, rate limit 429, tool MCP ngoài danh sách bị chặn, A2A từng Agent) và ảnh cấu hình ConfigMap ([Gateways](../edai-2/agent_gateways.md)) |
 | Global model config | 2 | ✅ | `default-model-config` → agentgateway; ảnh `kubectl` ModelConfig và model của từng Agent ([Model Config](../edai-2/global_model_config.md)) |
@@ -74,7 +74,7 @@ Bằng chứng: [LLM và agent](../edai-2/agents.md),
   ERD DBeaver, compaction trước/sau, MLflow hash/artifacts, Helm rolling/rollback, KEDA Model Agent và Coordinator, A/B đủ panel).
 - **Còn mở: eval RAG của Model Agent.** `feature-api-agents` #13 đỏ: policy 3/5, dưới ngưỡng 0,95, do Qwen 1,5B đôi khi viết lệnh gọi tool thành văn bản. Coordinator đạt 12/12 (#9) nhưng cổng chỉ chấm định tuyến.
 - Điểm yếu cần biết dù có bằng chứng: ca `mcpAuthorization` chỉ ghi được "tool ngoài danh sách bị từ chối" (phản hồi `Unknown tool` không phân biệt gateway hay backend); liên kết MLflow ↔ KFP dựa vào thời điểm;
-  stream feature là dữ liệu phát lại, chưa có luồng Return thật; số đo A/B đọc bằng mắt từ đồ thị, mẫu nhỏ (40 request); llm-d-benchmark chỉ một lần chạy ngắn, không có khoảng tin cậy; publication batch A/B của Feature Store (DB1/DB2) chưa chạy trên AWS, lần nạp lại dùng luồng incremental cũ.
+  stream feature là dữ liệu phát lại, chưa có luồng Return thật; số đo A/B đọc bằng mắt từ đồ thị, mẫu nhỏ (40 request); llm-d-benchmark mỗi cấu hình chỉ một lần chạy ngắn, không có khoảng tin cậy, và baseline khác optimized ở nhiều tham số cùng lúc; publication batch A/B của Feature Store (DB1/DB2) chưa chạy trên AWS, lần nạp lại dùng luồng incremental cũ.
 - EKS context `platform-apps`: **2 node r6i.xlarge** (mỗi node 4 vCPU/32 GB). Cùng EC2 Data Platform `r6i.xlarge`: tổng 12/16 vCPU quota.
 
 ## Cấu hình AWS

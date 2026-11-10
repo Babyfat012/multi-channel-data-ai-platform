@@ -16,7 +16,7 @@ Cột "Dòng rubric" là số dòng trong bảng tiêu chí. Cột cuối tóm t
 
 | Dòng rubric | Tài liệu / bằng chứng | Kết quả và giới hạn |
 |---|---|---|
-| 3–6 | [LLM Inference Platform](llm_inference_platform.md) | Tự host LLM chạy bằng CPU trên EKS. Có ảnh triển khai (pod, PVC, log) và kết quả đo bằng llm-d-benchmark: 3 mức tải, 42 request, không lỗi. Chưa fine-tune model riêng. |
+| 3–6 | [LLM Inference Platform](llm_inference_platform.md) | Tự host LLM chạy bằng CPU trên EKS. Có ảnh triển khai (pod, PVC, log) và kết quả đo bằng llm-d-benchmark, so baseline với optimized: mỗi cấu hình 3 mức tải, 42 request, không lỗi; ở tải cao optimized giảm TTFT p50 46%. Chưa fine-tune model riêng. |
 | 7 | [Global Model Config](global_model_config.md) | Có file cấu hình và ảnh cho thấy ba Agent dùng chung một model trên EKS. |
 | 8, 21, 26 | [Agent Registry](agent_registry.md) | Có giao diện trên EKS, đăng ký 3 Agent và 1 MCP server. |
 | 9–10 | [RAG Pipeline](rag_pipeline.md) | DAG chạy thành công cả 6/6 task, gồm bước publish lên DataHub; có ảnh lineage (sơ đồ nguồn gốc dữ liệu) trên DataHub AWS. |
