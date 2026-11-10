@@ -183,14 +183,29 @@ Cả hai lần đều `harness_rc: 0`, mỗi lần 42/42 request thành công.
 Kết quả: [`baseline-20261110/`](../evidence/aws/llmd-benchmark/baseline-20261110/summary_lifecycle_metrics.json),
 [`optimized-20261110/`](../evidence/aws/llmd-benchmark/optimized-20261110/summary_lifecycle_metrics.json).
 
-| Tải (req/s, 60 s) | Cấu hình | OK / lỗi | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Đạt (req/s) | Token ra/s |
-|---|---|---:|---:|---:|---:|---:|---:|
-| 0,1 | baseline | 6 / 0 | 1,79 / 2,37 | 66 | 3,78 / 5,67 | 0,097 | 2,87 |
-| | optimized | 6 / 0 | 1,95 / 2,84 | 103 | 5,34 / 8,70 | 0,099 | 2,80 |
-| 0,2 | baseline | 12 / 0 | 1,77 / 2,89 | 95 | 5,44 / 6,59 | 0,189 | 6,09 |
-| | optimized | 12 / 0 | 1,97 / 3,88 | 141 | 7,73 / 9,24 | 0,189 | 5,75 |
-| 0,4 | baseline | 24 / 0 | 9,41 / 21,10 | 151 | 14,20 / 25,56 | 0,316 | 9,84 |
-| | optimized | 24 / 0 | **5,12 / 12,73** | 253 | 13,50 / **19,52** | **0,335** | **10,61** |
+**Bảng 1. Baseline** (`--threads 4`, `--parallel 2`), [`baseline-20261110/`](../evidence/aws/llmd-benchmark/baseline-20261110/summary_lifecycle_metrics.json):
+
+| Tải (req/s, 60 s) | OK / lỗi | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Đạt (req/s) | Token ra/s |
+|---|---:|---:|---:|---:|---:|---:|
+| 0,1 | 6 / 0 | 1,79 / 2,37 | 66 | 3,78 / 5,67 | 0,097 | 2,87 |
+| 0,2 | 12 / 0 | 1,77 / 2,89 | 95 | 5,44 / 6,59 | 0,189 | 6,09 |
+| 0,4 | 24 / 0 | 9,41 / 21,10 | 151 | 14,20 / 25,56 | 0,316 | 9,84 |
+
+**Bảng 2. Optimized** (`--threads 3`, `--parallel 4`, flash-attn, KV `q8_0`), [`optimized-20261110/`](../evidence/aws/llmd-benchmark/optimized-20261110/summary_lifecycle_metrics.json):
+
+| Tải (req/s, 60 s) | OK / lỗi | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Đạt (req/s) | Token ra/s |
+|---|---:|---:|---:|---:|---:|---:|
+| 0,1 | 6 / 0 | 1,95 / 2,84 | 103 | 5,34 / 8,70 | 0,099 | 2,80 |
+| 0,2 | 12 / 0 | 1,97 / 3,88 | 141 | 7,73 / 9,24 | 0,189 | 5,75 |
+| 0,4 | 24 / 0 | 5,12 / 12,73 | 253 | 13,50 / 19,52 | 0,335 | 10,61 |
+
+**Bảng 3. Optimized so với baseline** (âm là optimized thấp hơn; với độ trễ thì thấp hơn là tốt hơn):
+
+| Tải (req/s) | TTFT p50 | TTFT p90 | TPOT p50 | Request p90 | Đạt (req/s) | Token ra/s |
+|---|---:|---:|---:|---:|---:|---:|
+| 0,1 | +9% | +20% | +56% | +53% | +2% | −2% |
+| 0,2 | +11% | +34% | +48% | +40% | 0% | −6% |
+| 0,4 | **−46%** | **−40%** | +68% | **−24%** | **+6%** | **+8%** |
 
 Đọc kết quả:
 
