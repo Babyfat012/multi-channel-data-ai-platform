@@ -29,7 +29,7 @@ Agent (data / model / coordinator)
                  └─ Service qwen.llm:8080 (llama.cpp, Qwen2.5-1.5B-Instruct GGUF)
 ```
 
-Mọi lượt gọi LLM của cả ba Agent đi qua cùng một cửa nên telemetry LLM (token, TTFT, thời gian lượt) gom ở một chỗ:
+Mọi lượt gọi LLM của cả ba Agent đi qua cùng một cửa, nên telemetry LLM (số token, TTFT = thời gian tới token đầu tiên, thời gian mỗi lượt) được gom ở một chỗ:
 [Observability](observability.md).
 
 ## Đổi model và so hai cấu hình
@@ -47,7 +47,10 @@ Mọi lượt gọi LLM của cả ba Agent đi qua cùng một cửa nên telem
 
 ![kagent UI EKS: ba Agent dùng qwen2.5-1.5b-instruct](../evidence/aws/kagent-ui-agents-20261030.png)
 
-Kiểm tra bằng lệnh trên EKS: hai ModelConfig `default-model-config` (1,5B) và `ab-small-model-config` (0,5B); ba Agent `coordinator`, `data-agent`, `model-agent` dùng `default-model-config`, còn `data-agent-b` của A/B dùng `ab-small-model-config`. `status` là `Accepted`, khóa API chỉ ghi tên Secret `kagent-agw-key`.
+Kiểm tra bằng lệnh trên EKS cho thấy:
+- Có hai ModelConfig: `default-model-config` (model 1,5B) và `ab-small-model-config` (model 0,5B).
+- Ba Agent `coordinator`, `data-agent`, `model-agent` dùng `default-model-config`; riêng `data-agent-b` của A/B dùng `ab-small-model-config`.
+- `status` là `Accepted`. Phần khóa API chỉ ghi tên Secret `kagent-agw-key`, không lộ giá trị khóa.
 
 ![kubectl get modelconfig, default-model-config -o yaml và model của từng Agent](../evidence/aws/modelconfig-default-agents.png)
 
