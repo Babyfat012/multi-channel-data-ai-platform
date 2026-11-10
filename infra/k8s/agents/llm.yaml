@@ -1,5 +1,5 @@
-# LLM nhỏ chạy CPU, API kiểu OpenAI (/v1/chat/completions) cho Agent. Bản local thay cho llm-d
-# (llm-d cần GPU ⇒ để dành GCP). Model tải 1 lần vào PVC; scale về 0 khi không dùng để trả RAM.
+# Small CPU LLM with an OpenAI-style API (/v1/chat/completions) for Agents. Local stand-in for llm-d
+# (llm-d needs a GPU ⇒ kept for GCP). Model downloaded once into a PVC; scale to 0 when idle to free RAM.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -22,21 +22,21 @@ metadata:
   namespace: llm
 spec:
   replicas: 1
-  strategy: {type: Recreate}   # PVC RWO: pod cũ phải nhả volume trước
+  strategy: {type: Recreate}   # RWO PVC: the old pod must release the volume first
   selector:
     matchLabels: {app: qwen}
   template:
     metadata:
       labels: {app: qwen}
-      annotations:              # Prometheus lấy /metrics: token/giây, số request đang xử lý
+      annotations:              # Prometheus scrapes /metrics: tokens/s, requests in flight
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
     spec:
       containers:
         - name: llama
           image: ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312  # build b11749
-          # Cấu hình B sau benchmark (docs/ml-llm-platform/reference/llm_platform_agents.md): 3 luồng (node EKS 4 vCPU, đo 30/10), 4 slot, flash-attention,
-          # KV cache q8_0 (đỡ RAM ⇒ đủ chỗ cho ctx 16384 = 4 slot × 4096 token).
+          # Configuration B after benchmarking (docs/ml-llm-platform/reference/llm_platform_agents.md): 3 threads (4 vCPU EKS node, measured 30/10), 4 slots, flash-attention,
+          # KV cache q8_0 (saves RAM ⇒ room for ctx 16384 = 4 slots × 4096 tokens).
           args:
             - "-hf"
             - "Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M"
@@ -58,8 +58,8 @@ spec:
             - "q8_0"
             - "--cache-type-v"
             - "q8_0"
-            - "--jinja"   # chat template có tool calling
-            - "--metrics" # /metrics Prometheus (token, độ trễ)
+            - "--jinja"   # chat template with tool calling
+            - "--metrics" # Prometheus /metrics (tokens, latency)
           env:
             - {name: LLAMA_CACHE, value: /models}
           ports: [{name: http, containerPort: 8080}]
@@ -67,7 +67,7 @@ spec:
           resources:
             requests: {cpu: "1", memory: 1200Mi}
             limits: {memory: 1600Mi}
-          startupProbe:          # lần đầu phải tải ~1 GB
+          startupProbe:          # first start must download ~1 GB
             httpGet: {path: /health, port: http}
             periodSeconds: 10
             failureThreshold: 60

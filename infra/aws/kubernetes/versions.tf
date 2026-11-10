@@ -1,4 +1,4 @@
-# Root Terraform riêng cho EKS; không provision cluster khi chỉ apply root Data Platform.
+# Separate Terraform root for EKS; applying only the Data Platform root does not provision a cluster.
 terraform {
   required_version = ">= 1.6.0, < 2.0.0"
   required_providers {

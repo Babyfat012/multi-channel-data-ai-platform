@@ -6,7 +6,7 @@
   "from": "now-1h",
   "to": "now"
  },
- "description": "agentgateway chia model ảo platform-chat 50/50 giữa qwen2.5-1.5b (A) và qwen2.5-0.5b (B). docs/llm-platform-ab-test.md",
+ "description": "agentgateway splits virtual model platform-chat 50/50 between qwen2.5-1.5b (A) and qwen2.5-0.5b (B). docs/ml-llm-platform/ab_testing.md",
  "templating": {
   "list": [
    {
@@ -33,7 +33,7 @@
  "panels": [
   {
    "type": "stat",
-   "title": "Tỷ lệ chia traffic (request theo nhánh, khoảng chọn)",
+   "title": "Traffic split (requests per branch, selected range)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -72,7 +72,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Request/giây theo nhánh",
+   "title": "Requests/s per branch",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -103,7 +103,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Độ trễ p95 theo nhánh",
+   "title": "p95 latency per branch",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -134,7 +134,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Token output/giây theo nhánh",
+   "title": "Output tokens/s per branch",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -165,7 +165,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Token output trung bình mỗi request",
+   "title": "Average output tokens per request",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -196,7 +196,7 @@
   },
   {
    "type": "timeseries",
-   "title": "A/B agent: request theo nhánh (backend0 = data-agent 1.5B, backend1 = data-agent-b 0.5B)",
+   "title": "A/B agent: requests per branch (backend0 = data-agent 1.5B, backend1 = data-agent-b 0.5B)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"

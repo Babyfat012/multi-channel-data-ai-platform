@@ -1,7 +1,7 @@
-# Cấu hình Jenkins bằng code (JCasC). Secret KHÔNG nằm ở đây: lấy từ biến môi trường do
-# scripts/setup/setup_jenkins.sh đọc từ Vault lúc khởi động.
+# Jenkins configuration as code (JCasC). Secrets are NOT here: they come from environment variables that
+# scripts/setup/setup_jenkins.sh reads from Vault at startup.
 jenkins:
-  systemMessage: "Platform CI/CD (local). Secret ứng dụng nằm ở Vault; Jenkins chỉ giữ token chỉ-đọc."
+  systemMessage: "Platform CI/CD (local). Application secrets live in Vault; Jenkins only holds a read-only token."
   numExecutors: 1
   securityRealm:
     local:
@@ -19,7 +19,7 @@ credentials:
           - string:
               scope: GLOBAL
               id: vault-ci-token
-              description: Token Vault chỉ-đọc (policy platform-read)
+              description: Read-only Vault token (policy platform-read)
               secret: "${VAULT_CI_TOKEN}"
           - file:
               scope: GLOBAL
@@ -30,15 +30,15 @@ unclassified:
   location:
     url: "http://localhost:8090/"
 jobs:
-  # Mỗi ci/jenkins/<tên>.Jenkinsfile thành một pipeline job, lấy code từ repo git (nhánh main) ⇒ CI
-  # chạy đúng code đã commit, không phải working tree.
+  # Each ci/jenkins/<name>.Jenkinsfile becomes a pipeline job, pulling code from the git repo (main branch) ⇒ CI
+  # runs exactly the committed code, not the working tree.
   - script: |
       ['stream-features', 'feature-api-agents', 'coordinator', 'rag-pipeline'].each { name ->
         pipelineJob(name) {
           definition {
             cpsScm {
               scm { git { remote { url('${CI_GIT_REMOTE:-file:///repo}') }; branch('*/main') } }
-              scriptPath('ci/jenkins/' + name + '.Jenkinsfile')  // nối chuỗi: JCasC thay mọi biến dạng đô-la-ngoặc trước Groovy ⇒ rỗng
+              scriptPath('ci/jenkins/' + name + '.Jenkinsfile')  // string concatenation: JCasC substitutes every dollar-brace variable before Groovy ⇒ empty
             }
           }
         }

@@ -1,5 +1,5 @@
 {
-  "description": "Hợp đồng sim-native-v2/walmart/1; suy luận từ fixture, required là giao các bản ghi.",
+  "description": "Contract sim-native-v2/walmart/1; inferred from fixtures, required is the intersection of all records.",
   "properties": {
     "fetched_at": {
       "type": "string"

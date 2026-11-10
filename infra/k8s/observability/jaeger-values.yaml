@@ -1,7 +1,7 @@
-# Jaeger v2 all-in-one (chart jaegertracing/jaeger 4.16.1), lưu trace trong RAM (mất khi pod khởi động lại).
-# Nhận OTLP gRPC :4317 / HTTP :4318 từ agentgateway và kagent; giao diện :16686.
+# Jaeger v2 all-in-one (chart jaegertracing/jaeger 4.16.1), traces stored in RAM (lost when the pod restarts).
+# Receives OTLP gRPC :4317 / HTTP :4318 from agentgateway and kagent; UI on :16686.
 jaeger:
-  # 2.22 (mặc định chart) chỉ trả API v3 ở đường gốc ⇒ datasource Jaeger của Grafana (gọi /api/services) báo lỗi.
+  # 2.22 (chart default) only serves API v3 at the root path ⇒ Grafana's Jaeger datasource (calls /api/services) errors.
   image: {tag: "2.10.0"}
   resources:
     requests: {cpu: 50m, memory: 96Mi}

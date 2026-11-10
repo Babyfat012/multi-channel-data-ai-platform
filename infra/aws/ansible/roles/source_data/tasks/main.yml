@@ -1,10 +1,10 @@
-# Chỉ chạy với --tags source_data; aws s3 sync không có --delete nên không xóa object.
-- name: Kiểm lựa chọn sinh nguồn
+# Runs only with --tags source_data; aws s3 sync has no --delete, so no objects are removed.
+- name: Check the source generation choice
   ansible.builtin.assert:
     that:
       - source_mode in ['fixture', 'scale']
       - source_dataset_name is match('^[a-zA-Z0-9_-]+$')
-- name: Sinh fixture nhỏ nếu chưa có manifest
+- name: Generate a small fixture if no manifest exists
   ansible.builtin.command:
     argv:
       - /mnt/platform-data/venv/bin/python
@@ -15,7 +15,7 @@
     chdir: '{{ app_dir }}'
     creates: '/mnt/platform-data/source/{{ source_dataset_name }}/manifest.json'
   when: source_mode == 'fixture'
-- name: Sinh nguồn scale theo seed và horizon nếu chưa có manifest
+- name: Generate the scaled source by seed and horizon if no manifest exists
   ansible.builtin.command:
     argv:
       - /mnt/platform-data/venv/bin/python
@@ -36,7 +36,7 @@
     chdir: '{{ app_dir }}'
     creates: '/mnt/platform-data/source/{{ source_dataset_name }}/manifest.json'
   when: source_mode == 'scale'
-- name: Đồng bộ nguồn lên prefix S3 riêng bằng IAM role của EC2
+- name: Sync sources to a dedicated S3 prefix using the EC2 IAM role
   ansible.builtin.command:
     argv:
       - /snap/bin/aws
@@ -48,7 +48,7 @@
       - 's3://{{ raw_bucket }}/order_lifecycle/{{ source_dataset_name }}'
   register: source_upload
   changed_when: "'upload:' in source_upload.stdout"
-- name: Nạp Walmart fixture bằng script sẵn có, scale bằng helper nhiều file
+- name: Load Walmart (fixture via the existing script, scale via the multi-file helper)
   ansible.builtin.command:
     argv: '{{ source_loader_argv }}'
     chdir: '{{ app_dir }}'
@@ -60,6 +60,6 @@
       ('scripts/setup/load_order_lifecycle_walmart.py' if source_mode == 'fixture' else
        'infra/aws/ansible/roles/source_data/files/load_scaled_walmart.py'),
       '--root', '/mnt/platform-data/source/' + source_dataset_name] }}
-  # Script thay trong một transaction; chạy lại không tăng số dòng.
+  # The script replaces data in one transaction; reruns do not increase the row count.
   changed_when: false
   no_log: true

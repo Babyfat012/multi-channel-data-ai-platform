@@ -1,4 +1,4 @@
-# Fluent Bit (chart fluent/fluent-bit 0.58.3): đọc log container trên node kind, gắn nhãn k8s, đẩy vào Loki.
+# Fluent Bit (chart fluent/fluent-bit 0.58.3): reads container logs on the kind node, adds k8s labels, pushes to Loki.
 resources:
   requests: {cpu: 20m, memory: 32Mi}
   limits: {memory: 96Mi}

@@ -1,5 +1,5 @@
-# UI chat với agent (kagent UI) sau gateway: HTTPS + basic auth + rate limit.
-# Secret htpasswd `agent-ui-basic-auth` do scripts/setup/setup_ingress.sh tạo từ mật khẩu ở Vault.
+# Agent chat UI (kagent UI) behind the gateway: HTTPS + basic auth + rate limit.
+# htpasswd Secret `agent-ui-basic-auth` is created by scripts/setup/setup_ingress.sh from the password in Vault.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -7,12 +7,12 @@ metadata:
   namespace: kagent
   annotations:
     cert-manager.io/cluster-issuer: platform-local-ca
-    # Đường kiểm tra HTTP-01 gắn vào chính Ingress này (F5 NGINX từ chối Ingress thứ hai cùng host).
+    # HTTP-01 challenge path attached to this same Ingress (F5 NGINX rejects a second Ingress with the same host).
     acme.cert-manager.io/http01-edit-in-place: "true"
     nginx.org/redirect-to-https: "true"
     nginx.org/basic-auth-secret: agent-ui-basic-auth
     nginx.org/basic-auth-realm: "PLATFORM agent UI"
-    # 5 request/giây mỗi IP, vượt burst trả 429.
+    # 5 requests/s per IP, beyond burst returns 429.
     nginx.org/limit-req-rate: "5r/s"
     nginx.org/limit-req-burst: "10"
     nginx.org/limit-req-reject-code: "429"

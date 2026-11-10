@@ -1,4 +1,4 @@
-"""Kiểm ghi/đọc Iceberg S3 với bảng tạm riêng, rồi dọn đúng bảng vừa tạo."""
+"""Check Iceberg S3 write/read with a dedicated temporary table, then drop exactly that table."""
 
 import sys
 import uuid
@@ -8,7 +8,7 @@ from spark_jobs.lib.iceberg_session import build_spark
 
 
 def main():
-    """Đối soát dữ liệu và vị trí S3, dọn bảng trong finally kể cả khi lỗi."""
+    """Reconcile data and S3 location; drop the table in finally, even on failure."""
     spark = build_spark("s3-runtime-smoke", shuffle_partitions=2)
     table = "lakehouse.runtime_smoke.probe_" + uuid.uuid4().hex
     try:
@@ -19,8 +19,8 @@ def main():
         assert any(r.col_name == "Location" and r.data_type.startswith("s3://") for r in locations)
         print("S3 Iceberg smoke: PASS")
     finally:
-        # Không PURGE: Spark xoá bảng khỏi catalog rồi mới tự đọc lại metadata để xoá file,
-        # lúc đó Lakekeeper đã không còn bảng nên từ chối. Lakekeeper tự dọn file của bảng đã xoá.
+        # No PURGE: Spark drops the table from the catalog before re-reading metadata to delete files,
+        # by which point Lakekeeper no longer has the table and refuses. Lakekeeper cleans up files of dropped tables itself.
         spark.sql(f"DROP TABLE IF EXISTS {table}")
         spark.stop()
 

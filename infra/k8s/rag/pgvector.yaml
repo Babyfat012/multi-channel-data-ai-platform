@@ -1,5 +1,5 @@
-# Postgres + pgvector: online store của Feast RAG (platform_rag). Airflow trong Compose ghi qua
-# platform-control-plane:30432; Feature API trong cụm đọc qua pgvector.rag.svc. Mật khẩu: Secret rag-pg (từ .env).
+# Postgres + pgvector: online store for Feast RAG (platform_rag). Airflow in Compose writes via
+# platform-control-plane:30432; the in-cluster Feature API reads via pgvector.rag.svc. Password: Secret rag-pg (from .env).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -15,8 +15,8 @@ spec:
   resources:
     requests: {storage: 1Gi}
 ---
-# Image pgvector chỉ cài sẵn extension, không bật trong DB. Feast tạo cột `vector` ⇒ cần CREATE EXTENSION.
-# initdb chỉ chạy khi PVC mới (30/10: xoá PVC pgdata ⇒ DB mới thiếu extension ⇒ `type "vector" does not exist`).
+# The pgvector image only ships the extension, it is not enabled in the DB. Feast creates a `vector` column ⇒ CREATE EXTENSION is needed.
+# initdb only runs on a fresh PVC (30/10: deleting PVC pgdata ⇒ new DB without the extension ⇒ `type "vector" does not exist`).
 apiVersion: v1
 kind: ConfigMap
 metadata:

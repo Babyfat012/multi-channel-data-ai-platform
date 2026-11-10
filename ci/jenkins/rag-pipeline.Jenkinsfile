@@ -1,12 +1,12 @@
-// CI/CD RAG Data Pipeline: test chunk/lineage → kiểm DAG import → build image Airflow
-// (feast-venv có feast[postgres] + fastembed) → khởi động lại Airflow → chạy DAG ml_rag_ingest và chờ kết quả.
-// Credential lấy từ Vault bằng token chỉ-đọc `vault-ci-token`.
+// CI/CD RAG Data Pipeline: test chunk/lineage → check DAG imports → build Airflow image
+// (feast-venv with feast[postgres] + fastembed) → restart Airflow → trigger DAG ml_rag_ingest and wait for the result.
+// Credentials come from Vault via the read-only token `vault-ci-token`.
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds() }
   parameters {
     string(name: 'IMAGE_REGISTRY', defaultValue: 'localhost:5001', description: 'Registry namespace prefix; use ECR for cloud')
-    choice(name: 'DATA_STORAGE', choices: ['minio', 's3'], description: 's3 = Jenkins trên EC2: dùng .env + overlay AWS của máy')
+    choice(name: 'DATA_STORAGE', choices: ['minio', 's3'], description: 's3 = Jenkins on EC2: uses the machine .env + AWS overlay')
   }
   environment {
     DATA_STORAGE = "${params.DATA_STORAGE}"
@@ -33,8 +33,8 @@ pipeline {
     stage('Deploy') {
       steps {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN')]) {
-          // Local: .env tạm từ .env.example + Vault, setup_airflow nạp Connection. AWS (s3): .env THẬT của EC2
-          // (Ansible, /repo/.env) + overlay AWS; cấu hình Airflow nằm trong biến môi trường nên không setup_airflow.
+          // Local: temporary .env from .env.example + Vault, setup_airflow loads the Connections. AWS (s3): the REAL EC2 .env
+          // (Ansible, /repo/.env) + AWS overlay; Airflow config is in environment variables so no setup_airflow.
           sh '''
             if [ "$DATA_STORAGE" = s3 ]; then
               install -m 600 /repo/.env .env

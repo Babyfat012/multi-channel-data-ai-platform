@@ -1,5 +1,5 @@
-# Preset đã chốt cho final: hai worker c6i.xlarge (4 vCPU/8 GiB mỗi máy), ghép Data Platform c6i.2xlarge => 16 vCPU/32 GiB.
-# Hai worker: dự phòng mức máy cho app có >= 2 replica. Cùng một AZ (vì EBS) => chưa chịu được sự cố AZ.
+# Chosen preset for the reference deployment: two c6i.xlarge workers (4 vCPU/8 GiB each), plus Data Platform c6i.2xlarge => 16 vCPU/32 GiB.
+# Two workers: machine-level redundancy for apps with >= 2 replicas. Same single AZ (because of EBS) => no AZ-failure tolerance yet.
 region              = "ap-southeast-2"
 name_prefix         = "platform"
 data_platform_state = "../terraform/terraform.tfstate"
@@ -8,12 +8,12 @@ node_desired_size   = 2
 node_min_size       = 0
 node_max_size       = 2
 node_disk_gb        = 80
-# Đã dùng hết quota 16 vCPU: DEFAULT cần tạo node mới trước => vượt quota. MINIMAL thay từng node một;
-# node kia vẫn phục vụ nếu app có replica ở đó.
+# The 16 vCPU quota is fully used: DEFAULT creates the new node first => over quota. MINIMAL replaces one node at a time;
+# the other node keeps serving if the app has a replica there.
 node_update_strategy = "MINIMAL"
 single_az_workers    = true
-# Điền IAM role ARN và CIDR quản trị thực trước plan.
-# 1.37 = bản mới nhất còn standard support (kiểm 2026-10-26), trùng bản kind local đã chạy mọi workload.
+# Fill in the IAM role ARN and the real admin CIDR before plan.
+# 1.37 = newest version still on standard support (checked 2026-10-26), same as the local kind version that ran every workload.
 kubernetes_version = "1.37"
 # admin_role_arn     = "arn:aws:iam::ACCOUNT:role/PATH/ROLE"
 # api_allowed_cidrs  = ["ADMIN_IP/32"]

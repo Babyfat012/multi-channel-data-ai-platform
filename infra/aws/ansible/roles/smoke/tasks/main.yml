@@ -1,22 +1,22 @@
-# Kiểm runtime thật khi người vận hành gọi --tags smoke; không tạo số đo giả.
-- name: Kiểm health và trạng thái tất cả container Data Platform v2
+# Checks the real runtime when the operator runs --tags smoke; no fabricated metrics.
+- name: Check health and status of all Data Platform v2 containers
   ansible.builtin.command: docker compose --profile catalog --profile spark --profile airflow ps --all --format json
   args:
     chdir: '{{ app_dir }}'
   register: runtime_ps
   changed_when: false
-- name: Đối chiếu container chạy, init hoàn tất và MinIO vắng mặt
+- name: Verify running containers, completed inits and absent MinIO
   ansible.builtin.command:
     argv: [python3, infra/aws/ansible/roles/smoke/files/check_containers.py]
     stdin: '{{ runtime_ps.stdout }}'
     chdir: '{{ app_dir }}'
   changed_when: false
-- name: Kiểm warehouse Lakekeeper qua script idempotent
+- name: Check the Lakekeeper warehouse via the idempotent script
   ansible.builtin.command: bash scripts/setup/setup_lakekeeper_s3.sh
   args:
     chdir: '{{ app_dir }}'
   changed_when: false
-- name: Chạy ghi đọc Iceberg S3 qua driver Airflow
+- name: Run Iceberg S3 write/read through the Airflow driver
   ansible.builtin.shell: |
     set -a
     source .env
@@ -30,14 +30,14 @@
   args:
     executable: /bin/bash
     chdir: '{{ app_dir }}'
-  # Bảng tạm bị xóa trong cùng lần kiểm; không thay state nghiệp vụ.
+  # The temporary table is dropped within the same check; business state is untouched.
   changed_when: false
-- name: Kiểm DAG v2 được Airflow nhận
+- name: Check that Airflow picks up the v2 DAGs
   ansible.builtin.command: docker compose --profile airflow exec -T airflow airflow dags list --output json
   args:
     chdir: '{{ app_dir }}'
   register: dag_list
   changed_when: false
-- name: Đối chiếu tên DAG
+- name: Verify DAG names
   ansible.builtin.assert:
     that: "'dp_order_lifecycle' in (dag_list.stdout | from_json | map(attribute='dag_id') | list)"

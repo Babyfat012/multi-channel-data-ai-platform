@@ -1,14 +1,14 @@
-// CI/CD cho stream feature job: test → build → deploy → kiểm tra.
-// AWS (s3): HAI job PyFlink `ml-sku-return-24h-online` / `-offline` trên cluster Flink ML 2.2 (Compose).
-// Local (minio): bản B Flink SQL `ml-sku-return-24h` + feast-pusher. Secret nằm ở Vault (secret/platform/*); Jenkins
-// chỉ giữ token CHỈ-ĐỌC `vault-ci-token` (policy platform-read, scripts/setup/setup_vault.sh tạo).
-// Agent cần Docker, docker compose, uv; chạy trên máy có stack (local hoặc VM GCE).
+// CI/CD for the stream feature job: test → build → deploy → verify.
+// AWS (s3): TWO PyFlink jobs `ml-sku-return-24h-online` / `-offline` on the Flink ML 2.2 cluster (Compose).
+// Local (minio): variant B Flink SQL `ml-sku-return-24h` + feast-pusher. Secrets live in Vault (secret/platform/*); Jenkins
+// only holds the READ-ONLY token `vault-ci-token` (policy platform-read, created by scripts/setup/setup_vault.sh).
+// The agent needs Docker, docker compose, uv; runs on a machine with the stack (local or a GCE VM).
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds(); timeout(time: 30, unit: 'MINUTES') }
   parameters {
     string(name: 'IMAGE_REGISTRY', defaultValue: 'localhost:5001', description: 'Registry namespace prefix; use ECR for cloud')
-    choice(name: 'DATA_STORAGE', choices: ['minio', 's3'], description: 's3 = Jenkins trên EC2: .env + overlay AWS/stream, Flink bản pipeline A')
+    choice(name: 'DATA_STORAGE', choices: ['minio', 's3'], description: 's3 = Jenkins on EC2: .env + AWS/stream overlay, Flink variant from pipeline A')
   }
   environment {
     DATA_STORAGE = "${params.DATA_STORAGE}"
@@ -23,7 +23,7 @@ pipeline {
       steps {
         sh 'uv sync --frozen'
         sh 'uv run ruff format --check feature_repo ml flink_jobs tests/flink && uv run ruff check feature_repo ml flink_jobs tests/flink'
-        // Logic Feast + định nghĩa view; test Spark của feature theo ngày chạy trong image Airflow.
+        // Feast logic + view definitions; Spark tests for daily features run in the Airflow image.
         sh 'uv run pytest -q tests/unit/test_docstrings.py tests/unit/generator/test_publish_order_lifecycle_events.py'
         sh '''docker run --rm --network none --read-only --tmpfs /tmp:rw,exec,size=1g \
               --mount type=bind,src=$PWD,dst=/workspace,readonly --entrypoint python \
@@ -33,7 +33,7 @@ pipeline {
     stage('Build') {
       steps {
         sh 'docker compose --profile stream --profile flink --profile ml-stream --profile flink-ml build flink-jobmanager feast-pusher flink-ml-jobmanager'
-        // Job PyFlink chạy thật trên mini cluster trong image (Java + PyFlink + Feast): cửa sổ khớp phép đếm độc lập.
+        // The PyFlink job runs for real on a mini cluster inside the image (Java + PyFlink + Feast): windows match an independent count.
         sh 'docker run --rm --network none --hostname localhost --tmpfs /tmp:exec -e HOME=/tmp -v "$PWD":/w:ro -w /w -e PYTHONDONTWRITEBYTECODE=1 platform-flink-ml:2.2.1 python -m pytest -q -p no:cacheprovider tests/flink'
       }
     }
@@ -50,19 +50,19 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN')]) {
           withEnv(['VAULT_ADDR=http://localhost:8200']) {
-            // AWS: .env THẬT của EC2; registry Feast do DAG feast_apply (Airflow) quản ⇒ không apply từ CI; S3 qua IAM.
+            // AWS: the REAL EC2 .env; the Feast registry is managed by DAG feast_apply (Airflow) ⇒ no apply from CI; S3 via IAM.
             sh '[ "$DATA_STORAGE" != s3 ] || install -m 600 /repo/.env .env'
             sh '''if [ "$DATA_STORAGE" = s3 ]; then
-                    # AWS: cluster Flink ML 2.2, hai job PyFlink (online → Redis EKS, offline → Parquet S3); không pusher.
+                    # AWS: Flink ML 2.2 cluster, two PyFlink jobs (online → EKS Redis, offline → S3 Parquet); no pusher.
                     $COMPOSE up --no-build --pull always -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
                     COMPOSE="$COMPOSE" scripts/run/run_stream_feature_jobs.sh
                   else
                     $COMPOSE up --no-build --pull always -d --wait kafka flink-jobmanager flink-taskmanager
                     set +x; eval "$(scripts/setup/vault_env.sh minio)"
-                    # Local: đăng ký view mới (nếu đổi features.py) trước khi pusher đọc registry.
+                    # Local: register new views (if features.py changed) before the pusher reads the registry.
                     $COMPOSE run --rm --no-deps feast-pusher feast apply
                     $COMPOSE up --no-build --pull always -d --force-recreate feast-pusher
-                    # Huỷ job cùng tên rồi submit lại ⇒ không có hai job song song.
+                    # Cancel any job with the same name then resubmit ⇒ never two jobs running in parallel.
                     scripts/run/run_sku_return_feature.sh
                   fi'''
           }
@@ -71,7 +71,7 @@ pipeline {
     }
     stage('Verify') {
       steps {
-        // AWS: đúng 2 job PyFlink RUNNING trên Flink ML; local: 1 job SQL + pusher chạy.
+        // AWS: exactly 2 PyFlink jobs RUNNING on Flink ML; local: 1 SQL job + pusher running.
         sh '''if [ "$DATA_STORAGE" = s3 ]; then port=${FLINK_ML_UI_PORT:-8086}; want="ml-sku-return-24h-online ml-sku-return-24h-offline"
               else port=${FLINK_UI_PORT:-8082}; want="ml-sku-return-24h"; fi
               for i in $(seq 1 30); do

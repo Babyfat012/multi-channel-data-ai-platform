@@ -1,4 +1,4 @@
-# Service của release: feature-api (REST) hoặc feature-mcp (MCP /mcp/). NodePort để gọi từ mạng platform_default.
+# The release's Service: feature-api (REST) or feature-mcp (MCP /mcp/). NodePort for calls from the platform_default network.
 apiVersion: v1
 kind: Service
 metadata:

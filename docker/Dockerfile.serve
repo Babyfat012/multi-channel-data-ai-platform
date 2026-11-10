@@ -1,6 +1,6 @@
-# KServe predictor return-risk, model-inside-image: file model nằm trong image, không tải lúc chạy.
-# Dựng trên platform-train (đã có LightGBM + Feast + ml/) để dùng chung lớp. Build context do
-# scripts/run/deploy_return_risk.sh dựng: ml/ + model.lgb tải từ MLflow alias production.
+# KServe return-risk predictor, model-inside-image: the model file is baked into the image, not downloaded at runtime.
+# Built on platform-train (already has LightGBM + Feast + ml/) to share layers. The build context is
+# assembled by scripts/run/deploy_return_risk.sh: ml/ + model.lgb downloaded from the MLflow production alias.
 ARG BASE_IMAGE=platform-train:0.1.0
 FROM ${BASE_IMAGE}
 USER root

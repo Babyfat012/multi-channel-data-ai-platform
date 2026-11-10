@@ -1,8 +1,8 @@
-# Image chưa tối ưu, chỉ để đo dung lượng so với Dockerfile ở gốc repo (xem docs/Docker.md).
-# Một stage, base image đầy đủ, pip giữ cache, copy cả repo.
-# Thư viện cài từ requirements.lock (xuất từ uv.lock, cùng phiên bản và hash) để hai image có
-# CÙNG bộ thư viện; khác nhau chỉ ở kỹ thuật build. Project cài sau với --no-deps để pip không
-# tự chọn lại phiên bản thư viện.
+# Unoptimized image, only for measuring size against the Dockerfile at the repo root (see docs/Docker.md).
+# Single stage, full base image, pip keeps its cache, copies the whole repo.
+# Libraries are installed from requirements.lock (exported from uv.lock, same versions and hashes) so both images have
+# the SAME library set; they differ only in build technique. The project is installed afterwards with --no-deps so pip does not
+# re-pick library versions on its own.
 FROM python:3.12
 WORKDIR /app
 COPY . .

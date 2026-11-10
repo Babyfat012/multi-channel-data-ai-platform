@@ -1,4 +1,4 @@
-# Khai báo Terraform và ghim provider AWS; state local cho tới khi người vận hành chủ động chuyển.
+# Declares Terraform and pins the AWS provider; state stays local until the operator chooses to move it.
 terraform {
   required_version = ">= 1.6.0, < 2.0.0"
   required_providers {
@@ -11,7 +11,7 @@ terraform {
 
 provider "aws" {
   region = var.region
-  # Tag chung cho mọi resource, thay cho labels bên GCP.
+  # Common tags for every resource, replacing labels on GCP.
   default_tags {
     tags = var.tags
   }

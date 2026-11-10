@@ -1,4 +1,4 @@
-# Budget tùy chọn: cảnh báo chi phí thật trước credit; không chặn chi tiêu.
+# Optional budget: alerts on real cost before credits; does not block spending.
 resource "aws_budgets_budget" "data_platform" {
   count        = var.enable_budget ? 1 : 0
   name         = "${var.name_prefix}-data-platform-monthly"
@@ -7,7 +7,7 @@ resource "aws_budgets_budget" "data_platform" {
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
 
-  # Không trừ credit: thấy đúng số tiền đang đốt, giống EXCLUDE_ALL_CREDITS bên GCP.
+  # Credits not deducted: shows the real amount being burned, like EXCLUDE_ALL_CREDITS on GCP.
   cost_types {
     include_credit = false
   }
@@ -26,7 +26,7 @@ resource "aws_budgets_budget" "data_platform" {
   lifecycle {
     precondition {
       condition     = var.budget_email != null
-      error_message = "enable_budget=true cần budget_email; AWS không tự gửi cảnh báo cho ai."
+      error_message = "enable_budget=true requires budget_email; AWS does not send alerts to anyone on its own."
     }
   }
 }

@@ -1,5 +1,5 @@
-# Web API kéo feature: HTTPS qua NGINX Ingress, cert do cert-manager cấp.
-# Host sslip.io trỏ về IP node kind (@@NODE_IP_DASH@@ do scripts/setup/setup_ingress.sh điền).
+# Feature-pull Web API: HTTPS via NGINX Ingress, cert issued by cert-manager.
+# sslip.io host points at the kind node IP (@@NODE_IP_DASH@@ filled in by scripts/setup/setup_ingress.sh).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -7,7 +7,7 @@ metadata:
   namespace: feature-store
   annotations:
     cert-manager.io/cluster-issuer: platform-local-ca
-    # Đường kiểm tra HTTP-01 gắn vào chính Ingress này (F5 NGINX từ chối Ingress thứ hai cùng host).
+    # HTTP-01 challenge path attached to this same Ingress (F5 NGINX rejects a second Ingress with the same host).
     acme.cert-manager.io/http01-edit-in-place: "true"
     nginx.org/redirect-to-https: "true"
     nginx.org/limit-req-rate: "50r/s"

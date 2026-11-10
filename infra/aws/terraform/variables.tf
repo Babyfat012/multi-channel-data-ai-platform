@@ -1,20 +1,20 @@
-# Đầu vào cho một EC2 Data Platform; allowlist máy để không lỡ tay bật cỡ máy đốt hết credit.
+# Inputs for one Data Platform EC2; an instance allowlist prevents accidentally picking a size that burns all the credits.
 variable "region" {
   type    = string
   default = "ap-southeast-1"
   validation {
     condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]$", var.region))
-    error_message = "Region phải có dạng ap-southeast-1."
+    error_message = "Region must look like ap-southeast-1."
   }
 }
 
 variable "availability_zone" {
-  description = "EBS và EC2 phải cùng AZ; EBS không gắn được sang AZ khác."
+  description = "EBS and EC2 must share an AZ; EBS cannot attach across AZs."
   type        = string
   default     = "ap-southeast-1a"
   validation {
     condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9][a-z]$", var.availability_zone))
-    error_message = "AZ phải có dạng ap-southeast-1a."
+    error_message = "AZ must look like ap-southeast-1a."
   }
 }
 
@@ -23,37 +23,37 @@ variable "name_prefix" {
   default = "platform"
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{0,16}[a-z0-9]$", var.name_prefix))
-    error_message = "Prefix có 2–18 ký tự chữ thường/số/gạch nối để tên bucket hợp lệ."
+    error_message = "Prefix must be 2–18 lowercase letters/digits/hyphens so bucket names are valid."
   }
 }
 
 variable "instance_type" {
-  description = "t3.xlarge = 4 vCPU / 16 GiB, khớp giới hạn trong docker-compose.aws.yml."
+  description = "t3.xlarge = 4 vCPU / 16 GiB, matching the limits in docker-compose.aws.yml."
   type        = string
   default     = "t3.xlarge"
   validation {
     condition     = contains(["t3.xlarge", "t3.2xlarge", "m6i.xlarge", "m6i.2xlarge", "c6i.2xlarge", "r6i.xlarge"], var.instance_type)
-    error_message = "Overlay cần ít nhất 16 GiB RAM: chọn t3.xlarge/2xlarge, m6i.xlarge/2xlarge, c6i.2xlarge hoặc r6i.xlarge."
+    error_message = "The overlay needs at least 16 GiB RAM: pick t3.xlarge/2xlarge, m6i.xlarge/2xlarge, c6i.2xlarge or r6i.xlarge."
   }
 }
 
 variable "cpu_credits" {
-  description = "standard: hết CPU credit thì chạy chậm lại, không tính thêm tiền như unlimited."
+  description = "standard: throttles once CPU credits run out, instead of charging extra like unlimited."
   type        = string
   default     = "standard"
   validation {
     condition     = contains(["standard", "unlimited"], var.cpu_credits)
-    error_message = "cpu_credits chỉ nhận standard hoặc unlimited."
+    error_message = "cpu_credits accepts only standard or unlimited."
   }
 }
 
 variable "ssh_public_key" {
-  description = "Public key cho SSH đi qua SSM; không mở cổng 22. Không có mặc định."
+  description = "Public key for SSH over SSM; port 22 stays closed. Must be set explicitly."
   type        = string
   nullable    = false
   validation {
     condition     = can(regex("^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) ", var.ssh_public_key))
-    error_message = "Dán nội dung file .pub (bắt đầu bằng ssh-ed25519, ssh-rsa hoặc ecdsa-sha2-nistp256)."
+    error_message = "Paste the contents of the .pub file (starting with ssh-ed25519, ssh-rsa or ecdsa-sha2-nistp256)."
   }
 }
 
@@ -62,17 +62,17 @@ variable "boot_disk_gb" {
   default = 30
   validation {
     condition     = var.boot_disk_gb >= 20 && floor(var.boot_disk_gb) == var.boot_disk_gb
-    error_message = "Boot disk phải là số nguyên ≥20 GiB."
+    error_message = "Boot disk must be an integer ≥20 GiB."
   }
 }
 
 variable "data_disk_gb" {
-  description = "EBS vẫn tính tiền khi EC2 tắt; tăng dung lượng là tăng chi phí cố định."
+  description = "EBS is billed even while the EC2 is stopped; a larger size is a higher fixed cost."
   type        = number
   default     = 100
   validation {
     condition     = var.data_disk_gb >= 10 && floor(var.data_disk_gb) == var.data_disk_gb
-    error_message = "Data disk phải là số nguyên ≥10 GiB."
+    error_message = "Data disk must be an integer ≥10 GiB."
   }
 }
 
@@ -82,7 +82,7 @@ variable "enable_budget" {
 }
 
 variable "budget_email" {
-  description = "AWS không tự gửi mail như GCP; phải ghi rõ người nhận khi bật budget."
+  description = "Unlike GCP, AWS does not email anyone automatically; set the recipient when enabling the budget."
   type        = string
   default     = null
 }
@@ -92,7 +92,7 @@ variable "budget_amount_usd" {
   default = 30
   validation {
     condition     = var.budget_amount_usd > 0 && floor(var.budget_amount_usd) == var.budget_amount_usd
-    error_message = "Budget USD phải là số nguyên dương; đây là cảnh báo, không khóa chi tiêu."
+    error_message = "Budget USD must be a positive integer; it is an alert, not a spending cap."
   }
 }
 
@@ -105,32 +105,32 @@ variable "tags" {
 }
 
 variable "noncurrent_retention_days" {
-  description = "Xóa phiên bản object không còn hiện hành sau số ngày này; không xóa live Iceberg."
+  description = "Delete noncurrent object versions after this many days; live Iceberg data is not deleted."
   type        = number
   default     = 30
   validation {
     condition     = var.noncurrent_retention_days >= 1 && floor(var.noncurrent_retention_days) == var.noncurrent_retention_days
-    error_message = "Retention phải là số ngày nguyên dương."
+    error_message = "Retention must be a positive integer number of days."
   }
 }
 
 variable "temp_retention_days" {
-  description = "Chỉ xóa object dưới prefix tmp/; không đặt dữ liệu chính thức vào prefix này."
+  description = "Deletes only objects under the tmp/ prefix; do not store authoritative data there."
   type        = number
   default     = 7
   validation {
     condition     = var.temp_retention_days >= 1 && floor(var.temp_retention_days) == var.temp_retention_days
-    error_message = "Retention tạm phải là số ngày nguyên dương."
+    error_message = "Temporary retention must be a positive integer number of days."
   }
 }
 
 variable "force_destroy" {
-  description = "Mặc định từ chối xóa bucket còn dữ liệu; chỉ bật sau khi đã kiểm tra và sao lưu."
+  description = "By default, refuse to delete buckets that still hold data; enable only after checking and backing up."
   type        = bool
   default     = false
 }
 
-# Các phần mở rộng chỉ được tạo khi người vận hành bật trong tfvars và apply plan.
+# Extensions are created only when the operator enables them in tfvars and applies the plan.
 variable "enable_ecr" {
   type    = bool
   default = false
@@ -142,7 +142,7 @@ variable "enable_kubernetes_network" {
 }
 
 variable "secondary_availability_zone" {
-  description = "AZ thứ hai trong cùng region cho subnet EKS; bắt buộc khi bật mạng Kubernetes."
+  description = "Second AZ in the same region for the EKS subnets; required when the Kubernetes network is enabled."
   type        = string
   default     = null
 }

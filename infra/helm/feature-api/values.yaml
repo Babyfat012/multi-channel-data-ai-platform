@@ -1,19 +1,19 @@
-# Đổi image.tag mỗi lần deploy để k8s rolling update; `helm upgrade --atomic` tự rollback nếu pod mới không Ready.
+# Change image.tag on every deploy so k8s does a rolling update; `helm upgrade --atomic` rolls back automatically if the new pod is not Ready.
 image:
   repository: localhost:5001/platform-feature-api
-  tag: "0.1.0"  # script deploy luôn ghi đè bằng git SHA/TAG
+  tag: "0.1.0"  # the deploy script always overrides it with the git SHA/TAG
   pullPolicy: IfNotPresent
 replicas: 2
-# rest = Feature API (REST); release feature-mcp đặt mcp qua values-mcp.yaml (MCP server pod riêng).
+# rest = Feature API (REST); release feature-mcp sets mcp via values-mcp.yaml (dedicated MCP server pod).
 surface: rest
-# KEDA ScaledObject (cần KEDA + Prometheus trong cluster); values-aws.yaml bật trên EKS.
+# KEDA ScaledObject (needs KEDA + Prometheus in the cluster); enabled on EKS by values-aws.yaml.
 autoscaling:
   enabled: false
   minReplicas: 2
   maxReplicas: 3
-  threshold: 10   # request/giây mỗi pod
+  threshold: 10   # requests/s per pod
   prometheus: http://prometheus-server.observability.svc.cluster.local
-# Secret chứa AWS_*, FEAST_*; tạo ngoài chart từ .env (scripts/setup/deploy_kind_feature_api.sh).
+# Secret holding AWS_*, FEAST_*; created outside the chart from .env (scripts/setup/deploy_kind_feature_api.sh).
 envSecret: feature-api-env
 nodePort: 30800
 service:
@@ -24,4 +24,4 @@ serviceAccount:
   name: ""
 resources:
   requests: {cpu: 50m, memory: 128Mi}
-  limits: {memory: 768Mi}   # + model embedding ONNX (~200 MB khi nạp)
+  limits: {memory: 768Mi}   # + ONNX embedding model (~200 MB when loaded)

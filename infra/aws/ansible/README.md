@@ -1,39 +1,39 @@
-<!-- Mục đích: cách chạy Ansible cấu hình EC2 mốc 1 sau khi Terraform AWS đã apply. -->
+<!-- Purpose: how to run Ansible to configure the milestone 1 EC2 after the AWS Terraform is applied. -->
 # Ansible AWS Data Platform
 
-Cấu hình EC2 do [Terraform](../terraform/README.md) tạo: cài Docker, mount EBS
-vào `/mnt/platform-data`, đồng bộ repo, chạy Compose (`docker-compose.yml` +
-`docker-compose.aws.yml`), tạo warehouse Lakekeeper trên S3.
+Configures the EC2 created by [Terraform](../terraform/README.md): installs Docker, mounts the EBS
+at `/mnt/platform-data`, syncs the repo, runs Compose (`docker-compose.yml` +
+`docker-compose.aws.yml`), and creates the Lakekeeper warehouse on S3.
 
-SSH không đi qua Internet: `ProxyCommand` gọi `aws ssm start-session`, nên
-security group không cần mở cổng 22.
+SSH does not cross the Internet: `ProxyCommand` calls `aws ssm start-session`, so
+the security group does not need port 22 open.
 
-Máy điều khiển cần AWS CLI đã đăng nhập, `session-manager-plugin`, Ansible và
-collection bên dưới. Private key `~/.ssh/platform_aws` phải khớp `ssh_public_key`
-của Terraform; đổi cả inventory và lệnh tunnel nếu dùng đường dẫn khác.
+The control machine needs a logged-in AWS CLI, `session-manager-plugin`, Ansible and
+the collections below. The private key `~/.ssh/platform_aws` must match Terraform's
+`ssh_public_key`; change both the inventory and the tunnel command if you use another path.
 
 ```bash
 cd infra/aws/ansible
 ansible-galaxy collection install -r requirements.yml
 cp inventory.example.ini inventory.ini                 # instance_id, region
-cp group_vars/all.example.yml group_vars/all.yml       # output Terraform + secret
+cp group_vars/all.example.yml group_vars/all.yml       # Terraform outputs + secrets
 ansible-vault encrypt group_vars/all.yml
 ansible-playbook -i inventory.ini site.yml --ask-vault-pass
-# Chỉ đổi dags/, spark_jobs/, scripts/, trino/ (bind mount): đồng bộ code, ~1 phút, không restart
+# Only dags/, spark_jobs/, scripts/, trino/ changed (bind mounts): sync code, ~1 minute, no restart
 ansible-playbook -i inventory.ini site.yml --ask-vault-pass --tags code
-# Tùy chọn: sinh nguồn và đẩy lên S3, rồi smoke ghi đọc Iceberg
+# Optional: generate sources and push them to S3, then smoke-test Iceberg write/read
 ansible-playbook -i inventory.ini site.yml --ask-vault-pass --tags source_data
 ansible-playbook -i inventory.ini site.yml --ask-vault-pass --tags smoke
 ```
 
-Khi triển khai đã được cho phép và hoàn tất: lấy lệnh bằng
-`terraform output -raw port_forward_command` trong thư mục Terraform, chạy lệnh
-SSH được in ra, rồi vào
+Once the deployment is approved and complete: get the command with
+`terraform output -raw port_forward_command` in the Terraform directory, run the
+printed SSH command, then open
 `http://127.0.0.1:8081` (Airflow), `:8080` (Spark), `:8181` (Lakekeeper).
 
-Overlay chỉ bật PostgreSQL, Lakekeeper, Spark (1 master + 2 worker) và Airflow,
-tổng giới hạn ≈14 GiB để vừa `t3.xlarge` 16 GiB. Kafka, Flink, Trino, Debezium
-tắt mặc định; bật từng phần khi cần và tắt phần khác để không hết RAM.
+The overlay enables only PostgreSQL, Lakekeeper, Spark (1 master + 2 workers) and Airflow,
+with a total limit of ≈14 GiB to fit a 16 GiB `t3.xlarge`. Kafka, Flink, Trino and Debezium
+are off by default; enable them one at a time when needed and turn others off to avoid running out of RAM.
 
-Xem kết quả rà soát và các điều kiện còn thiếu
-trước khi chạy playbook trên EC2.
+Review the audit results and the outstanding prerequisites
+before running the playbook on the EC2.

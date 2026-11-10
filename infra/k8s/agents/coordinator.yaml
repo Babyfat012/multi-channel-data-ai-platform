@@ -1,5 +1,5 @@
-# Coordinator Agent: nhận câu hỏi của Seller, giao việc cho Data Agent hoặc Model Agent (Agent-as-tool, A2A).
-# kagent `proxy.url` = agentgateway ⇒ lời gọi A2A đi qua gateway (route theo header x-kagent-host), kèm API key.
+# Coordinator Agent: receives Seller questions and delegates to the Data Agent or the Model Agent (Agent-as-tool, A2A).
+# kagent `proxy.url` = agentgateway ⇒ A2A calls go through the gateway (routed by header x-kagent-host), with an API key.
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
@@ -7,12 +7,12 @@ metadata:
   namespace: kagent
 spec:
   type: Declarative
-  description: Điều phối câu hỏi của Seller tới Data Agent (feature, chunk) hoặc Model Agent (dự đoán, chính sách).
+  description: Routes Seller questions to the Data Agent (features, chunks) or the Model Agent (predictions, policy).
   declarative:
     modelConfig: default-model-config
     stream: false
-    # System prompt quản lý trên Langfuse (prompt platform-coordinator, label production); scripts/setup/sync_agent_prompts.py
-    # đẩy bản production vào ConfigMap agent-prompts. Bản gốc lần đầu: infra/k8s/agents/prompts/coordinator.txt.
+    # System prompt managed in Langfuse (prompt platform-coordinator, label production); scripts/setup/sync_agent_prompts.py
+    # pushes the production version into ConfigMap agent-prompts. Initial seed: infra/k8s/agents/prompts/coordinator.txt.
     systemMessageFrom: {type: ConfigMap, name: agent-prompts, key: coordinator}
     tools:
       - type: Agent
@@ -29,7 +29,7 @@ spec:
       resources:
         requests: {cpu: 50m, memory: 192Mi}
         limits: {memory: 512Mi}
-      # Ưu tiên rải replica sang worker khác: một node chết vẫn còn bản chạy. 'preferred' để kind 1 node vẫn chạy được.
+      # Prefer spreading replicas across workers: one dead node still leaves a running copy. 'preferred' so a 1-node kind still runs.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

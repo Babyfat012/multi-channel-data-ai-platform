@@ -1,9 +1,9 @@
-# Môi trường nguồn giả lập cho generator: MinIO (export dạng file) và PostgreSQL
-# (hệ thống của phòng ban khác). Chạy: cp .env.example .env && docker compose up -d
-# Thứ tự: minio, postgres -> minio-init (tạo bucket) -> generator-batch -> generator-load.
-# Stream (Kafka) nằm trong profile riêng: docker compose --profile stream up -d
-# Spark standalone (1 master + 2 worker) cũng ở profile riêng: docker compose --profile spark up -d
-# Lakekeeper (REST catalog cho Iceberg) nằm trong profile catalog và được profile spark kéo theo.
+# Simulated source environment for the generator: MinIO (file exports) and PostgreSQL
+# (another department's system). Run: cp .env.example .env && docker compose up -d
+# Order: minio, postgres -> minio-init (creates buckets) -> generator-batch -> generator-load.
+# Stream (Kafka) lives in its own profile: docker compose --profile stream up -d
+# Spark standalone (1 master + 2 workers) is also in its own profile: docker compose --profile spark up -d
+# Lakekeeper (REST catalog for Iceberg) is in the catalog profile and is pulled in by the spark profile.
 
 name: platform
 
@@ -16,13 +16,13 @@ x-generator: &generator
     AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
     FSSPEC_S3_ENDPOINT_URL: http://minio:9000
 
-# Spark: mọi service dùng chung một image. Thư mục spark_jobs/ được mount (chỉ đọc) vào
-# CẢ BA container ở CÙNG đường dẫn /opt/spark_jobs: sửa file trên host là thấy ngay, không build lại. Chạy bằng root để ghi được vào volume spill
-# (volume mới tạo thuộc root); đây là môi trường dev trên máy cá nhân.
+# Spark: all services share one image. The spark_jobs/ directory is mounted (read-only) into
+# ALL THREE containers at the SAME path /opt/spark_jobs: edits on the host show up immediately, no rebuild. Runs as root so it can write to the spill volume
+# (a newly created volume is owned by root); this is a dev environment on a personal machine.
 x-spark: &spark
-  # Phải là biến thể java17: Iceberg 1.11.0 được build cho Java 17 (class file 61),
-  # image mặc định apache/spark:3.5.3 chạy Java 11 (đọc tối đa class 55) -> job chết
-  # ngay khi nạp iceberg-spark-runtime với UnsupportedClassVersionError.
+  # Must be the java17 variant: Iceberg 1.11.0 is built for Java 17 (class file 61),
+  # the default image apache/spark:3.5.3 runs Java 11 (reads up to class 55) -> the job dies
+  # as soon as it loads iceberg-spark-runtime, with UnsupportedClassVersionError.
   image: apache/spark:3.5.3-java17
   profiles: [spark]
   user: root
@@ -55,7 +55,7 @@ services:
 
   postgres:
     image: postgres:15
-    # Debezium đọc thay đổi đã commit từ WAL; giữ tối đa bốn slot cho môi trường dev.
+    # Debezium reads committed changes from the WAL; keep at most four slots for the dev environment.
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
     env_file: .env
     ports: ["${POSTGRES_PORT:-5432}:5432"]
@@ -79,8 +79,8 @@ services:
     command: ["load-postgres", "--source", "s3://${MINIO_BUCKET}",
               "--dsn", "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"]
 
-  # Kafka một node, chế độ KRaft (không cần ZooKeeper).
-  # Trong mạng Compose dùng kafka:9092, từ máy host dùng localhost:${KAFKA_PORT}.
+  # Single-node Kafka in KRaft mode (no ZooKeeper needed).
+  # Inside the Compose network use kafka:9092; from the host use localhost:${KAFKA_PORT}.
   kafka:
     image: apache/kafka:3.9.1
     profiles: [stream, cdc]
@@ -97,7 +97,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      # Gap #12: mặc định image ghi /tmp/kraft-combined-logs (lớp ghi container) ⇒ tạo lại container là mất topic.
+      # Gap #12: by default the image writes /tmp/kraft-combined-logs (container writable layer) ⇒ recreating the container loses the topics.
       KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes: [kafka-data:/var/lib/kafka/data]
     healthcheck:
@@ -105,7 +105,7 @@ services:
       interval: 5s
       retries: 20
 
-  # Phát Stream sau cutoff vào Kafka, ghi stream_manifest.json vào MinIO.
+  # Replay the Stream after cutoff into Kafka and write stream_manifest.json to MinIO.
   generator-stream:
     <<: *generator
     profiles: [stream]
@@ -115,10 +115,10 @@ services:
     command: ["stream", "--config", "${GENERATOR_CONFIG}", "--sink", "kafka", "--bootstrap", "kafka:9092",
               "--speed", "${STREAM_SPEED:-1}", "--output", "s3://${MINIO_BUCKET}"]
 
-  # Lakekeeper: cuốn sổ "bảng Iceberg nào đang trỏ tới file metadata nào" cho Spark và Flink.
-  # Sổ nằm trong DB `lakekeeper` của container postgres có sẵn, tách khỏi DB `sources`
-  # (giả làm hệ thống phòng ban khác) để không trộn lẫn. File metadata thật nằm trên MinIO.
-  # Postgres chỉ tự tạo DB lần đầu, nên DB này phải tạo bằng một bước riêng (chạy lại được).
+  # Lakekeeper: the ledger of "which Iceberg table points to which metadata file" for Spark and Flink.
+  # The ledger lives in the `lakekeeper` DB of the existing postgres container, separate from the `sources` DB
+  # (which stands in for another department's system) so they do not mix. The actual metadata files live on MinIO.
+  # Postgres only creates DBs on first start, so this DB must be created by a separate (re-runnable) step.
   lakekeeper-db-init:
     image: postgres:15
     profiles: [catalog, spark, query]
@@ -157,7 +157,7 @@ services:
       interval: 5s
       retries: 20
 
-  # Spark master chỉ điều phối nên rất nhẹ. Spark UI: http://localhost:8080
+  # The Spark master only coordinates, so it is very light. Spark UI: http://localhost:8080
   spark-master:
     <<: *spark
     depends_on:
@@ -165,10 +165,10 @@ services:
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master",
               "--host", "spark-master"]
     ports: ["${SPARK_MASTER_PORT:-7077}:7077", "${SPARK_UI_PORT:-8080}:8080"]
-    # /data/raw mount read-only: dữ liệu 93 GiB nằm ngoài volume Docker, không vừa MinIO
-    # trên / (chỉ còn ~42 GB). Spark đọc trực tiếp từ đĩa; bảng Iceberg vẫn ghi lên MinIO.
-    # ./out/spark-events: Spark UI chỉ sống khi job đang chạy. Ghi event log ra host
-    # để mở lại bằng History Server và chụp ảnh bằng chứng sau khi job đã xong.
+    # /data/raw mounted read-only: the 93 GiB of data lives outside Docker volumes and does not fit in MinIO
+    # on / (only ~42 GB left). Spark reads directly from disk; Iceberg tables are still written to MinIO.
+    # ./out/spark-events: the Spark UI only lives while the job is running. Write the event log to the host
+    # so it can be reopened in the History Server and evidence screenshots taken after the job finishes.
     volumes: [./spark_jobs:/opt/spark_jobs:ro, /data/raw:/data/raw:ro,
               /data/raw/ground-truth:/data/ground-truth:ro,
               ./out/ground-truth-bridge:/data/ground-truth-bridge:ro,
@@ -177,9 +177,9 @@ services:
               "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"]
     mem_limit: 512m
 
-  # Worker làm việc thật. RAM worker là con số mình ĐẶT (SPARK_WORKER_MEMORY), thiếu thì
-  # Spark spill ra đĩa. mem_limit cao hơn một chút để chừa chỗ cho JVM overhead.
-  # SPARK_LOCAL_DIRS trỏ vào volume (nằm trên /), KHÔNG dùng /tmp vì /tmp là RAM.
+  # Workers do the real work. Worker RAM is the number WE SET (SPARK_WORKER_MEMORY); if it runs short
+  # Spark spills to disk. mem_limit is slightly higher to leave room for JVM overhead.
+  # SPARK_LOCAL_DIRS points to a volume (on /), NOT /tmp, because /tmp is RAM.
   spark-worker-1: &spark-worker
     <<: *spark
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker",
@@ -207,7 +207,7 @@ services:
               "./out/spark-events:/spark-events",
               "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"]
 
-  # Airflow dùng DB riêng trong PostgreSQL hiện có. Chỉ tạo DB, không đổi `sources`.
+  # Airflow uses its own DB in the existing PostgreSQL. Only creates the DB, does not touch `sources`.
   airflow-db-init:
     image: postgres:15
     profiles: [airflow]
@@ -220,8 +220,8 @@ services:
       \"SELECT 1 FROM pg_database WHERE datname='airflow'\" | grep -q 1
       || psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -c 'CREATE DATABASE airflow'"
 
-  # Một container dev chạy webserver + scheduler. SparkSubmitOperator sinh driver ở đây;
-  # không đặt driver trên spark-master (container đó chỉ có 512 MB).
+  # A single dev container runs webserver + scheduler. SparkSubmitOperator spawns the driver here;
+  # do not put the driver on spark-master (that container has only 512 MB).
   airflow:
     build:
       context: .
@@ -241,8 +241,8 @@ services:
       PLATFORM_CONTRACTS_DIR: /opt/contracts
     depends_on:
       airflow-db-init: {condition: service_completed_successfully}
-    # `airflow standalone` để lại PID file trong volume sau khi container dừng.
-    # Nếu giữ PID cũ, lần khởi động sau webserver tự thoát dù scheduler vẫn chạy.
+    # `airflow standalone` leaves a PID file in the volume after the container stops.
+    # If the stale PID is kept, the webserver exits on the next start even though the scheduler is still running.
     command: ["bash", "-c", "rm -f /opt/airflow/airflow-webserver.pid && exec airflow standalone"]
     ports: ["${AIRFLOW_WEB_PORT:-8081}:8080"]
     volumes: [airflow-data:/opt/airflow, ./out/receipts:/opt/airflow/receipts,
@@ -255,11 +255,11 @@ services:
               ./out/channels-small/source-exports:/data/channels-small/source-exports:ro,
               ./out/spark-events:/spark-events,
               "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"]
-    # 6g: driver Spark client mode của DAG v2 chạy trong container này với heap 3g.
+    # 6g: the Spark client-mode driver of DAG v2 runs in this container with a 3g heap.
     mem_limit: 6g
 
-  # Flink SQL đọc Kafka đã phát để chứng minh watermark, state và Window.
-  # Bật riêng profile này sau khi DP1/DP2 kết thúc để giữ RAM cho TaskManager.
+  # Flink SQL reads the replayed Kafka stream to demonstrate watermarks, state and Windows.
+  # Enable this profile only after DP1/DP2 finish, to keep RAM for the TaskManager.
   flink-jobmanager:
     build:
       context: .
@@ -289,8 +289,8 @@ services:
     volumes: [./flink_jobs:/opt/flink/jobs:ro, ./out/flink:/opt/flink/output]
     mem_limit: 1280m
 
-  # ML Platform: đọc stream feature Flink ghi ở Kafka, push vào Feast (Redis trong kind + Parquet MinIO).
-  # Cần chạy scripts/setup/setup_kind_feature_store.sh trước để có Redis.
+  # ML Platform: reads stream features Flink writes to Kafka and pushes them into Feast (Redis in kind + Parquet on MinIO).
+  # Run scripts/setup/setup_kind_feature_store.sh first so Redis exists.
   feast-pusher:
     build: {context: ., dockerfile: docker/Dockerfile.feast}
     image: platform-feast:0.66.0
@@ -308,8 +308,8 @@ services:
     restart: on-failure
     mem_limit: 768m
 
-  # ML Platform: cluster Flink 2.2 riêng chạy job PyFlink stream feature (2 job: online → Redis, offline → Parquet).
-  # Tách khỏi cluster 1.20 của EDAI-1 (PyFlink 1.20 không cài chung được Feast 0.66). UI: http://localhost:8086.
+  # ML Platform: a separate Flink 2.2 cluster running the PyFlink stream feature jobs (2 jobs: online → Redis, offline → Parquet).
+  # Separate from the Data Platform's 1.20 cluster (PyFlink 1.20 cannot be installed alongside Feast 0.66). UI: http://localhost:8086.
   flink-ml-jobmanager:
     build: {context: ., dockerfile: docker/Dockerfile.flink-ml}
     image: platform-flink-ml:2.2.1
@@ -345,8 +345,8 @@ services:
     volumes: [./out/flink-ml:/opt/flink/output]
     mem_limit: 3072m
 
-  # ML Platform: MLflow tracking + model registry. Sổ ghi ở DB `mlflow` của PostgreSQL có sẵn, artifact
-  # ở MinIO; client (bước KFP trong kind) gửi artifact qua server nên không cần credential S3.
+  # ML Platform: MLflow tracking + model registry. The ledger lives in the `mlflow` DB of the existing PostgreSQL, artifacts
+  # on MinIO; clients (KFP steps in kind) send artifacts through the server, so they need no S3 credentials.
   registry:
     image: registry:2.8.3
     profiles: [ml]
@@ -386,7 +386,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      # Tắt hàng đợi job GenAI (7 tiến trình huey, ~1 GB RAM); ở đây chỉ dùng tracking + registry.
+      # Disable the GenAI job queue (7 huey processes, ~1 GB RAM); only tracking + registry are used here.
       MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
     command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000",
               "--backend-store-uri", "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/mlflow",
@@ -396,8 +396,8 @@ services:
     restart: unless-stopped
     mem_limit: 512m
 
-  # Quản lý secret tập trung. Chế độ server, lưu file trong volume; init/unseal và nạp
-  # secret bằng scripts/setup/setup_vault.sh. UI: http://localhost:8200
+  # Centralized secret management. Server mode, file storage in a volume; init/unseal and secret loading
+  # via scripts/setup/setup_vault.sh. UI: http://localhost:8200
   vault:
     image: hashicorp/vault:2.1.1
     profiles: [security]
@@ -411,9 +411,9 @@ services:
     volumes: [vault-data:/vault/file]
     mem_limit: 256m
 
-  # Jenkins CI/CD. network_mode host: build gọi được Vault, Flink REST, API kind
-  # như trên máy host. JENKINS_HOME mount CÙNG đường dẫn host để bind mount của `docker compose` trong
-  # workspace trỏ đúng. Khởi động bằng scripts/setup/setup_jenkins.sh (lấy secret từ Vault). UI :8090
+  # Jenkins CI/CD. network_mode host: builds can reach Vault, Flink REST and the kind API
+  # as on the host. JENKINS_HOME is mounted at the SAME host path so bind mounts from `docker compose` in the
+  # workspace resolve correctly. Start with scripts/setup/setup_jenkins.sh (fetches secrets from Vault). UI :8090
   jenkins:
     build: {context: ., dockerfile: docker/Dockerfile.jenkins}
     image: platform-jenkins:2.580.1
@@ -452,8 +452,8 @@ services:
     volumes: [./trino/catalog:/etc/trino/catalog:ro]
     mem_limit: 2g
 
-  # CDC của bảng nguồn Walmart. Kafka Connect dùng các topic nội bộ riêng để giữ
-  # cấu hình và offset khi container khởi động lại.
+  # CDC for the Walmart source table. Kafka Connect uses its own internal topics to keep
+  # config and offsets across container restarts.
   debezium-connect:
     image: quay.io/debezium/connect:3.4
     profiles: [cdc]
@@ -470,7 +470,7 @@ services:
     ports: ["${DEBEZIUM_PORT:-8084}:8083"]
     mem_limit: 1280m
 
-  # Giao diện xem topic Kafka (bao gồm topic CDC do Debezium ghi) để chụp bằng chứng.
+  # UI for browsing Kafka topics (including the CDC topics written by Debezium) to capture evidence.
   kafka-ui:
     image: kafbat/kafka-ui:v1.5.0
     profiles: [cdc]

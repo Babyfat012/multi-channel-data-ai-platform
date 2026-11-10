@@ -1,6 +1,6 @@
-# Airflow chạy spark-submit ở client mode: container này chính là Spark driver.
-# PySpark và Python phải cùng phiên bản với worker (apache/spark:3.5.3 dùng Python 3.10);
-# Java 17 đọc được jar Iceberg 1.11.
+# Airflow runs spark-submit in client mode: this container is the Spark driver.
+# PySpark and Python must match the worker versions (apache/spark:3.5.3 uses Python 3.10);
+# Java 17 can read the Iceberg 1.11 jars.
 FROM apache/airflow:2.10.5-python3.10
 
 USER root
@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir \
     "pyspark==3.5.3" \
     "psycopg2-binary==2.9.10"
 
-# Feast ở venv riêng (cả pipeline RAG: postgres = pgvector online store, fastembed = embedding): phụ thuộc của nó (numpy 2, starlette, pydantic mới) xung đột với Airflow 2.10.
-# Cài bằng uv: pip mất >10 phút giải phụ thuộc feast + fastembed trên Python 3.10 (đo 2026-10-21), uv vài giây.
+# Feast in its own venv (the whole RAG pipeline: postgres = pgvector online store, fastembed = embedding): its dependencies (numpy 2, starlette, newer pydantic) conflict with Airflow 2.10.
+# Installed with uv: pip takes >10 minutes to resolve feast + fastembed dependencies on Python 3.10 (measured 2026-10-21), uv a few seconds.
 RUN python -m venv /home/airflow/feast-venv \
     && /home/airflow/feast-venv/bin/pip install --no-cache-dir "uv==0.9.5" \
     && /home/airflow/feast-venv/bin/uv pip install --no-cache --python /home/airflow/feast-venv/bin/python \

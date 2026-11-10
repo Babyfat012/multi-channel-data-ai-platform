@@ -301,7 +301,7 @@ def test_docker_storage_moves_to_ebs_without_silent_empty_store():
     # Order: mount EBS → move storage → bind mount.
     names = [t["name"] for t in tasks]
     assert (
-        names.index("Ghi mount UUID và mount nếu chưa có")
+        names.index("Write the UUID mount entry and mount if missing")
         < names.index(move["name"])
         < names.index(binds[0]["name"])
     )
@@ -528,7 +528,7 @@ def test_code_only_sync_tag_covers_bind_mounted_code():
     """--tags code only runs rsync; every code directory it ships is an Airflow bind mount."""
     tasks = yaml.safe_load((ANSIBLE / "roles/app/tasks/main.yml").read_text())
     tagged = [t["name"] for t in tasks if "code" in t.get("tags", [])]
-    assert tagged == ["Đồng bộ repo bằng rsync, loại secret và thư mục phát sinh"]
+    assert tagged == ["Sync the repo with rsync, excluding secrets and generated directories"]
     volumes = yaml.load((ROOT / "docker-compose.aws.yml").read_text(), Loader=ComposeLoader)[
         "services"
     ]["airflow"]["volumes"]

@@ -1,5 +1,5 @@
-# agentgateway: cổng duy nhất cho Agent gọi LLM (/v1/...) và MCP tool (/mcp). Đặt chính sách ở một chỗ:
-# API key (Secret agentgateway-keys, tạo từ scripts/setup/deploy_kind_agents.sh), rate limit, chỉ cho gọi tool đã duyệt.
+# agentgateway: the single gateway for Agents calling the LLM (/v1/...) and MCP tools (/mcp). Policy lives in one place:
+# API key (Secret agentgateway-keys, created by scripts/setup/deploy_kind_agents.sh), rate limit, only approved tools callable.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -16,7 +16,7 @@ data:
       adminAddr: 0.0.0.0:15000
       statsAddr: 0.0.0.0:15020       # /metrics Prometheus: request, token LLM, tool call
       readinessAddr: 0.0.0.0:15021
-      tracing:                       # trace mỗi request LLM/MCP/A2A gửi Jaeger (OTLP gRPC)
+      tracing:                       # trace every LLM/MCP/A2A request to Jaeger (OTLP gRPC)
         otlpEndpoint: http://jaeger.observability.svc.cluster.local:4317
         randomSampling: true
     gateways:
@@ -24,12 +24,12 @@ data:
         port: 3000
     llm:
       policies:
-        apiKey:                      # thiếu/sai key ⇒ 401
+        apiKey:                      # missing/wrong key ⇒ 401
           mode: strict
           keys:
           - key: $AGW_AGENT_KEY
             metadata: {name: kagent-agents}
-        localRateLimit:              # token bucket: tối đa 60 request dồn, hồi 1 request/giây
+        localRateLimit:              # token bucket: at most 60 queued requests, refills 1 request/s
         - maxTokens: 60
           tokensPerFill: 1
           fillInterval: 1s
@@ -43,8 +43,8 @@ data:
         params:
           model: qwen2.5-1.5b-instruct
           baseUrl: http://qwen.llm.svc.cluster.local:8080/v1
-        # PII: chặn request chứa email / thẻ tín dụng / SSN (403), che PII trong câu trả lời.
-        # Không chặn số điện thoại ở request: số lượng, giá, mã SKU dễ bị nhận nhầm. Đếm ở
+        # PII: block requests containing email / credit card / SSN (403), mask PII in responses.
+        # Phone numbers are not blocked in requests: quantities, prices, SKU codes are easily misdetected. Counted in
         # agentgateway_guardrail_checks_total.
         guardrails: &pii
           request:
@@ -66,7 +66,7 @@ data:
               - builtin: email
               - builtin: phoneNumber
               - builtin: creditCard
-      # A/B: nhánh B = bản nhỏ hơn cùng họ Qwen.
+      # A/B: branch B = a smaller model from the same Qwen family.
       - name: qwen2.5-0.5b-instruct
         provider:
           custom:
@@ -76,8 +76,8 @@ data:
           model: qwen2.5-0.5b-instruct
           baseUrl: http://qwen-small.llm.svc.cluster.local:8080/v1
         guardrails: *pii
-      # Agent/client gọi model ảo `platform-chat`; gateway chia 50/50 giữa A và B. Metric/trace ghi model
-      # thật (gen_ai_response_model) ⇒ so được độ trễ, token, lỗi theo từng nhánh trên Grafana.
+      # Agents/clients call the virtual model `platform-chat`; the gateway splits 50/50 between A and B. Metrics/traces record the
+      # real model (gen_ai_response_model) ⇒ latency, tokens, errors can be compared per branch in Grafana.
       virtualModels:
       - name: platform-chat
         routing:
@@ -87,9 +87,9 @@ data:
               weight: 1
             - model: qwen2.5-0.5b-instruct
               weight: 1
-    # A2A: Agent không gọi thẳng nhau. kagent bật `proxy.url` = gateway ⇒ lời gọi Agent→Agent tới đây kèm header
-    # x-kagent-host = "<agent>.<ns>" (kagent applyProxyURL); route chọn Agent theo header đó. Client ngoài cụm
-    # dùng đường /a2a/<agent>/. Policy a2a viết lại `url` trong agent card về gateway. Agent mới = thêm route.
+    # A2A: Agents never call each other directly. kagent sets `proxy.url` = gateway ⇒ Agent→Agent calls arrive here with header
+    # x-kagent-host = "<agent>.<ns>" (kagent applyProxyURL); the route picks the Agent by that header. Clients outside the cluster
+    # use the /a2a/<agent>/ path. The a2a policy rewrites `url` in the agent card to the gateway. New Agent = add a route.
     routes:
     - name: a2a-data-agent
       matches:
@@ -116,7 +116,7 @@ data:
           path: {prefix: /}
       backends:
       - host: data-agent.kagent.svc.cluster.local:8080
-    # Đường thẳng tới nhánh B (eval harness ML-N1 chấm riêng từng nhánh).
+    # Direct path to branch B (the eval harness scores each branch separately).
     - name: a2a-data-agent-b-path
       matches:
       - path: {pathPrefix: /a2a/data-agent-b/}
@@ -127,7 +127,7 @@ data:
           path: {prefix: /}
       backends:
       - host: data-agent-b.kagent.svc.cluster.local:8080
-    # A/B agent: một đường vào, hai bản Data Agent khác ModelConfig, chia theo trọng số.
+    # A/B agent: one entry point, two Data Agent copies with different ModelConfigs, split by weight.
     - name: a2a-data-agent-ab
       matches:
       - path: {pathPrefix: /a2a/data-agent-ab/}
@@ -183,15 +183,15 @@ data:
           path: {prefix: /}
       backends:
       - host: coordinator.kagent.svc.cluster.local:8080
-    # MCP gateway: một route /mcp (không dùng khối `mcp:` rút gọn: khối đó nhận MỌI đường dẫn và đứng trước
-    # các route A2A theo header). Rate limit không đặt: bản 1.6.0 không áp dụng cho MCP (đo 2026-10-21:
-    # 300 request/0,4 s đều 200); rate limit có hiệu lực ở nhánh LLM.
+    # MCP gateway: a single /mcp route (not the short `mcp:` block: that block matches EVERY path and takes precedence over
+    # the header-based A2A routes). No rate limit set: version 1.6.0 does not apply it to MCP (measured 2026-10-21:
+    # 300 requests/0.4 s all 200); rate limiting is effective on the LLM branch.
     - name: mcp
       matches:
       - path: {pathPrefix: /mcp}
       policies:
         apiKey: *a2a-key
-        mcpAuthorization:            # tool ngoài danh sách bị ẩn khỏi tools/list và bị chặn khi gọi
+        mcpAuthorization:            # tools not on the list are hidden from tools/list and blocked when called
           rules:
           - 'mcp.tool.name == "get_sku_features"'
           - 'mcp.tool.name == "get_policy_chunks"'
@@ -202,7 +202,7 @@ data:
           targets:
           - name: features
             mcp:
-              host: http://feature-mcp.feature-store.svc.cluster.local:8000/mcp/   # MCP server pod riêng (release feature-mcp)
+              host: http://feature-mcp.feature-store.svc.cluster.local:8000/mcp/   # dedicated MCP server pod (release feature-mcp)
 ---
 apiVersion: apps/v1
 kind: Deployment

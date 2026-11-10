@@ -1,57 +1,57 @@
-# Cài Docker từ kho chính thức Ubuntu 24.04 và aws CLI cho tác vụ đồng bộ S3.
-- name: Chỉ hỗ trợ Ubuntu 24.04
+# Install Docker from the official repository on Ubuntu 24.04, plus the aws CLI for S3 sync tasks.
+- name: Support Ubuntu 24.04 only
   ansible.builtin.assert:
     that:
       - ansible_distribution == 'Ubuntu'
       - ansible_distribution_version == '24.04'
-- name: Cài công cụ hệ thống
+- name: Install system tools
   ansible.builtin.apt:
     name: [ca-certificates, curl, gnupg, rsync, python3-venv, python3-pip, e2fsprogs, util-linux]
     update_cache: true
     cache_valid_time: 3600
-- name: Tạo nơi giữ khóa apt
+- name: Create the apt keyring directory
   ansible.builtin.file:
     path: /etc/apt/keyrings
     state: directory
     mode: '0755'
-- name: Lấy khóa Docker
+- name: Fetch the Docker key
   ansible.builtin.get_url:
     url: https://download.docker.com/linux/ubuntu/gpg
     dest: /etc/apt/keyrings/docker.asc
     mode: '0644'
-- name: Khai báo kho apt Docker
+- name: Add the Docker apt repository
   ansible.builtin.apt_repository:
     repo: 'deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable'
     state: present
-- name: Cài Docker Engine và Compose plugin
+- name: Install Docker Engine and the Compose plugin
   ansible.builtin.apt:
     name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]
     state: present
     update_cache: true
-- name: Cài aws CLI v2 bằng snap (Ubuntu 24.04 không còn gói apt awscli)
+- name: Install aws CLI v2 via snap (Ubuntu 24.04 no longer ships the awscli apt package)
   ansible.builtin.command: snap install aws-cli --classic
   args:
     creates: /snap/bin/aws
-# Docker mặc định không giới hạn json-log: 28/10 datahub-gms ghi 35 GB khi Kafka DataHub chết, góp phần
-# làm đầy EBS. Chỉ áp cho container tạo mới; app/datahub role sau đó compose up tạo lại.
-- name: Giới hạn log mỗi container 100 MB × 3 file
+# Docker does not cap json-log by default: on 28/10 datahub-gms wrote 35 GB when DataHub's Kafka died, helping
+# fill the EBS. Applies only to newly created containers; the app/datahub roles then recreate them with compose up.
+- name: Cap logs per container at 100 MB × 3 files
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
     mode: '0644'
     content: |
       {"log-driver": "json-file", "log-opts": {"max-size": "100m", "max-file": "3"}}
   register: docker_daemon
-- name: Khởi động lại Docker khi đổi cấu hình log
+- name: Restart Docker when the log config changes
   ansible.builtin.service:
     name: docker
     state: restarted
   when: docker_daemon.changed
-- name: Bật Docker trên VM đích
+- name: Enable Docker on the target VM
   ansible.builtin.service:
     name: docker
     state: started
     enabled: true
-- name: Thêm người vận hành vào nhóm docker
+- name: Add the operator to the docker group
   ansible.builtin.user:
     name: '{{ ansible_user }}'
     groups: docker

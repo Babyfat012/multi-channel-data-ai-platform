@@ -1,4 +1,4 @@
-# EBS CSI provisioner từ root infra/aws/kubernetes; gp3 mã hóa, bind theo AZ của pod.
+# EBS CSI provisioner from root infra/aws/kubernetes; encrypted gp3, bound to the pod's AZ.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:

@@ -1,4 +1,4 @@
-# Collection cần trên máy điều khiển, không cài vào VM.
+# Collections needed on the control machine, not installed on the VM.
 collections:
   - name: ansible.posix
     version: '>=1.5.4,<3.0.0'

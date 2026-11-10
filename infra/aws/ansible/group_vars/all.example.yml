@@ -1,14 +1,14 @@
-# Sao chép thành all.yml, điền output Terraform và mã hóa secret bằng ansible-vault.
+# Copy to all.yml, fill in Terraform outputs and encrypt secrets with ansible-vault.
 aws_region: ap-southeast-1
-# standard: VM 4 vCPU/16 GiB; performance: VM ít nhất 8 vCPU/32 GiB.
+# standard: 4 vCPU/16 GiB VM; performance: VM with at least 8 vCPU/32 GiB.
 aws_runtime_profile: standard
 raw_bucket: CHANGE_ME
 lakehouse_bucket: CHANGE_ME
-# Output `data_volume_id` của Terraform (vol-...); disk nằm ở
-# /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_<id bỏ dấu ->.
+# Terraform output `data_volume_id` (vol-...); the disk lives at
+# /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_<id without the ->.
 data_volume_id: CHANGE_ME
 app_dir: /opt/platform
-# Đường dẫn tuyệt đối của repo trên máy điều khiển Ansible.
+# Absolute path of the repo on the Ansible control machine.
 repo_local: /ABSOLUTE/PATH/PLATFORM
 postgres_user: platform
 postgres_db: sources
@@ -16,9 +16,9 @@ postgres_password: CHANGE_ME
 lakekeeper_encryption_key: CHANGE_ME
 airflow_uid: 50000
 warehouse_name: platform-aws
-# Nguồn scale 150 ngày tới cuối tháng 5: đủ cửa sổ 30 ngày trước cutoff cho warehouse và đủ dòng để đo skew.
+# 150-day scaled source up to the end of May: covers the 30-day window before the warehouse cutoff and has enough rows to measure skew.
 source_mode: scale
-# Mỗi cấu hình nguồn mới phải dùng tên mới; không ghi đè dữ liệu đã sinh.
+# Every new source configuration needs a new name; never overwrite generated data.
 source_dataset_name: aws-scale150-seed7
 source_seed: 7
 source_days: 150
@@ -26,9 +26,9 @@ source_orders_per_day: 20
 source_followup_days: 270
 source_observation_days: 285
 source_cutoff: '2026-06-01T00:00:00.000000Z'
-# Spark --packages chỉ nhận group:artifact:version. hadoop-aws kéo theo aws-java-sdk-bundle
-# để Spark đọc file raw qua s3a://; Iceberg đọc ghi bảng bằng S3FileIO trong iceberg-aws-bundle.
+# Spark --packages accepts only group:artifact:version. hadoop-aws pulls in aws-java-sdk-bundle
+# so Spark reads raw files over s3a://; Iceberg reads and writes tables with S3FileIO from iceberg-aws-bundle.
 spark_packages_aws: 'org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.11.0,org.apache.iceberg:iceberg-aws-bundle:1.11.0,org.postgresql:postgresql:42.7.4,org.apache.hadoop:hadoop-aws:3.3.4'
 
-# Chỉ chuẩn bị SDK/quickstart; live runner khởi động sau khi dừng Spark/Airflow.
+# Only prepares the SDK/quickstart; the live runner starts after Spark/Airflow are stopped.
 enable_datahub: true

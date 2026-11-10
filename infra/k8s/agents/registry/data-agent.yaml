@@ -1,11 +1,11 @@
-# Danh bạ agentregistry: Data Agent — chạy trên kagent (infra/k8s/agents/data-agent.yaml), model qua agentgateway.
+# agentregistry catalog: Data Agent — runs on kagent (infra/k8s/agents/data-agent.yaml), model via agentgateway.
 apiVersion: ar.dev/v1alpha1
 kind: Agent
 metadata:
   name: data-agent
 spec:
   title: Data Agent
-  description: "Kéo dữ liệu từ Online Feature Store theo ID: feature trả hàng của SKU và chunk chính sách theo chunk_id. Model: ModelConfig default-model-config (qua agentgateway)."
+  description: "Pulls data from the Online Feature Store by ID: SKU return features and policy chunks by chunk_id. Model: ModelConfig default-model-config (via agentgateway)."
   source:
     image: ghcr.io/kagent-dev/kagent/golang-adk:0.10.3
     protocol: A2A

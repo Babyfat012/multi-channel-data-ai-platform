@@ -1,5 +1,5 @@
-# F5 NGINX Ingress Controller (chart nginx-ingress 2.7.3) trên EKS: Service LoadBalancer = NLB public
-# (IP cố định ⇒ dùng <ip>.sslip.io làm domain). Subnet public đã gắn kubernetes.io/role/elb=1.
+# F5 NGINX Ingress Controller (chart nginx-ingress 2.7.3) on EKS: Service LoadBalancer = public NLB
+# (fixed IP ⇒ use <ip>.sslip.io as the domain). Public subnets are already tagged kubernetes.io/role/elb=1.
 controller:
   ingressClass:
     name: nginx

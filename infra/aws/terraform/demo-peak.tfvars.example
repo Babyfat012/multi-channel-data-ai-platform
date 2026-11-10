@@ -1,4 +1,4 @@
-# Preset để review: Sydney, 8 vCPU/32 GiB Data Platform. Không phải quyền tự apply hoặc cam kết chi phí.
+# Preset for review: Sydney, 8 vCPU/32 GiB Data Platform. Not an authorization to apply or a cost commitment.
 region                     = "ap-southeast-2"
 availability_zone          = "ap-southeast-2a"
 secondary_availability_zone = "ap-southeast-2b"
@@ -9,6 +9,6 @@ boot_disk_gb               = 30
 data_disk_gb               = 100
 enable_budget              = true
 budget_amount_usd          = 60
-# Điền SSH PUBLIC key và email trước khi plan. Budget chỉ cảnh báo, không tự dừng tài nguyên.
+# Fill in the SSH PUBLIC key and email before plan. The budget only alerts; it does not stop resources.
 # ssh_public_key = "ssh-ed25519 ..."
 # budget_email   = "your-email@example.com"

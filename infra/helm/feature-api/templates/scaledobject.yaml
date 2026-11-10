@@ -1,6 +1,6 @@
-# Autoscale Feature API bằng KEDA (cùng cách với Agent): tốc độ request nghiệp vụ từ Prometheus, bỏ probe và /metrics.
+# Autoscale the Feature API with KEDA (same approach as the Agents): business request rate from Prometheus, excluding probes and /metrics.
 {{- if .Values.autoscaling.enabled }}
-# Mỗi pod gánh ~threshold request/giây; KEDA tạo HPA keda-hpa-<release>. Deployment không khai replicas khi bật.
+# Each pod handles ~threshold requests/s; KEDA creates HPA keda-hpa-<release>. The Deployment omits replicas when enabled.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:

@@ -1,4 +1,4 @@
-# Chọn cấu hình sau khi kiểm quyền/quota/ngân sách; không commit file terraform.tfvars thật.
+# Pick the configuration after checking permissions/quota/budget; never commit the real terraform.tfvars.
 region              = "ap-southeast-1"
 name_prefix         = "platform"
 data_platform_state = "../terraform/terraform.tfstate"

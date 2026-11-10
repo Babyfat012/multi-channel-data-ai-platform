@@ -1,4 +1,4 @@
-# VPC riêng: có đường ra Internet để kéo image, không mở cổng vào nào (SSH đi qua SSM).
+# Dedicated VPC: outbound Internet access to pull images, no inbound ports (SSH goes through SSM).
 resource "aws_vpc" "data_platform" {
   cidr_block           = "10.42.0.0/16"
   enable_dns_support   = true
@@ -6,7 +6,7 @@ resource "aws_vpc" "data_platform" {
   tags                 = { Name = "${var.name_prefix}-data-platform-vpc" }
 }
 
-# /24 đầu cho mốc 1; mốc 2 (EKS) thêm subnet ở AZ khác trong cùng /16.
+# First /24 for milestone 1; milestone 2 (EKS) adds a subnet in another AZ within the same /16.
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.data_platform.id
   cidr_block              = "10.42.0.0/24"
@@ -18,7 +18,7 @@ resource "aws_subnet" "public" {
   )
 }
 
-# EKS cần subnet ở hai AZ. Node có public IP cho egress, không có rule SSH public.
+# EKS needs subnets in two AZs. Nodes have public IPs for egress, no public SSH rule.
 resource "aws_subnet" "kubernetes_secondary" {
   count                   = var.enable_kubernetes_network ? 1 : 0
   vpc_id                  = aws_vpc.data_platform.id
@@ -36,7 +36,7 @@ resource "aws_subnet" "kubernetes_secondary" {
         startswith(var.secondary_availability_zone, var.region) &&
         var.secondary_availability_zone != var.availability_zone
       )
-      error_message = "Kubernetes yêu cầu secondary_availability_zone khác AZ đầu và cùng region."
+      error_message = "Kubernetes requires a secondary_availability_zone different from the first AZ and in the same region."
     }
   }
 }
@@ -47,7 +47,7 @@ resource "aws_route_table_association" "kubernetes_secondary" {
   route_table_id = aws_route_table.public.id
 }
 
-# AWS mặc định kín: thiếu gateway + route thì VM không ra được Internet.
+# AWS is closed by default: without a gateway + route the VM cannot reach the Internet.
 resource "aws_internet_gateway" "data_platform" {
   vpc_id = aws_vpc.data_platform.id
   tags   = { Name = "${var.name_prefix}-data-platform-igw" }
@@ -67,7 +67,7 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# Không có ingress: SSM agent tự gọi ra AWS nên không cần mở cổng 22.
+# No ingress: the SSM agent calls out to AWS, so port 22 need not be open.
 resource "aws_security_group" "vm" {
   name        = "${var.name_prefix}-data-platform-vm"
   description = "Data Platform EC2 instance: no ingress, egress for SSM, image pull and S3"

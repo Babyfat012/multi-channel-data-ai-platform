@@ -1,3 +1,3 @@
-# Không đưa inventory thật và biến secret (kể cả đã vault) vào Git; chỉ giữ bản .example.
+# Keep real inventories and secret variables (even vaulted) out of Git; only the .example copies are tracked.
 inventory.ini
 group_vars/all.yml

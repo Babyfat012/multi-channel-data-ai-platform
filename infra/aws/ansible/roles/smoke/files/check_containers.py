@@ -1,11 +1,11 @@
-"""Đối chiếu Docker Compose ps JSON (mảng hoặc từng dòng) mà không bỏ sót service."""
+"""Check Docker Compose ps JSON (an array or one object per line) without missing any service."""
 
 import json
 import sys
 
 
 def main():
-    """Dừng lỗi nếu service thiếu, lỗi health, hoặc MinIO đang chạy."""
+    """Fail if a service is missing or unhealthy, or if MinIO is running."""
     raw = sys.stdin.read().strip()
     rows = (
         json.loads(raw)
@@ -22,7 +22,7 @@ def main():
     }
     by_name = {r["Service"]: r for r in rows}
     for name in running:
-        assert name in by_name, f"Thiếu service {name}"
+        assert name in by_name, f"Missing service {name}"
         row = by_name[name]
         assert row["State"] == "running", row
         assert row.get("Health", "") in ("", "healthy"), row

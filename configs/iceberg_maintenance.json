@@ -1,5 +1,5 @@
 {
-  "description": "Chính sách Iceberg maintenance; bảng demo riêng, người vận hành chọn bảng thật sau khi kiểm tra.",
+  "description": "Iceberg maintenance policy; a dedicated demo table, operators pick the real tables after review.",
   "tables": {
     "lakehouse.demo.maintenance_demo": {
       "min_input_files": 5,

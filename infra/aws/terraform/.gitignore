@@ -1,4 +1,4 @@
-# Không đưa state, cache provider, cấu hình thật hoặc plan có dữ liệu nhạy cảm vào Git.
+# Keep state, provider caches, real configs and plans with sensitive data out of Git.
 *.tfstate*
 .terraform/
 terraform.tfvars
@@ -7,4 +7,4 @@ terraform.tfvars
 *.tfplan
 crash.log
 crash.*.log
-# Giữ terraform.tfvars.example và .terraform.lock.hcl để có thể review/ghim provider.
+# Keep terraform.tfvars.example and .terraform.lock.hcl so providers can be reviewed/pinned.

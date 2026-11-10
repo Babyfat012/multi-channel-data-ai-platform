@@ -1,4 +1,4 @@
-# Kết hợp values mặc định; repository/tag được script deploy truyền từ ECR và commit SHA.
+# Merged over the default values; repository/tag are passed by the deploy script from ECR and the commit SHA.
 service:
   type: ClusterIP
   port: 8000

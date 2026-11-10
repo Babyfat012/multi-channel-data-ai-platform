@@ -1,4 +1,4 @@
-# Không gửi vào build context: dữ liệu sinh ra, môi trường ảo, git, tài liệu.
+# Not sent to the build context: generated data, virtual environments, git, docs.
 .git
 .venv
 .pytest_cache
@@ -9,7 +9,7 @@ tests
 notebooks
 *.xlsx
 .env
-# Ghi chú làm việc/agent, không phải mã nguồn.
+# Working/agent notes, not source code.
 .briefs
 .vibe-wise
 .claude

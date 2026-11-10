@@ -1,11 +1,11 @@
-# Danh bạ agentregistry: Model Agent — chạy trên kagent (infra/k8s/agents/model-agent.yaml), model qua agentgateway.
+# agentregistry catalog: Model Agent — runs on kagent (infra/k8s/agents/model-agent.yaml), model via agentgateway.
 apiVersion: ar.dev/v1alpha1
 kind: Agent
 metadata:
   name: model-agent
 spec:
   title: Model Agent
-  description: "Chấm rủi ro Return cho đơn mới (KServe return-risk) và trả lời câu hỏi chính sách trả hàng bằng RAG (Feast pgvector). Model: ModelConfig default-model-config (qua agentgateway)."
+  description: "Scores Return risk for new orders (KServe return-risk) and answers return policy questions with RAG (Feast pgvector). Model: ModelConfig default-model-config (via agentgateway)."
   source:
     image: ghcr.io/kagent-dev/kagent/golang-adk:0.10.3
     protocol: A2A

@@ -1,13 +1,13 @@
-// CI/CD Coordinator Agent: kiểm manifest → prompt từ Langfuse → deploy → chờ Ready → agent card qua A2A gateway.
-// API key gateway lấy từ Vault (secret/platform/agentgateway) bằng token chỉ-đọc `vault-ci-token`.
+// CI/CD Coordinator Agent: check manifest → prompt from Langfuse → deploy → wait for Ready → agent card via the A2A gateway.
+// Gateway API key taken from Vault (secret/platform/agentgateway) via the read-only token `vault-ci-token`.
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds() }
   parameters {
     string(name: 'TARGET_CONTEXT', defaultValue: 'kind-platform', description: 'Kubecontext from the deployment kubeconfig')
     string(name: 'KUBE_CREDENTIAL', defaultValue: 'kind-kubeconfig', description: 'Jenkins file credential containing the target kubeconfig')
-    string(name: 'EVAL_TIMEOUT', defaultValue: '600', description: 'Giây chờ mỗi câu hỏi eval; Coordinator gọi LLM CPU nhiều vòng. Quá hạn ngắn làm bỏ rơi phiên đang chạy và chất tải lên LLM (06/11: 180 s ⇒ 9/12)')
-    string(name: 'EVAL_SKUS', defaultValue: '', description: 'SKU chấm agent; trống = bộ local sku-0000x, AWS (pipeline A) điền APP-…')
+    string(name: 'EVAL_TIMEOUT', defaultValue: '600', description: 'Seconds to wait per eval question; the Coordinator calls the CPU LLM over many rounds. A short timeout abandons running sessions and piles load on the LLM (06/11: 180 s ⇒ 9/12)')
+    string(name: 'EVAL_SKUS', defaultValue: '', description: 'SKUs to evaluate agents on; empty = local set sku-0000x, AWS (pipeline A) fills APP-…')
   }
   environment {
     EVAL_SKUS = "${params.EVAL_SKUS}"
@@ -26,7 +26,7 @@ pipeline {
     stage('Sync prompts from Langfuse') {
       steps {
         withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
-          // System prompt lấy bản `production` trên Langfuse → ConfigMap agent-prompts (Agent đọc qua systemMessageFrom).
+          // System prompt: take the `production` version from Langfuse → ConfigMap agent-prompts (Agents read it via systemMessageFrom).
           sh 'python3 scripts/setup/sync_agent_prompts.py'
         }
       }

@@ -1,6 +1,6 @@
-# A/B agent: nhánh B của Data Agent — CÙNG prompt + tool, chỉ khác ModelConfig (Qwen 0.5B).
-# agentgateway chia 50/50 lời gọi A2A tới /a2a/data-agent-ab/ giữa data-agent (A, 1.5B) và data-agent-b.
-# Đo theo model thật trên Grafana (dashboard A/B LLM). Scale về 0 khi xong.
+# A/B agent: branch B of the Data Agent — SAME prompt + tools, only the ModelConfig differs (Qwen 0.5B).
+# agentgateway splits A2A calls to /a2a/data-agent-ab/ 50/50 between data-agent (A, 1.5B) and data-agent-b.
+# Measured per real model in Grafana (A/B LLM dashboard). Scale to 0 when done.
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
@@ -23,12 +23,12 @@ metadata:
   namespace: kagent
 spec:
   type: Declarative
-  # Mô tả = mô tả tool mà Coordinator thấy ⇒ tiếng Anh, có từ khoá.
+  # Description = the tool description the Coordinator sees ⇒ English, with keywords.
   description: Looks up the return history numbers of a SKU (return rate 90 days, returns 24 hours) and chunk text by chunk id.
   declarative:
     modelConfig: ab-small-model-config
     stream: false
-    # Model 1.5B: prompt ngắn, luật rõ để nó gọi tool thay vì bịa số.
+    # 1.5B model: short prompt, clear rules so it calls tools instead of making up numbers.
     systemMessage: |
       You are the Data Agent for an online seller.
       You answer questions about product return features of SKUs (ids look like "sku-00001" or "APP-00042").
@@ -45,7 +45,7 @@ spec:
           name: feature-tools
           toolNames: [get_sku_features, get_policy_chunks]
     deployment:
-      replicas: 0   # chỉ bật khi chạy A/B
+      replicas: 0   # only enabled while running A/B
       resources:
         requests: {cpu: 50m, memory: 192Mi}
         limits: {memory: 512Mi}

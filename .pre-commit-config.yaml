@@ -1,10 +1,10 @@
-# Hook local (ADR-0012): ruff + báo sớm khi sửa contract theo cách phá vỡ. Không thay CI —
-# `git commit --no-verify` bỏ qua được hook này. Cài: `uvx pre-commit install`.
+# Local hooks (ADR-0012): ruff + early warning on breaking contract edits. Not a CI replacement —
+# `git commit --no-verify` can skip these hooks. Install: `uvx pre-commit install`.
 repos:
   - repo: local
     hooks:
       - id: check-registry
-        name: Kiểm registry hợp đồng
+        name: Check contract registry
         entry: uv run python -m spark_jobs.lib.data_contracts check-registry --contracts-dir contracts
         language: system
         pass_filenames: false

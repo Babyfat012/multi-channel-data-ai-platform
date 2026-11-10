@@ -1,8 +1,8 @@
-# ML-N2 trên AWS: kiểm data drift (Evidently) đầu vào model return-risk trên training_lines pipeline A ở S3.
-# Chạy trong ns kubeflow bằng SA pipeline-runner (Pod Identity chỉ ĐỌC feature-store/*), không key.
-# Code nạp từ ConfigMap `drift-code` (tạo từ ml/drift.py, xem runbook); kết quả = JSON tóm tắt trong log Job.
-# Pod giữ thêm 15 phút sau khi xong để lấy HTML Evidently: kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks (xem docs/ml-llm-platform/drift_monitoring.md).
-# @@LAKEHOUSE_BUCKET@@ / @@AWS_REGION@@ điền lúc apply (sed).
+# Data drift check on AWS (Evidently) for the return-risk model inputs on pipeline A training_lines in S3.
+# Runs in ns kubeflow as SA pipeline-runner (Pod Identity READ-only on feature-store/*), no keys.
+# Code loaded from ConfigMap `drift-code` (built from ml/drift.py, see the runbook); result = summary JSON in the Job log.
+# The pod stays 15 extra minutes after finishing to fetch the Evidently HTML: kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks (see docs/ml-llm-platform/drift_monitoring.md).
+# @@LAKEHOUSE_BUCKET@@ / @@AWS_REGION@@ filled in at apply time (sed).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -19,12 +19,12 @@ spec:
         - name: drift
           image: python:3.12-slim
           command: ["sh", "-c"]
-          # pandas 3 bỏ infer_dtype_from_object mà Evidently 0.7 cần ⇒ ghim pandas 2.
+          # pandas 3 dropped infer_dtype_from_object which Evidently 0.7 needs ⇒ pin pandas 2.
           args:
             - pip install --quiet --no-cache-dir "evidently==0.7.23" "pandas==2.3.3" "s3fs==2026.9.0" pyarrow
               && cd /work && python -m ml.drift --reference "s3://@@LAKEHOUSE_BUCKET@@/feature-store/training_lines"
               --reference-days 30 --shift-channel shopee --out /tmp/drift
-              && echo "HTML ở /tmp/drift; giữ pod 15 phút để kubectl cp" && sleep 900
+              && echo "HTML in /tmp/drift; keeping pod 15 minutes for kubectl cp" && sleep 900
           env:
             - {name: AWS_REGION, value: "@@AWS_REGION@@"}
             - {name: AWS_DEFAULT_REGION, value: "@@AWS_REGION@@"}

@@ -1,7 +1,7 @@
 [project]
 name = "platform-generator"
 version = "0.1.0"
-description = "Data generator giả lập dữ liệu bán hàng đa kênh của một Seller"
+description = "Data generator simulating a Seller's multi-channel sales data"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.0",
@@ -37,15 +37,15 @@ extend-exclude = ["reference", "out"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
-# E501: formatter lo phần code; chuỗi/comment dài để người viết tự ngắt.
-# B905: thêm strict= vào zip() đổi hành vi, không làm hàng loạt.
-# SIM117: with lồng nhau khi with trong dùng biến của with ngoài vẫn dễ đọc.
+# E501: the formatter handles code; long strings/comments are wrapped by the author.
+# B905: adding strict= to zip() changes behavior, so not done in bulk.
+# SIM117: nested with is still readable when the inner with uses a variable of the outer with.
 ignore = ["E501", "B905", "SIM117"]
 
 [tool.ruff.lint.per-file-ignores]
-# Script Spark đặt sys.path/biến môi trường trước khi import code dự án.
+# Spark scripts set sys.path/environment variables before importing project code.
 "tests/spark/*" = ["E402"]
-# Notebook chèn gốc repo vào sys.path rồi mới import `ml.train_lib`.
+# Notebooks insert the repo root into sys.path before importing `ml.train_lib`.
 "notebooks/*" = ["E402"]
 
 [tool.ruff.lint.isort]

@@ -1,4 +1,4 @@
-# Registry cloud bật tường minh; không xóa image khi destroy và không dùng tag mutable.
+# Cloud registry enabled explicitly; images are kept on destroy and tags are immutable.
 resource "aws_ecr_repository" "application" {
   for_each = var.enable_ecr ? toset([
     "platform-generator", "platform-airflow", "platform-flink", "platform-flink-ml", "platform-feast",

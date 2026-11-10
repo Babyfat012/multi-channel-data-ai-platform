@@ -1,5 +1,5 @@
 {
-  "description": "Hợp đồng sim-native-v2/tiktok_shop/2; suy luận từ fixture, required là giao các bản ghi.",
+  "description": "Contract sim-native-v2/tiktok_shop/2; inferred from fixtures, required is the intersection of all records.",
   "properties": {
     "data": {
       "properties": {

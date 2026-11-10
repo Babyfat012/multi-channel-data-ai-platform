@@ -1,5 +1,5 @@
-# Agent Fleet (Warm Up): 5 SandboxAgent nhỏ, không tool, dùng chung WorkerPool `kagent-default` (1 worker).
-# Actor rảnh snapshot về object storage và "Suspended" ⇒ nhiều Agent sống trên ít worker, khởi động lại từ snapshot.
+# Agent Fleet (Warm Up): 5 small SandboxAgents, no tools, sharing WorkerPool `kagent-default` (1 worker).
+# Idle actors snapshot to object storage and go "Suspended" ⇒ many Agents live on few workers and restart from a snapshot.
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: SandboxAgent

@@ -1,34 +1,34 @@
-# Deployment Web API feature: rolling update không giảm replica, probe cho k8s, preStop chờ gỡ khỏi Service.
+# Feature Web API Deployment: rolling update without reducing replicas, probes for k8s, preStop waits for removal from the Service.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Release.Name }}
   labels: {app: {{ .Release.Name }}}
 spec:
-  {{- if not .Values.autoscaling.enabled }}   # bật autoscale thì để HPA giữ số replica
+  {{- if not .Values.autoscaling.enabled }}   # with autoscaling enabled the HPA owns the replica count
   replicas: {{ .Values.replicas }}
   {{- end }}
   strategy:
     type: RollingUpdate
-    # Thêm 1 pod mới, chỉ bỏ pod cũ khi pod mới Ready: luôn đủ replica phục vụ.
+    # Add 1 new pod, drop an old pod only once the new one is Ready: always enough replicas serving.
     rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
   selector:
     matchLabels: {app: {{ .Release.Name }}}
   template:
     metadata:
       labels: {app: {{ .Release.Name }}}
-      annotations:   # Prometheus lấy số đo Web API ở /metrics
+      annotations:   # Prometheus scrapes Web API metrics at /metrics
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
         prometheus.io/path: /metrics
         {{- with .Values.envChecksum }}
-        checksum/env: {{ . | quote }}   # Secret env đổi ⇒ thay pod
+        checksum/env: {{ . | quote }}   # env Secret changes ⇒ pods are replaced
         {{- end }}
     spec:
       {{- if .Values.serviceAccount.name }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
       {{- end }}
-      # Ưu tiên rải replica sang worker khác: một node chết vẫn còn pod phục vụ. 'preferred' để kind 1 node vẫn chạy được.
+      # Prefer spreading replicas across workers: one dead node still leaves a pod serving. 'preferred' so a 1-node kind still runs.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -42,13 +42,13 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{name: http, containerPort: 8000}]
           envFrom: [{secretRef: {name: {{ .Values.envSecret }}}}]
-          env: [{name: API_SURFACE, value: {{ .Values.surface | quote }}}]   # rest | mcp: cùng image, khác cổng phơi ra
+          env: [{name: API_SURFACE, value: {{ .Values.surface | quote }}}]   # rest | mcp: same image, different exposed surface
           resources: {{- toYaml .Values.resources | nindent 12 }}
-          # Chờ 5 s trước khi tắt: kube-proxy kịp gỡ pod khỏi Service, request đang tới không bị rớt.
+          # Wait 5 s before shutdown: kube-proxy has time to remove the pod from the Service, in-flight requests are not dropped.
           lifecycle:
             preStop:
               sleep: {seconds: 5}
-          # Nạp registry từ MinIO mất vài giây; chưa xong thì chưa bị liveness giết.
+          # Loading the registry from MinIO takes a few seconds; liveness does not kill the pod before that.
           startupProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 2

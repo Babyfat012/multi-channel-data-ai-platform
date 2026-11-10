@@ -1,6 +1,6 @@
-# agentregistry 0.4.0 (governance cho Agent/MCP server). Local: dùng lại Postgres của pgvector (ns rag) với database
-# riêng `agentregistry` thay vì Postgres đi kèm chart (đỡ ~450 MB đĩa, 256 MB RAM). URL nằm trong Secret
-# agentregistry-db (tạo bởi scripts/setup/deploy_kind_agentregistry.sh, không vào Git).
+# agentregistry 0.4.0 (governance for Agents/MCP servers). Local: reuses the pgvector Postgres (ns rag) with a dedicated
+# `agentregistry` database instead of the chart's bundled Postgres (saves ~450 MB disk, 256 MB RAM). The URL is in Secret
+# agentregistry-db (created by scripts/setup/deploy_kind_agentregistry.sh, not in Git).
 database:
   postgres:
     type: external

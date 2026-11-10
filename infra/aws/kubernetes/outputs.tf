@@ -1,4 +1,4 @@
-# Outputs chỉ là cấu hình; readiness của workload cần kiểm bằng kubectl sau apply.
+# Outputs are configuration only; check workload readiness with kubectl after apply.
 output "cluster_name" { value = aws_eks_cluster.apps.name }
 output "region" { value = var.region }
 output "data_private_ip" { value = data.terraform_remote_state.data.outputs.data_private_ip }

@@ -1,4 +1,4 @@
-# Pod Identity tách quyền ứng dụng khỏi role node; không tạo AWS access key tĩnh.
+# Pod Identity separates app permissions from the node role; no static AWS access keys.
 data "aws_iam_policy_document" "pod_trust" {
   for_each = {
     ebs             = { namespace = "kube-system", service_account = "ebs-csi-controller-sa" }
@@ -84,8 +84,8 @@ resource "aws_eks_pod_identity_association" "feature_api" {
   depends_on      = [aws_eks_addon.pod_identity]
 }
 
-# Bước KFP (load_features) đọc training_lines + kho offline Feast; cùng quyền chỉ-đọc feature-store/*.
-# Ghi model đi qua MLflow server trên EC2 (proxy artifact), nên pod không cần quyền ghi S3.
+# The KFP step (load_features) reads training_lines + the Feast offline store; same read-only feature-store/* access.
+# Model writes go through the MLflow server on EC2 (artifact proxy), so the pod needs no S3 write access.
 resource "aws_iam_role" "pipeline_reader" {
   name               = "${var.name_prefix}-pipeline-reader"
   assume_role_policy = data.aws_iam_policy_document.pod_trust["pipeline_reader"].json
@@ -105,7 +105,7 @@ resource "aws_eks_pod_identity_association" "pipeline_runner" {
   depends_on      = [aws_eks_addon.pod_identity]
 }
 
-# KServe return-risk: Feast online cần đọc registry.db trên S3 trước khi tra Redis; chỉ-đọc feature-store/*.
+# KServe return-risk: Feast online must read registry.db on S3 before querying Redis; read-only feature-store/*.
 resource "aws_iam_role" "model_reader" {
   name               = "${var.name_prefix}-model-reader"
   assume_role_policy = data.aws_iam_policy_document.pod_trust["model_reader"].json
