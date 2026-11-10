@@ -1,43 +1,62 @@
 # Schema Design trên AWS
 
-EDAI-1, dòng 34–38: zones, SCD2, feature, dim–fact và naming.
+Trang này ứng với EDAI-1, dòng 34–38 của rubric: các zone dữ liệu, SCD2, bảng feature, quan hệ dim–fact và quy ước đặt tên.
 
 Code / cấu hình: [SCD2](../../spark_jobs/gold/build_amazon_order_status_scd2.py), [fact](../../spark_jobs/gold/build_order_snapshot_lines.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây lấy từ các lần chạy trên AWS. Chúng chứng minh lần chạy đó đã diễn ra, không có nghĩa dịch vụ hiện vẫn đang bật.
 
 ## Trên AWS
 
-DP1/DP2/DP3 chạy Compose EC2, các bảng Iceberg nằm ở S3. [DataHub AWS](data_governance.md#trên-aws)
-nhúng lineage raw → stg → fact/dim → feat; [Gold AWS](reference/gold.md#trên-aws) nhúng log validator.
-[Manifest](../evidence/aws/datahub-validation-aws-20261029.json) giữ tên bảng và run_id.
+Ba DAG DP1, DP2, DP3 chạy bằng Docker Compose trên EC2; các bảng Iceberg nằm ở S3. Tài liệu liên quan:
+- [DataHub AWS](data_governance.md#trên-aws) có ảnh lineage, tức đường đi dữ liệu từ bảng `raw` sang `stg`, rồi sang `fact`/`dim`, rồi tới `feat`.
+- [Gold AWS](reference/gold.md#trên-aws) có log của các validator.
+- [Manifest](../evidence/aws/datahub-validation-aws-20261029.json) ghi tên bảng và run_id.
 
-Các bảng `raw_` giữ payload nguồn, `stg_` chuẩn hóa/dedup, `fact_` giữ Order Line hoặc nhãn,
-`dim_` giữ phiên bản SCD2, `feat_` giữ feature lúc đặt Order. Bảng nhãn năm Channel AWS là
-`gold.fact_return_labels_dp3`, khác bridge Walmart trong sơ đồ local trên.
-Code quan hệ: [SCD2](../../spark_jobs/gold/build_amazon_order_status_scd2.py),
+Tên bảng cho biết vai trò của nó:
+
+| Tiền tố | Bảng giữ gì |
+|---|---|
+| `raw_` | payload gốc từ nguồn |
+| `stg_` | dữ liệu đã chuẩn hóa và bỏ trùng |
+| `fact_` | Order Line hoặc nhãn Return |
+| `dim_` | các phiên bản SCD2 của một đối tượng |
+| `feat_` | feature tại thời điểm đặt Order |
+
+SCD2 (Slowly Changing Dimension loại 2) là cách lưu lịch sử: mỗi lần trạng thái thay đổi thì thêm một dòng phiên bản mới, có khoảng thời gian hiệu lực riêng, thay vì ghi đè.
+
+Trên AWS, bảng nhãn cho cả năm Channel là `gold.fact_return_labels_dp3`. Bảng này khác bảng bridge chỉ dành cho Walmart trong sơ đồ local ở phần tham khảo bên dưới.
+Code tạo các quan hệ: [SCD2](../../spark_jobs/gold/build_amazon_order_status_scd2.py),
 [fact](../../spark_jobs/gold/build_order_snapshot_lines.py), [feature](../../spark_jobs/gold/build_order_snapshot_return_features.py).
 
-Bảng thật trên AWS, đọc qua Trino EC2 (catalog `lakehouse` = Iceberg S3 qua Lakekeeper):
+Danh sách bảng thật trên AWS, đọc qua Trino trên EC2. Catalog `lakehouse` là các bảng Iceberg trên S3, quản lý qua Lakekeeper (dịch vụ catalog Iceberg):
 
 ![Trino AWS: schema bronze/silver/gold; bronze 10 bảng raw_*, silver 5 bảng stg_*_order_lines_dp2, gold dim_/fact_/feat_](../evidence/aws/trino-zones-tables-20261031.png)
 
-- **Bronze** `raw_<channel>_orders_dp1` (5 Channel) giữ payload nguồn + cột provenance; `raw_walmart_cdc_v2` là đích
-  CDC Debezium ([cdc](reference/cdc.md)). `raw_amazon_orders`, `raw_walmart_orders`, `raw_amazon_orders_sample` là bảng chạy tay
-  giữ làm bằng chứng đo Spark; `raw__orders` là bảng hỏng còn sót (gap #10, chưa xoá).
-- **Silver** `stg_<channel>_order_lines_dp2`: một dòng một Order Line, đã chuẩn hoá schema và bỏ trùng.
-- **Gold** `dim_amazon_order_dp2` (SCD2 trạng thái đơn), `fact_order_lines_dp2` (Order Line năm Channel),
-  `fact_return_labels_dp3` + `fact_walmart_return_labels_dp3` (nhãn Return), `feat_order_line_return_dp3` (feature).
-- Schema `runtime_smoke` là bảng thử của Ansible khi kiểm Lakekeeper ghi được, không thuộc pipeline.
+- **Bronze**:
+  - `raw_<channel>_orders_dp1` (một bảng cho mỗi Channel, tổng 5) giữ payload nguồn cùng các cột provenance (nguồn gốc: file, thời điểm nạp, run_id).
+  - `raw_walmart_cdc_v2` là bảng đích của luồng CDC (Change Data Capture, bắt thay đổi từ PostgreSQL) qua Debezium ([cdc](reference/cdc.md)).
+  - `raw_amazon_orders`, `raw_walmart_orders`, `raw_amazon_orders_sample` là các bảng chạy tay, được giữ lại làm bằng chứng cho các số đo Spark.
+  - `raw__orders` là một bảng hỏng còn sót lại (gap #10, chưa xoá).
+- **Silver** `stg_<channel>_order_lines_dp2`: mỗi dòng là một Order Line, đã chuẩn hoá schema và bỏ trùng.
+- **Gold**:
+  - `dim_amazon_order_dp2`: SCD2 trạng thái đơn hàng Amazon.
+  - `fact_order_lines_dp2`: Order Line của cả năm Channel.
+  - `fact_return_labels_dp3` và `fact_walmart_return_labels_dp3`: nhãn Return.
+  - `feat_order_line_return_dp3`: feature.
+- Schema `runtime_smoke` chứa bảng thử do Ansible tạo khi kiểm Lakekeeper có ghi được hay không. Nó không thuộc pipeline.
 
 ![Trino AWS DESCRIBE: dim_amazon_order_dp2 có valid_from_ts, valid_to_ts, is_current, order_version_key; feat_order_line_return_dp3 có event_timestamp, created](../evidence/aws/trino-gold-scd2-feat-columns-20261031.png)
 
 ### ERD quan hệ dim–fact (Gold)
 
-Ảnh zone ở trên chỉ liệt kê bảng; quan hệ dim–fact vẽ riêng ở đây. Iceberg không có foreign key cưỡng chế nên
-DBeaver nối Trino chỉ hiện các bảng rời nhau. Các đường nối dưới đây là quan hệ logic, mỗi đường có validator
-kiểm trong DP2/DP3 (`validate_amazon_order_dim`: 5.779.561 phiên bản, 0 khóa thiếu/trùng; `validate_return_features`:
-feature = Gold, 0 thiếu/thừa). Bản dbdiagram: [`gold-erd.dbml`](../diagrams/gold-erd.dbml) (dán vào dbdiagram.io).
+Ảnh zone ở trên chỉ liệt kê bảng; quan hệ giữa bảng dim và bảng fact được vẽ riêng ở đây.
+Iceberg không có foreign key được cưỡng chế như PostgreSQL, nên khi DBeaver nối vào Trino, nó chỉ hiện các bảng rời nhau.
+Vì vậy các đường nối dưới đây là quan hệ logic. Mỗi đường nối có một validator kiểm tra trong DP2/DP3:
+- `validate_amazon_order_dim` kiểm 5.779.561 phiên bản, không có khóa nào bị thiếu hay trùng.
+- `validate_return_features` kiểm bảng feature có đúng các dòng như Gold, không thiếu và không thừa dòng nào.
+
+Bản dbdiagram: [`gold-erd.dbml`](../diagrams/gold-erd.dbml) (dán vào dbdiagram.io để xem).
 
 ![dbdiagram.io: dim_amazon_order_dp2 nối fact_order_lines_dp2 theo order_version_key; feat_order_line_return_dp3, fact_return_labels_dp3 và fact_walmart_return_labels_dp3 nối fact theo order_line_key](../images/schema/gold-erd-dbdiagram.png)
 
@@ -45,13 +64,14 @@ feature = Gold, 0 thiếu/thừa). Bản dbdiagram: [`gold-erd.dbml`](../diagram
 
 #### Chuẩn bị ảnh DBeaver có đường nối
 
-**Trạng thái:** đã có ảnh DBeaver ER Diagram có đường nối trên AWS, cùng DBML và ảnh dbdiagram. Ảnh chụp từ Trino 483 trên EC2 qua tunnel `localhost:8083`,
-catalog `lakehouse`, schema `gold`; năm bảng được đưa vào sơ đồ, bốn quan hệ vẽ nối vào `fact_order_lines_dp2`:
+**Trạng thái:** đã xong. Có ảnh DBeaver ER Diagram có đường nối trên AWS, cùng file DBML và ảnh dbdiagram.
+Ảnh chụp từ Trino 483 trên EC2, qua tunnel `localhost:8083`, catalog `lakehouse`, schema `gold`.
+Sơ đồ có năm bảng; bốn quan hệ đều nối vào bảng trung tâm `fact_order_lines_dp2`:
 
 ![DBeaver ER Diagram schema gold trên AWS: fact_order_lines_dp2 ở giữa, nối tới dim_amazon_order_dp2, fact_return_labels_dp3, fact_walmart_return_labels_dp3 và feat_order_line_return_dp3](../images/schema/gold-erd-dbeaver-aws.png)
 
-Các đường nối là quan hệ logic (virtual foreign key) khai trong DBeaver, không phải ràng buộc trong Iceberg. Tên kết nối trong DBeaver lúc chụp là `gold` (kết nối Trino AWS).
-Các bước thực hiện ở dưới giữ lại để tái lập.
+Các đường nối là quan hệ logic (virtual foreign key, khóa ngoại "ảo") được khai trong DBeaver, không phải ràng buộc lưu trong Iceberg. Tên kết nối trong DBeaver lúc chụp là `gold` (kết nối Trino AWS).
+Các bước dưới đây được giữ lại để người khác có thể làm lại ảnh này.
 
 1. Bật EC2 Data Platform và các dịch vụ Trino, Lakekeeper, PostgreSQL phục vụ catalog; giữ quyền đọc S3
    qua IAM role EC2. T07 không cần EKS, cũng không cần chạy lại DP1–DP3 nếu các bảng Gold còn đầy đủ.
@@ -84,15 +104,16 @@ về fact theo [DBML](../diagrams/gold-erd.dbml), sau khi xác nhận bảng/c�
 Hướng dẫn thao tác: [DBeaver custom diagrams](https://github.com/dbeaver/dbeaver/wiki/Custom-Diagrams),
 [virtual keys](https://github.com/dbeaver/dbeaver/wiki/Virtual-Keys).
 
-Khi chụp, hiển thị rõ tên kết nối AWS, hai tên bảng, cột khóa và đường nối; ghi ngày chụp cùng môi trường.
+Khi chụp lại, cần thấy rõ tên kết nối AWS, hai tên bảng, cột khóa và đường nối; ghi ngày chụp cùng môi trường.
 Lưu ảnh tại `docs/images/schema/dbeaver-erd-dim-fact-aws-YYYYMMDD.png`, rồi nhúng ngay tại mục này và
-ghi chú đường nối là quan hệ logic được khai trong DBeaver. Chỉ hoàn tất phần bằng chứng khi có ảnh đó;
-ảnh local trong mục tham khảo bên dưới vẫn giữ nhãn local.
+ghi chú rằng đường nối là quan hệ logic khai trong DBeaver. Phần bằng chứng chỉ coi là xong khi có ảnh đó.
+Ảnh local trong mục tham khảo bên dưới vẫn giữ nhãn local.
 
-SCD2: `valid_from_ts` / `valid_to_ts` / `is_current` cho từng phiên bản trạng thái của một `order_id`, khoá phiên
-bản `order_version_key` là khoá fact dùng để nối (quan hệ dim–fact xem [ERD bên dưới](#erd-quan-hệ-dimfact-gold)).
-Feature: `event_timestamp` (thời điểm đặt Order — mốc point-in-time) và `created` (lúc job ghi), đúng hai cột
-Feast cần.
+**Các cột chính của SCD2 và feature:**
+- SCD2: mỗi phiên bản trạng thái của một `order_id` có `valid_from_ts` (bắt đầu hiệu lực), `valid_to_ts` (hết hiệu lực) và `is_current` (có phải bản hiện hành không).
+  Khoá phiên bản `order_version_key` là khoá mà bảng fact dùng để nối sang (quan hệ dim–fact xem [ERD ở trên](#erd-quan-hệ-dimfact-gold)).
+- Feature: `event_timestamp` là thời điểm đặt Order, dùng làm mốc point-in-time (chỉ lấy thông tin đã biết tại thời điểm đó).
+  `created` là lúc job ghi dòng. Đây đúng là hai cột thời gian mà Feast cần.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
@@ -198,4 +219,4 @@ là `bronze`, `silver`, `gold`; các khái niệm nghiệp vụ nằm ở
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
