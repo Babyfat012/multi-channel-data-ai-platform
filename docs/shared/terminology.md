@@ -1,114 +1,114 @@
 # Data & AI Platform Multi-channel Seller Data Platform
 
-Nền tảng dữ liệu phía seller, gom dữ liệu bán hàng từ nhiều nền tảng thương mại điện tử bên ngoài (Amazon, TikTok Shop, Shopify, Walmart, Shopee) vào một lakehouse. Dữ liệu hoàn toàn được sinh giả lập, lấy Amazon làm mô hình tham chiếu.
+A Seller-side data platform that collects sales data from several external e-commerce platforms (Amazon, TikTok Shop, Shopify, Walmart, Shopee) into one lakehouse. All data is simulated, with Amazon as the reference model.
 
-Q52–Q55 mở rộng nguồn partial lifecycle, Listing history,
-inventory nhỏ và hàng đợi kiểm tra. Thuật ngữ inventory bổ sung ở
-[GLOSSARY.md](../../GLOSSARY.md). Q56–Q59 đã chốt label v2, pool topology và
-queue ba nhóm. Định nghĩa hiện hành theo [contract nhãn](../data-platform/reference/return_label_contract.md)
-và thiết kế mở rộng; code/proof cũ còn theo
-contract ban đầu tới khi được migrate có version.
+The source model extends to partial lifecycle feeds, Listing history,
+a small inventory model and review queues. Inventory terms are defined in
+[GLOSSARY.md](../../GLOSSARY.md). Label v2, the pool topology and the
+three-group queue are settled. Current definitions follow the [label contract](../data-platform/reference/return_label_contract.md)
+and the extension design; older code/proofs still follow the
+original contract until they are migrated with a new version.
 
 ## Language
 
 **Channel**:
-Một nền tảng bán hàng bên ngoài mà hệ thống thu thập dữ liệu từ đó (Amazon, TikTok Shop, Shopify, Walmart, Shopee).
-_Avoid_: Platform, sàn, source, store
+An external sales platform the system collects data from (Amazon, TikTok Shop, Shopify, Walmart, Shopee).
+_Avoid_: Platform, marketplace site, source, store
 
 **Marketplace**:
-Một storefront theo quốc gia bên trong một Channel bán theo quốc gia, ví dụ Amazon DE. Không phải Channel nào cũng có (TikTok Shop không bán theo Marketplace).
+A country-specific storefront inside a Channel that sells by country, e.g. Amazon DE. Not every Channel has one (TikTok Shop does not sell by Marketplace).
 _Avoid_: Site, region, store, country
 
 **Storefront**:
-Sự hiện diện bán hàng cụ thể của Seller trên một Channel, gồm Channel và, nếu Channel đó có, cả Marketplace. Ví dụ: Amazon DE, TikTok Shop, một store Shopify.
+A concrete sales presence of the Seller on a Channel: the Channel plus, if the Channel has one, the Marketplace. Examples: Amazon DE, TikTok Shop, a Shopify store.
 _Avoid_: Shop, store, site
 
 **Seller**:
-Merchant duy nhất sở hữu mọi Storefront mà hệ thống phục vụ.
+The single merchant that owns every Storefront the system serves.
 _Avoid_: Vendor, merchant, tenant, brand
 
-### Sản phẩm
+### Products
 
 **SKU**:
-Mã sản phẩm do chính Seller đặt, là khóa chuẩn xuyên Channel.
+The product code assigned by the Seller; the canonical cross-Channel key.
 _Avoid_: Product, item, ASIN, variant
 
 **Listing**:
-Bản đăng bán của một SKU trên một Storefront, mang giá và trạng thái riêng (Amazon US có ASIN, Shopify có variant ID). Một SKU có nhiều Listing.
+The offer of one SKU on one Storefront, with its own price and status (Amazon US has an ASIN, Shopify has a variant ID). One SKU has many Listings.
 _Avoid_: Offer, product page
 
-### Đơn hàng
+### Orders
 
 **Order**:
-Đơn vị mà Channel giao cho Seller xử lý (Amazon `AmazonOrderId`, Walmart `purchaseOrderId`, một đơn Shopify, TikTok Shop hay Shopee). Gồm một hoặc nhiều Order Line.
+The unit a Channel hands to the Seller to fulfill (Amazon `AmazonOrderId`, Walmart `purchaseOrderId`, a Shopify, TikTok Shop or Shopee order). Contains one or more Order Lines.
 _Avoid_: Purchase, transaction, customer order
 
 **Order Line**:
-Một sản phẩm với số lượng cụ thể bên trong một Order.
+One product with a specific quantity inside an Order.
 _Avoid_: Item, line item, order item
 
 **Order Status**:
-Trạng thái chuẩn của Order, độc lập với Channel: `pending_payment` → `awaiting_shipment` → `shipped` → `delivered` → `completed`, cùng hai nhánh phụ `cancelled` và `returned`. Trạng thái gốc của Channel được giữ riêng và ánh xạ sang trạng thái chuẩn.
+The canonical, Channel-independent status of an Order: `pending_payment` → `awaiting_shipment` → `shipped` → `delivered` → `completed`, plus two side branches `cancelled` and `returned`. The Channel's native status is kept separately and mapped to the canonical status.
 _Avoid_: State, fulfillment status, financial status
 
 **Return**:
-Buyer gửi trả một Order Line sau khi đã giao.
+The buyer sends back an Order Line after delivery.
 _Avoid_: RMA
 
 **Refund**:
-Tiền được hoàn cho buyer cho một Order Line, có hoặc không kèm Return.
+Money returned to the buyer for an Order Line, with or without a Return.
 _Avoid_: Chargeback, reimbursement
 
 **Fulfillment Method**:
-Bên chịu trách nhiệm giao hàng cho một Order Line: Seller tự giao hay Channel giao (như FBM và FBA của Amazon). Áp dụng cho mọi Channel.
+Who is responsible for delivering an Order Line: the Seller or the Channel (like Amazon FBM and FBA). Applies to every Channel.
 _Avoid_: Shipping type, logistics mode
 
-### Nhãn dự đoán
+### Prediction labels
 
 **Return Label**:
-Nhãn v2 của một Order Line, dương nếu có yêu cầu Return đã được chấp nhận hoặc khoản Refund tiền hàng thành công trong 30 ngày từ lần giao phần hàng liên quan. Positive/negative chính thức cùng chờ chốt giao/hủy, đủ maturity và coverage; line chưa giao không có nhãn, thiếu dữ liệu là unknown.
+The v2 label of an Order Line: positive if there is an accepted Return request or a successful product Refund within 30 days of delivery of the related portion. Official positives/negatives both wait for delivery/cancellation to settle, for maturity and for coverage; undelivered lines have no label, and missing data is unknown.
 _Avoid_: Churn, target
 
 **Delivered At**:
-Thời điểm phần hàng thực sự được giao cho buyer; một Order Line giao nhiều đợt có nhiều mốc tương ứng. Nhãn v2 xét cửa sổ riêng từng phần giao, còn cohort của line dùng ngày giao cuối phần thực giao khi lượng còn lại đã giao/hủy; độ phủ nguồn phải được công bố rõ.
+The time a portion of goods was actually delivered to the buyer; an Order Line delivered in several shipments has several such timestamps. Label v2 evaluates a window per delivered portion, while the line cohort uses the last delivery date of the delivered portion once the remaining quantity is delivered/cancelled; source coverage must be published explicitly.
 _Avoid_: Delivery date, arrival date
 
 **SKU Defect Propensity**:
-Xu hướng bị trả của một SKU do chính sản phẩm gây ra (chật, lỗi, không đúng mô tả), giống nhau ở mọi Storefront. Chỉ generator biết, không xuất hiện thành cột dữ liệu, chỉ suy ra được từ lịch sử Return.
+A SKU's tendency to be returned because of the product itself (too small, defective, not as described), the same across every Storefront. Only the generator knows it; it never appears as a data column and can only be inferred from Return history.
 _Avoid_: Quality score, defect rate
 
-### Đường thời gian dữ liệu
+### Data timeline
 
 **Cutoff**:
-Mốc "hôm nay" trong thế giới giả lập. Mọi thứ xảy ra trước Cutoff thuộc Batch, mọi thứ xảy ra sau thuộc Stream.
+"Today" in the simulated world. Everything before the Cutoff belongs to the Batch, everything after belongs to the Stream.
 _Avoid_: Snapshot date, split date
 
 **Export Date**:
-Ngày Channel xuất một lô dữ liệu cho Seller. Dữ liệu được chia partition theo mốc này chứ không theo ngày tạo Order, vì export chồng lấn và thay đổi schema đều gắn với ngày export. Một Order có thể xuất hiện ở nhiều Export Date.
+The date a Channel exports a batch of data to the Seller. Data is partitioned by this date rather than by Order creation date, because overlapping exports and schema changes are tied to the export date. One Order can appear in several Export Dates.
 _Avoid_: Load date, ingestion date, partition date
 
 **Sale Event**:
-Đợt khuyến mãi làm lượng Order, mức giảm giá và phân phối SKU đổi đột ngột ở một hoặc vài Storefront, ví dụ Prime Day của Amazon. Nguồn của covariate drift.
+A promotion that abruptly shifts Order volume, discount levels and SKU distribution on one or a few Storefronts, e.g. Amazon Prime Day. A source of covariate drift.
 _Avoid_: Promotion, campaign, flash sale
 
 **Batch**:
-Lịch sử của mọi Channel tính đến Cutoff, mỗi Channel ở dạng gốc của nó, nhận một lần.
+The history of every Channel up to the Cutoff, each Channel in its native format, received once.
 _Avoid_: Backfill, historical load
 
 **Stream**:
-Chuỗi sự kiện xảy ra sau Cutoff trong cùng thế giới giả lập với Batch: Order mới, đổi Order Status của Order đã có trong Batch, và Return đến muộn.
+The sequence of events after the Cutoff in the same simulated world as the Batch: new Orders, Order Status changes for Orders already in the Batch, and late Returns.
 _Avoid_: Replay, live feed
 
-### Tầng dữ liệu (Medallion)
+### Data layers (Medallion)
 
 **Bronze**:
-Bản sao trung thực của dữ liệu Channel giao cho Seller, chỉ đổi sang định dạng cột và thêm cột kỹ thuật (Export Date, tên file nguồn, thời điểm nạp). Không sửa tên cột, không gộp schema, không bỏ bản trùng. Nhiều dạng schema của cùng feed Orders trong một Channel nằm chung, việc quy tên khoá thuộc Silver. Q52–Q54 bổ sung các feed khác nên nguồn gốc phải phân biệt cả Channel và feed (Orders, Shipment, Return, Inventory, Listing); không hiểu quy tắc Orders cũ là mọi feed của Channel chỉ có một bảng. Bảng ở tầng này mang tiền tố `raw_`.
+A faithful copy of the data a Channel delivers to the Seller, only converted to a columnar format with technical columns added (Export Date, source file name, load time). No column renames, no schema merging, no deduplication. Several schema variants of the same Orders feed within a Channel live together; key naming belongs to Silver. Other feeds were added later, so lineage must distinguish both Channel and feed (Orders, Shipment, Return, Inventory, Listing); do not read the old Orders rule as "each Channel has only one table". Tables in this layer use the `raw_` prefix.
 _Avoid_: Raw, landing, staging
 
 **Silver**:
-Dữ liệu đã được làm sạch và quy về ngôn ngữ chung của hệ thống: chuẩn hóa schema theo feed, ánh xạ trạng thái và khử duplicate theo identity/version. Phân biệt projection hiện hành với lịch sử quan sát phục vụ as-of; grain theo thực thể hoặc event (Order, Order Line, Shipment, Return, Inventory...), không xóa lịch sử chỉ để giữ latest. Bảng ở tầng này mang tiền tố `stg_`.
+Data cleaned and mapped to the system's common language: schema normalized per feed, statuses mapped and duplicates removed by identity/version. Current projections are kept distinct from the observation history used for as-of queries; grain follows the entity or event (Order, Order Line, Shipment, Return, Inventory...), and history is never deleted just to keep the latest row. Tables in this layer use the `stg_` prefix.
 _Avoid_: Cleansed, conformed, curated
 
 **Gold**:
-Bảng phục vụ một câu hỏi nghiệp vụ cụ thể, đã tổng hợp hoặc ghép sẵn: ví dụ doanh thu theo Storefront theo ngày, tỷ lệ Return theo SKU, hay bảng feature cho Return Label. Người dùng cuối và mô hình đọc tầng này, không đọc Silver. Bảng ở tầng này mang tiền tố theo vai: `dim_` cho bảng chiều, `fact_` cho bảng sự kiện, `feat_` cho bảng feature, `obt_` cho bảng gộp phẳng một mục đích.
+Tables that answer one specific business question, pre-aggregated or pre-joined: e.g. revenue per Storefront per day, Return rate per SKU, or the feature table for the Return Label. End users and models read this layer, not Silver. Tables use a role prefix: `dim_` for dimensions, `fact_` for facts, `feat_` for features, `obt_` for single-purpose one-big-tables.
 _Avoid_: Mart, serving layer, aggregate
