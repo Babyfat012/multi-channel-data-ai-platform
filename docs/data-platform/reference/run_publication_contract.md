@@ -1,60 +1,60 @@
-# Contract run, publication và serving — thiết kế triển khai bộ nhỏ
+# Run, publication and serving contract — small-scale implementation design
 
-Đây là thiết kế kỹ thuật trong Q1–Q61 đã được người dùng
-chấp thuận; Q60 dùng sales current non-canceled, Q61 bổ sung feed Seller có
-provenance. Không đổi target `return-or-refund-line-v2`, quyền sản phẩm hoặc
-phạm vi Cloud. Chưa triển khai protocol này và chưa có POC đạt. Những ví dụ
-ID/hash dưới đây là giá trị minh họa, không phải artifact runtime.
+This is a technical design within Q1–Q61, approved by the user;
+Q60 uses current non-canceled sales, Q61 adds Seller feeds with
+provenance. It does not change the target `return-or-refund-line-v2`, product permissions or
+Cloud scope. This protocol is not implemented yet and no POC has passed. The
+ID/hash examples below are illustrative values, not runtime artifacts.
 
-Tài liệu cụ thể hóa ADR-0007,
-readiness, [label contract](return_label_contract.md)
-và IR02/06/10/17/18/19/20/22/23/25 trong
-sổ rủi ro. Sửa resume/CDC/validator riêng không
-đủ đóng các IR này. Không lấy kiểm link hoặc JSON parse làm proof pipeline.
+This document makes concrete ADR-0007,
+readiness, the [label contract](return_label_contract.md)
+and IR02/06/10/17/18/19/20/22/23/25 in the
+risk register. Fixing resume/CDC/validator alone is not
+enough to close these IRs. Link checks or JSON parsing are not taken as pipeline proof.
 
-## 1. Bất biến và lựa chọn backend local
+## 1. Invariants and local backend choice
 
-Mỗi build đọc một input vector đã đóng băng; mỗi lần ghi lại dùng namespace
-attempt mới. Candidate chỉ được đọc công khai sau khi output bắt buộc đã
-seal, đối soát và con trỏ activation được đổi trong một transaction control.
-Một activation liên kết **data generation + serving bundle** tương thích;
-chúng có vòng đời riêng. Training dataset của model bất biến, không cần cùng
-ID với data generation mới phục vụ model đó. Một turn dùng đúng một context.
+Each build reads one frozen input vector; each rewrite uses a new attempt
+namespace. A candidate may only be read publicly after the required outputs have been
+sealed and reconciled and the activation pointer has been switched in one control transaction.
+An activation links a compatible **data generation + serving bundle**;
+they have separate lifecycles. A model's training dataset is immutable and does not need the same
+ID as the new data generation that serves the model. One turn uses exactly one context.
 
-Chọn PostgreSQL 15 đang có trong [Compose](../../../docker-compose.yml) làm control
-store, schema `platform_control` trong DB riêng của ứng dụng; không dùng DB catalog
-Lakekeeper hoặc DB Airflow làm bảng nghiệp vụ. Bộ nhỏ có thể dùng cùng
-PostgreSQL server nhưng roles và DB phải riêng. Chưa tạo DB/schema tại đây.
-Dùng object store hiện có để giữ immutable JSON/report/artifact. Không thêm
-service điều phối mới. Đây là lựa chọn triển khai local để thử; không khẳng
-định độ sẵn sàng, RPO/RTO hoặc khả năng scale Cloud đã được chứng minh.
+PostgreSQL 15, already in [Compose](../../../docker-compose.yml), is chosen as the control
+store, with schema `platform_control` in the application's own DB; the Lakekeeper catalog DB
+or the Airflow DB are not used for business tables. The small setup can use the same
+PostgreSQL server but roles and DB must be separate. No DB/schema is created here.
+The existing object store is used to hold immutable JSON/report/artifacts. No new
+orchestration service is added. This is a local implementation choice for testing; it does not claim
+that availability, RPO/RTO or Cloud scalability have been proven.
 
-| Store | Định danh phải pin | Quy tắc ghi/đọc |
+| Store | Identifiers that must be pinned | Write/read rules |
 |---|---|---|
-| Iceberg | Catalog/table UUID + metadata location + snapshot ID + schema digest | Đọc `snapshot-id`; không đọc current rồi chỉ gắn ID vào response |
-| File/object | Bucket/key + object version nếu có + SHA-256 + bytes | File set exact trong manifest, không glob lại lúc retry |
-| PostgreSQL outputs | Schema/table hoặc partition generation-specific + schema/key/content digest | Loader ghi candidate riêng, seal xong runtime chỉ có SELECT; không JDBC overwrite bảng đang serve |
-| Feast/Redis | Generation-specific project/namespace + registry artifact digest + materialization receipt | Mỗi generation có online namespace riêng; không ghi đè project đang pin |
-| Model/RAG | Image digest, weights/preprocessor/embedding/corpus/index digests | Endpoint startup chứng minh artifact thực nạp; alias/tag không làm identity |
+| Iceberg | Catalog/table UUID + metadata location + snapshot ID + schema digest | Read `snapshot-id`; never read current and merely attach the ID to the response |
+| File/object | Bucket/key + object version if any + SHA-256 + bytes | Exact file set in the manifest; never re-glob on retry |
+| PostgreSQL outputs | Generation-specific schema/table or partition + schema/key/content digest | The loader writes a separate candidate; once sealed, runtime has SELECT only; no JDBC overwrite of a table being served |
+| Feast/Redis | Generation-specific project/namespace + registry artifact digest + materialization receipt | Each generation has its own online namespace; never overwrite a pinned project |
+| Model/RAG | Image digest, weights/preprocessor/embedding/corpus/index digests | Endpoint startup proves the artifacts actually loaded; alias/tag is not identity |
 
-Namespace output mẫu: `out/<epoch>/<run>/<attempt>/...`,
-`pub_<generation>_<attempt>.sales_daily`, Feast project `platform_<generation>_<attempt>`; manifest trỏ attempt đã chọn,
-không để hai retry ghi chung project.
-POC phải kiểm bản Feast đã pin thực sự tách Redis keys theo project và registry;
-không dựa vào tên project trên config để suy có isolation. Nếu adapter không
-hỗ trợ thì chọn namespace vật lý khác và ghi vào manifest trước nghiệm thu;
-không tự thêm cột generation vào entity làm thay nghĩa feature. Adapter offline
-phải đọc exact Iceberg snapshot. Nếu không làm được, xuất immutable Parquet từ
-snapshot đó rồi dùng file manifest exact và đối soát parity; Iceberg vẫn là
-lineage gốc, thay đường đọc phải báo rõ trong proof Feast.
+Sample output namespaces: `out/<epoch>/<run>/<attempt>/...`,
+`pub_<generation>_<attempt>.sales_daily`, Feast project `platform_<generation>_<attempt>`; the manifest points to the selected attempt,
+and two retries never write to the same project.
+The POC must check that the pinned Feast version really separates Redis keys by project and registry;
+isolation is not inferred from the project name in the config. If the adapter does not
+support it, choose another physical namespace and record it in the manifest before acceptance;
+never add a generation column to the entity in a way that changes the feature's meaning. The offline adapter
+must read the exact Iceberg snapshot. If it cannot, export immutable Parquet from
+that snapshot, then use an exact file manifest and reconcile parity; Iceberg remains the
+root lineage, and changing the read path must be stated clearly in the Feast proof.
 
-## 2. Manifest bất biến và frozen input vector
+## 2. Immutable manifest and frozen input vector
 
-Envelope JSON bắt buộc có `schema_version`, identity, timestamps UTC, clock,
-contract/config/code digests và references. Dùng JSON canonical UTF-8 theo quy
-ước project đã pin rồi SHA-256; không hash pretty-print tùy ý. Tất cả digest
-thực phải có thuật toán và 64 hex digits; `h_*` bên dưới là placeholders.
-Không đặt credential, URL có token hoặc payload nhạy cảm vào manifest.
+The JSON envelope must have `schema_version`, identity, UTC timestamps, clock,
+contract/config/code digests and references. Use canonical UTF-8 JSON per the project's
+pinned convention, then SHA-256; never hash arbitrary pretty-printed output. Every real digest
+must state its algorithm and have 64 hex digits; `h_*` below are placeholders.
+Never put credentials, URLs with tokens or sensitive payloads in the manifest.
 
 ```json
 {
@@ -101,43 +101,43 @@ Không đặt credential, URL có token hoặc payload nhạy cảm vào manifes
 }
 ```
 
-Đây chỉ là hai entries để minh họa shape. Resolver phải mở rộng **toàn bộ**
-feed/Channel/dependency theo source profile: Orders năm Channel, mappings,
-Listing/inventory/lifecycle/refund/coverage được dùng. Một entry không đủ cho
-cả Q61. Coverage receipt gồm scope Channel/account/pool, khoảng event được
-bao phủ, observation cutoff, producer/authority, missing/conflicts/linkage,
-completeness definition và bằng chứng upstream. `unsupported` khác `empty`.
+These are only two entries to illustrate the shape. The resolver must expand **every**
+feed/Channel/dependency according to the source profile: Orders for the five Channels, mappings,
+and the Listing/inventory/lifecycle/refund/coverage that are used. One entry is not enough for
+all of Q61. A coverage receipt includes the Channel/account/pool scope, the covered event range,
+observation cutoff, producer/authority, missing/conflicts/linkage,
+completeness definition and upstream evidence. `unsupported` differs from `empty`.
 
-Resolver được chạy một lần khi tạo run; manifest ghi xong mới cấp build token.
-Nó có thể resolve snapshots không cùng commit timestamp, nhưng phải kiểm cùng
-world/dataset, cutoff và source coverage. Bronze chứa observation sau cutoff
-thì transform vẫn lọc `source_observed_at < cutoff`. Exact snapshot không tự
-chứng minh known-time đúng. Mutable JDBC source phải được export dưới một
-consistent snapshot vào immutable staging trước khi đóng manifest; parallel
-JDBC connections không mặc nhiên dùng chung DB snapshot. CDC entry cần source
-incarnation, topic ID/partition set và start-inclusive/end-exclusive offsets
-cụ thể từ protocol CDC; không thay bằng event-time hoặc từ khóa `latest`.
+The resolver runs once when the run is created; the build token is issued only after the manifest is written.
+It may resolve snapshots that do not share a commit timestamp, but it must check the same
+world/dataset, cutoff and source coverage. If Bronze contains observations after the cutoff,
+the transform still filters `source_observed_at < cutoff`. An exact snapshot does not by itself
+prove the known-time is correct. A mutable JDBC source must be exported under one
+consistent snapshot into immutable staging before the manifest is closed; parallel
+JDBC connections do not share a DB snapshot by default. A CDC entry needs the source
+incarnation, topic ID/partition set and concrete start-inclusive/end-exclusive offsets
+from the CDC protocol; never substitute event time or the keyword `latest`.
 
-Task nhận `--input-manifest <uri> --input-digest <sha256> --attempt-id ...`.
-DAG không lấy lại Airflow Variables để resolve nguồn/config giữa tasks.
-Validator nhận manifest đó cộng exact output receipts. Khi upstream tạo
-output mới cho downstream cùng run, bổ sung stage manifest mới có parent digest
-và exact snapshot của stage trước; không sửa input manifest gốc. Retry dùng
-cùng manifest, attempt khác và namespace khác. Snapshot/file mất hoặc digest
-không khớp: fail `INPUT_UNAVAILABLE`/`INPUT_CONFLICT`, không fallback latest.
+A task receives `--input-manifest <uri> --input-digest <sha256> --attempt-id ...`.
+The DAG does not re-read Airflow Variables to resolve sources/config between tasks.
+The validator receives that manifest plus the exact output receipts. When an upstream creates
+new output for a downstream in the same run, add a new stage manifest with a parent digest
+and the exact snapshot of the previous stage; never edit the original input manifest. A retry uses
+the same manifest, a different attempt and a different namespace. A missing snapshot/file or a digest
+mismatch fails with `INPUT_UNAVAILABLE`/`INPUT_CONFLICT`, with no fallback to latest.
 
-DAG [DP2](../../../dags/dp2_silver.py), [DP3](../../../dags/dp3_features.py) và
-[label bridge](../../../dags/dp3_return_labels.py) hiện truyền table names/run ID;
-chưa có interface này. `max_active_runs=1` của từng DAG không tạo snapshot
-đa bảng hoặc khóa giữa các DAG. Iceberg hỗ trợ đọc snapshot riêng từng bảng,
-không tự tạo snapshot liên bảng.
-[Nguồn Iceberg 1.7.2](https://iceberg.apache.org/docs/1.7.2/spark-queries/).
+The DAGs [DP2](../../../dags/dp2_silver.py), [DP3](../../../dags/dp3_features.py) and
+[label bridge](../../../dags/dp3_return_labels.py) currently pass table names/run IDs;
+they do not have this interface yet. Each DAG's `max_active_runs=1` does not create a multi-table
+snapshot or a lock across DAGs. Iceberg supports reading a snapshot of each table separately,
+but does not create cross-table snapshots by itself.
+[Iceberg 1.7.2 source](https://iceberg.apache.org/docs/1.7.2/spark-queries/).
 
-## 3. Output profile được khóa trước build
+## 3. Output profile locked before the build
 
-Profile có scope và capabilities tường minh, được hash vào input manifest.
-Không cho candidate tự bỏ output sau khi thấy lỗi. Mỗi scope có required
-outputs riêng; optional không làm mất số liệu chính hoặc biến thiếu thành0.
+A profile has an explicit scope and capabilities and is hashed into the input manifest.
+A candidate is not allowed to drop an output after seeing an error. Each scope has its own required
+outputs; optional outputs never cause the main figures to be lost or turn missing into0.
 
 ```json
 {
@@ -155,28 +155,28 @@ outputs riêng; optional không làm mất số liệu chính hoặc biến thi�
 }
 ```
 
-Scope manifests liệt kê từng namespace đủ/thiếu capability và lý do; chúng
-được chốt từ G0, không tuyên bố label/model phủ năm Channel nếu thực tế chỉ đủ
-một phần. Seller feed Q61 có authority/bridge riêng, không làm mọi pool có
-coverage như nhau. Required capability trong scope đã khai báo mà bị mất
-feed/receipt thì candidate fail, giữ activation tốt trước. Scope ngoài
-capability hiển thị `unsupported`/`unknown`; không cắt dòng lặng lẽ. Optional
-thiếu phải có receipt `unavailable` và consumer không được suy0. Đổi requirement
-hay scope tạo profile revision mới, audit và kiểm chứng theo contract tương ứng.
+Scope manifests list each namespace that has or lacks a capability, with the reason; they
+are settled from G0, and never claim that labels/models cover five Channels if in practice only
+part of them qualify. The Q61 Seller feed has its own authority/bridge and does not give every pool
+the same coverage. If a required capability in a declared scope loses a
+feed/receipt, the candidate fails and the previous good activation is kept. Scopes outside the
+capability show `unsupported`/`unknown`; rows are never silently cut. A missing optional
+output must have an `unavailable` receipt, and consumers must not infer0. Changing a requirement
+or scope creates a new profile revision, with audit and verification under the corresponding contract.
 
-Mỗi output receipt phải có role/status, input/stage digest, physical identity,
-key/schema/content digest, logical row count, quantity/amount theo currency,
-coverage, freshness, validation report digest và seal evidence. Zero rows hợp
-lệ phải được chứng minh bằng input/coverage; zero rows không thay missing.
-Content digest dùng key order + canonical value encoding đã pin (bao gồm null,
-decimal/time precision), shard digests + root; count đơn độc không đủ oracle.
-Validator đối chiếu logical rows/key/value ở snapshot exact với fixture/source
-oracle độc lập, không dùng physical file counts làm số dòng nghiệp vụ.
+Each output receipt must have role/status, input/stage digest, physical identity,
+key/schema/content digest, logical row count, quantity/amount per currency,
+coverage, freshness, validation report digest and seal evidence. Valid zero rows
+must be proven by input/coverage; zero rows do not stand in for missing.
+The content digest uses the pinned key order + canonical value encoding (including null,
+decimal/time precision), shard digests + root; a count alone is not a sufficient oracle.
+The validator compares logical rows/key/value at the exact snapshot against an independent fixture/source
+oracle, and never uses physical file counts as the business row count.
 
-## 4. Label revisions, training và đúng đồng hồ
+## 4. Label revisions, training and the correct clock
 
-Lưu history append-only theo line identity đầy đủ + target version; không ghi
-đè0 bằng1 rồi mất khả năng truy vấn kiến thức cũ. Row revision tối thiểu:
+Store history append-only by full line identity + target version; never overwrite
+0 with1 and lose the ability to query earlier knowledge. Minimum row revision:
 
 ```json
 {
@@ -197,24 +197,24 @@ Lưu history append-only theo line identity đầy đủ + target version; khôn
 }
 ```
 
-`known_at` là thời điểm đủ bằng chứng nguồn/coverage/maturity theo clock nghiệp
-vụ đã khai báo, không tự lấy thời gian delivery hoặc thời gian chạy replay.
-Nếu maturity mới chỉ qua trong wall-clock mà không có completeness proof thì
-không tạo label0 chính thức. Với cutoff exclusive C, chọn revision mới nhất
-có `known_at < C`; tie cùng known_at phải dùng source revision/order đã có
-contract hoặc báo conflict, không dùng thứ tự Spark tùy ý. Khoảng hiệu lực
-suy ra của revision ở t trước revision ở t2 là **t < C <= t2**, giữ đúng biên
-exclusive của label contract. Có thể lưu `next_known_at` dẫn xuất, không sửa
-nội dung revision cũ. Bổ sung state change vì maturity/coverage dù không có
-event dương mới. Historical queries đọc source snapshot đủ chứa revisions cần
-thiết, và filter đúng cutoff; không query bảng current rồi hồi tưởng label cũ.
+`known_at` is the moment there is enough source/coverage/maturity evidence on the declared business
+clock; it is never simply the delivery time or the replay run time.
+If maturity has only passed in wall-clock time without a completeness proof,
+no official label0 is created. For an exclusive cutoff C, choose the latest revision
+with `known_at < C`; a tie on the same known_at must use the source revision/order defined by the
+contract or report a conflict, never an arbitrary Spark ordering. The derived validity range
+of a revision at t before a revision at t2 is **t < C <= t2**, keeping the label contract's
+exclusive boundary. A derived `next_known_at` may be stored, without editing the
+content of the old revision. Add state changes for maturity/coverage even when there is no
+new positive event. Historical queries read a source snapshot that contains the necessary revisions,
+and filter at the correct cutoff; never query the current table and reconstruct the old label.
 
-Fixture bắt buộc: C1 biết0, C2 late event thành1, C3 delivery correction thành
-immature; training dataset chốt C1 giữ checksum cũ. Refund unmatched giữ affected
-scope trước eligibility, không làm mất uncertainty bằng inner join. Maturity,
-positive/negative và boundaries vẫn theo L01–L17, không định nghĩa target mới.
+Required fixture: C1 knows0, C2 a late event makes it1, C3 a delivery correction makes it
+immature; the training dataset locked at C1 keeps its old checksum. An unmatched Refund keeps the affected
+scope before eligibility; uncertainty is never lost through an inner join. Maturity,
+positive/negative and boundaries still follow L01–L17; no new target is defined.
 
-Training manifest phải riêng với publication manifest:
+The training manifest must be separate from the publication manifest:
 
 ```json
 {
@@ -234,42 +234,42 @@ Training manifest phải riêng với publication manifest:
 }
 ```
 
-Mỗi sample lưu prediction/order-time, feature cutoff riêng, label revision
-chọn trước training information cutoff, eligibility/coverage và fold ID. Future
-outcome sau feature cutoff có thể dùng làm label **nếu đã biết trước training
-cutoff**; không buộc label đã biết lúc đặt Order. Toàn bộ preprocessing,
-feature selection, calibration, threshold và tuning chỉ được fit từ dữ liệu
-được phép ở cutoff; test tương lai chỉ mở sau khi khóa các lựa chọn đó.
+Each sample stores the prediction/order time, its own feature cutoff, the label revision
+selected before the training information cutoff, eligibility/coverage and the fold ID. A future
+outcome after the feature cutoff can be used as a label **if it was known before the training
+cutoff**; the label does not have to be known when the Order was placed. All preprocessing,
+feature selection, calibration, thresholds and tuning may only be fit on data
+permitted at the cutoff; the future test set is only opened after those choices are locked.
 
-Forward-at-order evaluation cần cùng `clock_id` và chuỗi thời gian:
+Forward-at-order evaluation needs the same `clock_id` and time ordering:
 
 ```text
-mọi training/tuning information observed < training_information_cutoff
+all training/tuning information observed < training_information_cutoff
 training_information_cutoff <= model_ready_at <= sample_prediction_at
-feature information observed < sample_feature_cutoff (không sau prediction)
-outcome_evaluation_cutoff > maturity + đủ coverage của sample
+feature information observed < sample_feature_cutoff (not after prediction)
+outcome_evaluation_cutoff > maturity + full coverage of the sample
 ```
 
-Model học đến D60 không hợp lệ để dự đoán Order D10 dù giao D65; case này phải
-bị loại khỏi forward-at-order proof. Fold dùng thời gian prediction, không
-chỉ ngày delivery. Với sample có timestamp trùng cutoff thì giữ strict source
-boundary trong contract, không tự inclusive. Temporal holdout phải báo số mẫu
-bị loại, immature/unknown, scope coverage, baseline và target version.
+A model trained up to D60 is not valid for predicting an Order on D10 even if delivered on D65; this case must
+be excluded from the forward-at-order proof. Folds use prediction time, not
+just delivery date. For a sample whose timestamp equals the cutoff, keep the strict source
+boundary from the contract; it never becomes inclusive by itself. A temporal holdout must report the number of samples
+excluded, immature/unknown, coverage scope, baseline and target version.
 
-Tách hai chế độ evidence: `actual_deployment` dùng availability/ready thật
-trong wall-clock; `simulated_replay` dùng clock mô phỏng và declared simulated
-ready time + training latency policy đã khóa trước fold. Replay vẫn ghi actual
-artifact creation/training timestamps; không backdate chúng thành bằng chứng
-đã deploy trong quá khứ. Nếu chưa mô hình hóa model-ready theo clock mô phỏng,
-chỉ gọi đó retrospective evaluation, chưa đủ forward-at-order proof. Không
-so timestamp wall 2026-10 với ngày mô phỏng 2026-04 như cùng đồng hồ.
+Separate two evidence modes: `actual_deployment` uses real availability/ready
+in wall-clock time; `simulated_replay` uses the simulated clock and a declared simulated
+ready time + training latency policy locked before the fold. Replay still records actual
+artifact creation/training timestamps; never backdate them into evidence of a
+past deployment. If model-ready has not been modeled on the simulated clock,
+only call it a retrospective evaluation, not sufficient forward-at-order proof. Never
+compare a wall timestamp of 2026-10 with a simulated date of 2026-04 as if on the same clock.
 
-## 5. Data generation, serving bundle và activation
+## 5. Data generation, serving bundle and activation
 
-Generation bất biến ghi frozen input digest, output profile digest, output
-receipts, cutoff/view/capability, validation report và wall timestamps.
-`generation_id` là UUID hoặc ID opaque mới; không dùng thứ tự chuỗi ID đo độ
-mới. Bundle độc lập pin model/RAG/tool artifacts:
+An immutable generation records the frozen input digest, output profile digest, output
+receipts, cutoff/view/capability, validation report and wall timestamps.
+`generation_id` is a UUID or a new opaque ID; string ordering of IDs is never used to measure
+recency. An independent bundle pins the model/RAG/tool artifacts:
 
 ```json
 {
@@ -298,77 +298,77 @@ mới. Bundle độc lập pin model/RAG/tool artifacts:
 }
 ```
 
-Compatibility là so sánh contract có kiểm tra: ordered feature names, dtype,
+Compatibility is a checked contract comparison: ordered feature names, dtype,
 units, categorical vocab/default/missing policy, definition digest, label
-policy, output semantics và capability; không chỉ số cột. Generation không
-cần có training dataset ID giống model. Bundle mới có thể dùng generation cũ
-nếu tương thích; data mới không bắt buộc retrain. Model v1/proof cũ giữ target
-v1; không đổi metadata thành v2 để dùng chung tên endpoint.
+policy, output semantics and capability; not just the column count. A generation does not
+need the same training dataset ID as the model. A new bundle can use an old generation
+if compatible; new data does not force a retrain. The v1 model/old proof keeps target
+v1; its metadata is never changed to v2 to share an endpoint name.
 
-Startup endpoint kiểm image thực chạy, weights/preprocessor thực load, trả
-observed bundle digest. Gateway chỉ route endpoint đã attest đúng bundle;
-rolling pods khác bundle có route riêng. Chọn A/B arm một lần trong context,
-không chọn lại giữa tool calls; mỗi arm phải tương thích cùng target/scope.
-Rollback activation chọn cả generation/bundle đã xác minh, audit rõ rollback;
-không tự route mutable `production` alias. Kết quả inference echo observed
-model/bundle digest, không copy tên mong muốn từ gateway.
+Endpoint startup checks the image actually running and the weights/preprocessor actually loaded, and returns the
+observed bundle digest. The gateway only routes to endpoints attested for the correct bundle;
+rolling pods with a different bundle get their own route. The A/B arm is chosen once per context,
+not re-chosen between tool calls; each arm must be compatible with the same target/scope.
+A rollback activation selects a verified generation/bundle pair, with a clear rollback audit;
+never automatically route a mutable `production` alias. Inference results echo the observed
+model/bundle digest, never copying the desired name from the gateway.
 
-## 6. Control tables, fencing và atomic publish
+## 6. Control tables, fencing and atomic publish
 
-Các bảng logic tối thiểu, triển khai migration riêng khi làm POC:
+Minimum logical tables, implemented in a separate migration during the POC:
 
-| Bảng | Khóa/ràng buộc chính |
+| Table | Main keys/constraints |
 |---|---|
 | `environment` | singleton/environment ID, recovery epoch UUID, mode recovering/ready, policy digest |
-| `publication_lane` | lane, epoch, next fence, lease owner/token/expiry; số thứ tự desired release do scheduler cấp |
-| `run`/`attempt` | run input digest bất biến; attempt UUID + epoch + fence + status + namespace |
-| `artifact`/`artifact_reference` | identity + digest + namespace + ready/deleting/deleted; refs tới parent/child artifacts |
-| `generation`/`bundle` | IDs + content digests; insert-only content, lifecycle state tách riêng |
+| `publication_lane` | lane, epoch, next fence, lease owner/token/expiry; desired release sequence number issued by the scheduler |
+| `run`/`attempt` | immutable run input digest; attempt UUID + epoch + fence + status + namespace |
+| `artifact`/`artifact_reference` | identity + digest + namespace + ready/deleting/deleted; refs to parent/child artifacts |
+| `generation`/`bundle` | IDs + content digests; insert-only content, lifecycle state kept separately |
 | `activation` | append-only activation UUID, generation digest, bundle digest, intent sequence, publisher epoch/fence, reason |
 | `active_pointer` | lane + epoch + pointer version + activation ID |
 | `reader_lease` | lease ID + activation/dependency references + epoch + expiry + subject/scope hash |
 | `publication_event` | idempotency key + candidate digest + outcome + pointer version; unique key |
 
-Control writes chỉ qua service/procedures, loader/agent không có UPDATE quyền
-trực tiếp vào pointer/epoch. Dùng DB clock cho lease; process clock không quyết
-định ai còn lease. Lock order cố định: environment → lane/pointer → artifact
-refs/lease, tránh deadlock. PostgreSQL row locks tồn tại tới transaction end;
-`SELECT ... FOR UPDATE` ngăn writer khác đổi cùng row nhưng không tự bảo vệ
+Control writes go only through services/procedures; loaders/agents have no direct UPDATE permission
+on pointer/epoch. Use the DB clock for leases; the process clock never decides
+who still holds a lease. Fixed lock order: environment → lane/pointer → artifact
+refs/lease, to avoid deadlocks. PostgreSQL row locks last until transaction end;
+`SELECT ... FOR UPDATE` prevents other writers from changing the same row but does not by itself protect
 Redis/Iceberg. [PostgreSQL 15 locking](https://www.postgresql.org/docs/15/explicit-locking.html).
 
 Protocol:
 
-1. Scheduler cấp intent sequence và input manifest; acquire lane lease trong
-   transaction, tăng fence mỗi lần cấp/reacquire. Worker nhận `(epoch,fence,
-   owner,expiry)`; renew có điều kiện đúng token, epoch và chưa hết hạn.
-2. Attempt ghi namespace riêng. Worker cũ không được cùng namespace attempt
-   mới. Trước seal: kết thúc mọi producer transaction/job; thu hồi loader
-   credentials, dừng/đóng sessions đang ghi, khóa quyền sửa namespace. Với PG,
-   service owner giữ schema, loader không phải owner; revoke không đủ nếu
-   transaction cũ còn chạy. Với Redis, generation-specific credentials/prefix,
-   kiểm revoke/disconnect thực tế; không tin lease flag trên ứng dụng là đủ.
-   Nếu credential isolation/revocation hoặc producer shutdown không được chứng
-   minh trên backend đã pin thì không seal/publish, không thay bằng sleep chờ.
-3. Seal và validate exact output identities/digests. Chỉ candidate đã hoàn
-   tất producer shutdown + seal evidence mới thành `VALIDATED`. Retry có token
-   cũ không thể write/publish vào accepted namespace; cần POC credential và
-   storage enforcement để chứng minh, không chỉ kiểm app-side.
-4. Publisher transaction khóa environment/lane/pointer; kiểm environment ready,
-   epoch/fence/owner/lease còn hạn bằng DB clock, required outputs/profile và
-   dependency closure đều sealed/validated/not-deleting, compatibility bundle,
-   expected pointer version và intent còn hợp lệ. Không gọi remote sink trong
-   lúc giữ DB transaction dài; remote receipts đã được kiểm và namespace seal.
-5. Kiểm lại expiry bằng `clock_timestamp()` ngay trước CAS trong transaction
-   đang giữ lane lock; không dùng timestamp cố định lúc transaction bắt đầu.
-   Insert activation/event, đổi pointer bằng CAS `WHERE epoch=:e AND
-   pointer_version=:expected`; tăng pointer version, commit cùng transaction.
-   CAS phải đổi đúng một row. Sai epoch/token/expiry/intention/CAS: rollback,
-   không tự retry với latest pointer để vượt một publication mới hơn.
-6. ACK mất: tra unique publication idempotency key. Cùng candidate đã commit
-   trả kết quả cũ; cùng key khác digest là conflict. Nếu activation đã bị thay
-   sau đó thì trả outcome lịch sử, không publish lại để kéo pointer lùi.
+1. The scheduler issues the intent sequence and input manifest; it acquires the lane lease in a
+   transaction, incrementing the fence on every grant/reacquire. The worker receives `(epoch,fence,
+   owner,expiry)`; renewal is conditional on the correct token and epoch and on not being expired.
+2. The attempt writes its own namespace. An old worker must not share a new attempt's
+   namespace. Before sealing: finish every producer transaction/job; revoke loader
+   credentials, stop/close writing sessions, lock modification rights on the namespace. For PG,
+   the service owner holds the schema and the loader is not the owner; revoke is not enough if an
+   old transaction is still running. For Redis, generation-specific credentials/prefix,
+   verify the revoke/disconnect actually happened; an application-level lease flag is not trusted as sufficient.
+   If credential isolation/revocation or producer shutdown cannot be proven
+   on the pinned backend, do not seal/publish, and do not substitute a sleep-and-wait.
+3. Seal and validate the exact output identities/digests. Only a candidate that has completed
+   producer shutdown + seal evidence becomes `VALIDATED`. A retry holding an old token
+   cannot write/publish into an accepted namespace; a credential and
+   storage enforcement POC is needed to prove this, not only app-side checks.
+4. The publisher transaction locks environment/lane/pointer; it checks that the environment is ready,
+   epoch/fence/owner/lease are still valid by the DB clock, required outputs/profile and the
+   dependency closure are all sealed/validated/not-deleting, bundle compatibility,
+   the expected pointer version and that the intent is still valid. No remote sink is called while
+   holding a long DB transaction; remote receipts have already been checked and the namespace sealed.
+5. Re-check expiry with `clock_timestamp()` right before the CAS in the transaction
+   that holds the lane lock; never use the fixed timestamp from transaction start.
+   Insert activation/event, switch the pointer with CAS `WHERE epoch=:e AND
+   pointer_version=:expected`; increment the pointer version, commit in the same transaction.
+   The CAS must change exactly one row. Wrong epoch/token/expiry/intention/CAS: roll back,
+   never automatically retry with the latest pointer to override a newer publication.
+6. Lost ACK: look up the unique publication idempotency key. The same committed candidate
+   returns the old result; the same key with a different digest is a conflict. If the activation was replaced
+   afterwards, return the historical outcome; never republish and pull the pointer back.
 
-Pseudocode này mô tả service transaction, không phải migration chạy được:
+This pseudocode describes the service transaction, not a runnable migration:
 
 ```sql
 BEGIN;
@@ -383,23 +383,23 @@ WHERE lane = :lane AND epoch = :epoch AND pointer_version = :expected;
 COMMIT;
 ```
 
-CAS không tự ngăn một candidate cũ acquire token mới rồi publish đè dữ liệu
-mới. Scheduler giữ desired intent sequence riêng: candidate chỉ được publish
-nếu chưa superseded và cutoff không lùi trừ **explicit rollback intent** đã
-kiểm dependency/compatibility. Mỗi release manifest ghi action/reason, không
-sửa generation cũ. Giữ publication intent và active pointer version riêng.
+CAS alone does not stop an old candidate from acquiring a new token and then publishing over newer
+data. The scheduler keeps a separate desired intent sequence: a candidate may only be published
+if it has not been superseded and its cutoff does not move backwards, except for an **explicit rollback intent** whose
+dependencies/compatibility have been checked. Each release manifest records action/reason, without
+editing old generations. Keep the publication intent and the active pointer version separate.
 
-Nếu required sink lỗi, pointer cũ giữ nguyên và freshness hiển thị đúng; nếu
-store của activation đang đọc mất thật, request fail unavailable, không đọc
-store latest khác. Profile có thể trả partial capability đã công bố từ trước,
-nhưng không hạ requirement trong failure handling. Atomic pointer chỉ bảo đảm
-visibility boundary, không chữa input sai hoặc output sai.
+If a required sink fails, the old pointer stays unchanged and freshness is shown correctly; if
+the store of the activation being read is actually lost, the request fails as unavailable, never reading another
+latest store. A profile can return a partial capability published in advance,
+but requirements are never lowered in failure handling. The atomic pointer only guarantees the
+visibility boundary; it does not fix wrong input or wrong output.
 
-## 7. Turn, pagination, cache và historical routes
+## 7. Turns, pagination, cache and historical routes
 
-Gateway/server tạo context sau khi auth, không nhận scope/cutoff do LLM tự
-mở rộng. Resolve pointer và tạo reader lease/dependency refs trong **cùng
-transaction khóa control**; nếu GC đã đánh deleting thì pin fail. Context:
+The gateway/server creates the context after auth and does not accept a scope/cutoff the LLM
+widens on its own. Resolve the pointer and create the reader lease/dependency refs in **the same
+control-locking transaction**; if GC has already marked it deleting, the pin fails. Context:
 
 ```json
 {
@@ -419,155 +419,155 @@ transaction khóa control**; nếu GC đã đánh deleting thì pin fail. Contex
 }
 ```
 
-Coordinator truyền context handle ký bởi server tới agents/tools/model/RAG;
-LLM chỉ chọn tool/arguments trong schema và scope được phép. Tool results
-echo context/generation/bundle/view/cutoff/coverage. Mismatch làm cả nhánh
-abstain/retry cùng context, không merge evidence khác version. Turn mới resolve
-activation mới và revalidate evidence cũ; lịch sử hội thoại không là nguồn số
-liệu hiện tại. So hai generation là explicit comparison với hai context pin
-và result tách từng vế, không tự cộng chúng.
+The coordinator passes a server-signed context handle to agents/tools/model/RAG;
+the LLM only chooses tools/arguments within the permitted schema and scope. Tool results
+echo context/generation/bundle/view/cutoff/coverage. A mismatch makes the whole branch
+abstain/retry with the same context, never merging evidence from different versions. A new turn resolves
+the new activation and revalidates old evidence; conversation history is not a source of current
+figures. Comparing two generations is an explicit comparison with two pinned contexts
+and a result that keeps each side separate, never summing them.
 
-Cursor ký/MAC gồm context, scope/query digest, sort keys + unique tie-break,
-last key, expiry, auth scope digest. Page kế và drilldown giữ nguyên context;
-lease hết hạn phải trả `CONTEXT_EXPIRED` và bắt đầu lại có chỉ báo rõ, không
-fallback current. Không giữ lease trong mọi trang browser vô hạn; server
-renew trong tổng thời hạn context được cấu hình, expired cursor không hồi sinh
-lease đã GC. Token expiry phải không vượt thời gian server thực sự giữ pin.
+A signed/MAC'd cursor contains context, scope/query digest, sort keys + unique tie-break,
+last key, expiry, auth scope digest. The next page and drilldown keep the same context;
+an expired lease must return `CONTEXT_EXPIRED` and restart with a clear indication, never
+falling back to current. Leases are not held indefinitely across every browser page; the server
+renews within the configured total context lifetime, and an expired cursor does not revive a
+lease that has been GC'd. Token expiry must not exceed the time the server actually holds the pin.
 
-Cache key bao gồm canonical full query + auth scope + epoch + activation,
+The cache key includes the canonical full query + auth scope + epoch + activation,
 generation/bundle/metric/tool schema digests + view/knowledge cutoff/business
-window/currency/filter + A/B arm. Cache hit vẫn kiểm lease/context/authorization
-hiện hành; cached answer không vượt quyền mới bị thu hồi. Có dữ liệu sensitivity
-policy thì redact trước cache/log. Không dùng SKU đơn lẻ làm cache key.
+window/currency/filter + A/B arm. A cache hit still checks the current lease/context/authorization;
+a cached answer never exceeds permissions that have just been revoked. When there is a data sensitivity
+policy, redact before caching/logging. Never use a single SKU as the cache key.
 
-API tách business window khỏi knowledge cutoff và view:
+The API separates business window from knowledge cutoff and view:
 
-- `official`: đọc generation đã publish theo scope/window materialized.
-- `as_known`: đọc historical source/history pin đủ để chỉ biết trước C.
-- `restated`: cùng business window nhưng dùng correction biết tại cutoff C2
-  được nêu rõ, không gọi đó thông tin đã biết tại cutoff C1.
-- `live`: identity/freshness riêng, không join ngầm vào daily official answer.
+- `official`: reads the published generation per the materialized scope/window.
+- `as_known`: reads historical source/history pinned enough to know only what was known before C.
+- `restated`: the same business window but using corrections known at an explicitly stated cutoff C2,
+  never calling that information known at cutoff C1.
+- `live`: its own identity/freshness, never implicitly joined into the daily official answer.
 
-Online Feast/Redis chỉ phục vụ generation/cutoff thực materialize. Historical
-request cần offline route exact snapshot hoặc generation historical retained,
-query bounded và manifest riêng; chưa materialize/hết retention thì trả
-`HISTORY_UNAVAILABLE`/`UNSUPPORTED_VIEW`, không gửi version param xuống latest
-online lookup. Mọi route phải kiểm capability/profile đúng yêu cầu query.
+Online Feast/Redis only serves the generation/cutoff actually materialized. A historical
+request needs an offline route to an exact snapshot or a retained historical generation,
+a bounded query and its own manifest; if not materialized or past retention, return
+`HISTORY_UNAVAILABLE`/`UNSUPPORTED_VIEW`, never sending a version parameter down to the latest
+online lookup. Every route must check the capability/profile against what the query requires.
 
-## 8. Retention, GC và phục hồi epoch sạch
+## 8. Retention, GC and clean epoch recovery
 
-Duy trì dependency graph cho generation, model training dataset, bundle,
-validation/evidence và reader leases. Ref lâu dài dùng cho model/evidence còn
-được retention policy bảo vệ; reader refs có expiry/renew. Không chỉ bảo vệ
-active pointer rồi xóa training snapshots mà model cũ vẫn cần tái lập.
+Maintain a dependency graph for generations, model training datasets, bundles,
+validation/evidence and reader leases. Long-lived refs used for models/evidence still
+protected by the retention policy; reader refs have expiry/renewal. Never protect only the
+active pointer and then delete training snapshots that an old model still needs to reproduce.
 
-GC hai bước: trong transaction khóa artifact/control, xác nhận không còn
-active/retained dependency hoặc lease hợp lệ và đánh `DELETING`; từ đó cấm
-lease/ref mới. Sau đó xóa từng sink với idempotency/tombstone, ghi receipt rồi
-`DELETED`. Crash giữa bước có thể retry; artifact thiếu không quay lại READY.
-Lease renew đua GC phải dùng cùng lock/state check: renew sau deleting fail,
-request đang mất lease phải dừng trước dùng dữ liệu tiếp. Không tự resolve
-latest hoặc nhận kết quả backend muộn sau context expired.
+Two-step GC: in a transaction that locks artifact/control, confirm there is no longer any
+active/retained dependency or valid lease and mark `DELETING`; from then on new
+leases/refs are forbidden. Then delete each sink with idempotency/tombstone, record a receipt, then
+`DELETED`. A crash between steps can be retried; a missing artifact never returns to READY.
+A lease renewal racing GC must use the same lock/state check: a renewal after deleting fails,
+and a request that is losing its lease must stop before using more data. Never automatically resolve
+latest or accept a late backend result after the context has expired.
 
-Iceberg expiry/orphan cleanup chỉ chạy từ allowlist GC đã tính dependency
-closure; cần giữ snapshot/tag refs phù hợp bản catalog/runtime. Orphan cleanup
-phải bảo vệ file của writer đang chạy và ngưỡng tuổi theo policy, không quét
-candidate chưa commit như rác. Redis expiry không được cắt ngắn generation
-đang pin; nếu TTL adapter có thể expire feature trước retention thì phải
-adjust/rebuild/validate hoặc đánh namespace unavailable. Offline TTL, online
-TTL và API staleness là ba ràng buộc riêng.
-[Nguồn Iceberg maintenance](https://iceberg.apache.org/docs/1.7.2/maintenance/).
+Iceberg expiry/orphan cleanup only runs from a GC allowlist whose dependency
+closure has been computed; snapshot/tag refs appropriate to the catalog/runtime version must be kept. Orphan cleanup
+must protect files of running writers and use the policy age threshold, never sweeping
+uncommitted candidates as garbage. Redis expiry must not cut short a pinned
+generation; if the adapter TTL can expire features before retention, it must
+adjust/rebuild/validate or mark the namespace unavailable. Offline TTL, online
+TTL and API staleness are three separate constraints.
+[Iceberg maintenance source](https://iceberg.apache.org/docs/1.7.2/maintenance/).
 
-Recovery procedure local trước G4:
+Local recovery procedure before G4:
 
-1. Đóng ingress serving/writes và dừng scheduler/workers; revoke/rotate writer
-   và service credentials cũ, terminate connections. Không chỉ đặt ready=false
-   trong bản DB sắp bị restore. Bootstrap ngoài backup được operator/local
-   script điều khiển; không cho old process tự bootstrap epoch.
-2. Restore backup set/catalog/PG/artifacts. Sinh **epoch UUID mới sau restore**,
-   khác epoch backup; rotate context signing credentials để token cũ mất hiệu
-   lực. Fence counters có thể được restore về thấp nhưng epoch mới vẫn khác.
-3. Kiểm exact dependency closure của activation dự định serve, including
-   content/schema/coverage/compatibility và endpoint attestation. Redis có thể
-   rebuild từ offline exact generation rồi validate; không coi marker cũ là
-   bằng chứng materialize còn tồn tại. Rebuild thay namespace physical cần
-   receipt/deployment activation mới tham chiếu generation content digest cũ;
-   không sửa receipt immutable hoặc tái dùng tên ID cho content khác.
-4. Writer mới chỉ nhận credential/token epoch mới. Reset leases cũ, kiểm GC và
-   orphan candidates; không revive reader token từ backup. Khi mọi required
-   deps hợp lệ thì đổi environment ready trong control transaction và mở
-   ingress. Nếu không có activation hợp lệ, giữ unavailable; rollback sang bản
-   giữ được phải là recovery activation rõ ràng, không gọi nó bản mới nhất.
+1. Close serving/write ingress and stop the scheduler/workers; revoke/rotate old writer
+   and service credentials, terminate connections. Do not merely set ready=false
+   in the DB copy about to be restored. Bootstrap outside the backup is driven by the operator/local
+   script; old processes are not allowed to bootstrap an epoch themselves.
+2. Restore the backup set/catalog/PG/artifacts. Generate a **new epoch UUID after restore**,
+   different from the backup epoch; rotate context signing credentials so old tokens become
+   invalid. Fence counters may be restored to lower values but the new epoch is still different.
+3. Check the exact dependency closure of the activation intended to be served, including
+   content/schema/coverage/compatibility and endpoint attestation. Redis can be
+   rebuilt from the exact offline generation and then validated; an old marker is never treated as
+   evidence that the materialization still exists. A rebuild that changes the physical namespace needs a
+   new receipt/deployment activation referencing the old generation content digest;
+   never edit an immutable receipt or reuse an ID name for different content.
+4. New writers only receive new-epoch credentials/tokens. Reset old leases, check GC and
+   orphan candidates; never revive reader tokens from the backup. When every required
+   dependency is valid, switch the environment to ready in a control transaction and open
+   ingress. If there is no valid activation, stay unavailable; a rollback to a version
+   that can be kept must be an explicit recovery activation, never called the latest version.
 
-Health process sống khác readiness. Readiness cần epoch hiện hành, control
-reachable, required namespaces/receipts verified, model bundle attested, scope
-coverage và freshness theo policy. Fail Redis chỉ làm unavailable capability
-có dependency đó nếu output profile đã cho phép partial serving; không trả0.
-RPO/RTO, backup cadence, TTL/lease/sweep interval và retention durations phải
-được cấu hình/benchmark trước G4, chưa tự coi đạt từ thiết kế này.
+Process liveness differs from readiness. Readiness needs the current epoch, a reachable
+control store, verified required namespaces/receipts, an attested model bundle, scope
+coverage and freshness per policy. A Redis failure only makes unavailable the capability
+that depends on it, if the output profile allows partial serving; never return0.
+RPO/RTO, backup cadence, TTL/lease/sweep intervals and retention durations must
+be configured/benchmarked before G4; they are not considered met from this design alone.
 
-## 9. Budgets và thực thi nhiều hop
+## 9. Budgets and multi-hop execution
 
-Một request có tổng work budget do gateway cấp, dùng ledger server-side
-atomic theo context. Agents không được tự cấp budget mới; mỗi nested call/
-retry fan-out phải reserve từ cùng ledger trước dispatch, reconcile actual
-sau call; quá hạn/thiếu quota thì không dispatch tiếp. Budget không chỉ là
-HTTP count: giới hạn total tool attempts, query time, rows scanned/returned,
-bytes, model tokens, concurrent tasks và total deadline. SQL LIMIT chỉ chặn
-rows trả về, không chặn scan; từ chối unbounded window/tenant/filter trước
-query, dùng indexed/materialized views, statement timeout và query layout
-benchmark. Nếu engine không có hard byte-scan quota, ghi rõ giới hạn là
-estimated + thời gian/concurrency, không tuyên bố hard bytes enforcement.
+A request has a total work budget issued by the gateway, using an atomic server-side ledger
+per context. Agents may not grant themselves new budget; every nested call/
+retry fan-out must reserve from the same ledger before dispatch and reconcile actual usage
+after the call; when past the deadline or out of quota, nothing more is dispatched. The budget is not just an
+HTTP count: it limits total tool attempts, query time, rows scanned/returned,
+bytes, model tokens, concurrent tasks and total deadline. SQL LIMIT only caps
+rows returned, not rows scanned; reject unbounded window/tenant/filter before the
+query, use indexed/materialized views, statement timeout and a query layout
+benchmark. If the engine has no hard byte-scan quota, state clearly that the limit is
+estimated + time/concurrency, never claiming hard byte enforcement.
 
-Policy demo để bắt đầu POC, chưa phải SLA/ngưỡng nghiệm thu đã đo:
-`answer deadline 45s`, `tool attempts total 8` kể cả retry, `concurrency 2`,
+Demo policy to start the POC, not a measured SLA/acceptance threshold:
+`answer deadline 45s`, `tool attempts total 8` including retries, `concurrency 2`,
 `SQL statement 5s`, `returned rows/tool 500`, `response bytes/tool 1 MiB`,
-`metric window <=180 ngày`; token/corpus/query-scan caps là config required
-phải chốt theo bản model/engine trước POC tương ứng. Không lấy defaults này
-thay benchmark CPU hoặc ngân sách Cloud; policy digest nằm trong bundle/input.
-Retry chỉ lỗi transient còn budget/deadline; invalid scope, compatibility,
-expired context, missing history hoặc unknown coverage không retry sang latest.
+`metric window <=180 days`; token/corpus/query-scan caps are required config
+that must be settled per model/engine version before the corresponding POC. These defaults never
+replace a CPU benchmark or Cloud budget; the policy digest lives in the bundle/input.
+Retry only transient errors while budget/deadline remain; invalid scope, compatibility,
+expired context, missing history or unknown coverage are never retried against latest.
 
-Roles tách publisher, source loader, serving query và model runtime. Agent
-read-only chỉ gọi tool templates/allowlist views theo account; không raw SQL,
-control-plane tables, arbitrary URL, filesystem hoặc secret endpoint. Serving
-role không sở hữu tables, không CREATE/WRITE và không bypass scope filter;
-service auth xác minh audience/subject/authorization ở mỗi boundary, không
-passthrough token tùy ý. Read-only credentials vẫn cần query bounds.
+Roles separate publisher, source loader, serving query and model runtime. A read-only
+agent only calls tool templates/allowlisted views per account; no raw SQL,
+control-plane tables, arbitrary URLs, filesystem or secret endpoints. The serving
+role owns no tables, has no CREATE/WRITE and cannot bypass the scope filter;
+service auth verifies audience/subject/authorization at each boundary, never
+passing arbitrary tokens through. Read-only credentials still need query bounds.
 
-Cancellation propagate gateway → coordinator → child tool → DB/model handle;
-DB có query ID để cancel thực tế, không chỉ ngừng await. Spark/historical job
-có job group/cancel và runtime cap; queued tasks giữ shared deadline. Backend
-không hỗ trợ cancel phải cô lập worker với hard timeout/process limit trước
-expose endpoint. Late response không được emit vào answer đã timeout. Cleanup
-lease thực hiện sau cancel/finalize; trace ghi attempt/query IDs và actual
-work/token usage, redact dữ liệu/credentials. PostgreSQL có `statement_timeout`
-và `lock_timeout`; app vẫn phải gắn chúng vào query/session đúng scope.
-[Nguồn PostgreSQL 15](https://www.postgresql.org/docs/15/runtime-config-client.html).
+Cancellation propagates gateway → coordinator → child tool → DB/model handle;
+the DB has a query ID so it can actually cancel, not just stop awaiting. Spark/historical jobs
+have a job group/cancel and a runtime cap; queued tasks keep the shared deadline. A backend
+that does not support cancel must isolate the worker with a hard timeout/process limit before
+exposing the endpoint. A late response must not be emitted into an answer that has timed out. Lease cleanup
+happens after cancel/finalize; the trace records attempt/query IDs and actual
+work/token usage, redacting data/credentials. PostgreSQL has `statement_timeout`
+and `lock_timeout`; the app must still attach them to the query/session in the correct scope.
+[PostgreSQL 15 source](https://www.postgresql.org/docs/15/runtime-config-client.html).
 
-## 10. POC cần đạt và điều kiện đóng IR
+## 10. POCs to pass and IR closing conditions
 
-Mỗi probe lưu input/output digests, fixture expected độc lập, environment/deps,
-trace/actual work, cleanup state và result. Chưa có probe dưới đây chạy đạt.
+Each probe stores input/output digests, an independent expected fixture, environment/deps,
+trace/actual work, cleanup state and result. None of the probes below has passed yet.
 
-| IR | Probe bắt buộc | Gate / điều kiện đóng |
+| IR | Required probe | Gate / closing condition |
 |---|---|---|
-| IR02 | Replace Bronze/sửa Variables giữa tasks và retry; upstream snapshot expire | G1/G2: build/validate exact manifest hoặc fail rõ, không trộn input |
-| IR06 |0→1→immature tại ba cutoffs, same-time source conflict, maturity boundary | G2: historical selection đúng, training dataset cũ không đổi digest |
-| IR10 | Cùng business window với as-known/restated; yêu cầu historical chưa materialize | G2/G3: kết quả đúng cutoff hoặc unsupported, không latest fallback |
-| IR17 | Publish giữa tools/pages, retry/cache khác scope/currency, expired pin | G3: một turn/context đúng version; expiry kết thúc rõ; không leak quyền |
-| IR18 | Weights sai, reorder units/schema, mixed rolling pods, wrong target | G2/G3: chặn trước inference; trace artifact thực; rollback đúng bundle |
-| IR19 | Restore PG/catalog/Redis lệch thời điểm, old writer sống lại, old cached token | G4: epoch/credentials fence thật, dependency verified trước ready |
-| IR20 | Required output thiếu; optional unavailable; capability subset năm Channel | G2/G3: không đổi profile để pass, không unknown→0, scope báo đúng |
-| IR22 | Rule/config/dependency/prompt đổi giữa build/validate/serve; mutable alias | G0–G4: digest mismatch bị chặn hoặc tạo revision/activation mới |
-| IR23 | Order D10, train info D60, delivery D65; replay vs actual timestamps | G2: không tính sample đó vào forward-at-order proof; fold clocks rõ |
-| IR25 | Prompt injection/URL, huge scan, nested retry, concurrency/cancel | G3/G4: role/scope đúng, shared budgets enforce, backend work thực dừng/bounded |
+| IR02 | Replace Bronze/edit Variables between tasks and retry; upstream snapshot expires | G1/G2: build/validate the exact manifest or fail clearly, never mixing inputs |
+| IR06 | 0→1→immature at three cutoffs, same-time source conflict, maturity boundary | G2: correct historical selection, old training dataset digest unchanged |
+| IR10 | Same business window with as-known/restated; request for history not yet materialized | G2/G3: correct result for the cutoff or unsupported, no latest fallback |
+| IR17 | Publish between tools/pages, retry/cache with different scope/currency, expired pin | G3: one turn/context on the correct version; expiry ends clearly; no permission leak |
+| IR18 | Wrong weights, reordered units/schema, mixed rolling pods, wrong target | G2/G3: blocked before inference; trace of the actual artifact; rollback to the correct bundle |
+| IR19 | Restore PG/catalog/Redis at mismatched points in time, old writer comes back, old cached token | G4: real epoch/credential fence, dependencies verified before ready |
+| IR20 | Required output missing; optional unavailable; five-Channel capability subset | G2/G3: profile not changed to pass, no unknown→0, scope reported correctly |
+| IR22 | Rule/config/dependency/prompt changes between build/validate/serve; mutable alias | G0–G4: digest mismatch blocked or creates a new revision/activation |
+| IR23 | Order D10, train info D60, delivery D65; replay vs actual timestamps | G2: that sample not counted in the forward-at-order proof; fold clocks clear |
+| IR25 | Prompt injection/URL, huge scan, nested retry, concurrency/cancel | G3/G4: correct role/scope, shared budgets enforced, backend work actually stops/bounded |
 
-POC publication còn phải ép hai writer/CAS conflict/ACK mất, stale intent,
-worker đã mất lease nhưng còn ghi, pin đua GC, Redis TTL và seal enforcement,
-Iceberg reference retention, compatibility và parity trên đúng phiên bản
-Feast/Spark/catalog đã pin. Bảng trên ánh xạ vào S/G hiện có, không tuyên bố
-thêm một con số scenario đã được triển khai. Kết quả fail phải giữ issue mở,
-không đóng bằng việc có tài liệu này. Đặc biệt source/schema/capability mới,
-backend physical sizing, dependency pins, hard query-scan/token caps và G4
-retention/RPO/RTO vẫn cần evidence trước full-scale.
+The publication POC must also force two writers/CAS conflict/lost ACK, stale intent,
+a worker that lost its lease but is still writing, a pin racing GC, Redis TTL and seal enforcement,
+Iceberg reference retention, compatibility and parity on exactly the pinned
+Feast/Spark/catalog versions. The table above maps onto the existing S/G items and does not claim
+an additional number of implemented scenarios. A failed result must keep the issue open,
+not close it because this document exists. In particular, new sources/schemas/capabilities,
+physical backend sizing, dependency pins, hard query-scan/token caps and G4
+retention/RPO/RTO still need evidence before full scale.

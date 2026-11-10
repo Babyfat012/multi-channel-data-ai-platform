@@ -1,24 +1,24 @@
-# LLM Inference Platform trên EKS
+# LLM Inference Platform on EKS
 
-EDAI-2, dòng 3–6: inference, custom model, agentgateway và benchmark.
+This page covers inference, custom models, agentgateway and benchmarking.
 
-Trên cụm EKS `platform-apps`, llama.cpp (một server chạy LLM) tự host model Qwen2.5-1.5B-Instruct bằng CPU.
-Model ở định dạng GGUF, nén Q4_K_M (lượng tử hoá 4 bit), và được lưu trên PVC (ổ đĩa gắn cho pod).
-Đây là model có sẵn đem về tự host; chưa có bằng chứng fine-tuning riêng. Agent gọi model qua agentgateway bằng API tương thích OpenAI.
+On the EKS cluster `platform-apps`, llama.cpp (a server that runs LLMs) self-hosts the Qwen2.5-1.5B-Instruct model on CPU.
+The model is in GGUF format, Q4_K_M compression (4-bit quantization), and is stored on a PVC (a volume attached to the pod).
+This is an off-the-shelf model brought in for self-hosting; there is no evidence of custom fine-tuning yet. Agents call the model through agentgateway using an OpenAI-compatible API.
 
-**Kết luận:** model chạy ổn trên EKS. Đã đo bằng llm-d-benchmark cả cấu hình baseline lẫn optimized, trên cùng cụm và cùng workload: mỗi cấu hình 42 request, không lỗi.
-Khi tải cao (0,4 request/giây), optimized giảm TTFT p50 46% và TTFT p90 40% so với baseline. Khi tải thấp, baseline nhanh hơn vì dùng nhiều luồng CPU hơn.
-Một pod LLM phục vụ được khoảng 0,3 request/giây; trên mức đó hệ bị quá tải (chi tiết ở mục benchmark).
+**Conclusion:** the model runs reliably on EKS. Both the baseline and optimized configurations were measured with llm-d-benchmark, on the same cluster and the same workload: 42 requests per configuration, no errors.
+Under high load (0.4 requests/second), optimized cuts TTFT p50 by 46% and TTFT p90 by 40% compared with baseline. Under low load, baseline is faster because it uses more CPU threads.
+One LLM pod can serve about 0.3 requests/second; above that the system is overloaded (details in the benchmark section).
 
 Code: [`llm.yaml`](../../infra/k8s/agents/llm.yaml), [gateway](../../infra/k8s/agents/agentgateway.yaml), [benchmark](../../scripts/evidence/bench_llm.py), [llm-d baseline vs optimized](../../scripts/evidence/run_llmd_ab.sh).
 
-## Cách setup trên EKS
+## Setup on EKS
 
-Các lệnh dưới đây chạy từ gốc repo, khi EKS `platform-apps` đã có worker, kubeconfig và EBS CSI.
-Chuẩn bị StorageClass `gp3` mặc định theo [Cloud setup](../shared/cloud_setup.md#3-kubernetes-cho-ml-platform--llm-platform);
-PVC trong `llm.yaml` dùng StorageClass mặc định của cụm.
+The commands below run from the repo root, once EKS `platform-apps` has workers, a kubeconfig and the EBS CSI driver.
+Prepare the default `gp3` StorageClass as in [Cloud setup](../shared/cloud_setup.md#3-kubernetes-for-the-ml-platform--llm-platform);
+the PVC in `llm.yaml` uses the cluster's default StorageClass.
 
-### 1. Dựng PVC và llama.cpp
+### 1. Create the PVC and llama.cpp
 
 ```bash
 export KCTX=platform-apps
@@ -30,33 +30,33 @@ kubectl --context "$KCTX" -n llm get pvc models
 kubectl --context "$KCTX" -n llm logs deployment/qwen --tail=50
 ```
 
-Manifest tạo namespace `llm`, PVC `models` **3 GiB**, Deployment và Service `qwen` ở cổng 8080.
-PVC dùng chế độ `ReadWriteOnce` (mỗi lúc chỉ một node gắn được), nên Deployment chọn chiến lược `Recreate`: pod cũ nhả volume xong thì pod mới mới dùng.
-StorageClass `gp3` dùng `WaitForFirstConsumer`, nghĩa là PVC chờ tới khi có pod dùng thì mới bind (gắn với ổ đĩa thật).
+The manifest creates namespace `llm`, PVC `models` **3 GiB**, and the `qwen` Deployment and Service on port 8080.
+The PVC uses `ReadWriteOnce` mode (only one node can attach it at a time), so the Deployment uses the `Recreate` strategy: the new pod only uses the volume once the old pod has released it.
+The `gp3` StorageClass uses `WaitForFirstConsumer`, meaning the PVC waits until a pod uses it before it binds (attaches to a real volume).
 
-Image llama.cpp được ghim cố định bằng image digest.
+The llama.cpp image is pinned by image digest.
 
-- Tham số `-hf Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M` tự tải model GGUF từ Hugging Face ở lần chạy đầu.
-- `LLAMA_CACHE=/models` đặt cache trên PVC, nên khi thay pod thì dùng lại file model đã tải. Pod cần kết nối ra ngoài tới registry và nơi tải model.
-- Startup probe cho tối đa khoảng 10 phút để tải và nạp model. Readiness probe kiểm `/health`; chỉ khi đạt thì Service mới chuyển request vào pod.
+- The parameter `-hf Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M` downloads the GGUF model from Hugging Face automatically on the first run.
+- `LLAMA_CACHE=/models` puts the cache on the PVC, so a replacement pod reuses the downloaded model file. The pod needs outbound access to the registry and the model download location.
+- The startup probe allows up to about 10 minutes to download and load the model. The readiness probe checks `/health`; only once it passes does the Service route requests to the pod.
 
-| Cấu hình hiện hành | Mục đích |
+| Current configuration | Purpose |
 |---|---|
-| `--threads 3`, `--parallel 4` | Dùng 3 luồng CPU và 4 slot (4 request được xử lý đồng thời). Con số chọn dựa trên benchmark EKS bên dưới |
-| `--ctx-size 16384` | Context tổng 16.384 token, tương ứng 4.096 token mỗi slot với cấu hình 4 slot |
-| `--flash-attn on`, KV cache `q8_0` | Giảm bộ nhớ KV cache so với cấu hình mặc định để phục vụ context đã chọn |
-| `--jinja`, `--alias qwen2.5-1.5b-instruct` | Bật chat template hỗ trợ tool calling và đặt tên model cho client/gateway |
-| `--metrics` | Mở `/metrics` cho Prometheus; pod có annotation scrape cổng 8080 |
+| `--threads 3`, `--parallel 4` | Use 3 CPU threads and 4 slots (4 requests processed concurrently). The numbers were chosen from the EKS benchmark below |
+| `--ctx-size 16384` | Total context of 16,384 tokens, i.e. 4,096 tokens per slot with the 4-slot configuration |
+| `--flash-attn on`, KV cache `q8_0` | Reduces KV cache memory compared with the default configuration to serve the chosen context |
+| `--jinja`, `--alias qwen2.5-1.5b-instruct` | Enables the chat template that supports tool calling and sets the model name for clients/gateway |
+| `--metrics` | Exposes `/metrics` for Prometheus; the pod has a scrape annotation for port 8080 |
 
-### 2. Kiểm tra API của LLM
+### 2. Check the LLM API
 
-Mở port-forward trong một terminal:
+Open a port-forward in one terminal:
 
 ```bash
 kubectl --context "$KCTX" -n llm port-forward svc/qwen 18080:8080
 ```
 
-Trong terminal khác, kiểm tra health và gửi một câu chat:
+In another terminal, check health and send a chat message:
 
 ```bash
 curl --fail-with-body http://127.0.0.1:18080/health
@@ -65,13 +65,13 @@ curl --fail-with-body http://127.0.0.1:18080/v1/chat/completions \
   -d '{"model":"qwen2.5-1.5b-instruct","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":16,"temperature":0}'
 ```
 
-Kết quả mong đợi: health trả HTTP 200; chat trả JSON có `choices` và nội dung trả lời.
+Expected result: health returns HTTP 200; chat returns JSON with `choices` and the reply content.
 
-### 3. Nối agentgateway
+### 3. Connect agentgateway
 
-[`agentgateway.yaml`](../../infra/k8s/agents/agentgateway.yaml) khai báo model `qwen2.5-1.5b-instruct`
-với `baseUrl: http://qwen.llm.svc.cluster.local:8080/v1`. Gateway nhận API key qua Secret
-`agentgateway-keys`, trường `AGW_AGENT_KEY`. Khi dựng mới, tạo key một lần; nếu Secret đã có thì giữ nguyên:
+[`agentgateway.yaml`](../../infra/k8s/agents/agentgateway.yaml) declares the model `qwen2.5-1.5b-instruct`
+with `baseUrl: http://qwen.llm.svc.cluster.local:8080/v1`. The gateway receives its API key through the Secret
+`agentgateway-keys`, field `AGW_AGENT_KEY`. On a fresh setup, create the key once; if the Secret already exists, keep it:
 
 ```bash
 kubectl --context "$KCTX" apply -f infra/k8s/agents/agentgateway.yaml
@@ -85,17 +85,17 @@ kubectl --context "$KCTX" -n agentgateway rollout restart deployment/agentgatewa
 kubectl --context "$KCTX" -n agentgateway rollout status deployment/agentgateway --timeout=180s
 ```
 
-Agent gọi gateway tại `http://agentgateway.agentgateway.svc.cluster.local:3000/v1`, dùng cùng API key
-và tên model ở trên. Cấu hình gateway còn có route MCP, A2A và model nhỏ phục vụ A/B; các route đó chỉ chạy khi có workload
-tương ứng. Bước setup này chỉ dựng đường gọi tới Qwen 1,5B; phần kiểm chứng policy xem [Gateway](agent_gateways.md).
+Agents call the gateway at `http://agentgateway.agentgateway.svc.cluster.local:3000/v1`, using the same API key
+and model name as above. The gateway configuration also has MCP and A2A routes and a small model for A/B testing; those routes only work when the corresponding
+workload exists. This setup step only builds the call path to Qwen 1.5B; for policy verification see [Gateway](agent_gateways.md).
 
-Để kiểm tra đường gọi qua gateway, mở port-forward trong một terminal:
+To check the call path through the gateway, open a port-forward in one terminal:
 
 ```bash
 kubectl --context "$KCTX" -n agentgateway port-forward svc/agentgateway 13000:3000
 ```
 
-Trong terminal khác, đặt `KCTX=platform-apps`, đọc key từ Secret và gọi đúng model 1,5B:
+In another terminal, set `KCTX=platform-apps`, read the key from the Secret and call the 1.5B model:
 
 ```bash
 agw_key=$(kubectl --context "$KCTX" -n agentgateway get secret agentgateway-keys \
@@ -106,157 +106,157 @@ curl --fail-with-body http://127.0.0.1:13000/v1/chat/completions \
 unset agw_key
 ```
 
-Các bước trên là hướng dẫn tái lập từ cấu hình repo. Số liệu đã đo trên AWS nằm ở phần dưới.
+The steps above are a reproduction guide based on the repo configuration. Numbers measured on AWS are in the sections below.
 
-## Kiểm tra triển khai trên EKS
+## Deployment check on EKS
 
-Trong namespace `llm` trên cluster `platform-apps` có:
+The `llm` namespace on cluster `platform-apps` contains:
 
-- Deployment `qwen` (1,5B) và `qwen-small` (0,5B, nhánh B của A/B test); mỗi deployment có pod ở trạng thái `1/1 Running`.
-- PVC `models` 3 GiB và `models-small` 1 GiB, đều `Bound` (gp3). Model nằm trên PVC nên khi pod khởi động lại không phải tải lại.
-- Service kiểu `ClusterIP` (chỉ truy cập được trong cụm) ở cổng 8080.
+- Deployments `qwen` (1.5B) and `qwen-small` (0.5B, branch B of the A/B test); each deployment has a pod in state `1/1 Running`.
+- PVCs `models` 3 GiB and `models-small` 1 GiB, both `Bound` (gp3). The model lives on the PVC, so a pod restart does not need to download it again.
+- `ClusterIP` Services (reachable only inside the cluster) on port 8080.
 
-![kubectl get pods,pvc,svc -n llm: qwen và qwen-small Running, PVC models và models-small Bound, Service qwen và qwen-small cổng 8080](../evidence/aws/llm-deploy-pods-pvc-svc.png)
+![kubectl get pods,pvc,svc -n llm: qwen and qwen-small Running, PVCs models and models-small Bound, Services qwen and qwen-small on port 8080](../evidence/aws/llm-deploy-pods-pvc-svc.png)
 
-Log khởi động của llama.cpp cho thấy: tải `Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M`, `n_threads = 3`, `n_slots = 4`, rồi `model loaded` và `listening on 0.0.0.0:8080`.
-Dòng cảnh báo `no API key is set` đến từ llama.cpp. Server này không tự kiểm API key, nhưng chỉ truy cập được từ trong cụm qua Service `ClusterIP`;
-việc kiểm API key do [agentgateway](agent_gateways.md) đảm nhận.
+The llama.cpp startup log shows: downloading `Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M`, `n_threads = 3`, `n_slots = 4`, then `model loaded` and `listening on 0.0.0.0:8080`.
+The warning `no API key is set` comes from llama.cpp. This server does not check API keys itself, but it is only reachable from inside the cluster through the `ClusterIP` Service;
+API key checks are handled by [agentgateway](agent_gateways.md).
 
-![Log qwen: nạp model Q4_K_M, 3 luồng, 4 slot, model loaded, listening 0.0.0.0:8080](../evidence/aws/llm-qwen-startup-log.png)
+![qwen log: loads Q4_K_M model, 3 threads, 4 slots, model loaded, listening 0.0.0.0:8080](../evidence/aws/llm-qwen-startup-log.png)
 
-## Benchmark bằng llm-d-benchmark
+## Benchmark with llm-d-benchmark
 
-Hai chỉ số chính khi đo LLM:
+The two main metrics when measuring an LLM:
 
-- **TTFT** (time to first token): thời gian từ lúc gửi request tới khi nhận token đầu tiên.
-- **TPOT** (time per output token): thời gian trung bình để sinh mỗi token tiếp theo.
+- **TTFT** (time to first token): time from sending the request to receiving the first token.
+- **TPOT** (time per output token): average time to generate each subsequent token.
 
-[llm-d-benchmark](https://github.com/llm-d/llm-d-benchmark) có chế độ `run` (run-only): đo một endpoint **đã chạy sẵn**,
-không dựng lại cả stack. Bộ đo (harness) `inference-perf` chạy thành pod trong namespace `llm-bench` và gọi `/v1/completions`
-vào Service `qwen.llm:8080`. Request dùng streaming nên đo được TTFT. llama.cpp server dùng cùng giao thức OpenAI nên gọi được trực tiếp.
+[llm-d-benchmark](https://github.com/llm-d/llm-d-benchmark) has a `run` (run-only) mode: it measures an **already running** endpoint
+without rebuilding the whole stack. The `inference-perf` harness runs as a pod in namespace `llm-bench` and calls `/v1/completions`
+on the Service `qwen.llm:8080`. Requests use streaming so TTFT can be measured. The llama.cpp server speaks the same OpenAI protocol, so it can be called directly.
 
-Workload: [`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), lấy từ `sanity_random`
-của llm-d-benchmark rồi giảm cỡ cho hợp với CPU: ba mức 0,1 / 0,2 / 0,4 request/giây, mỗi mức 60 s, prompt ~128 token, sinh ~32 token.
-Lệnh chạy và cách cài (Python 3.14, commit cố định): [`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh).
+Workload: [`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), taken from llm-d-benchmark's `sanity_random`
+and scaled down to suit CPU: three levels of 0.1 / 0.2 / 0.4 requests/second, 60 s each, prompt ~128 tokens, generating ~32 tokens.
+Run command and installation (Python 3.14, pinned commit): [`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh).
 
-**Kiểm tương thích với llama.cpp (local, trước khi chạy EKS).** Tài liệu của llm-d-benchmark và inference-perf không ghi llama.cpp là
-engine được hỗ trợ (chỉ ghi vLLM, SGLang, TGI), nên đã thử thật trước ở local:
+**Compatibility check with llama.cpp (local, before running on EKS).** The llm-d-benchmark and inference-perf documentation does not list llama.cpp as
+a supported engine (only vLLM, SGLang, TGI), so it was tried locally first:
 
-1. Chạy container llama.cpp cùng image đã ghim như trên EKS. Dùng model Qwen2.5-0.5B Q4_K_M thay cho 1,5B vì chạy trên máy local, nhưng đặt `--alias qwen2.5-1.5b-instruct`.
-2. Chạy `inference-perf` (bộ đo lõi mà llm-d-benchmark dùng) với workload của repo, một mức 0,5 request/giây trong 20 s.
+1. Run the llama.cpp container with the same pinned image as on EKS. The Qwen2.5-0.5B Q4_K_M model is used instead of 1.5B because it runs on a local machine, but with `--alias qwen2.5-1.5b-instruct`.
+2. Run `inference-perf` (the core harness llm-d-benchmark uses) with the repo workload, one level of 0.5 requests/second for 20 s.
 
-| Điểm kiểm | Kết quả |
+| Check | Result |
 |---|---|
-| `GET /v1/models` | `id` = `qwen2.5-1.5b-instruct` (alias); llm-d-benchmark đối chiếu model theo id này ở bước verify |
-| `POST /v1/completions`, streaming, `stream_options.include_usage` | chunk `text_completion`, `choices[0].text`, 24 chunk cho `max_tokens=24`, chunk cuối có `usage` (24 token) |
-| `ignore_eos` | `false` dừng ở 3 token, `true` sinh đủ 60 token: llama.cpp nhận tham số này |
-| Trường `model` sai tên | vẫn trả kết quả, không bị từ chối |
-| Chạy `inference-perf` | 10/10 thành công, 0 lỗi; TTFT TB 0,51 s, TPOT TB 26 ms, request TB 1,32 s; token đầu ra đếm phía client 31,7 so với phía server 32,7 |
+| `GET /v1/models` | `id` = `qwen2.5-1.5b-instruct` (alias); llm-d-benchmark matches the model by this id in its verify step |
+| `POST /v1/completions`, streaming, `stream_options.include_usage` | `text_completion` chunks, `choices[0].text`, 24 chunks for `max_tokens=24`, the last chunk has `usage` (24 tokens) |
+| `ignore_eos` | `false` stops at 3 tokens, `true` generates the full 60 tokens: llama.cpp honors this parameter |
+| Wrong `model` field name | still returns a result, not rejected |
+| Run `inference-perf` | 10/10 succeeded, 0 errors; mean TTFT 0.51 s, mean TPOT 26 ms, mean request 1.32 s; output tokens counted client-side 31.7 vs server-side 32.7 |
 
-Kết quả đầy đủ: [`llmd-inference-perf-llamacpp-local-20261104.json`](../evidence/llmd-inference-perf-llamacpp-local-20261104.json).
-Kết luận: llama.cpp đủ tương thích để chạy llm-d-benchmark. Các số trên đo bằng model 0,5B ở máy local, **không phải số EKS**, và không dùng để so với bảng đo bên dưới.
+Full results: [`llmd-inference-perf-llamacpp-local-20261104.json`](../evidence/llmd-inference-perf-llamacpp-local-20261104.json).
+Conclusion: llama.cpp is compatible enough to run llm-d-benchmark. The numbers above were measured with the 0.5B model on a local machine, **not EKS numbers**, and are not for comparison with the tables below.
 
-**Chạy thật trên EKS bằng llm-d-benchmark.** Chế độ run-only trỏ vào Service `qwen.llm:8080` (llama.cpp, Qwen2.5-1.5B), harness `inference-perf`, workload
-[`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), chạy từ máy quản trị bằng
-[`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh). Diễn biến:
+**Real run on EKS with llm-d-benchmark.** Run-only mode pointed at the Service `qwen.llm:8080` (llama.cpp, Qwen2.5-1.5B), harness `inference-perf`, workload
+[`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), run from the admin machine with
+[`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh). Sequence:
 
-1. Công cụ tạo pod `smoketest` để kiểm model; pod đọc `/v1/models` thành công.
-2. Công cụ tạo pod harness. Pod tải tokenizer từ Hugging Face rồi chạy lần lượt ba mức tải.
-3. Pod kết thúc với `harness_rc: 0` (mã thoát thành công) sau 3 phút 52 giây.
+1. The tool creates a `smoketest` pod to check the model; the pod reads `/v1/models` successfully.
+2. The tool creates the harness pod. The pod downloads the tokenizer from Hugging Face, then runs the three load levels in turn.
+3. The pod finishes with `harness_rc: 0` (success exit code) after 3 minutes 52 seconds.
 
-Lần chạy đầu (04/11) chỉ đo cấu hình đã tối ưu. Kết quả đầy đủ trong [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
-(`run_metadata.yaml`, báo cáo từng mức, `stdout.log`).
+The first run (Nov 4) only measured the optimized configuration. Full results in [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
+(`run_metadata.yaml`, per-level reports, `stdout.log`).
 
-### Baseline so với optimized (10/11/2026)
+### Baseline vs optimized (Nov 10, 2026)
 
-Để thấy phần tối ưu đem lại gì, đo lại bằng llm-d-benchmark **hai cấu hình llama.cpp trên cùng cụm, cùng ngày, cùng workload**, chỉ đổi tham số của Deployment `qwen`:
+To see what the optimization buys, llm-d-benchmark was rerun on **two llama.cpp configurations on the same cluster, same day, same workload**, changing only the parameters of the `qwen` Deployment:
 
-| Cấu hình | Tham số llama.cpp |
+| Configuration | llama.cpp parameters |
 |---|---|
-| baseline | cấu hình A ban đầu: `--threads 4`, `--parallel 2`, `--ctx-size 8192`, KV cache f16, `--flash-attn off` |
-| optimized | cấu hình hiện hành trong [`llm.yaml`](../../infra/k8s/agents/llm.yaml): `--threads 3`, `--parallel 4`, `--ctx-size 16384`, KV cache `q8_0`, `--flash-attn on` |
+| baseline | original configuration A: `--threads 4`, `--parallel 2`, `--ctx-size 8192`, KV cache f16, `--flash-attn off` |
+| optimized | current configuration in [`llm.yaml`](../../infra/k8s/agents/llm.yaml): `--threads 3`, `--parallel 4`, `--ctx-size 16384`, KV cache `q8_0`, `--flash-attn on` |
 
-Lệnh chạy: [`run_llmd_ab.sh`](../../scripts/evidence/run_llmd_ab.sh). Script patch Deployment về baseline, đo, `apply` lại `llm.yaml`, đo lần nữa,
-rồi in bảng bằng [`compare_llmd_runs.py`](../../scripts/evidence/compare_llmd_runs.py).
-Baseline chạy lúc 05:09 UTC. Lần đo optimized đầu tiên bị lỗi vì máy quản trị mất kết nối tới API EKS (IP ra Internet không nằm trong danh sách được phép), nên đo lại lúc 06:07 UTC.
-Cả hai lần đều `harness_rc: 0`, mỗi lần 42/42 request thành công.
-Kết quả: [`baseline-20261110/`](../evidence/aws/llmd-benchmark/baseline-20261110/summary_lifecycle_metrics.json),
+Run command: [`run_llmd_ab.sh`](../../scripts/evidence/run_llmd_ab.sh). The script patches the Deployment to baseline, measures, re-`apply`s `llm.yaml`, measures again,
+then prints the tables with [`compare_llmd_runs.py`](../../scripts/evidence/compare_llmd_runs.py).
+Baseline ran at 05:09 UTC. The first optimized measurement failed because the admin machine lost its connection to the EKS API (its outbound IP was not on the allow list), so it was rerun at 06:07 UTC.
+Both runs had `harness_rc: 0`, with 42/42 successful requests each.
+Results: [`baseline-20261110/`](../evidence/aws/llmd-benchmark/baseline-20261110/summary_lifecycle_metrics.json),
 [`optimized-20261110/`](../evidence/aws/llmd-benchmark/optimized-20261110/summary_lifecycle_metrics.json).
 
-**Bảng 1. Baseline** (`--threads 4`, `--parallel 2`), [`baseline-20261110/`](../evidence/aws/llmd-benchmark/baseline-20261110/summary_lifecycle_metrics.json):
+**Table 1. Baseline** (`--threads 4`, `--parallel 2`), [`baseline-20261110/`](../evidence/aws/llmd-benchmark/baseline-20261110/summary_lifecycle_metrics.json):
 
-| Tải (req/s, 60 s) | OK / lỗi | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Đạt (req/s) | Token ra/s |
+| Load (req/s, 60 s) | OK / errors | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Achieved (req/s) | Output tokens/s |
 |---|---:|---:|---:|---:|---:|---:|
-| 0,1 | 6 / 0 | 1,79 / 2,37 | 66 | 3,78 / 5,67 | 0,097 | 2,87 |
-| 0,2 | 12 / 0 | 1,77 / 2,89 | 95 | 5,44 / 6,59 | 0,189 | 6,09 |
-| 0,4 | 24 / 0 | 9,41 / 21,10 | 151 | 14,20 / 25,56 | 0,316 | 9,84 |
+| 0.1 | 6 / 0 | 1.79 / 2.37 | 66 | 3.78 / 5.67 | 0.097 | 2.87 |
+| 0.2 | 12 / 0 | 1.77 / 2.89 | 95 | 5.44 / 6.59 | 0.189 | 6.09 |
+| 0.4 | 24 / 0 | 9.41 / 21.10 | 151 | 14.20 / 25.56 | 0.316 | 9.84 |
 
-**Bảng 2. Optimized** (`--threads 3`, `--parallel 4`, flash-attn, KV `q8_0`), [`optimized-20261110/`](../evidence/aws/llmd-benchmark/optimized-20261110/summary_lifecycle_metrics.json):
+**Table 2. Optimized** (`--threads 3`, `--parallel 4`, flash-attn, KV `q8_0`), [`optimized-20261110/`](../evidence/aws/llmd-benchmark/optimized-20261110/summary_lifecycle_metrics.json):
 
-| Tải (req/s, 60 s) | OK / lỗi | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Đạt (req/s) | Token ra/s |
+| Load (req/s, 60 s) | OK / errors | TTFT p50 / p90 (s) | TPOT p50 (ms) | Request p50 / p90 (s) | Achieved (req/s) | Output tokens/s |
 |---|---:|---:|---:|---:|---:|---:|
-| 0,1 | 6 / 0 | 1,95 / 2,84 | 103 | 5,34 / 8,70 | 0,099 | 2,80 |
-| 0,2 | 12 / 0 | 1,97 / 3,88 | 141 | 7,73 / 9,24 | 0,189 | 5,75 |
-| 0,4 | 24 / 0 | 5,12 / 12,73 | 253 | 13,50 / 19,52 | 0,335 | 10,61 |
+| 0.1 | 6 / 0 | 1.95 / 2.84 | 103 | 5.34 / 8.70 | 0.099 | 2.80 |
+| 0.2 | 12 / 0 | 1.97 / 3.88 | 141 | 7.73 / 9.24 | 0.189 | 5.75 |
+| 0.4 | 24 / 0 | 5.12 / 12.73 | 253 | 13.50 / 19.52 | 0.335 | 10.61 |
 
-**Bảng 3. Optimized so với baseline** (âm là optimized thấp hơn; với độ trễ thì thấp hơn là tốt hơn):
+**Table 3. Optimized vs baseline** (negative means optimized is lower; for latency, lower is better):
 
-| Tải (req/s) | TTFT p50 | TTFT p90 | TPOT p50 | Request p90 | Đạt (req/s) | Token ra/s |
+| Load (req/s) | TTFT p50 | TTFT p90 | TPOT p50 | Request p90 | Achieved (req/s) | Output tokens/s |
 |---|---:|---:|---:|---:|---:|---:|
-| 0,1 | +9% | +20% | +56% | +53% | +2% | −2% |
-| 0,2 | +11% | +34% | +48% | +40% | 0% | −6% |
-| 0,4 | **−46%** | **−40%** | +68% | **−24%** | **+6%** | **+8%** |
+| 0.1 | +9% | +20% | +56% | +53% | +2% | −2% |
+| 0.2 | +11% | +34% | +48% | +40% | 0% | −6% |
+| 0.4 | **−46%** | **−40%** | +68% | **−24%** | **+6%** | **+8%** |
 
-Đọc kết quả:
+Reading the results:
 
-- **Ở mức 0,4 request/giây (hệ đã bão hòa), optimized tốt hơn rõ.** So với baseline: TTFT p50 giảm 46% (9,41 s → 5,12 s), TTFT p90 giảm 40% (21,1 s → 12,7 s),
-  request p90 giảm 24%, số request xử lý được mỗi giây tăng 6%, số token sinh ra mỗi giây tăng 8%.
-  Lý do: baseline chỉ có 2 slot, request thứ ba trở đi phải xếp hàng. Thời gian chờ trong hàng tính vào TTFT, nên TTFT của baseline tăng vọt.
-  TPOT của baseline thấp hơn (151 ms so với 253 ms) vì mỗi lúc chỉ 2 request chia CPU, nhưng người dùng vẫn phải chờ lâu hơn để nhận token đầu tiên.
-- **Ở mức 0,1–0,2 request/giây, baseline nhanh hơn.** TPOT thấp hơn 33–36%, request p50 nhanh hơn khoảng 30%.
-  Lý do: baseline dùng 4 luồng, optimized chỉ 3 luồng (chừa 1 vCPU cho pod khác). Khớp với bảng đo số luồng ở mục dưới: 4 luồng nhanh nhất khi chỉ có 1 request.
-- **Vẫn giữ optimized.** Tải thật của hệ có nhiều request chồng nhau: Coordinator gọi 2 Agent song song, thành 2–4 request LLM cùng lúc.
-  Với tải này, độ trễ đuôi (p90) và thời gian chờ token đầu quan trọng hơn tốc độ của một request đơn lẻ.
-- **Giới hạn của phép so.** Hai cấu hình khác nhau ở nhiều tham số cùng lúc, nên bảng này không tách được tác dụng của từng tham số.
-  Phần tách từng tham số nằm ở bảng `bench_llm.py` (laptop: A với B; EKS: 6/3/4 luồng). Mỗi mức tải chỉ có 6–24 request và mỗi cấu hình đo một lần,
-  nên không tính khoảng tin cậy. Coi chênh lệch dưới ~10% là hoà.
-- Lần chạy optimized ngày 04/11 cho số gần với lần 10/11: ở 0,4 req/s, TTFT p50 là 5,62 s so với 5,12 s, đạt 0,340 so với 0,335 req/s.
-  Giới hạn thực tế vẫn vào khoảng 0,3 request/giây cho mỗi pod LLM. Điều này khớp với việc chuỗi Agent gọi LLM nhiều lượt bị chậm khi các request chồng lên nhau
-  ([Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026)).
+- **At 0.4 requests/second (the system is saturated), optimized is clearly better.** Compared with baseline: TTFT p50 drops 46% (9.41 s → 5.12 s), TTFT p90 drops 40% (21.1 s → 12.7 s),
+  request p90 drops 24%, requests handled per second rise 6%, tokens generated per second rise 8%.
+  Reason: baseline has only 2 slots, so the third request onwards has to queue. Queueing time counts toward TTFT, so baseline's TTFT shoots up.
+  Baseline's TPOT is lower (151 ms vs 253 ms) because only 2 requests share the CPU at a time, but users still wait longer for the first token.
+- **At 0.1–0.2 requests/second, baseline is faster.** TPOT is 33–36% lower, request p50 about 30% faster.
+  Reason: baseline uses 4 threads, optimized only 3 (leaving 1 vCPU for other pods). This matches the thread-count table in the section below: 4 threads is fastest with only 1 request.
+- **Optimized is kept.** The system's real load has many overlapping requests: the Coordinator calls 2 Agents in parallel, giving 2–4 concurrent LLM requests.
+  Under this load, tail latency (p90) and time to first token matter more than the speed of a single request.
+- **Limits of the comparison.** The two configurations differ in several parameters at once, so this table cannot isolate the effect of each parameter.
+  The per-parameter breakdown is in the `bench_llm.py` table (laptop: A vs B; EKS: 6/3/4 threads). Each load level has only 6–24 requests and each configuration was measured once,
+  so no confidence intervals are computed. Treat differences under ~10% as a tie.
+- The optimized run on Nov 4 gave numbers close to the Nov 10 run: at 0.4 req/s, TTFT p50 was 5.62 s vs 5.12 s, achieved 0.340 vs 0.335 req/s.
+  The practical limit is still about 0.3 requests/second per LLM pod. This matches the multi-turn Agent chains slowing down when requests overlap
+  ([Agent Evaluation](agent_evaluation.md#coordinator-on-aws-2026-11-04)).
 
-Hai điều chỉnh bắt buộc để llm-d-benchmark chạy được trên cụm EKS này (đã đưa vào script):
+Two adjustments required for llm-d-benchmark to run on this EKS cluster (already in the script):
 
-1. Dùng `--no-pvc`. Mặc định công cụ tạo PVC `ReadWriteMany` 20 GiB, nhưng EBS `gp3` chỉ hỗ trợ `ReadWriteOnce`, nên báo lỗi `Volume capabilities not supported`.
-2. Hạ tài nguyên của pod harness từ mặc định 16 CPU / 32 GiB xuống 1 CPU / 2 GiB. Nếu không, pod bị kẹt ở `Pending` (`Insufficient cpu/memory`) vì node chỉ có 4 vCPU.
+1. Use `--no-pvc`. By default the tool creates a 20 GiB `ReadWriteMany` PVC, but EBS `gp3` only supports `ReadWriteOnce`, so it fails with `Volume capabilities not supported`.
+2. Lower the harness pod's resources from the default 16 CPU / 32 GiB to 1 CPU / 2 GiB. Otherwise the pod is stuck in `Pending` (`Insufficient cpu/memory`) because the node has only 4 vCPUs.
 
-Số trong bảng ở mục dưới do một công cụ khác là [`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, đo với cấu hình khác (số luồng, mức đồng thời), nên không so trực tiếp với các bảng llm-d-benchmark ở trên.
+The numbers in the table in the section below come from a different tool, [`bench_llm.py`](../../scripts/evidence/bench_llm.py), measured with a different configuration (thread count, concurrency level), so they are not directly comparable with the llm-d-benchmark tables above.
 
-## Đo lại trên EKS
+## Re-measurement on EKS
 
-Mục đích: chọn số luồng CPU cho llama.cpp. Node `r6i.xlarge` chỉ có 4 vCPU, nhưng cấu hình B (cấu hình thắng trong [benchmark trên laptop](reference/llm_platform_agents.md), không phải nhánh B của A/B test) đặt 6 luồng, theo laptop 6 nhân.
-Chạy cùng một script, gọi qua `kubectl port-forward svc/qwen`, mỗi lần chỉ đổi `--threads`. Cột "Đồng thời" là số request gửi cùng lúc:
+Purpose: choose the CPU thread count for llama.cpp. The `r6i.xlarge` node has only 4 vCPUs, but configuration B (the winning configuration in the [laptop benchmark](reference/llm_platform_agents.md), not branch B of the A/B test) sets 6 threads, based on a 6-core laptop.
+The same script was run, called through `kubectl port-forward svc/qwen`, changing only `--threads` each time. The "Concurrency" column is the number of requests sent at the same time:
 
-| Luồng | Đồng thời | p50 (s) | p95 (s) | request/s | token ra/s |
+| Threads | Concurrency | p50 (s) | p95 (s) | requests/s | output tokens/s |
 |---|---:|---:|---:|---:|---:|
-| 6 (cũ) | 1 | 5,66 | 6,25 | 0,188 | 9,9 |
-| | 2 | 8,63 | 14,70 | 0,204 | 10,6 |
-| | 4 | 11,02 | 12,60 | 0,342 | 17,7 |
-| **3** | 1 | 5,38 | 5,62 | 0,204 | 10,7 |
-| | 2 | 7,70 | 14,97 | 0,214 | 11,3 |
-| | 4 | **10,96** | **12,44** | **0,345** | **17,8** |
-| 4 | 1 | **4,74** | 5,19 | 0,229 | 12,0 |
-| | 2 | 7,60 | 13,93 | 0,225 | 11,8 |
-| | 4 | 12,57 | 19,14 | 0,269 | 14,0 |
+| 6 (old) | 1 | 5.66 | 6.25 | 0.188 | 9.9 |
+| | 2 | 8.63 | 14.70 | 0.204 | 10.6 |
+| | 4 | 11.02 | 12.60 | 0.342 | 17.7 |
+| **3** | 1 | 5.38 | 5.62 | 0.204 | 10.7 |
+| | 2 | 7.70 | 14.97 | 0.214 | 11.3 |
+| | 4 | **10.96** | **12.44** | **0.345** | **17.8** |
+| 4 | 1 | **4.74** | 5.19 | 0.229 | 12.0 |
+| | 2 | 7.60 | 13.93 | 0.225 | 11.8 |
+| | 4 | 12.57 | 19.14 | 0.269 | 14.0 |
 
-- 6 luồng nhiều hơn 4 vCPU nên các luồng tranh nhau CPU; kết quả thua hoặc hoà ở mọi mức.
-- 4 luồng nhanh nhất khi chỉ có 1 request. Nhưng khi có 4 request, p95 tăng lên 19,1 s và token/s giảm 21% so với 3 luồng.
-  Lý do: llama.cpp chiếm hết 4 vCPU, tranh CPU với Agent, KEDA và exporter chạy trên cùng node.
-- Chọn **3 luồng**: Coordinator gọi 2 Agent song song nên tải thật là 2–4 request cùng lúc; chừa lại 1 vCPU cho các pod khác.
-- Mỗi mức chỉ có 8 request, nên chênh lệch dưới ~10% được coi như hoà. Số liệu: [`evidence/aws/bench-llm-eks-t6-20261030.json`](../evidence/aws/bench-llm-eks-t6-20261030.json),
+- 6 threads is more than 4 vCPUs, so the threads compete for CPU; it loses or ties at every level.
+- 4 threads is fastest with only 1 request. But with 4 requests, p95 rises to 19.1 s and tokens/s drops 21% compared with 3 threads.
+  Reason: llama.cpp takes all 4 vCPUs, competing for CPU with the Agents, KEDA and exporters running on the same node.
+- **3 threads** chosen: the Coordinator calls 2 Agents in parallel, so the real load is 2–4 concurrent requests; 1 vCPU is left for other pods.
+- Each level has only 8 requests, so differences under ~10% are treated as a tie. Data: [`evidence/aws/bench-llm-eks-t6-20261030.json`](../evidence/aws/bench-llm-eks-t6-20261030.json),
   [`t3`](../evidence/aws/bench-llm-eks-t3-20261030.json), [`t4`](../evidence/aws/bench-llm-eks-t4-20261030.json).
 
 
 
-[Policy và proof Gateway](agent_gateways.md).
+[Gateway policy and proof](agent_gateways.md).
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

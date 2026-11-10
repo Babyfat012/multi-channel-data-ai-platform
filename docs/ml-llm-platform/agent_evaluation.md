@@ -1,164 +1,164 @@
-# Agent Evaluation trên AWS
+# Agent Evaluation on AWS
 
-EDAI-2, dòng 56: novel idea — Agent eval harness (bộ công cụ tự hỏi agent một loạt câu cố định rồi chấm đúng/sai).
+Agent eval harness: a tool that asks an agent a fixed set of questions and scores each answer right or wrong.
 
-Code và cấu hình: xem bảng thành phần trong phần "Tham khảo" cuối trang. Kết quả cổng chặn (gate) trên Jenkins và giới hạn của tập SKU được ghi ở dưới, kèm file JSONL kết quả từng câu.
+Code and configuration: see the component table in the "Reference" section at the end of the page. The Jenkins gate results and the limitations of the SKU set are recorded below, along with the JSONL file of per-question results.
 
-Các kết quả dưới đây là của những lần đã chạy trên AWS. Chúng không có nghĩa là dịch vụ đang bật lúc bạn đọc.
+The results below come from runs on AWS. They do not mean the service is up while you read this.
 
-## Trên AWS
+## On AWS
 
-**Tóm tắt:** Data Agent qua được cổng eval trên AWS (12/12 câu đúng). Coordinator qua được cổng ở lần chạy sau (xem [Dùng trong CI](#dùng-trong-ci)). Model Agent mới đạt phần dự đoán; phần câu hỏi chính sách còn trượt do model nhỏ.
+**Summary:** Data Agent passed the eval gate on AWS (12/12 questions correct). The Coordinator passed the gate on a later run (see [Use in CI](#use-in-ci)). Model Agent only passes the prediction part so far; the policy questions still fail because of the small model.
 
-Jenkins chạy trên EC2 `i-0d657089ba4a4ea7e` (`10.42.0.151`) và gọi `data-agent` trên cụm EKS, context `platform-apps`.
-Build `feature-api-agents` **#8 xanh**. Cổng eval đạt **12/12 câu = 1,00**, cao hơn ngưỡng yêu cầu 0,95.
-Kết quả từng câu: [agent-eval-data-agent-20261031.jsonl](../evidence/aws/agent-eval-data-agent-20261031.jsonl).
-Luồng build, đẩy image lên ECR và deploy: [CI/CD AWS](cicd.md#trên-aws).
+Jenkins runs on EC2 `i-0d657089ba4a4ea7e` (`10.42.0.151`) and calls `data-agent` on the EKS cluster, context `platform-apps`.
+Build `feature-api-agents` **#8 green**. The eval gate reached **12/12 questions = 1.00**, above the required threshold of 0.95.
+Per-question results: [agent-eval-data-agent-20261031.jsonl](../evidence/aws/agent-eval-data-agent-20261031.jsonl).
+Build flow, pushing the image to ECR and deploying: [CI/CD on AWS](cicd.md#on-aws).
 
-![Jenkins feature-api-agents #8: Eval agent xanh sau Deploy Agent](../evidence/aws/jenkins-feature-api-agents-20261031.png)
+![Jenkins feature-api-agents #8: Eval agent green after Deploy Agent](../evidence/aws/jenkins-feature-api-agents-20261031.png)
 
-**Phát hiện lỗi che PII (PII mask).** Lần chạy đầu chỉ đạt **9/12**.
-Nguyên nhân: guardrail `phoneNumber` của gateway (bộ lọc che số điện thoại) che luôn cả số đếm có bảy chữ số.
-Ví dụ `6077845` bị thay thành `<PHONE_NUMBER>`. Câu trả lời mất con số đúng nên harness chấm trượt.
+**PII mask bug found.** The first run only reached **9/12**.
+Cause: the gateway's `phoneNumber` guardrail (a filter that masks phone numbers) also masked seven-digit counts.
+For example `6077845` was replaced with `<PHONE_NUMBER>`. The answer lost the correct number, so the harness marked it as failed.
 
-Lần đạt 12/12 dùng các SKU có `labeled_count_90d` dưới bảy chữ số. Vì vậy kết quả này chỉ chứng minh cho tập SKU đó.
-Nó **không** chứng minh lỗi mask đã được sửa cho mọi số đếm lớn.
-Lỗi này khác với lỗi làm tròn tỷ lệ: ở đây một số đếm nguyên bị nhận nhầm thành số điện thoại. Cùng guardrail này trước đó đã che tỉ lệ Return 17 chữ số trong chat Coordinator (xem [Observability](observability.md)).
+The 12/12 run used SKUs whose `labeled_count_90d` has fewer than seven digits. So this result only holds for that SKU set.
+It does **not** prove the mask bug is fixed for every large count.
+This bug is different from the rate rounding bug: here an integer count is mistaken for a phone number. The same guardrail had earlier masked a 17-digit Return rate in a Coordinator chat (see [Observability](observability.md)).
 
-<a id="coordinator-trên-aws-04112026"></a>
-**Coordinator trên AWS, hai lần chạy đầu.** Ở cả hai lần, các bước `Validate`, `Sync prompts` và `Deploy` đều xanh.
-Nhưng cổng `Eval agent` (12 SKU, ngưỡng độ chính xác 0,95) **chưa đạt**:
+<a id="coordinator-on-aws-2026-11-04"></a>
+**Coordinator on AWS, first two runs.** In both runs, the `Validate`, `Sync prompts` and `Deploy` steps were green.
+But the `Eval agent` gate (12 SKUs, accuracy threshold 0.95) **did not pass**:
 
-- Một lần báo đỏ sau 15 phút 6 giây.
-- Lần còn lại (build #4) chạy hơn **20 phút** vẫn chưa xong, nên không có kết quả `accuracy` để báo cáo (EC2 bị dừng khi build còn đang chạy).
+- One run went red after 15 minutes 6 seconds.
+- The other (build #4) ran for more than **20 minutes** without finishing, so there is no `accuracy` result to report (the EC2 instance was stopped while the build was still running).
 
-![Jenkins coordinator: build #4 Eval agent chạy 20 phút 9 giây, build #2 đỏ sau 15 phút 6 giây](../evidence/aws/jenkins-coordinator-eval-20min.png)
+![Jenkins coordinator: build #4 Eval agent ran 20 minutes 9 seconds, build #2 red after 15 minutes 6 seconds](../evidence/aws/jenkins-coordinator-eval-20min.png)
 
-Số đo cùng thời điểm:
+Measurements from the same time:
 
-- Hỏi tay một câu vào Coordinator mất **40,7 giây** và nhận đúng số (15.306 / 2.599 / 16,98%).
-- Khi chạy eval, log của llama.cpp ([llm-slot-timing-during-eval.txt](../evidence/aws/llm-slot-timing-during-eval.txt)) ghi 69 lượt gọi LLM. Trung vị là 6 giây, nhưng có lượt tới **350 giây**, và 6 lượt vượt 100 giây.
-- Gateway chỉ nhận khoảng 4 câu hỏi cho Coordinator trong 10 phút, tức khoảng 2,5 phút mỗi câu.
+- Asking the Coordinator one question by hand took **40.7 seconds** and returned the correct numbers (15,306 / 2,599 / 16.98%).
+- During the eval, the llama.cpp log ([llm-slot-timing-during-eval.txt](../evidence/aws/llm-slot-timing-during-eval.txt)) recorded 69 LLM calls. The median was 6 seconds, but one call took up to **350 seconds**, and 6 calls exceeded 100 seconds.
+- The gateway received only about 4 questions for the Coordinator in 10 minutes, i.e. about 2.5 minutes per question.
 
-Nguyên nhân chưa xác định. Giả thuyết (chưa kiểm chứng): khi một câu vượt thời gian chờ 180 giây, harness bỏ qua và hỏi câu kế tiếp.
-Nhưng Coordinator vẫn tiếp tục xử lý câu đã bị bỏ, nên các lượt gọi LLM chồng lên nhau trên 4 slot CPU (4 luồng xử lý song song của llama.cpp), làm các câu sau cũng chậm theo.
+The cause has not been determined. Hypothesis (not verified): when a question exceeds the 180-second timeout, the harness skips it and asks the next one.
+But the Coordinator keeps processing the skipped question, so LLM calls pile up on the 4 CPU slots (llama.cpp's 4 parallel processing slots), slowing down the following questions too.
 
-Điều đã biết chắc: một model Qwen 1,5B chạy bằng CPU, dùng chung cho mọi Agent, không đủ nhanh cho chuỗi gọi Coordinator, rồi Agent, rồi tool, rồi quay lại Coordinator trong cổng CI này.
+What is known for certain: one Qwen 1.5B model running on CPU, shared by every Agent, is not fast enough for the Coordinator → Agent → tool → back to Coordinator chain in this CI gate.
 
-**Agent 2 (model-agent) có cổng eval riêng**, gồm hai loại câu hỏi:
+**Agent 2 (model-agent) has its own eval gate**, with two kinds of questions:
 
-- `ml/agent_eval.py --task predict`: hỏi điểm rủi ro của một đơn hàng mới, rồi so với kết quả `POST /predict` của Feature API. Câu đạt khi lệch không quá 0,005, hoặc khi agent nói "từ chối" trong trường hợp SKU chưa có lịch sử.
-- `--task policy`: hỏi 5 câu về cửa sổ và hạn trả hàng trong chính sách, rồi kiểm con số có đúng với tài liệu trong `rag/corpus` không.
+- `ml/agent_eval.py --task predict`: asks for the risk score of a new order, then compares it with the result of the Feature API's `POST /predict`. A question passes when the difference is at most 0.005, or when the agent says "abstain" for a SKU without history.
+- `--task policy`: asks 5 questions about return windows and deadlines in the policy, then checks whether the numbers match the documents in `rag/corpus`.
 
-`feature-api-agents.Jenkinsfile` chạy cả ba bài (chọn bằng biến `EVAL_AGENT`, `EVAL_TASK` trong `eval_agent_ci.sh`; file kết quả là `out/agent-eval-<agent>-<task>.jsonl`).
+`feature-api-agents.Jenkinsfile` runs all three tests (selected with the `EVAL_AGENT`, `EVAL_TASK` variables in `eval_agent_ci.sh`; the result file is `out/agent-eval-<agent>-<task>.jsonl`).
 
-Thử ở local (cụm kind, Feature API giả với dữ liệu cố định, chưa phải Redis/pgvector thật, chưa chạy trên AWS): predict đạt 4/4; policy đạt 4/5 sau khi siết prompt (trước đó 3/5).
-Câu còn trượt là do Qwen 1,5B viết lệnh gọi tool ra thành văn bản chứ không gọi tool thật (tool không chạy). Vì vậy cổng 0,95 của policy có thể đỏ trên AWS cho tới khi model gọi tool ổn định hơn.
+Tried locally (kind cluster, a fake Feature API with fixed data, not real Redis/pgvector, not run on AWS): predict passed 4/4; policy passed 4/5 after tightening the prompt (3/5 before).
+The remaining failure is because Qwen 1.5B writes the tool call out as text instead of actually calling the tool (the tool does not run). So the 0.95 policy gate may be red on AWS until the model calls tools more reliably.
 
-**Kết quả trên EKS** (Jenkins `feature-api-agents` #13, sau khi tách MCP sang pod riêng `feature-mcp`):
+**Results on EKS** (Jenkins `feature-api-agents` #13, after splitting MCP into its own pod `feature-mcp`):
 
-| Bài eval | Kết quả |
+| Eval | Result |
 |---|---|
 | Data Agent | **12/12** |
 | Model Agent, predict | **12/12** |
 | Model Agent, policy | **3/5** |
 
-Policy 3/5 thấp hơn ngưỡng 0,95, nên build đỏ và stage Smoke không được chạy. Chạy riêng `gateway_smoke.py` thì đạt 24/24.
+Policy 3/5 is below the 0.95 threshold, so the build is red and the Smoke stage did not run. Running `gateway_smoke.py` on its own passed 24/24.
 
-Hai câu trượt (hạn trả hàng của Shopee và Walmart) đều cùng một lỗi: model trả về văn bản `Call search_policy_chunks with the query …` thay vì gọi tool.
-Gọi trực tiếp `search_policy_chunks` qua MCP vẫn trả về chunk, tức tool hoạt động bình thường.
-Không hạ ngưỡng để pipeline xanh: đây là giới hạn của model 1,5B chạy trên CPU và chưa được khắc phục.
+The two failing questions (Shopee's and Walmart's return deadlines) share the same error: the model returns the text `Call search_policy_chunks with the query …` instead of calling the tool.
+Calling `search_policy_chunks` directly through MCP still returns chunks, so the tool works normally.
+The threshold was not lowered to make the pipeline green: this is a limitation of the 1.5B model on CPU and has not been fixed.
 
-![Jenkins feature-api-agents #13: Data Agent 12/12, predict 12/12, policy 3/5, stage Eval agent đỏ](../evidence/aws/jenkins-feature-api-agents-13-eval-20261109.png)
+![Jenkins feature-api-agents #13: Data Agent 12/12, predict 12/12, policy 3/5, Eval agent stage red](../evidence/aws/jenkins-feature-api-agents-13-eval-20261109.png)
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+Local records keep their original environment and are not a substitute for cloud evidence.
 
-<!-- Mục đích: eval harness cho agent + cổng hồi quy; proof chạy được trên hai nhánh A/B. -->
-## ML-N1: eval harness cho agent + cổng hồi quy
+<!-- Purpose: eval harness for agents + regression gate; proof that it runs on both A/B branches. -->
+## Agent eval harness and regression gate
 
-Câu hỏi "agent có trả lời **đúng số thật** không?" không đo được bằng độ trễ hay số token.
-Vì vậy harness làm như sau:
+The question "does the agent answer with the **real numbers**?" cannot be measured by latency or token counts.
+So the harness works as follows:
 
-1. Hỏi agent một bộ câu cố định qua agentgateway (giao thức A2A).
-2. Lấy **đáp án chuẩn từ Feature API**, cũng là nguồn mà agent phải gọi tool để lấy số.
-3. Chấm từng câu.
-4. Dùng độ chính xác làm cổng chặn trong CI: nếu dưới ngưỡng, harness thoát với mã 1, khiến pipeline đỏ sau bước deploy agent.
+1. Ask the agent a fixed set of questions through agentgateway (A2A protocol).
+2. Take the **reference answer from the Feature API**, which is also the source the agent must call a tool to get numbers from.
+3. Score each question.
+4. Use accuracy as a CI gate: below the threshold, the harness exits with code 1, turning the pipeline red after the agent deploy step.
 
-| Thành phần | File |
+| Component | File |
 |---|---|
-| Harness + chấm điểm | [`ml/agent_eval.py`](../../ml/agent_eval.py), test [`tests/unit/test_agent_eval.py`](../../tests/unit/test_agent_eval.py) |
-| Route chấm riêng nhánh B | `a2a-data-agent-b-path` trong [`agentgateway.yaml`](../../infra/k8s/agents/agentgateway.yaml) |
-| Kết quả | [`evidence/agent-eval-20261021.jsonl`](../evidence/agent-eval-20261021.jsonl) |
+| Harness + scoring | [`ml/agent_eval.py`](../../ml/agent_eval.py), test [`tests/unit/test_agent_eval.py`](../../tests/unit/test_agent_eval.py) |
+| Dedicated route for scoring branch B | `a2a-data-agent-b-path` in [`agentgateway.yaml`](../../infra/k8s/agents/agentgateway.yaml) |
+| Results | [`evidence/agent-eval-20261021.jsonl`](../evidence/agent-eval-20261021.jsonl) |
 
-## Luật chấm
+## Scoring rules
 
-Câu "What are the return features of sku-…?" **đạt** khi câu trả lời chứa đủ ba giá trị:
+The question "What are the return features of sku-…?" **passes** when the answer contains all three values:
 
-- `labeled_count_90d` và `positive_count_90d`: phải đúng số nguyên.
-- `return_or_refund_rate_90d`: lệch không quá 0,005; chấp nhận cả cách viết `0.33` lẫn `33%`.
+- `labeled_count_90d` and `positive_count_90d`: must be the exact integers.
+- `return_or_refund_rate_90d`: off by at most 0.005; both `0.33` and `33%` are accepted.
 
-Mã SKU (ví dụ `sku-00010`) không được tính là một con số.
-SKU chưa có lịch sử thì không chấm, để agent không thể "đạt" chỉ bằng cách nói "0".
-Nếu agent lỗi HTTP hoặc hết thời gian chờ, câu đó tính là trượt và harness vẫn chạy tiếp.
+The SKU code (e.g. `sku-00010`) does not count as a number.
+SKUs without history are not scored, so an agent cannot "pass" just by saying "0".
+If the agent returns an HTTP error or times out, that question counts as failed and the harness keeps going.
 
-**Chuẩn bị dữ liệu.** Ảnh chụp dữ liệu online mới nhất có mọi số bằng 0, nên không phân biệt được agent nào lấy số thật.
-Vì vậy lúc eval, Redis được nạp lại dữ liệu tới mốc 15/03, rồi khôi phục về mốc ban đầu sau khi chấm.
-Trước khi nạp phải `flushall` (xoá sạch Redis), vì Feast không ghi đè giá trị mới bằng giá trị cũ hơn.
+**Preparing the data.** The latest online data snapshot has every number at 0, so it cannot tell which agent fetched the real numbers.
+So during the eval, Redis is reloaded with data up to Mar 15, then restored to the original point after scoring.
+Before loading, run `flushall` (wipe Redis), because Feast does not overwrite a newer value with an older one.
 
-## Proof (12 SKU, cùng câu hỏi, cùng tool)
+## Proof (12 SKUs, same question, same tool)
 
-| Agent | Model | Đã đo | p50 |
+| Agent | Model | Measured | p50 |
 |---|---|---|---|
-| `data-agent` (A) | qwen2.5-1.5b | **12/12 = 100%** | 5,4 s |
-| `data-agent-b` (B) | qwen2.5-0.5b | **11/12 = 91,7%** | 3,0 s |
+| `data-agent` (A) | qwen2.5-1.5b | **12/12 = 100%** | 5.4 s |
+| `data-agent-b` (B) | qwen2.5-0.5b | **11/12 = 91.7%** | 3.0 s |
 
-Câu nhánh B trượt (sku-00005): agent nói `labeled_count_90d = 18` (sai), và tỷ lệ 0,085 cũng không khớp với 10/18.
-Đây là **bịa số**, loại lỗi mà dashboard độ trễ hay token không bao giờ phát hiện được.
+The failed question on branch B (sku-00005): the agent said `labeled_count_90d = 18` (wrong), and the rate 0.085 also does not match 10/18.
+This is a **fabricated number**, the kind of error a latency or token dashboard can never detect.
 
-Kiểm tra cổng: chạy nhánh B với `--min-accuracy 0.95` cho `accuracy 0.917`, nên harness trả **exit 1** (bị chặn). Chạy nhánh A với ngưỡng 0,6 thì exit 0.
+Gate check: running branch B with `--min-accuracy 0.95` gives `accuracy 0.917`, so the harness returns **exit 1** (blocked). Running branch A with threshold 0.6 gives exit 0.
 
-## Dùng trong CI
+## Use in CI
 
-Stage **Eval agent** đã được nối vào hai pipeline:
+The **Eval agent** stage has been wired into two pipelines:
 
-- sau `Deploy Agent` trong `feature-api-agents.Jenkinsfile`;
-- sau `Deploy` trong `coordinator.Jenkinsfile` (route `/a2a/coordinator/` nhận cùng câu hỏi về SKU).
+- after `Deploy Agent` in `feature-api-agents.Jenkinsfile`;
+- after `Deploy` in `coordinator.Jenkinsfile` (route `/a2a/coordinator/` receives the same SKU questions).
 
-Cả hai gọi cùng một wrapper. Lệnh chạy tại workspace Jenkins:
+Both call the same wrapper. Command run in the Jenkins workspace:
 
 ```bash
-## Cần VAULT_ADDR/VAULT_TOKEN + KUBECONFIG; Jenkins bind từ credentials.
+## Needs VAULT_ADDR/VAULT_TOKEN + KUBECONFIG; Jenkins binds them from credentials.
 bash scripts/run/eval_agent_ci.sh
-## Coordinator dùng cùng harness qua route A2A riêng:
+## The Coordinator uses the same harness through its own A2A route:
 EVAL_AGENT=coordinator bash scripts/run/eval_agent_ci.sh
 ```
 
-Với `coordinator`, cổng chỉ chấm việc **định tuyến**, không chấm số. Một câu đạt khi lịch sử hội thoại có lệnh gọi `data_agent` hoặc `model_agent` và có câu trả lời cuối.
-Lý do: model 1,5B hay làm rơi chữ số khi chép lại, còn độ đúng của số đã do eval của data-agent và model-agent kiểm.
-Giới hạn: cổng này không bắt được trường hợp coordinator chép sai hoặc bịa số.
+For `coordinator`, the gate only scores **routing**, not numbers. A question passes when the conversation history contains a call to `data_agent` or `model_agent` and a final answer.
+Reason: the 1.5B model often drops digits when copying numbers, and number accuracy is already checked by the data-agent and model-agent evals.
+Limitation: this gate does not catch the coordinator copying numbers wrongly or making them up.
 
-Đo trên AWS (Jenkins coordinator #9, 12 SKU): **12/12 = 1,00**, đạt ngưỡng 0,95. Có 12 lần gọi `data_agent`; mỗi câu mất 14–48 giây (riêng TOY-01577 mất 165 giây).
-ACC-00842 vẫn trả số sai (0 returns) nhưng đã định tuyến đúng nên vẫn tính là đạt; số của data-agent do eval data-agent chấm.
+Measured on AWS (Jenkins coordinator #9, 12 SKUs): **12/12 = 1.00**, meeting the 0.95 threshold. There were 12 calls to `data_agent`; each question took 14–48 seconds (except TOY-01577, which took 165 seconds).
+ACC-00842 still returned a wrong number (0 returns) but was routed correctly, so it still counts as passed; the data-agent's numbers are scored by the data-agent eval.
 
-Wrapper làm các bước sau:
+The wrapper does the following:
 
-1. Đọc key từ `vault_env.sh agentgateway`.
-2. Port-forward Feature API `18000:8000` và gateway `18300:3000` (đổi bằng `EVAL_FEATURE_PORT`/`EVAL_GATEWAY_PORT` nếu cần).
-3. Gọi `python3 -m ml.agent_eval` với đủ 12 mã từ `sku-00001` đến `sku-00012`, `--min-accuracy 0.95`, `--out out/agent-eval.jsonl`.
+1. Read the key from `vault_env.sh agentgateway`.
+2. Port-forward the Feature API `18000:8000` and the gateway `18300:3000` (change with `EVAL_FEATURE_PORT`/`EVAL_GATEWAY_PORT` if needed).
+3. Call `python3 -m ml.agent_eval` with all 12 codes from `sku-00001` to `sku-00012`, `--min-accuracy 0.95`, `--out out/agent-eval.jsonl`.
 
-HTTP (không mã hoá) chỉ dùng trên loopback qua port-forward, nên không phụ thuộc IP node hay cert local của máy phát triển. Khi gọi HTTPS trực tiếp, harness vẫn kiểm CA như trước.
+HTTP (unencrypted) is only used on loopback through port-forward, so it does not depend on the node IP or the development machine's local cert. When calling HTTPS directly, the harness still verifies the CA as before.
 
-Jenkins lưu `out/agent-eval.jsonl` và `out/agent-eval-summary.json` bằng `archiveArtifacts`, kể cả khi điểm dưới ngưỡng.
-`set -o pipefail` giữ nguyên mã thoát 1 khi đi qua `tee`, nên build vẫn đỏ.
-Stage này chặn pipeline sau khi đã deploy, **chưa tự rollback agent** (chưa tự quay về bản cũ).
+Jenkins keeps `out/agent-eval.jsonl` and `out/agent-eval-summary.json` with `archiveArtifacts`, even when the score is below the threshold.
+`set -o pipefail` preserves exit code 1 through `tee`, so the build stays red.
+This stage blocks the pipeline after the deploy, and **does not roll back the agent automatically** yet (no automatic return to the previous version).
 
-SKU phải có lịch sử thì mới chấm được. Nếu không có câu nào chấm được, accuracy bằng 0 và build đỏ.
-CI không `flushall` hay thay dữ liệu Redis đang dùng; người vận hành tự chuẩn bị fixture (dữ liệu mẫu) có nhãn trước khi chạy.
-Bằng chứng A/B ở trên là của lần chạy local. Gate Jenkins đã chạy trên AWS: xem mục [Trên AWS](#trên-aws).
+A SKU must have history to be scored. If no question can be scored, accuracy is 0 and the build is red.
+CI does not `flushall` or replace the Redis data in use; the operator prepares a labeled fixture (sample data) before running.
+The A/B evidence above comes from the local run. The Jenkins gate has run on AWS: see the [On AWS](#on-aws) section.
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

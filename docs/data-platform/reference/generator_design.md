@@ -1,271 +1,272 @@
-# Thiết kế Data Generator
+# Data Generator Design
 
-Tài liệu thiết kế và triển khai generator dữ liệu giả lập cho dự án. Trạng thái: **đã triển khai trong phạm vi mô tả ở mục 15**. Thuật ngữ (Channel, Storefront, Order Line, ...) xem [Domain.md](../../shared/domain.md). Nguồn và mức tin cậy của dạng dữ liệu từng Channel xem [channel-sources.md](channel_sources.md).
+Design and implementation document for the project's simulated data generator. Status: **implemented within the scope described in section 15**. For terminology (Channel, Storefront, Order Line, ...) see [Domain.md](../../shared/domain.md). For the sources and confidence level of each Channel's data shape, see [channel-sources.md](channel_sources.md).
 
-Cập nhật resume trước mọi ghi/xóa, Batch so
-`_dataset_identity.json` với config (không gồm output root), thứ tự Storefront,
-SHA-256 mã generator và Python/NumPy/PyArrow/fsspec versions. Checkpoints và
-manifest cùng mang `dataset_version`. Đổi config/code/runtime hoặc root cũ
-chưa có identity sẽ fail; không tự gắn identity mới lên dữ liệu cũ.
-Dùng root mới khi cần world khác. `--restart` giữ nghĩa tái sinh dữ liệu
-generator sở hữu trong root đã chọn, vì thế chỉ dùng khi chủ động muốn làm lại.
-Không chạy restart trên bộ evidence cần giữ. Guard giả định một writer;
-chưa là khóa phân tán hoặc phép kiểm hash toàn bộ file đã sinh.
-Bản xử lý ghi test và giới hạn.
-[Source contract v2](source_contract_order_lifecycle.md) là đích tiếp theo, chưa được
-thực thi chỉ nhờ có `dataset_version`; logic label hiện tại vẫn là v1.
+Resume update: before any write/delete, Batch compares
+`_dataset_identity.json` against the config (excluding the output root), the Storefront order,
+the SHA-256 of the generator code and the Python/NumPy/PyArrow/fsspec versions. Checkpoints and the
+manifest both carry `dataset_version`. Changing config/code/runtime, or an old root
+without an identity, fails; a new identity is never attached to old data automatically.
+Use a new root when a different world is needed. `--restart` keeps its meaning of regenerating the data
+the generator owns in the chosen root, so only use it when you deliberately want to redo it.
+Do not run restart on an evidence set that must be kept. The guard assumes a single writer;
+it is not yet a distributed lock or a hash check over every generated file.
+The fix records tests and limitations.
+[Source contract v2](source_contract_order_lifecycle.md) is the next target; it is not
+enforced just by having `dataset_version`; the current label logic is still v1.
 
-## Mục lục
+## Table of contents
 
-1. [Mục tiêu và phạm vi](#1-mục-tiêu-và-phạm-vi)
-2. [Kiến trúc ba lớp](#2-kiến-trúc-ba-lớp)
-3. [Đường thời gian: Batch và Stream](#3-đường-thời-gian-batch-và-stream)
-4. [Sinh nhãn Return/Refund](#4-sinh-nhãn-returnrefund)
-5. [Vấn đề dữ liệu được chèn vào](#5-vấn-đề-dữ-liệu-được-chèn-vào)
-6. [Nguồn dữ liệu từng Channel](#6-nguồn-dữ-liệu-từng-channel)
-7. [Dữ liệu tham chiếu](#7-dữ-liệu-tham-chiếu)
-8. [Bố cục lưu trữ](#8-bố-cục-lưu-trữ)
-9. [Buyer, tiền tệ và thời gian](#9-buyer-tiền-tệ-và-thời-gian)
-10. [Cấu hình](#10-cấu-hình)
-11. [Bản đáp án và bằng chứng chất lượng](#11-bản-đáp-án-và-bằng-chứng-chất-lượng)
-12. [Kỹ thuật và đóng gói](#12-kỹ-thuật-và-đóng-gói)
-13. [Giả định và việc còn mở](#13-giả-định-và-việc-còn-mở)
-14. [Thiết kế và evidence](#14-thiết-kế-và-evidence)
-15. [Triển khai](#15-triển-khai)
+1. [Goals and scope](#1-goals-and-scope)
+2. [Three-layer architecture](#2-three-layer-architecture)
+3. [Timeline: Batch and Stream](#3-timeline-batch-and-stream)
+4. [Generating the Return/Refund label](#4-generating-the-returnrefund-label)
+5. [Injected data problems](#5-injected-data-problems)
+6. [Data sources per Channel](#6-data-sources-per-channel)
+7. [Reference data](#7-reference-data)
+8. [Storage layout](#8-storage-layout)
+9. [Buyers, currency and time](#9-buyers-currency-and-time)
+10. [Configuration](#10-configuration)
+11. [Answer key and quality evidence](#11-answer-key-and-quality-evidence)
+12. [Engineering and packaging](#12-engineering-and-packaging)
+13. [Assumptions and open items](#13-assumptions-and-open-items)
+14. [Design and evidence](#14-design-and-evidence)
+15. [Implementation](#15-implementation)
 
-## 1. Mục tiêu và phạm vi
+## 1. Goals and scope
 
-Generator sinh dữ liệu bán hàng của một Seller (ACME) trên 7 Storefront thuộc 5 Channel, để các thành phần phía sau (Bronze, Silver, Gold, Feature Store, giám sát drift) có dữ liệu thật sự có vấn đề để xử lý.
+The generator produces sales data for one Seller (ACME) across 7 Storefronts on 5 Channels, so that the downstream components (Bronze, Silver, Gold, Feature Store, drift monitoring) have data with real problems to handle.
 
-Mặc định: 2.000 SKU, 180 ngày lịch sử, khoảng 4.000 Order mỗi ngày (khoảng 720 nghìn Order, hơn 1 triệu Order Line). Mọi con số là cấu hình, xem [mục 10](#10-cấu-hình).
+Defaults: 2,000 SKUs, 180 days of history, about 4,000 Orders per day (about 720 thousand Orders, more than 1 million Order Lines). Every number is configurable; see [section 10](#10-configuration).
 
-Ngoài phạm vi giai đoạn này: phí, settlement, quảng cáo, tồn kho FBA, clickstream.
+Out of scope for this phase: fees, settlement, advertising, FBA inventory, clickstream.
 
-## 2. Kiến trúc ba lớp
-
-```
-Lõi mô phỏng ──► Renderer theo Channel ──► Lớp giao hàng lỗi ──► MinIO / PostgreSQL / Kafka
- (sự thật)         (dạng gốc từng sàn)       (trùng, trễ, lô)
-```
-
-1. **Lõi mô phỏng** sinh sự thật chung, không mang hình dạng của Channel nào: SKU, Listing, Order, Order Line, Return, Refund, buyer, `Delivered At`, theo Order Status chuẩn.
-2. **Renderer theo Channel** biến sự thật thành dạng gốc của Channel: tên field, tên trạng thái, định dạng file, chỉ thể hiện những gì Channel thật sự cho Seller thấy.
-3. **Lớp giao hàng lỗi** chèn lỗi sau cùng: duplicate, late, theo lô, burst.
-
-Vì sao chia lớp:
-- Có đáp án chung để đối chiếu kết quả Silver (số Order chuẩn, nhãn thật).
-- Quy luật sinh nhãn nằm ở một chỗ, không lặp cho 5 Channel.
-- Lỗi chèn sau cùng nên biết chính xác đã chèn bao nhiêu, ghi vào `run_manifest.json`.
-
-Đổi lại phải viết thêm một lớp renderer so với cách sinh thẳng từng Channel.
-
-## 3. Đường thời gian: Batch và Stream
-
-`cutoff` là mốc "hôm nay" trong thế giới giả lập. Lõi mô phỏng chạy **liền một mạch** qua `cutoff`:
+## 2. Three-layer architecture
 
 ```
-ngày 1 ───────────── ngày 180 (cutoff) ───────────── ngày 181 → 210
+Simulation core ──► Per-Channel renderer ──► Faulty delivery layer ──► MinIO / PostgreSQL / Kafka
+  (the truth)        (each platform's        (duplicates, late,
+                      native shape)            batches)
+```
+
+1. The **simulation core** generates the shared truth, without any Channel's shape: SKU, Listing, Order, Order Line, Return, Refund, buyer, `Delivered At`, following the canonical Order Status.
+2. The **per-Channel renderer** turns the truth into the Channel's native shape: field names, status names, file format, exposing only what the Channel actually shows the Seller.
+3. The **faulty delivery layer** injects faults last: duplicate, late, batched, burst.
+
+Why split into layers:
+- There is a shared answer key to check Silver results against (canonical Order counts, true labels).
+- The label-generation rule lives in one place, not repeated for 5 Channels.
+- Faults are injected last, so exactly how many were injected is known and recorded in `run_manifest.json`.
+
+The trade-off is writing an extra renderer layer compared with generating each Channel directly.
+
+## 3. Timeline: Batch and Stream
+
+`cutoff` is the "today" mark in the simulated world. The simulation core runs **continuously** across `cutoff`:
+
+```
+day 1 ───────────── day 180 (cutoff) ───────────── day 181 → 210
        BATCH                                STREAM
 ```
 
-- **Batch**: mọi thứ xảy ra trước `cutoff`, mỗi Channel ở dạng gốc, kèm ảnh chụp trạng thái của các Order đang mở tại `cutoff`.
-- **Stream**: phần mô phỏng tiếp tục sau `cutoff`, gồm Order mới, đổi Order Status của Order đã có trong Batch, và Return đến muộn.
-- Một Order thấy ở Batch được cập nhật tiếp ở Stream vì cùng một mô phỏng.
-- Nhãn của Order giao trong 30 ngày cuối trước `cutoff` chưa biết tại `cutoff`, nên bị loại khỏi tập train. Nhãn đến dần trong Stream.
-- Ngày mô phỏng ánh xạ sang lịch thật qua `start_date` trong cấu hình.
-- Tốc độ phát Stream cấu hình được theo từng đoạn ngày (xem [mục 5](#streaming)), có chế độ phát nhanh để test.
+- **Batch**: everything that happens before `cutoff`, each Channel in its native shape, plus a status snapshot of the Orders still open at `cutoff`.
+- **Stream**: the simulation continuing after `cutoff`, including new Orders, Order Status changes of Orders already in the Batch, and late Returns.
+- An Order seen in the Batch keeps being updated in the Stream because it is the same simulation.
+- Labels of Orders delivered in the last 30 days before `cutoff` are unknown at `cutoff`, so they are excluded from the training set. Labels arrive gradually in the Stream.
+- Simulated days map to the real calendar through `start_date` in the configuration.
+- The Stream emission speed is configurable per range of days (see [section 5](#streaming)), with a fast mode for testing.
 
-Vì sao không phát lại chính dữ liệu Batch: không có Order mới, không có nhãn đến muộn, không có drift sau khi mô hình đã train.
+Why not replay the Batch data itself: there would be no new Orders, no late-arriving labels, and no drift after the model has been trained.
 
-## 4. Sinh nhãn Return/Refund
+## 4. Generating the Return/Refund label
 
-Nhãn: Order Line có bị Return hoặc Refund trong 30 ngày kể từ ngày giao không.
+Label: whether an Order Line is Returned or Refunded within 30 days of delivery.
 
-Dữ liệu giả không có hành vi thật, nên lõi dùng một quy luật xác suất có cấu trúc để mô hình học được thay vì đoán mò:
+Simulated data has no real behavior, so the core uses a structured probabilistic rule that a model can learn instead of guessing blindly:
 
-- Xác suất trả là hàm logistic của: danh mục, Storefront, Fulfillment Method, mức giảm giá, giá, số lượng, và **SKU Defect Propensity**.
-- **SKU Defect Propensity** là "độ lỗi" ẩn riêng từng SKU (ví dụ `HOODIE-BLK-M` bị chật nên trả nhiều ở mọi Storefront). Nó không xuất hiện thành cột nào, chỉ suy ra được từ lịch sử. Đây chính là thứ Feature Store tra theo `sku_id` + `storefront_id`.
-- Độ trễ từ lúc giao tới lúc trả rút từ phân phối riêng theo Channel, tối đa khoảng 30 ngày, có đuôi hiếm vượt 30 ngày.
-- **Không leakage**: không cột nào ở thời điểm tạo Order lộ nhãn.
-- Tỷ lệ mục tiêu: mức cơ sở khoảng 10 đến 12%, quần áo khoảng 22%, đồ gia dụng khoảng 4%.
-- Lý do trả: mỗi Channel dùng lý do gốc của nó (TikTok Shop `return_reason`, Shopee `reason`, Walmart lý do trong `returnOrderLines`). Riêng Amazon dùng khoảng 10 mã (`WRONG_SIZE`, `DEFECTIVE`, `NOT_AS_DESCRIBED`, `CHANGED_MIND`, `ARRIVED_LATE`, `DAMAGED_IN_TRANSIT`, `WRONG_ITEM_SENT`, `BETTER_PRICE_FOUND`, `QUALITY_NOT_EXPECTED`, `ACCIDENTAL_ORDER`). Danh sách Amazon là **giả định** vì chưa có danh sách chính thức.
+- The return probability is a logistic function of: category, Storefront, Fulfillment Method, discount level, price, quantity, and **SKU Defect Propensity**.
+- **SKU Defect Propensity** is a hidden per-SKU "defect level" (for example `HOODIE-BLK-M` runs small, so it is returned a lot on every Storefront). It never appears as a column and can only be inferred from history. This is exactly what the Feature Store looks up by `sku_id` + `storefront_id`.
+- The delay from delivery to return is drawn from a per-Channel distribution, up to about 30 days, with a rare tail beyond 30 days.
+- **No leakage**: no column at Order creation time reveals the label.
+- Target rates: base level about 10 to 12%, apparel about 22%, home goods about 4%.
+- Return reasons: each Channel uses its own native reasons (TikTok Shop `return_reason`, Shopee `reason`, Walmart reasons in `returnOrderLines`). Amazon alone uses about 10 codes (`WRONG_SIZE`, `DEFECTIVE`, `NOT_AS_DESCRIBED`, `CHANGED_MIND`, `ARRIVED_LATE`, `DAMAGED_IN_TRANSIT`, `WRONG_ITEM_SENT`, `BETTER_PRICE_FOUND`, `QUALITY_NOT_EXPECTED`, `ACCIDENTAL_ORDER`). The Amazon list is an **assumption** because no official list is available.
 
-Quy luật này là giả định của generator. Mô hình tốt trên dữ liệu giả không chứng minh tốt ngoài đời.
+This rule is an assumption of the generator. A model that does well on simulated data does not prove it does well in the real world.
 
-### Ngày giao (`Delivered At`)
+### Delivery date (`Delivered At`)
 
-Nhãn tính theo `Delivered At` **thật** của lõi. Mỗi Channel chỉ để lộ phần nó thật sự cho Seller thấy:
+The label is computed from the core's **true** `Delivered At`. Each Channel only exposes what it actually shows the Seller:
 
-| Channel | Seller thấy gì |
+| Channel | What the Seller sees |
 |---|---|
-| TikTok Shop, Walmart | Trạng thái `DELIVERED` kèm thời điểm cập nhật |
-| Shopify | Sự kiện fulfillment |
-| Amazon MFN | Chỉ ngày giao dự kiến: `EarliestDeliveryDate`/`LatestDeliveryDate` trong Orders |
-| Amazon FBA | Chỉ ngày giao dự kiến: `estimated-arrival-date` trong report FBA Shipments |
-| Shopee | Chỉ `update_time` khi sang `COMPLETED` |
+| TikTok Shop, Walmart | `DELIVERED` status with the update time |
+| Shopify | Fulfillment event |
+| Amazon MFN | Only the expected delivery date: `EarliestDeliveryDate`/`LatestDeliveryDate` in Orders |
+| Amazon FBA | Only the expected delivery date: `estimated-arrival-date` in the FBA Shipments report |
+| Shopee | Only `update_time` when moving to `COMPLETED` |
 
-Pipeline và feature chỉ thấy ngày Channel cho, còn nhãn dùng ngày thật để có đáp án đúng. Amazon và Shopee là giả định, xem [channel-sources.md](channel_sources.md).
+Pipelines and features only see the date the Channel provides, while the label uses the true date to have a correct answer key. Amazon and Shopee are assumptions; see [channel-sources.md](channel_sources.md).
 
-## 5. Vấn đề dữ liệu được chèn vào
+## 5. Injected data problems
 
 ### Offline (Batch)
 
-| Vấn đề | Cách chèn |
+| Problem | How it is injected |
 |---|---|
-| **Skew** | Order theo Storefront: Amazon US 45%, TikTok Shop US 15%, Amazon UK 12%, Amazon DE 10%, Shopify 8%, Walmart US 7%, Shopee VN 3%. SKU theo phân phối Zipf, tham số chọn sao cho SKU bán chạy nhất chiếm khoảng 5% Order Line để job Spark có task chạy chậm rõ rệt. 8 danh mục có tỷ lệ trả khác nhau. Địa lý lệch: vài thành phố lớn chiếm phần lớn Order của mỗi Storefront. Prime Day làm một số ngày có lượng Order gấp nhiều lần |
-| **High cardinality** | Giữ 2.000 SKU. Cardinality cao đến từ `order_id` (khoảng 720 nghìn), `order_line_id` (hơn 1 triệu), `tracking_number` (khoảng 700 nghìn), mã buyer theo Channel (xem [mục 9](#9-buyer-tiền-tệ-và-thời-gian)) |
-| **Schema evolution** | Từ một ngày cố định, dữ liệu đơn Amazon chuyển từ model Orders v0 sang Orders 2026-01-01. Cả hai là model chính thức. Dạng 2026 không có field mới — mọi khoá truy được về một khoá v0: đổi tên (`AmazonOrderId` thành `orderId`, `PurchaseDate` thành `createdTime`, `OrderTotal` thành `proceeds.grandTotal` lồng thêm một cấp), đổi cấu trúc (`OrderStatus` thành `fulfillment.status`, giá trị `Shipped` thành `SHIPPED`), đổi kiểu (`IsPrime` bool thành mảng `programs`; thông tin không mất vì mảng rỗng khi không Prime), và bỏ khoá (5 khoá chỉ có ở v0). Vì tên khoá đổi, cột chỉ có ở một dạng null ở dạng kia: `proceeds` null ở partition v0, `is_prime` null ở partition 2026, `programs` null ở partition v0 |
-| **Duplicate 2%** | Export chồng lấn ngày (ví dụ lấy lại 3 ngày gần nhất để bắt cập nhật, như report `GET_FLAT_FILE_ALL_ORDERS_DATA_BY_LAST_UPDATE_GENERAL` của Amazon). Có bản trùng y hệt và **bản sửa lại** (cùng khóa, thời điểm cập nhật mới hơn, trạng thái mới hơn). Dedup phải giữ bản mới nhất, không chỉ bỏ bản giống hệt |
+| **Skew** | Orders by Storefront: Amazon US 45%, TikTok Shop US 15%, Amazon UK 12%, Amazon DE 10%, Shopify 8%, Walmart US 7%, Shopee VN 3%. SKUs follow a Zipf distribution, with the parameter chosen so the best-selling SKU accounts for about 5% of Order Lines, giving the Spark job a clearly slow task. 8 categories with different return rates. Skewed geography: a few large cities account for most of each Storefront's Orders. Prime Day multiplies the Order volume on some days |
+| **High cardinality** | Keep 2,000 SKUs. High cardinality comes from `order_id` (about 720 thousand), `order_line_id` (more than 1 million), `tracking_number` (about 700 thousand), and per-Channel buyer IDs (see [section 9](#9-buyers-currency-and-time)) |
+| **Schema evolution** | From a fixed date, Amazon order data switches from the Orders v0 model to Orders 2026-01-01. Both are official models. The 2026 shape has no new fields — every key maps back to a v0 key: renames (`AmazonOrderId` to `orderId`, `PurchaseDate` to `createdTime`, `OrderTotal` to `proceeds.grandTotal`, nested one level deeper), restructuring (`OrderStatus` to `fulfillment.status`, value `Shipped` to `SHIPPED`), type changes (`IsPrime` bool to a `programs` array; no information is lost because the array is empty when not Prime), and dropped keys (5 keys exist only in v0). Because key names change, a column that exists in only one shape is null in the other: `proceeds` is null in v0 partitions, `is_prime` is null in 2026 partitions, `programs` is null in v0 partitions |
+| **Duplicate 2%** | Overlapping export days (for example re-pulling the last 3 days to catch updates, like Amazon's `GET_FLAT_FILE_ALL_ORDERS_DATA_BY_LAST_UPDATE_GENERAL` report). There are identical copies and **revised copies** (same key, newer update time, newer status). Dedup must keep the latest copy, not just drop identical copies |
 
-Cách đo tỷ lệ trùng: `1 - count(distinct khóa) / count(*)`. Khóa theo Channel: Amazon `AmazonOrderId` (từ khi đổi schema là `orderId`), TikTok Shop `id`, Shopify `id`, Walmart `purchaseOrderId`, Shopee `order_sn`. Cột thời điểm cập nhật dùng để chọn bản mới nhất: Amazon `LastUpdateDate`/`lastUpdatedTime`, TikTok Shop và Shopee `update_time`, Shopify `updated_at`, Walmart `fetched_at`.
+How the duplicate rate is measured: `1 - count(distinct key) / count(*)`. Key per Channel: Amazon `AmazonOrderId` (`orderId` after the schema change), TikTok Shop `id`, Shopify `id`, Walmart `purchaseOrderId`, Shopee `order_sn`. The update-time column used to pick the latest copy: Amazon `LastUpdateDate`/`lastUpdatedTime`, TikTok Shop and Shopee `update_time`, Shopify `updated_at`, Walmart `fetched_at`.
 
 ### Streaming
 
-| Vấn đề | Channel | Mức mặc định |
+| Problem | Channel | Default level |
 |---|---|---|
-| **Duplicate** | TikTok Shop, Shopify (webhook) | 1.5%. Bản trùng giữ **cùng** mã thông báo (TikTok Shop `tts_notification_id`) để Flink dedup được |
-| **Late** | Amazon (notification) | Trễ trung vị vài phút, 5% trễ hơn 1 giờ. Message trễ được gửi sau cả những message có `event_time` muộn hơn, tức là đến lệch thứ tự |
-| **Theo lô** | Walmart, Shopee (polling, là lựa chọn thiết kế của dự án) | Gộp theo chu kỳ 5 đến 15 phút |
-| **Burst** | Livestream TikTok (sau `cutoff`) | 5 đến 8 lần tốc độ thường trong vài giờ |
+| **Duplicate** | TikTok Shop, Shopify (webhook) | 1.5%. Duplicates keep the **same** notification ID (TikTok Shop `tts_notification_id`) so Flink can dedup them |
+| **Late** | Amazon (notification) | Median delay of a few minutes, 5% delayed more than 1 hour. Late messages are sent after messages with a later `event_time`, i.e. they arrive out of order |
+| **Batched** | Walmart, Shopee (polling, a design choice of the project) | Grouped in cycles of 5 to 15 minutes |
+| **Burst** | TikTok livestream (after `cutoff`) | 5 to 8 times the normal rate for a few hours |
 
-Prime Day cũng gây burst nhưng nằm trong Batch, nên chỉ tính cho skew theo ngày, không tính cho burst của stream.
+Prime Day also causes a burst, but it is in the Batch, so it only counts toward daily skew, not toward the stream burst.
 
-**Tốc độ phát theo đoạn.** Burst phải kéo dài đủ lâu theo đồng hồ thật để thấy trên Flink UI (backpressure, throughput). Nếu phát đều 60 giây thật cho mỗi ngày mô phỏng thì buổi livestream 6 giờ chỉ kéo dài khoảng 15 giây. Vì vậy Stream được phát theo đoạn:
-- Ngày bình thường: 60 giây thật cho mỗi ngày mô phỏng.
-- Ngày có livestream: 600 giây thật cho mỗi ngày mô phỏng. Buổi livestream 6 giờ kéo dài khoảng 150 giây thật, với tốc độ message gấp 5 đến 8 lần bình thường.
-- Một lần phát đủ 30 ngày Stream mất khoảng 40 phút.
+**Segmented emission speed.** A burst must last long enough in wall-clock time to be visible in the Flink UI (backpressure, throughput). If every simulated day were emitted evenly over 60 real seconds, a 6-hour livestream would last only about 15 seconds. So the Stream is emitted in segments:
+- Normal days: 60 real seconds per simulated day.
+- Livestream days: 600 real seconds per simulated day. A 6-hour livestream lasts about 150 real seconds, with a message rate 5 to 8 times normal.
+- A full emission of 30 Stream days takes about 40 minutes.
 
-Late arrival không bị ảnh hưởng bởi tốc độ phát, vì Flink đo độ trễ theo `event_time` trong payload.
+Late arrival is not affected by the emission speed, because Flink measures delay against `event_time` in the payload.
 
 ### Drift
 
-| Loại | Sự kiện | Nằm ở đâu |
+| Type | Event | Where |
 |---|---|---|
-| **Covariate** | Prime Day: giảm giá sâu và phân phối SKU đổi ở Amazon | Trong Batch, khoảng ngày 120. Tập train đã từng thấy một đợt sale |
-| **Concept** | Livestream TikTok: tỷ lệ trả quần áo gần gấp đôi, feature không đổi | Chỉ trong Stream, sau `cutoff`. Mô hình chưa từng gặp, phải phát hiện được trước khi nhãn về sau 30 ngày |
+| **Covariate** | Prime Day: deep discounts and a shifted SKU distribution on Amazon | In the Batch, around day 120. The training set has already seen one sale |
+| **Concept** | TikTok livestream: the apparel return rate nearly doubles, features unchanged | Only in the Stream, after `cutoff`. The model has never seen it and must detect it before labels arrive 30 days later |
 
-Drift là thay đổi tham số của lõi theo lịch cấu hình, không phải sửa dữ liệu sau khi sinh.
+Drift is a change of core parameters on a configured schedule, not an edit of the data after generation.
 
-## 6. Nguồn dữ liệu từng Channel
+## 6. Data sources per Channel
 
-Mỗi nguồn khớp tài liệu chính thức. Field mức "Trung bình" hoặc "Thấp" ghi là giả định, xem [channel-sources.md](channel_sources.md).
+Each source matches official documentation. Fields with "Medium" or "Low" confidence are recorded as assumptions; see [channel-sources.md](channel_sources.md).
 
-| Channel | Nguồn Batch | Nơi lưu | Stream |
+| Channel | Batch source | Stored in | Stream |
 |---|---|---|---|
-| Amazon | (1) Đơn hàng JSON, theo Orders v0 rồi Orders 2026-01-01. (2) Returns report TSV `GET_FLAT_FILE_RETURNS_DATA_BY_RETURN_DATE` cho đơn MFN. (3) Report FBA Shipments `GET_AMAZON_FULFILLED_SHIPMENTS_DATA_GENERAL` (TSV). (4) Report FBA Returns `GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA` (TSV) | MinIO | Notification, hay đến trễ |
-| TikTok Shop | (1) Đơn hàng JSON theo Get Order Detail 202309. (2) Return JSON theo Search Returns 202602 | MinIO | Webhook type 1 (đổi trạng thái đơn) và 12 (đổi trạng thái trả hàng), hay gửi trùng |
-| Shopify | Đơn hàng JSONL theo cấu trúc REST Order, gồm `refunds` và `fulfillments` (REST là legacy, giữ vì đã xác minh field) | MinIO | Webhook, hay gửi trùng |
-| Walmart | Đơn hàng và return JSON trong cột `raw_payload` JSONB, kèm `fetched_at` | PostgreSQL | Polling, đến theo lô |
-| Shopee | Đơn hàng (`get_order_detail`) và return (`get_return_list`) JSON trong cột `raw_payload` JSONB, kèm `fetched_at` | PostgreSQL | Polling, đến theo lô |
+| Amazon | (1) Order JSON, following Orders v0 then Orders 2026-01-01. (2) Returns report TSV `GET_FLAT_FILE_RETURNS_DATA_BY_RETURN_DATE` for MFN orders. (3) FBA Shipments report `GET_AMAZON_FULFILLED_SHIPMENTS_DATA_GENERAL` (TSV). (4) FBA Returns report `GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA` (TSV) | MinIO | Notifications, often late |
+| TikTok Shop | (1) Order JSON following Get Order Detail 202309. (2) Return JSON following Search Returns 202602 | MinIO | Webhook type 1 (order status change) and 12 (return status change), often duplicated |
+| Shopify | Order JSONL following the REST Order structure, including `refunds` and `fulfillments` (REST is legacy, kept because the fields were verified) | MinIO | Webhook, often duplicated |
+| Walmart | Order and return JSON in a `raw_payload` JSONB column, with `fetched_at` | PostgreSQL | Polling, arrives in batches |
+| Shopee | Order (`get_order_detail`) and return (`get_return_list`) JSON in a `raw_payload` JSONB column, with `fetched_at` | PostgreSQL | Polling, arrives in batches |
 
-Nhận xét:
-- Amazon có 4 nguồn định dạng khác nhau, nên Silver phải ghép chúng theo `order-id`.
-- Bronze có hai kiểu ingest: đọc file từ MinIO và đọc JDBC từ PostgreSQL.
-- Chi tiết giữ nguyên từ tài liệu để buộc lớp ánh xạ trạng thái phải xử lý: TikTok Shop dùng `CANCELLED` ở API nhưng `CANCEL` ở webhook.
+Notes:
+- Amazon has 4 sources with different formats, so Silver must join them by `order-id`.
+- Bronze has two ingest styles: reading files from MinIO and reading over JDBC from PostgreSQL.
+- A detail kept as documented to force the status-mapping layer to handle it: TikTok Shop uses `CANCELLED` in the API but `CANCEL` in webhooks.
 
-## 7. Dữ liệu tham chiếu
+## 7. Reference data
 
-Các phần sau cần bảng dim có lịch sử (SCD2) và quan hệ dim–fact, nên generator xuất thêm:
+Later parts need dimension tables with history (SCD2) and dim–fact relationships, so the generator also exports:
 
-| Dữ liệu | Nội dung | Nơi lưu | Dùng cho |
+| Data | Content | Stored in | Used for |
 |---|---|---|---|
-| Danh mục SKU | `sku_id`, tên, danh mục, giá vốn. Giả lập hệ thống ERP của Seller | PostgreSQL, `seller.skus` | `dim_sku` |
-| Ảnh chụp Listing hàng ngày | Mỗi Listing mỗi ngày: Storefront, mã Listing của Channel (ASIN, variant ID, ...), giá, trạng thái. Giá đổi quanh các đợt sale, nên Prime Day tự sinh nhiều phiên bản mới | MinIO | `dim_listing` SCD2 |
-| Tỷ giá ngày | Tỷ giá USD của GBP, EUR, VND theo ngày | MinIO | Quy đổi tiền ra USD |
+| SKU catalog | `sku_id`, name, category, cost price. Simulates the Seller's ERP system | PostgreSQL, `seller.skus` | `dim_sku` |
+| Daily Listing snapshot | Each Listing each day: Storefront, the Channel's Listing ID (ASIN, variant ID, ...), price, status. Prices change around sales, so Prime Day naturally produces many new versions | MinIO | `dim_listing` SCD2 |
+| Daily exchange rates | USD rates for GBP, EUR, VND by day | MinIO | Converting money to USD |
 
-Ảnh chụp Listing ở dạng chung do Seller tự xuất, không theo định dạng từng Channel. Đây là giả định để giữ phạm vi.
+The Listing snapshot is in a common shape exported by the Seller, not in each Channel's format. This is an assumption to keep the scope bounded.
 
-## 8. Bố cục lưu trữ
+## 8. Storage layout
 
-- **MinIO**, bucket `platform`, tiền tố `source-exports/`: đường dẫn theo nguồn rồi theo **ngày export**, ví dụ `source-exports/channel=amazon/dataset=orders/export_date=2026-03-14/`. Cùng bucket còn có `pg-load/` (dòng chờ nạp PostgreSQL), `ground-truth/` và `run_manifest.json`. Dùng một bucket vì manifest phải nằm trong một bucket nào đó, xem [Docker.md](../docker.md#1-môi-trường-nguồn-bằng-docker-compose). Chia theo ngày export (không theo ngày đặt hàng) vì export chồng lấn và thay đổi schema đều gắn với ngày export, và pipeline DP1 kéo dữ liệu theo từng ngày. Mỗi ngày vài file cỡ vừa. Một số ngày cố ý sinh rất nhiều file nhỏ để tạo bài toán small-file cho phần Lakehouse.
-- **PostgreSQL** (giả lập hệ thống của phòng ban khác): mỗi nguồn một schema, gồm `walmart.orders`, `walmart.returns`, `shopee.orders`, `shopee.returns`, `seller.skus`. Bảng đơn giữ body API trong một cột `JSONB` cạnh vài cột khóa, như một hệ thống lưu lại response API. Bảng đơn không có khóa chính, vì bản trùng phải còn nguyên để pipeline phía sau dedup. Tiền tố `raw_` để dành cho tầng Bronze, không dùng ở hệ thống nguồn.
-- **Kafka**: mỗi Channel một topic. Key là mã Order để các event của cùng một Order vào cùng partition. Value là payload gốc của Channel (ví dụ body webhook TikTok Shop).
+- **MinIO**, bucket `platform`, prefix `source-exports/`: paths by source and then by **export date**, for example `source-exports/channel=amazon/dataset=orders/export_date=2026-03-14/`. The same bucket also holds `pg-load/` (rows waiting to be loaded into PostgreSQL), `ground-truth/` and `run_manifest.json`. One bucket is used because the manifest has to live in some bucket; see [Docker.md](../docker.md#1-source-environment-with-docker-compose). Partitioning is by export date (not order date) because overlapping exports and schema changes are both tied to the export date, and the DP1 pipeline pulls data day by day. Each day has a few medium-sized files. Some days deliberately generate a large number of small files to create a small-file problem for the Lakehouse part.
+- **PostgreSQL** (simulating another department's system): one schema per source, including `walmart.orders`, `walmart.returns`, `shopee.orders`, `shopee.returns`, `seller.skus`. Order tables keep the API body in a `JSONB` column next to a few key columns, like a system that stores API responses. Order tables have no primary key, because duplicates must stay intact for the downstream pipeline to dedup. The `raw_` prefix is reserved for the Bronze layer and not used in the source system.
+- **Kafka**: one topic per Channel. The key is the Order ID so that events of the same Order go to the same partition. The value is the Channel's native payload (for example the TikTok Shop webhook body).
 
-### Tên file trong một thư mục `export_date=`
+### File names in an `export_date=` directory
 
-Mỗi thư mục `export_date=` chứa **nhiều** file, mỗi file của một ngày mô phỏng:
+Each `export_date=` directory contains **many** files, one per simulated day:
 
 ```
 source-exports/channel=amazon/dataset=orders/export_date=2026-03-14/
-    part-sim00039.jsonl      ← dòng do ngày mô phỏng 39 ghi
+    part-sim00039.jsonl      ← rows written by simulated day 39
     part-sim00040.jsonl
     ...
 ```
 
-Vì sao không dùng một file dùng chung: một Order được export vào ngày nó **đổi
-trạng thái lần cuối**, muộn hơn ngày tạo tới khoảng 20 ngày (đo được tối đa 18 trên
-736.129 Order; trần cứng từ hằng số vòng đời là `handling` ≤ 3 + `transit` ≤ 6 +
-`completed` ≤ 7 = 16 ngày, cộng `overlap_days` = 3 cho bản trùng). Nên một file dùng
-chung phải mở suốt ~20 ngày mô phỏng và nhận dòng từ cả 20 ngày đó — và lúc ấy không
-có thời điểm nào nói được "ngày d đã xong và nằm trọn trên đĩa".
+Why not use one shared file: an Order is exported on the day of its **last status
+change**, up to about 20 days after its creation date (measured maximum 18 across
+736,129 Orders; the hard ceiling from the lifecycle constants is `handling` ≤ 3 + `transit` ≤ 6 +
+`completed` ≤ 7 = 16 days, plus `overlap_days` = 3 for duplicates). So a shared file
+would have to stay open for ~20 simulated days and receive rows from all 20 of those days — and at no
+point could anyone say "day d is done and fully on disk".
 
-Phân vùng không đổi: thư mục vẫn là ngày export, nên Spark, Iceberg, Trino và
-`generator/report.py` nhận đúng tập dòng như khi mỗi thư mục chỉ có một file.
+Partitioning is unchanged: the directory is still the export date, so Spark, Iceberg, Trino and
+`generator/report.py` receive exactly the same set of rows as when each directory had a single file.
 
-### Chạy tiếp sau khi bị cắt
+### Resuming after an interruption
 
-Lần chạy đạt ngưỡng 100 GB mất khoảng 3,2 giờ trên một core, nên nó phải chịu được
-việc bị tắt giữa đường.
+The run that reaches the 100 GB threshold takes about 3.2 hours on one core, so it has to survive
+being killed midway.
 
-| Thành phần | Vai trò |
+| Component | Role |
 |---|---|
-| `_checkpoint/day-NNNNN.json` | Vừa là dấu "ngày NNNNN đã xong", vừa chứa mọi bộ đếm dồn tới hết ngày đó. Gộp một file nên dấu và số không lệch nhịp |
-| `part-simNNNNN.*` | File do ngày NNNNN ghi. Không có dấu của ngày NNNNN thì mấy file này là ghi dở |
+| `_checkpoint/day-NNNNN.json` | Both the "day NNNNN is done" marker and the holder of every counter accumulated up to the end of that day. Combined in one file so the marker and the numbers never drift apart |
+| `part-simNNNNN.*` | Files written by day NNNNN. Without the marker for day NNNNN, these files are partial writes |
 
-Thứ tự ghi là điều kiện sống còn:
+The write order is critical:
 
 ```
-đóng file  →  fsync (ép xuống đĩa thật)  →  MỚI ghi dấu (ghi tạm rồi đổi tên)
+close file  →  fsync (force to the physical disk)  →  ONLY THEN write the marker (write to temp, then rename)
 ```
 
-Làm ngược lại thì mất điện có thể để lại dấu nói "ngày d xong" trong khi file ngày d
-thiếu đuôi; lần chạy sau tin dấu, bỏ qua ngày d, và dữ liệu thiếu **mà manifest vẫn
-cộng ra số đẹp, không lỗi nào báo**.
+Doing it the other way round, a power loss could leave a marker saying "day d is done" while day d's file
+is missing its tail; the next run trusts the marker, skips day d, and data is missing **while the manifest still
+adds up to nice numbers, with no error reported**.
 
-Lúc khởi động: tìm `d` lớn nhất mà dấu của mọi ngày `1..d` đều có (không lấy số lớn
-nhất tìm được — một dấu đứng lẻ sau khoảng trống không chứng minh được gì), nạp bộ
-đếm từ dấu đó, xóa mọi `part-sim` của ngày `> d`, rồi chạy từ `d+1`. Cờ `--restart`
-bỏ qua dấu và sinh lại từ ngày 1.
+At startup: find the largest `d` such that the markers of all days `1..d` exist (not the largest
+number found — an isolated marker after a gap proves nothing), load the counters
+from that marker, delete every `part-sim` of days `> d`, then run from `d+1`. The `--restart` flag
+ignores markers and regenerates from day 1.
 
-Điều này đúng được vì mỗi ngày mô phỏng rút số ngẫu nhiên riêng theo
-`(seed, "batch_exports", day)` và không đọc trạng thái ngày trước
-(`tests/unit/generator/core/test_simulate.py::test_a_day_does_not_depend_on_previous_days`), nên ngày `d` cho
-ra cùng dữ liệu dù chạy từ ngày 1 hay nhảy vào từ ngày `d`. `tests/unit/generator/test_generate_order_snapshots_resume.py`
-khóa lời hứa đó bằng cách so từng byte giữa một lần chạy liền mạch và một lần bị cắt.
+This is correct because each simulated day draws its own random numbers from
+`(seed, "batch_exports", day)` and does not read the previous day's state
+(`tests/unit/generator/core/test_simulate.py::test_a_day_does_not_depend_on_previous_days`), so day `d` produces
+the same data whether the run started at day 1 or jumped in at day `d`. `tests/unit/generator/test_generate_order_snapshots_resume.py`
+locks in that promise by comparing byte for byte a continuous run and an interrupted one.
 
-## 9. Buyer, tiền tệ và thời gian
+## 9. Buyers, currency and time
 
-- Lõi biết buyer đầy đủ (mã, quốc gia, mã bưu chính). Renderer chỉ lộ những gì Channel lộ thật:
+- The core knows the full buyer (ID, country, postal code). Renderers only expose what the Channel really exposes:
 
-  | Channel | Mã buyer | Ghi chú |
+  | Channel | Buyer ID | Notes |
   |---|---|---|
-  | Walmart | `buyerId` | Có `isGuest` |
-  | Shopify | `customer.id` | Null với khách không đăng nhập |
-  | TikTok Shop | `user_id` | Chỉ có nghĩa trong TikTok Shop |
-  | Shopee | `buyer_user_id` | Chỉ có nghĩa trong Shopee |
-  | Amazon | Không có mã buyer ổn định | Chỉ có thông tin giao hàng bị hạn chế |
+  | Walmart | `buyerId` | Has `isGuest` |
+  | Shopify | `customer.id` | Null for guests who are not logged in |
+  | TikTok Shop | `user_id` | Only meaningful within TikTok Shop |
+  | Shopee | `buyer_user_id` | Only meaningful within Shopee |
+  | Amazon | No stable buyer ID | Only restricted shipping information |
 
-  Không mã nào dùng chung được giữa các Channel, nên feature vẫn tra theo `sku_id` + `storefront_id`.
-- Tiền giữ nguyên số gốc kèm mã tiền tệ gốc (USD, GBP, EUR, VND theo Storefront), quy ra USD bằng bảng tỷ giá ngày ở [mục 7](#7-dữ-liệu-tham-chiếu). Tỷ giá sinh từ chuỗi giả lập dao động nhẹ quanh giá trị gốc. Shopify giữ cả tiền của store (`currency`) và tiền khách trả (`presentment_currency`).
-- Thời gian lưu UTC.
-  - `event_time` là thời điểm sự kiện xảy ra, nằm sẵn trong payload gốc (ví dụ `update_time` của TikTok Shop, `LastUpdateDate` của Amazon).
-  - `ingested_at` là thời điểm hệ thống nhận. Với stream là timestamp của Kafka record lúc generator gửi. Với Batch là `export_date` hoặc `fetched_at`.
-  - Chênh lệch giữa hai mốc là late arrival.
+  No ID can be shared across Channels, so features still look up by `sku_id` + `storefront_id`.
+- Money keeps the original amount with the original currency code (USD, GBP, EUR, VND by Storefront) and is converted to USD with the daily exchange-rate table in [section 7](#7-reference-data). Rates are generated from a simulated series fluctuating slightly around the base value. Shopify keeps both the store currency (`currency`) and the currency the customer paid in (`presentment_currency`).
+- Times are stored in UTC.
+  - `event_time` is when the event happened, already present in the native payload (for example TikTok Shop's `update_time`, Amazon's `LastUpdateDate`).
+  - `ingested_at` is when the system received it. For the stream it is the Kafka record timestamp when the generator sent it. For the Batch it is `export_date` or `fetched_at`.
+  - The difference between the two is the late arrival.
 
-## 10. Cấu hình
+## 10. Configuration
 
-Toàn bộ tham số nằm trong một file YAML. Tên khóa và giá trị dưới đây là **đề xuất** cho toàn bộ generator. Các khóa đã có code, kèm ý nghĩa từng khóa, xem [mục 15](#các-khóa-cấu-hình-đang-dùng).
+All parameters live in one YAML file. The key names and values below are a **proposal** for the whole generator. For the keys that already have code, with the meaning of each key, see [section 15](#configuration-keys-in-use).
 
 ```yaml
 seed: 42
 scale:
   n_skus: 2000
-  start_date: 2026-01-01     # ngày mô phỏng 1
-  days_history: 180          # từ ngày 1 tới cutoff
-  days_stream: 30            # sau cutoff
+  start_date: 2026-01-01     # simulated day 1
+  days_history: 180          # from day 1 to cutoff
+  days_stream: 30            # after cutoff
   orders_per_day: 4000
-  sku_zipf_exponent: 0.8     # SKU bán chạy nhất khoảng 5% Order Line (tính với 2.000 SKU)
-storefront_weights:          # skew theo Storefront
+  sku_zipf_exponent: 0.8     # best-selling SKU about 5% of Order Lines (with 2,000 SKUs)
+storefront_weights:          # skew by Storefront
   amazon_us: 0.45
   tiktok_shop_us: 0.15
   amazon_uk: 0.12
@@ -279,12 +280,12 @@ labels:
 offline_problems:
   duplicate_rate: 0.02
   overlap_days: 3
-  amazon_orders_api_switch_day: 100    # v0 sang 2026-01-01
+  amazon_orders_api_switch_day: 100    # v0 to 2026-01-01
   small_file_days: [45, 46, 47]
 streaming_problems:
   pacing:
     default_seconds_per_sim_day: 60
-    segments:                          # phát chậm quanh sự kiện cần quan sát
+    segments:                          # emit slowly around events to observe
       - {from_day: 195, to_day: 195, seconds_per_sim_day: 600}
   duplicate_rate: {tiktok_shop_us: 0.015, shopify: 0.015}
   amazon_late: {median_minutes: 5, share_over_1h: 0.05}
@@ -298,273 +299,273 @@ storage:
   postgres_channels: [walmart_us, shopee_vn]
 ```
 
-Mọi con số có thể tăng khi chạy trên cloud (ví dụ `n_skus`, `orders_per_day`). `sku_zipf_exponent` cần chỉnh lại sau khi đo để đạt mục tiêu khoảng 5%.
+Every number can be increased when running in the cloud (for example `n_skus`, `orders_per_day`). `sku_zipf_exponent` needs re-tuning after measurement to hit the target of about 5%.
 
-## 11. Bản đáp án và bằng chứng chất lượng
+## 11. Answer key and quality evidence
 
 ### `run_manifest.json`
 
-Sau mỗi lần chạy, generator ghi `run_manifest.json`: seed, cấu hình, số dòng theo nguồn, tỷ lệ lỗi thật đã chèn (duplicate, late, burst), ngày đổi schema, các đợt drift, dung lượng và số file theo nguồn. Đây là đáp án để đối chiếu.
+After each run, the generator writes `run_manifest.json`: seed, configuration, row counts per source, the actual injected fault rates (duplicate, late, burst), the schema change date, the drift events, and size and file count per source. This is the answer key to check against.
 
-### Bảng nhãn (`labels`)
+### Label table (`labels`)
 
-Generator xuất riêng bảng nhãn thật, không chỉ ghi trong manifest, để join theo ID với bảng feature khi train.
+The generator exports a separate table of true labels, not only recorded in the manifest, so it can be joined by ID with the feature table during training.
 
-| Cột | Nghĩa |
+| Column | Meaning |
 |---|---|
-| `order_line_id` | Mã Order Line chuẩn của lõi |
-| `label` | 1 nếu Order Line bị Return hoặc Refund trong 30 ngày kể từ `delivered_at`, ngược lại 0 |
-| `delivered_at` | Ngày giao thật (UTC), để join theo thời điểm |
-| `label_available_at` | `delivered_at` + 30 ngày, lúc nhãn thật sự biết được |
+| `order_line_id` | The core's canonical Order Line ID |
+| `label` | 1 if the Order Line was Returned or Refunded within 30 days of `delivered_at`, otherwise 0 |
+| `delivered_at` | True delivery date (UTC), for point-in-time joins |
+| `label_available_at` | `delivered_at` + 30 days, when the label actually becomes known |
 
-- Chỉ có Order Line đã giao. Order bị hủy trước khi giao không có nhãn.
-- Bảng của Batch chỉ gồm dòng có `label_available_at` trước `cutoff`. Dòng còn lại có nhãn khi phát Stream.
-- Lưu dạng Parquet tại `ground-truth/labels/` trong MinIO, tách khỏi tiền tố `source-exports/` vì đây không phải dữ liệu của Channel nào.
-- Để join được với dữ liệu Channel, bảng phụ `ground-truth/order_line_keys/` ánh xạ `order_line_id` sang mã gốc của Channel (ví dụ `OrderItemId` của Amazon).
+- Only delivered Order Lines are included. Orders canceled before delivery have no label.
+- The Batch table only contains rows with `label_available_at` before `cutoff`. The remaining rows get labels when the Stream is emitted.
+- Stored as Parquet at `ground-truth/labels/` in MinIO, separate from the `source-exports/` prefix because it is not any Channel's data.
+- To join with Channel data, the auxiliary table `ground-truth/order_line_keys/` maps `order_line_id` to the Channel's native ID (for example Amazon's `OrderItemId`).
 
-### Báo cáo chất lượng dữ liệu
+### Data quality report
 
-Báo cáo chất lượng dữ liệu có hai phần:
+The data quality report has two parts:
 
-- **Module `generator/report.py`** chứa logic đo, có docstring và unit test, dùng DuckDB (nhẹ, có `approx_count_distinct`, đọc được cả MinIO lẫn PostgreSQL). Có `--dsn` thì Walmart và danh mục SKU được đọc từ PostgreSQL, không có thì đọc file `pg-load/`.
-- **Lệnh `python -m generator report`** in các bảng đo ra terminal để chụp, hoặc in dạng Markdown (`--markdown`) để dán vào tài liệu. Notebook vẽ biểu đồ để sau: cần thêm Jupyter và thư viện vẽ, trong khi bảng chữ đã đủ cho ảnh chụp.
-- **Stream** có hai nguồn số: `stream_manifest.json` giữ số tổng của lần phát, còn `scripts/evidence/measure_order_snapshots_stream.py` phát lại Stream trong bộ nhớ và in ví dụ cụ thể cho từng vấn đề (một cặp tin trùng, một tin trễ nặng nhất, bảng Order mỗi giờ của ngày livestream).
-- **Ảnh chụp và báo cáo** tách theo đường thời gian, mỗi bên một tài liệu và một thư mục ảnh: Batch ở [data-quality-report-batch.md](data_quality_report_batch.md) với `docs/images/batch/`, Stream ở [data-quality-report-stream.md](data_quality_report_stream.md) với `docs/images/stream/`. Mỗi ảnh kèm lời giải thích nó chứng minh điều gì.
+- **The `generator/report.py` module** holds the measurement logic, with docstrings and unit tests, using DuckDB (lightweight, has `approx_count_distinct`, can read both MinIO and PostgreSQL). With `--dsn`, Walmart and the SKU catalog are read from PostgreSQL; without it, the `pg-load/` files are read.
+- **The `python -m generator report` command** prints the measurement tables to the terminal for screenshots, or as Markdown (`--markdown`) to paste into documents. A charting notebook is deferred: it needs Jupyter and a plotting library, while text tables are enough for screenshots.
+- **Stream** has two sources of numbers: `stream_manifest.json` holds the totals of an emission, while `scripts/evidence/measure_order_snapshots_stream.py` replays the Stream in memory and prints a concrete example of each problem (a pair of duplicate messages, the most delayed message, a table of Orders per hour on the livestream day).
+- **Screenshots and reports** are split by timeline, each side with its own document and image directory: Batch in [data-quality-report-batch.md](data_quality_report_batch.md) with `docs/images/batch/`, Stream in [data-quality-report-stream.md](data_quality_report_stream.md) with `docs/images/stream/`. Each image comes with an explanation of what it proves.
 
-| Đặc tính cần đo | Báo cáo đo gì |
+| Property to measure | What the report measures |
 |---|---|
-| Skew distribution (city/category %) | Phần trăm Order theo thành phố, theo danh mục, theo Storefront, theo SKU top, theo ngày |
-| Cardinality | `approx_count_distinct` của `order_id`, `order_line_id`, `tracking_number`, mã buyer |
-| Schema evolution | Tỷ lệ null của cột `proceeds` (chỉ có ở dạng 2026, do tên khoá đổi) theo từng `export_date`, trước và sau ngày đổi schema |
-| Duplicate trước và sau dedup | Tỷ lệ trùng theo công thức ở mục 5, trước và sau khi áp quy tắc dedup (giữ bản mới nhất theo khóa). Báo cáo tự tính cả hai để phần generator không phụ thuộc Spark. Job Spark sau này phải ra cùng con số |
-| Streaming burst/late/duplicate | Số message mỗi phút, phân phối `ingested_at - event_time`, tỷ lệ `tts_notification_id` lặp |
-| Data volume, format sau lưu | Dung lượng và số file theo nguồn, định dạng từng nguồn |
+| Skew distribution (city/category %) | Percentage of Orders by city, by category, by Storefront, by top SKU, by day |
+| Cardinality | `approx_count_distinct` of `order_id`, `order_line_id`, `tracking_number`, buyer ID |
+| Schema evolution | Null rate of the `proceeds` column (only present in the 2026 shape, because key names changed) per `export_date`, before and after the schema change date |
+| Duplicate before and after dedup | Duplicate rate using the formula in section 5, before and after applying the dedup rule (keep the latest copy per key). The report computes both itself so the generator side does not depend on Spark. The later Spark job must produce the same numbers |
+| Streaming burst/late/duplicate | Messages per minute, distribution of `ingested_at - event_time`, rate of repeated `tts_notification_id` |
+| Data volume, format after storage | Size and file count per source, format of each source |
 
-Mỗi con số đo được đặt cạnh con số trong `run_manifest.json`.
+Each measured number is placed next to the number in `run_manifest.json`.
 
-## 12. Kỹ thuật và đóng gói
+## 12. Engineering and packaging
 
-- Python, số ngẫu nhiên bằng `numpy` `Generator` với một `seed` duy nhất. Cùng seed và cùng cấu hình cho cùng dữ liệu. Riêng thời điểm Kafka nhận message phụ thuộc đồng hồ thật.
-- Hai chế độ chạy: sinh Batch (job chạy một lần) và phát Stream (tiến trình chạy lâu, gửi vào Kafka).
-- Ghi ra qua `fsspec`/S3 API vào MinIO hoặc bucket cloud, không qua đĩa máy cá nhân.
-- Chia theo ngày để ít tốn RAM. Hơn 1 triệu Order Line chạy được trong một process, chưa cần Spark.
-- Unit test local chỉ chạy cấu hình rất nhỏ (ví dụ 20 SKU, 3 ngày).
-- Mỗi file có đoạn mô tả ở đầu file, mỗi hàm và class có docstring, theo yêu cầu chung của bộ dữ liệu.
-- **Docker**: có Docker Compose (MinIO, PostgreSQL, Kafka) cho môi trường thử. Để có số liệu "giảm từ bao nhiêu xuống bao nhiêu", build trước một image đơn giản (một stage, base image đầy đủ) và ghi dung lượng, sau đó build bản tối ưu (multi-stage, base image slim, không giữ cache cài đặt) và ghi dung lượng. Kết quả ghi vào `docs/data-platform/docker.md`.
-- Hạ tầng nặng chạy trên cloud, dựng bằng Terraform và `destroy` khi nghỉ.
+- Python, random numbers via `numpy` `Generator` with a single `seed`. The same seed and configuration give the same data. Only the time Kafka receives a message depends on the real clock.
+- Two run modes: generate the Batch (a one-off job) and emit the Stream (a long-running process sending to Kafka).
+- Output is written through `fsspec`/S3 API to MinIO or a cloud bucket, not through a personal machine's disk.
+- Work is split by day to save RAM. More than 1 million Order Lines run in one process; Spark is not needed yet.
+- Local unit tests only run a very small configuration (for example 20 SKUs, 3 days).
+- Every file has a description at the top, and every function and class has a docstring, following the project's general documentation convention.
+- **Docker**: there is a Docker Compose setup (MinIO, PostgreSQL, Kafka) for the test environment. To get "reduced from X to Y" numbers, first build a simple image (single stage, full base image) and record its size, then build the optimized one (multi-stage, slim base image, no install cache kept) and record its size. Results are recorded in `docs/data-platform/docker.md`.
+- Heavy infrastructure runs in the cloud, provisioned with Terraform and `destroy`ed when idle.
 
-## 13. Giả định và việc còn mở
+## 13. Assumptions and open items
 
-**Giả định** (đã ghi rõ, cần xác minh nếu có nguồn):
-- Quy luật sinh nhãn và các hệ số.
-- Danh sách khoảng 10 mã lý do trả của Amazon.
-- Ngày giao của Amazon và Shopee (chỉ thấy proxy).
-- Report `GET_FLAT_FILE_RETURNS_DATA_BY_RETURN_DATE` chỉ chứa đơn MFN, hàng trả FBA nằm ở report FBA Returns.
-- Ngày Amazon chuyển từ Orders v0 sang Orders 2026-01-01 là ngày tự chọn, không phải lịch thật của Amazon.
-- Giá trị `ReturnStatus` của Shopee ngoài `REQUESTED` và `CANCELLED`.
-- Danh sách trạng thái return của Walmart, danh sách cột đầy đủ của report FBA Shipments và FBA Returns.
-- Notification của Amazon và webhook của Shopify: payload và cách Channel gửi trùng chưa đọc từ tài liệu chính thức.
-- Ảnh chụp Listing dạng chung do Seller tự xuất.
+**Assumptions** (stated explicitly, to be verified if a source becomes available):
+- The label-generation rule and its coefficients.
+- The list of about 10 Amazon return reason codes.
+- The delivery date of Amazon and Shopee (only a proxy is visible).
+- The `GET_FLAT_FILE_RETURNS_DATA_BY_RETURN_DATE` report only contains MFN orders; FBA returns are in the FBA Returns report.
+- The date Amazon switches from Orders v0 to Orders 2026-01-01 is self-chosen, not Amazon's real schedule.
+- Shopee `ReturnStatus` values other than `REQUESTED` and `CANCELLED`.
+- Walmart's list of return statuses, and the full column lists of the FBA Shipments and FBA Returns reports.
+- Amazon notifications and Shopify webhooks: the payload and how the Channel sends duplicates have not been read from official documentation.
+- The Listing snapshot in a common shape exported by the Seller.
 
-**Việc còn mở:**
-- Tình trạng REST và GraphQL của Shopify năm 2026.
-- Dung lượng đã đo trong manifest nguồn: 100.012.790.412 byte cho Amazon/Walmart/SKU; xem [báo cáo Batch](data_quality_report_batch.md).
-- Quy mô Spark đã kiểm bằng `configs/scale-100gb.yaml`; benchmark 20/180 ngày ở [Spark](spark.md), pipeline Airflow dùng cửa sổ nhỏ hơn ghi trong [Airflow](../pipeline_orchestration.md). Không dùng kế hoạch `large.yaml` cũ.
-- Bronze/Silver đủ năm Channel, Gold fact, Amazon SCD2 và feature offline đã chạy; schema và phạm vi bằng chứng ở [Schema](../schema_design.md) và [Gold](gold.md).
+**Open items:**
+- The status of Shopify REST and GraphQL in 2026.
+- Size measured in the source manifest: 100,012,790,412 bytes for Amazon/Walmart/SKU; see the [Batch report](data_quality_report_batch.md).
+- Spark scale has been checked with `configs/scale-100gb.yaml`; the 20/180-day benchmark is in [Spark](spark.md), and the Airflow pipeline uses a smaller window recorded in [Airflow](../pipeline_orchestration.md). The old `large.yaml` plan is not used.
+- Bronze/Silver for all five Channels, Gold facts, Amazon SCD2 and offline features have run; schema and evidence scope are in [Schema](../schema_design.md) and [Gold](gold.md).
 
-## 14. Thiết kế và evidence
+## 14. Design and evidence
 
-| Chủ đề | Thiết kế | Evidence / cách kiểm chứng |
+| Topic | Design | Evidence / how to verify |
 |---|---|---|
-| Docker & Docker Compose | Mục 12 | `docs/data-platform/docker.md` |
-| Optimize Dockerfile | Mục 12 | Dung lượng image trước và sau tối ưu |
-| Simulate skew | Mục 5, offline | Ảnh chụp báo cáo, mục 11 |
-| Simulate high cardinality | Mục 5, offline | Ảnh chụp `approx_count_distinct` |
-| Simulate schema evolution | Mục 5, offline | Ảnh chụp tỷ lệ null theo `export_date` |
-| Simulate another offline problem | Mục 5, duplicate 2% | Ảnh chụp tỷ lệ trùng trước và sau dedup |
-| Using generator configuration | Mục 10 | File cấu hình và tài liệu từng khóa |
-| Store data để ingest vào Bronze | Mục 6, 7, 8 | Ảnh chụp MinIO và PostgreSQL |
-| Simulate burst | Mục 5, streaming | Ảnh chụp số message mỗi phút |
-| Simulate late arrivals | Mục 5, streaming | Ảnh chụp phân phối độ trễ |
-| Simulate another streaming problem | Mục 5, duplicate 1.5% | Ảnh chụp tỷ lệ mã thông báo lặp |
-| Using generator configuration (streaming) | Mục 10, `streaming_problems` | File cấu hình |
-| Document data characteristic | Mục 6, 8, 11 | Dung lượng, số file, định dạng từ báo cáo |
-| Document config generator | Mục 10 | Tài liệu từng khóa |
+| Docker & Docker Compose | Section 12 | `docs/data-platform/docker.md` |
+| Optimize Dockerfile | Section 12 | Image size before and after optimization |
+| Simulate skew | Section 5, offline | Report screenshot, section 11 |
+| Simulate high cardinality | Section 5, offline | Screenshot of `approx_count_distinct` |
+| Simulate schema evolution | Section 5, offline | Screenshot of null rate per `export_date` |
+| Simulate another offline problem | Section 5, duplicate 2% | Screenshot of duplicate rate before and after dedup |
+| Using generator configuration | Section 10 | Configuration file and per-key documentation |
+| Store data for ingestion into Bronze | Sections 6, 7, 8 | Screenshots of MinIO and PostgreSQL |
+| Simulate burst | Section 5, streaming | Screenshot of messages per minute |
+| Simulate late arrivals | Section 5, streaming | Screenshot of the delay distribution |
+| Simulate another streaming problem | Section 5, duplicate 1.5% | Screenshot of the repeated notification ID rate |
+| Using generator configuration (streaming) | Section 10, `streaming_problems` | Configuration file |
+| Document data characteristic | Sections 6, 8, 11 | Size, file count, format from the report |
+| Document config generator | Section 10 | Per-key documentation |
 
-Các phần sau dùng dữ liệu của generator: dim SCD2 và quan hệ dim–fact (mục 7), bài toán small-file của Lakehouse (mục 8), window của Flink (mục 5, streaming).
+The following parts use the generator's data: SCD2 dimensions and dim–fact relationships (section 7), the Lakehouse small-file problem (section 8), Flink windows (section 5, streaming).
 
-## 15. Triển khai
+## 15. Implementation
 
-Mục này ghi phần đã có code: code nằm ở đâu, chạy thế nào, và vì sao viết như vậy. Mỗi file trong `generator/` có đoạn mô tả ở đầu file, giải thích kỹ hơn.
+This section records what already has code: where the code lives, how to run it, and why it is written that way. Each file in `generator/` has a description at the top that explains in more detail.
 
-### Tiến độ
+### Progress
 
-| Bước | Nội dung | Trạng thái |
+| Step | Content | Status |
 |---|---|---|
-| 1 | Lõi mô phỏng, Amazon Orders (có đổi schema), Walmart Orders, duplicate do export chồng lấn, bảng nhãn, manifest, Sale Event kiểu Prime Day | Xong |
-| 2 | Docker Compose (MinIO, PostgreSQL), bảng `seller.skus`, lệnh nạp PostgreSQL, `report.py`, Dockerfile tối ưu | Xong (notebook để sau) |
-| 2b | Amazon Returns và FBA reports, small-file, Listing, tỷ giá | Chưa làm |
-| 3 | Stream qua Kafka: burst (livestream TikTok), late (Amazon), duplicate (TikTok Shop), nhịp phát theo đoạn | Xong. Shopify, Walmart và Shopee trong Stream để bước 4 |
-| 4 | TikTok Shop, Shopify, Shopee, drift | Ba renderer Batch và Bronze/Silver/Gold đã chạy trên nguồn nhỏ; Stream ba Channel và concept drift chưa làm |
+| 1 | Simulation core, Amazon Orders (with schema change), Walmart Orders, duplicates from overlapping exports, label table, manifest, Prime Day-style Sale Event | Done |
+| 2 | Docker Compose (MinIO, PostgreSQL), `seller.skus` table, PostgreSQL load command, `report.py`, optimized Dockerfile | Done (notebook deferred) |
+| 2b | Amazon Returns and FBA reports, small-file, Listing, exchange rates | Not done |
+| 3 | Stream through Kafka: burst (TikTok livestream), late (Amazon), duplicate (TikTok Shop), segmented emission pacing | Done. Shopify, Walmart and Shopee in the Stream deferred to step 4 |
+| 4 | TikTok Shop, Shopify, Shopee, drift | Three Batch renderers and Bronze/Silver/Gold have run on a small source; Stream for the three Channels and concept drift not done |
 
-### Chạy thử
+### Trying it out
 
 ```bash
-uv sync                                                   # cài thư viện vào .venv
-uv run pytest -q                                          # chạy test, vài giây
-uv run python -m generator batch --config configs/small.yaml     # dữ liệu nhỏ, khoảng 1 giây, ghi vào ./out/small
-uv run python -m generator batch --config configs/default.yaml --output s3://...   # đủ quy mô
-uv run python -m generator report --source ./out/small                # báo cáo chất lượng từ file local
+uv sync                                                   # install libraries into .venv
+uv run pytest -q                                          # run tests, a few seconds
+uv run python -m generator batch --config configs/small.yaml     # small data, about 1 second, written to ./out/small
+uv run python -m generator batch --config configs/default.yaml --output s3://...   # full scale
+uv run python -m generator report --source ./out/small                # quality report from local files
 ```
 
-Chạy cả môi trường nguồn (MinIO, PostgreSQL, sinh và nạp dữ liệu) bằng Docker Compose, xem [Docker.md](../docker.md).
+To run the whole source environment (MinIO, PostgreSQL, generate and load data) with Docker Compose, see [Docker.md](../docker.md).
 
-Với cấu hình đầy đủ (2.000 SKU, 180 ngày, 4.000 Order mỗi ngày), một lần chạy trên máy cá nhân mất khoảng 82 giây, dùng tối đa khoảng 800 MB RAM, ghi ra khoảng 485 MB.
+With the full configuration (2,000 SKUs, 180 days, 4,000 Orders per day), one run on a personal machine takes about 82 seconds, uses at most about 800 MB of RAM, and writes about 485 MB.
 
-### Bản đồ code
+### Code map
 
-Code chia theo đúng ba lớp ở [mục 2](#2-kiến-trúc-ba-lớp). Đọc theo thứ tự dưới đây là dễ hiểu nhất.
+The code is split exactly along the three layers in [section 2](#2-three-layer-architecture). Reading in the order below is easiest.
 
-| File | Lớp | Việc |
+| File | Layer | Job |
 |---|---|---|
-| `generator/config.py` | | Đọc YAML vào dataclass, báo lỗi khi gõ sai khóa |
-| `generator/core/storefronts.py` | Lõi | Hằng số: 7 Storefront (tiền tệ, thành phố, tỷ lệ Channel giao hàng), 8 danh mục (tỷ lệ trả mục tiêu, khoảng giá) |
-| `generator/core/rngs.py` | Lõi | Bộ sinh số ngẫu nhiên riêng cho từng phần, để cùng seed luôn ra cùng dữ liệu |
-| `generator/core/catalog.py` | Lõi | Sinh SKU, SKU Defect Propensity, độ phổ biến Zipf và phân phối của ngày sale |
-| `generator/core/model.py` | Lõi | `Order`, `OrderLine`, `Buyer`, và `Order.status_at(t)` |
-| `generator/core/returns.py` | Lõi | Hàm logistic tính xác suất trả, độ trễ trả, nhãn |
-| `generator/core/simulate.py` | Lõi | Sinh Order từng ngày cùng toàn bộ vòng đời |
-| `generator/delivery/batch_exports.py` | Giao hàng | Order nằm ở ngày export nào, chèn duplicate |
-| `generator/channels/amazon.py`, `walmart.py` | Renderer | Vẽ Order thành bản ghi gốc của Channel |
-| `generator/channels/tiktok.py` | Renderer | Webhook TikTok Shop type 1 (đổi trạng thái đơn) cho Stream |
-| `generator/delivery/stream_events.py` | Giao hàng | Đổi trạng thái sau `cutoff` thành message: lúc đến, trễ, bản trùng, nhịp phát |
-| `generator/publish_order_snapshot_events.py` | | Lệnh `generator.publish_order_snapshot_events`: phát vào Kafka hoặc ra file, đo và ghi `stream_manifest.json` |
-| `generator/generate_order_snapshots.py` | | Nối ba lớp, ghi file, ghi manifest |
-| `generator/storage.py` | | Ghi và đọc thư mục local hoặc MinIO qua fsspec |
-| `generator/load_postgres.py` | | Lệnh `load-postgres`: nạp `pg-load/` vào `walmart.orders` và `seller.skus` bằng `COPY` |
-| `generator/report.py` | | Lệnh `report`: đo lại chất lượng dữ liệu Batch bằng DuckDB, đặt cạnh đáp án trong manifest |
-| `scripts/evidence/measure_order_snapshots_stream.py` | | Phát lại Stream trong bộ nhớ, in ví dụ cụ thể của trùng, trễ và burst để chụp ảnh |
+| `generator/config.py` | | Reads YAML into dataclasses, errors on mistyped keys |
+| `generator/core/storefronts.py` | Core | Constants: 7 Storefronts (currency, cities, Channel-fulfilled share), 8 categories (target return rate, price range) |
+| `generator/core/rngs.py` | Core | A separate random number generator for each part, so the same seed always gives the same data |
+| `generator/core/catalog.py` | Core | Generates SKUs, SKU Defect Propensity, Zipf popularity and the sale-day distribution |
+| `generator/core/model.py` | Core | `Order`, `OrderLine`, `Buyer`, and `Order.status_at(t)` |
+| `generator/core/returns.py` | Core | Logistic function for return probability, return delay, label |
+| `generator/core/simulate.py` | Core | Generates Orders day by day with their entire lifecycle |
+| `generator/delivery/batch_exports.py` | Delivery | Which export date an Order lands in, duplicate injection |
+| `generator/channels/amazon.py`, `walmart.py` | Renderer | Draws Orders as the Channel's native records |
+| `generator/channels/tiktok.py` | Renderer | TikTok Shop webhook type 1 (order status change) for the Stream |
+| `generator/delivery/stream_events.py` | Delivery | Turns status changes after `cutoff` into messages: arrival time, lateness, duplicates, pacing |
+| `generator/publish_order_snapshot_events.py` | | The `generator.publish_order_snapshot_events` command: emits to Kafka or to files, measures and writes `stream_manifest.json` |
+| `generator/generate_order_snapshots.py` | | Wires the three layers together, writes files, writes the manifest |
+| `generator/storage.py` | | Writes and reads a local directory or MinIO through fsspec |
+| `generator/load_postgres.py` | | The `load-postgres` command: loads `pg-load/` into `walmart.orders` and `seller.skus` with `COPY` |
+| `generator/report.py` | | The `report` command: re-measures Batch data quality with DuckDB, next to the answer key in the manifest |
+| `scripts/evidence/measure_order_snapshots_stream.py` | | Replays the Stream in memory, printing concrete examples of duplicates, lateness and burst for screenshots |
 
-### Bốn ý chính của cách làm
+### Four key ideas of the approach
 
-**1. Lõi sinh cả tương lai của Order, renderer chỉ "chụp ảnh".** Khi tạo một Order, lõi quyết định luôn lúc thanh toán, gửi, giao, có bị trả không. Kết quả lưu thành `timeline`, danh sách các lần đổi Order Status. Renderer gọi `order.status_at(t)` để biết Order trông thế nào tại thời điểm `t`. Nhờ vậy cùng một Order có thể xuất ở nhiều ngày export với trạng thái khác nhau, và sau này Stream chỉ cần chụp tiếp sau `cutoff`.
+**1. The core generates the Order's whole future; the renderer only "takes a snapshot".** When an Order is created, the core immediately decides when it is paid, shipped, delivered, and whether it is returned. The result is stored as a `timeline`, the list of Order Status changes. The renderer calls `order.status_at(t)` to know what the Order looks like at time `t`. This way the same Order can be exported on several export dates with different statuses, and later the Stream only needs to keep taking snapshots after `cutoff`.
 
-**2. Mỗi Order xuất đúng một lần, rồi mới chèn duplicate.** Bản chính của một Order nằm ở ngày export chứa lần cập nhật cuối của nó trước `cutoff`. Khi chưa chèn lỗi, tỷ lệ trùng theo khóa bằng 0, nên tỷ lệ trùng đo được đúng bằng phần đã chèn. Với xác suất `p = r / (1 - r)` (r là `duplicate_rate`), Order có thêm một bản: bản y hệt ở ngày export muộn hơn, hoặc bản cũ hơn ở ngày export sớm hơn. Công thức cho `p` giải thích ở đầu `batch_exports.py`.
+**2. Each Order is exported exactly once, and only then are duplicates injected.** An Order's primary copy is on the export date containing its last update before `cutoff`. Before faults are injected, the per-key duplicate rate is 0, so the measured duplicate rate equals exactly what was injected. With probability `p = r / (1 - r)` (r is `duplicate_rate`), an Order gets one extra copy: an identical copy on a later export date, or an older copy on an earlier export date. The formula for `p` is explained at the top of `batch_exports.py`.
 
-**3. Sale Event đổi tham số của lõi, không sửa dữ liệu sau khi sinh.** Trong hai ngày Prime Day, lõi nhân số Order của các Storefront Amazon lên, tăng tỷ lệ và mức giảm giá, và dồn nhu cầu vào một nhóm SKU deal. Mức giảm giá nằm sẵn trong hàm tính xác suất trả, nên tỷ lệ trả của mấy ngày này tự nhích lên mà không cần chỉnh riêng. Đó là covariate drift: feature đổi phân phối, còn quan hệ giữa feature và nhãn thì giữ nguyên.
+**3. A Sale Event changes core parameters, not the data after generation.** During the two Prime Day days, the core multiplies the Order count of the Amazon Storefronts, raises the share and depth of discounts, and concentrates demand on a group of deal SKUs. The discount level is already part of the return-probability function, so the return rate on those days rises on its own without separate tuning. That is covariate drift: the features change distribution, while the relationship between features and label stays the same.
 
-**4. Mã gốc của Channel suy ra từ mã chuẩn bằng hàm băm.** `AmazonOrderId`, `purchaseOrderId`, ASIN, mã vận đơn không được rút ngẫu nhiên mà băm từ mã chuẩn (`ORD-017-00042`) cùng seed. Cùng một Order luôn có cùng mã gốc ở mọi lần export, ở cả Batch lẫn Stream, và renderer không cần lưu bảng tra.
+**4. Native Channel IDs are derived from canonical IDs by hashing.** `AmazonOrderId`, `purchaseOrderId`, ASIN and tracking numbers are not drawn at random but hashed from the canonical ID (`ORD-017-00042`) together with the seed. The same Order always has the same native ID in every export, in both Batch and Stream, and the renderer needs no lookup table.
 
-### Đo được ở lần chạy đầy đủ (Batch)
+### Measured on the full run (Batch)
 
-| Chỉ số | Mục tiêu | Đo được |
+| Metric | Target | Measured |
 |---|---|---|
-| Tỷ lệ trùng `amazon.orders` | 2% | 1,98% (4.819 bản cũ hơn, 4.933 bản y hệt) |
-| Tỷ lệ trùng `walmart.orders` | 2% | 1,98% |
-| Tỷ lệ trả toàn bộ | khoảng 10 đến 12% | 11,2% |
-| Tỷ lệ trả quần áo | khoảng 22% | 23,3% |
-| Tỷ lệ trả đồ gia dụng | khoảng 4% | 4,6% |
-| Order Amazon mỗi ngày trong Sale Event | gấp 4 lần ngày thường | 10.642 so với 2.679, tức gấp 3,97 lần |
-| Mức giảm giá trung bình của Amazon trong Sale Event | khoảng 21% | 21,0% so với 4,4% ngày thường |
-| Tỷ lệ trả của Amazon trong Sale Event | cao hơn ngày thường | 13,5% so với 11,3% |
-| SKU bán chạy nhất trong Order Line Amazon | khoảng 5% | 5,4% (đo ở lần chạy 60 ngày) |
+| Duplicate rate `amazon.orders` | 2% | 1.98% (4,819 older copies, 4,933 identical copies) |
+| Duplicate rate `walmart.orders` | 2% | 1.98% |
+| Overall return rate | about 10 to 12% | 11.2% |
+| Apparel return rate | about 22% | 23.3% |
+| Home goods return rate | about 4% | 4.6% |
+| Amazon Orders per day during the Sale Event | 4 times a normal day | 10,642 vs 2,679, i.e. 3.97 times |
+| Average Amazon discount during the Sale Event | about 21% | 21.0% vs 4.4% on normal days |
+| Amazon return rate during the Sale Event | higher than normal days | 13.5% vs 11.3% |
+| Best-selling SKU among Amazon Order Lines | about 5% | 5.4% (measured on the 60-day run) |
 
-Số của tỷ lệ trả khớp mục tiêu vì mọi tác động trong hàm logistic được tâm hóa (trừ giá trị trung bình), giải thích ở đầu `returns.py`.
+The return rates match the targets because every effect in the logistic function is centered (mean subtracted), as explained at the top of `returns.py`.
 
 ### Stream
 
-Lệnh `generator.publish_order_snapshot_events` sinh lại khoảng 20 ngày cuối trước `cutoff` (để bắt Order cũ còn đổi trạng thái), rồi chạy tiếp `days_stream` ngày. Mỗi lần Order Amazon hoặc TikTok Shop đổi trạng thái trong khoảng `[cutoff, stream_end)` thành một message:
+The `generator.publish_order_snapshot_events` command regenerates about the last 20 days before `cutoff` (to catch old Orders that still change status), then continues for `days_stream` days. Each status change of an Amazon or TikTok Shop Order within `[cutoff, stream_end)` becomes one message:
 
-| Topic | Dạng | Khóa dedup | Vấn đề |
+| Topic | Shape | Dedup key | Problem |
 |---|---|---|---|
-| `amazon.order-notifications` | Notification `ORDER_CHANGE` (giả định, chưa đối chiếu tài liệu chính thức) | `NotificationMetadata.NotificationId` | Late: `EventTime` là lúc đổi trạng thái, `PublishTime` là lúc đến |
-| `tiktok_shop.order-webhooks` | Webhook type 1, theo channel-sources.md mục 5 | `tts_notification_id` | Duplicate, burst |
+| `amazon.order-notifications` | `ORDER_CHANGE` notification (assumed, not yet checked against official documentation) | `NotificationMetadata.NotificationId` | Late: `EventTime` is the status change time, `PublishTime` is the arrival time |
+| `tiktok_shop.order-webhooks` | Webhook type 1, per channel-sources.md section 5 | `tts_notification_id` | Duplicate, burst |
 
-Khóa Kafka là mã đơn gốc, nên message của một Order vào cùng partition. Message được gửi theo thứ tự lúc đến, nên message Amazon trễ đứng sau message có `event_time` muộn hơn.
+The Kafka key is the native order ID, so the messages of one Order go to the same partition. Messages are sent in arrival order, so a late Amazon message comes after messages with a later `event_time`.
 
-**Burst nằm ở lõi, không ở lớp giao hàng.** Giống Prime Day, livestream đổi tham số của lõi: trong vài giờ, số Order TikTok Shop gấp `live_multiplier` lần. Hệ số rút một lần trong khoảng `burst_multiplier` và ghi vào `stream_manifest.json`. Order thêm dùng bộ sinh số riêng, nên các Order khác của ngày đó không đổi.
+**The burst lives in the core, not in the delivery layer.** Like Prime Day, the livestream changes core parameters: for a few hours, the TikTok Shop Order count is multiplied by `live_multiplier`. The multiplier is drawn once within the `burst_multiplier` range and recorded in `stream_manifest.json`. The extra Orders use their own random number generator, so the other Orders of that day are unchanged.
 
-Số đo ở lần chạy `configs/default.yaml` vào Kafka qua Compose (`STREAM_SPEED=60`, 43,7 giây). Số message trong Kafka khớp số đếm. Báo cáo đầy đủ kèm cách kiểm chứng: [data-quality-report-stream.md](data_quality_report_stream.md).
+Measured on the `configs/default.yaml` run into Kafka through Compose (`STREAM_SPEED=60`, 43.7 seconds). The message count in Kafka matches the count. Full report with how to verify: [data-quality-report-stream.md](data_quality_report_stream.md).
 
-| Chỉ số | Mục tiêu | Đo được |
+| Metric | Target | Measured |
 |---|---|---|
-| Message TikTok Shop | | 93.554 |
-| Message Amazon | | 399.410 |
-| Tỷ lệ trùng TikTok Shop | 1,5% | 1,49% |
-| Tỷ lệ trùng Amazon | 0 | 0 |
-| Độ trễ trung vị Amazon | vài phút | 5,3 phút |
-| Message Amazon trễ hơn 1 giờ | 5% | 4,98% |
-| Message Amazon đến sau message có `event_time` muộn hơn quá 1 giờ | có | 19.729 |
-| Order TikTok Shop mới mỗi giờ trong livestream so với cùng giờ ngày khác | gấp 5 đến 8 lần (đáp án 5,45) | 148,5 so với 25,2, tức gấp 5,89 lần |
+| TikTok Shop messages | | 93,554 |
+| Amazon messages | | 399,410 |
+| TikTok Shop duplicate rate | 1.5% | 1.49% |
+| Amazon duplicate rate | 0 | 0 |
+| Amazon median delay | a few minutes | 5.3 minutes |
+| Amazon messages delayed more than 1 hour | 5% | 4.98% |
+| Amazon messages arriving after a message whose `event_time` is more than 1 hour later | yes | 19,729 |
+| New TikTok Shop Orders per hour during the livestream vs the same hour on other days | 5 to 8 times (answer key 5.45) | 148.5 vs 25.2, i.e. 5.89 times |
 
-`measured_ratio` so với trung bình các ngày Stream khác, nên nó chịu ảnh hưởng của việc ngày livestream vốn đông hay vắng. So với chính ngày đó khi tắt livestream thì tỷ lệ là 5,09. Xem [data-quality-report-stream.md](data_quality_report_stream.md#burst-của-livestream-tiktok).
+`measured_ratio` compares against the average of the other Stream days, so it is affected by whether the livestream day happens to be busy or quiet. Compared with the same day with the livestream turned off, the ratio is 5.09. See [data-quality-report-stream.md](data_quality_report_stream.md#tiktok-livestream-burst).
 
-### Đơn giản hóa so với Channel thật
+### Simplifications compared with real Channels
 
-- Amazon v0 thật tách Order Item sang lời gọi `getOrderItems`. Ở đây `OrderItems` nằm chung bản ghi, một dòng JSON mỗi Order.
-- Mọi Order Line của một Order cùng trạng thái, không có giao từng phần.
-- Mỗi Order Line được quyết định Return độc lập, không có tương quan giữa các dòng trong cùng Order. Ngoài đời, buyer đã trả một món thì dễ trả thêm món khác trong cùng đơn (mua nhiều size để thử, không hài lòng cả đơn). Vì vậy dữ liệu chưa có tín hiệu kiểu "cả đơn cùng bị trả" cho mô hình học.
-- Walmart ghi ra `pg-load/walmart.orders/`, là các dòng sẽ nạp vào bảng `walmart.orders` bằng lệnh `load-postgres`.
-- Tỷ giá tạm cố định trong `price_factor` của Storefront. Bảng tỷ giá ngày làm ở bước 2b.
-- Notification Amazon trong Stream luôn dùng giá trị trạng thái kiểu v0 (`Shipped`), không đổi theo ngày chuyển schema.
-- Livestream chưa có concept drift (tỷ lệ trả quần áo tăng). Phần này làm ở bước 4.
+- Real Amazon v0 splits Order Items into a separate `getOrderItems` call. Here `OrderItems` sit in the same record, one JSON line per Order.
+- All Order Lines of an Order share the same status; there is no partial delivery.
+- Each Order Line's Return is decided independently, with no correlation between lines of the same Order. In the real world, a buyer who returns one item is more likely to return other items in the same order (buying several sizes to try, being unhappy with the whole order). So the data does not yet have a "whole order returned together" signal for the model to learn.
+- Walmart writes to `pg-load/walmart.orders/`, the rows that the `load-postgres` command loads into the `walmart.orders` table.
+- Exchange rates are temporarily fixed in the Storefront's `price_factor`. The daily exchange-rate table is done in step 2b.
+- Amazon notifications in the Stream always use v0-style status values (`Shipped`), not changing with the schema switch date.
+- The livestream has no concept drift yet (higher apparel return rate). This part is done in step 4.
 
 
-### Các khóa cấu hình đang dùng
+### Configuration keys in use
 
-Generator đọc YAML vào dataclass trong `generator/config.py`. Khóa không có trong file thì lấy giá trị mặc định. Khóa gõ sai làm lệnh dừng với lỗi, không bị bỏ qua. Hai file mẫu: `configs/small.yaml` (chạy thử vài giây) và `configs/default.yaml` (đủ quy mô).
+The generator reads YAML into dataclasses in `generator/config.py`. Keys absent from the file take their default value. A mistyped key stops the command with an error instead of being ignored. Two sample files: `configs/small.yaml` (a test run of a few seconds) and `configs/default.yaml` (full scale).
 
-| Khóa | Mặc định | Ý nghĩa | Vấn đề dữ liệu liên quan |
+| Key | Default | Meaning | Related data problem |
 |---|---|---|---|
-| `seed` | 42 | Hạt giống ngẫu nhiên. Cùng seed và cùng cấu hình cho cùng dữ liệu | |
-| `scale.n_skus` | 2000 | Số SKU trong danh mục của Seller | Cardinality của SKU, ASIN |
-| `scale.start_date` | 2026-01-01 | Ngày mô phỏng 1 | |
-| `scale.days_history` | 180 | Số ngày lịch sử. `cutoff` là 00:00 UTC ngay sau ngày cuối | Volume |
-| `scale.days_stream` | 30 | Số ngày Stream sau `cutoff` | |
-| `scale.orders_per_day` | 4000 | Số Order mỗi ngày trên cả 7 Storefront, trước khi nhân Sale Event | Volume, cardinality |
-| `scale.sku_zipf_exponent` | 0.8 | Độ lệch của phân phối SKU. Lớn hơn thì SKU bán chạy nhất chiếm nhiều hơn | Skew theo SKU |
-| `storefront_weights.<storefront>` | Amazon US 0.45, ... | Tỷ trọng Order theo Storefront, phải cộng lại bằng 1 | Skew theo Storefront |
-| `labels.window_days` | 30 | Cửa sổ Return Label tính từ ngày giao | |
-| `offline_problems.duplicate_rate` | 0.02 | Tỷ lệ trùng theo khóa trong mỗi dataset, nằm trong [0, 0.5) | Duplicate |
-| `offline_problems.overlap_days` | 3 | Export lấy lại bao nhiêu ngày gần nhất. Bản trùng rơi vào khoảng này | Duplicate |
-| `offline_problems.amazon_orders_api_switch_day` | 100 | Từ ngày export này Amazon ghi theo Orders 2026-01-01 | Schema evolution |
-| `drift.prime_day.day`, `.days` | 120, 2 | Ngày bắt đầu và độ dài Sale Event trên Storefront Amazon | Skew theo ngày, covariate drift |
-| `drift.prime_day.order_multiplier` | 4 | Số Order Amazon trong ngày sale gấp mấy lần ngày thường | Skew theo ngày |
-| `drift.prime_day.discount_share` | 0.7 | Tỷ lệ Order Line Amazon được giảm giá trong ngày sale | Covariate drift |
-| `drift.prime_day.deal_skus` | 50 | Số SKU hút phần lớn nhu cầu trong ngày sale | Skew theo SKU |
-| `streaming_problems.pacing.default_seconds_per_sim_day` | 60 | Số giây thật cho mỗi ngày mô phỏng khi phát Stream | Burst thấy được trên Flink UI |
-| `streaming_problems.pacing.segments` | trống | Danh sách `{from_day, to_day, seconds_per_sim_day}` phát với tốc độ riêng | Burst thấy được trên Flink UI |
-| `streaming_problems.duplicate_rate.<storefront>` | `tiktok_shop_us: 0.015` | Tỷ lệ trùng theo khóa dedup trong Stream | Duplicate |
-| `streaming_problems.amazon_late.median_minutes` | 5 | Độ trễ trung vị của phần notification trễ dưới 1 giờ | Late |
-| `streaming_problems.amazon_late.share_over_1h` | 0.05 | Tỷ lệ notification Amazon trễ 1 đến 6 giờ | Late, lệch thứ tự |
-| `drift.tiktok_live.day` | không có | Ngày mô phỏng có livestream, phải nằm trong khoảng Stream | Burst |
-| `drift.tiktok_live.start_hour_utc`, `.duration_hours` | 12, 6 | Giờ bắt đầu và độ dài buổi live | Burst |
-| `drift.tiktok_live.burst_multiplier` | [5, 8] | Khoảng hệ số nhân số Order TikTok Shop trong buổi live | Burst |
-| `storage.output_root` | `./out` | Nơi ghi: thư mục local hoặc `s3://bucket`. Lệnh `batch --output` ghi đè khóa này | |
+| `seed` | 42 | Random seed. The same seed and configuration give the same data | |
+| `scale.n_skus` | 2000 | Number of SKUs in the Seller's catalog | Cardinality of SKU, ASIN |
+| `scale.start_date` | 2026-01-01 | Simulated day 1 | |
+| `scale.days_history` | 180 | Number of history days. `cutoff` is 00:00 UTC right after the last day | Volume |
+| `scale.days_stream` | 30 | Number of Stream days after `cutoff` | |
+| `scale.orders_per_day` | 4000 | Orders per day across all 7 Storefronts, before the Sale Event multiplier | Volume, cardinality |
+| `scale.sku_zipf_exponent` | 0.8 | Skew of the SKU distribution. Larger means the best-selling SKU takes a bigger share | Skew by SKU |
+| `storefront_weights.<storefront>` | Amazon US 0.45, ... | Order share by Storefront, must sum to 1 | Skew by Storefront |
+| `labels.window_days` | 30 | Return Label window counted from delivery date | |
+| `offline_problems.duplicate_rate` | 0.02 | Per-key duplicate rate in each dataset, within [0, 0.5) | Duplicate |
+| `offline_problems.overlap_days` | 3 | How many recent days an export re-pulls. Duplicates fall in this range | Duplicate |
+| `offline_problems.amazon_orders_api_switch_day` | 100 | From this export day on, Amazon writes Orders 2026-01-01 | Schema evolution |
+| `drift.prime_day.day`, `.days` | 120, 2 | Start day and length of the Sale Event on Amazon Storefronts | Skew by day, covariate drift |
+| `drift.prime_day.order_multiplier` | 4 | How many times a normal day's Amazon Order count on sale days | Skew by day |
+| `drift.prime_day.discount_share` | 0.7 | Share of Amazon Order Lines discounted on sale days | Covariate drift |
+| `drift.prime_day.deal_skus` | 50 | Number of SKUs that attract most demand on sale days | Skew by SKU |
+| `streaming_problems.pacing.default_seconds_per_sim_day` | 60 | Real seconds per simulated day when emitting the Stream | Burst visible in the Flink UI |
+| `streaming_problems.pacing.segments` | empty | List of `{from_day, to_day, seconds_per_sim_day}` emitted at their own speed | Burst visible in the Flink UI |
+| `streaming_problems.duplicate_rate.<storefront>` | `tiktok_shop_us: 0.015` | Duplicate rate by dedup key in the Stream | Duplicate |
+| `streaming_problems.amazon_late.median_minutes` | 5 | Median delay of the notifications delayed under 1 hour | Late |
+| `streaming_problems.amazon_late.share_over_1h` | 0.05 | Share of Amazon notifications delayed 1 to 6 hours | Late, out of order |
+| `drift.tiktok_live.day` | none | Simulated day with a livestream, must be within the Stream range | Burst |
+| `drift.tiktok_live.start_hour_utc`, `.duration_hours` | 12, 6 | Start hour and length of the live session | Burst |
+| `drift.tiktok_live.burst_multiplier` | [5, 8] | Range of the multiplier on TikTok Shop Orders during the live session | Burst |
+| `storage.output_root` | `./out` | Where to write: a local directory or `s3://bucket`. The `batch --output` command overrides this key | |
 
-Concept drift của livestream (tỷ lệ trả quần áo tăng) thêm ở bước 4.
+Concept drift for the livestream (higher apparel return rate) is added in step 4.
 
-### Kết quả chạy
+### Run results
 
-Số liệu dưới đây lấy từ lần chạy `configs/default.yaml` qua Docker Compose: `generator-batch` ghi vào MinIO (102 giây), `generator-load` nạp PostgreSQL (3 giây). Sau đó `python -m generator report --source s3://platform --dsn ... --markdown` chạy trên máy host, đọc Amazon từ MinIO, đọc Walmart và `seller.skus` từ PostgreSQL. Các cột `_truth` lấy từ `run_manifest.json`.
+The numbers below come from the `configs/default.yaml` run through Docker Compose: `generator-batch` writes to MinIO (102 seconds), `generator-load` loads PostgreSQL (3 seconds). Then `python -m generator report --source s3://platform --dsn ... --markdown` runs on the host, reading Amazon from MinIO and Walmart and `seller.skus` from PostgreSQL. The `_truth` columns come from `run_manifest.json`.
 
-Ảnh chụp màn hình (terminal của lệnh `report`, MinIO console, DBeaver hoặc `psql`) nằm ở `docs/images/batch/` và được nhúng trong [data-quality-report-batch.md](data_quality_report_batch.md).
+Screenshots (the `report` command terminal, MinIO console, DBeaver or `psql`) are in `docs/images/batch/` and embedded in [data-quality-report-batch.md](data_quality_report_batch.md).
 
-Cách đọc từng bảng:
+How to read each table:
 
-- **storefront_skew**: số Order đo từ dữ liệu đã xuất trùng khớp đáp án ở cả ba Storefront Amazon và Walmart. Ba Storefront chưa có renderer để trống.
-- **city_skew**: thành phố lớn nhất chiếm khoảng 46 đến 49% Order của mỗi Storefront.
-- **category_skew**: tỷ trọng danh mục lệch (apparel 17,7%, beauty 7,6%), và tỷ lệ trả khác nhau theo danh mục (apparel 23%, home 4,6%). Danh mục chỉ có trong `seller.skus`, nên bảng này phải join với PostgreSQL.
-- **top_skus**: SKU bán chạy nhất chiếm 5,4% Order Line. Khi Spark group theo SKU, task chứa SKU này sẽ chạy chậm rõ rệt.
-- **daily_orders**: hai ngày Sale Event có lượng Order gấp khoảng 3,7 lần trung vị.
-- **cardinality**: khoảng 500 nghìn mã Order Amazon và 720 nghìn mã Order Line. HyperLogLog của DuckDB lệch tới hơn 20% ở vài cột, nên bảng in thêm số đếm chính xác. Job Spark sau này sẽ so với chính số đếm này.
-- **schema_evolution**: `proceeds` null 100% trước ngày 2026-04-10 và 0% từ ngày đó. `IsPrime` ngược lại. Ranh giới rơi đúng vào một ngày export.
-- **duplicates**: tỷ lệ trùng đo được bằng đúng đáp án (1,98% và 1,99%, mục tiêu 2%), và bằng 0 sau khi giữ bản mới nhất theo khóa. Ở Amazon, khoảng một nửa số bản trùng là bản cũ hơn (trạng thái cũ), nên dedup chỉ bỏ bản giống hệt là không đủ.
-- **volume**: Amazon 388 MB JSON Lines trong 180 file, mỗi ngày export một file. Bảng `walmart.orders` trong PostgreSQL 74 MB.
+- **storefront_skew**: Order counts measured from the exported data match the answer key exactly for all three Amazon Storefronts and Walmart. The three Storefronts without a renderer yet are left blank.
+- **city_skew**: the largest city accounts for about 46 to 49% of each Storefront's Orders.
+- **category_skew**: category shares are skewed (apparel 17.7%, beauty 7.6%), and return rates differ by category (apparel 23%, home 4.6%). Category only exists in `seller.skus`, so this table has to join with PostgreSQL.
+- **top_skus**: the best-selling SKU accounts for 5.4% of Order Lines. When Spark groups by SKU, the task holding this SKU will be noticeably slow.
+- **daily_orders**: the two Sale Event days have about 3.7 times the median Order volume.
+- **cardinality**: about 500 thousand Amazon Order IDs and 720 thousand Order Line IDs. DuckDB's HyperLogLog is off by more than 20% on some columns, so the table also prints exact counts. The later Spark job will be compared against these exact counts.
+- **schema_evolution**: `proceeds` is 100% null before 2026-04-10 and 0% from that date on. `IsPrime` is the reverse. The boundary falls exactly on one export date.
+- **duplicates**: the measured duplicate rate equals the answer key exactly (1.98% and 1.99%, target 2%), and is 0 after keeping the latest copy per key. In Amazon, about half of the duplicates are older copies (old status), so dedup that only drops identical copies is not enough.
+- **volume**: Amazon 388 MB of JSON Lines in 180 files, one file per export date. The `walmart.orders` table in PostgreSQL is 74 MB.
 
-#### Bảng `storefront_skew`
+#### Table `storefront_skew`
 
-Order theo Storefront. `orders_exported` trống nghĩa là Channel chưa có renderer.
+Orders by Storefront. An empty `orders_exported` means the Channel has no renderer yet.
 
 | storefront_id | config_weight | orders_truth | pct_truth | orders_exported |
 |---|---|---|---|---|
@@ -576,9 +577,9 @@ Order theo Storefront. `orders_exported` trống nghĩa là Channel chưa có re
 | walmart_us | 0.07 | 50499 | 6.86 | 50499 |
 | shopee_vn | 0.03 | 21759 | 2.96 |  |
 
-#### Bảng `city_skew`
+#### Table `city_skew`
 
-Vài thành phố lớn chiếm phần lớn Order của mỗi Storefront.
+A few large cities account for most of each Storefront's Orders.
 
 | storefront_id | city | orders | pct |
 |---|---|---|---|
@@ -609,9 +610,9 @@ Vài thành phố lớn chiếm phần lớn Order của mỗi Storefront.
 | walmart_us | Phoenix | 3112 | 6.16 |
 | walmart_us | Orlando | 2496 | 4.94 |
 
-#### Bảng `category_skew`
+#### Table `category_skew`
 
-Order Line theo danh mục. `return_pct_truth` là tỷ lệ trả thật từ manifest.
+Order Lines by category. `return_pct_truth` is the true return rate from the manifest.
 
 | category | order_lines | pct | return_pct_truth |
 |---|---|---|---|
@@ -624,9 +625,9 @@ Order Line theo danh mục. `return_pct_truth` là tỷ lệ trả thật từ m
 | footwear | 84430 | 10.63 | 16.08 |
 | beauty | 60717 | 7.64 | 5.83 |
 
-#### Bảng `top_skus`
+#### Table `top_skus`
 
-SKU bán chạy nhất nên chiếm khoảng 5% Order Line: tạo task chậm cho Spark.
+The best-selling SKU should account for about 5% of Order Lines: this creates a slow task for Spark.
 
 | sku | order_lines | pct |
 |---|---|---|
@@ -641,9 +642,9 @@ SKU bán chạy nhất nên chiếm khoảng 5% Order Line: tạo task chậm ch
 | HOM-01853 | 7522 | 0.95 |
 | SPT-01238 | 7264 | 0.91 |
 
-#### Bảng `daily_orders`
+#### Table `daily_orders`
 
-Ngày nhiều Order nhất (Amazon và Walmart). Ngày Sale Event trong manifest: ['2026-04-30', '2026-05-01'].
+Days with the most Orders (Amazon and Walmart). Sale Event days in the manifest: ['2026-04-30', '2026-05-01'].
 
 | day | orders | x_median |
 |---|---|---|
@@ -653,9 +654,9 @@ Ngày nhiều Order nhất (Amazon và Walmart). Ngày Sale Event trong manifest
 | 2026-03-07 | 3079 | 1.04 |
 | 2026-04-29 | 3077 | 1.04 |
 
-#### Bảng `cardinality`
+#### Table `cardinality`
 
-Số giá trị khác nhau: ước lượng HyperLogLog của DuckDB và số đếm chính xác. HyperLogLog của DuckDB dùng ít bộ đếm nên có thể lệch hơn 10%.
+Number of distinct values: DuckDB's HyperLogLog estimate and the exact count. DuckDB's HyperLogLog uses few counters, so it can be off by more than 10%.
 
 | dataset | column | approx_distinct | exact_distinct | approx_err_pct | rows |
 |---|---|---|---|---|---|
@@ -668,18 +669,18 @@ Số giá trị khác nhau: ước lượng HyperLogLog của DuckDB và số đ
 | walmart.orders | line_id | 68348 | 73262 | -6.71 | 73262 |
 | walmart.orders | tracking_number | 52956 | 48629 | 8.9 | 73262 |
 
-#### Bảng `schema_evolution`
+#### Table `schema_evolution`
 
-amazon.orders đổi schema từ export_date 2026-04-10: cột `proceeds` null ở partition cũ và các cột chỉ có ở v0 null ở partition mới — do tên khoá đổi, không phải vì có field mới.
+amazon.orders changes schema from export_date 2026-04-10: the `proceeds` column is null in old partitions and the v0-only columns are null in new partitions — because key names changed, not because there are new fields.
 
 | period | export_dates | rows | pct_null_proceeds | pct_null_IsPrime | pct_null_AmazonOrderId |
 |---|---|---|---|---|---|
 | before (Orders v0) | 99 | 247213 | 100.0 | 0.0 | 0.0 |
 | after (Orders 2026) | 81 | 261014 | 0.0 | 100.0 | 100.0 |
 
-#### Bảng `schema_evolution_daily`
+#### Table `schema_evolution_daily`
 
-Tỷ lệ null theo export_date quanh ngày đổi schema 2026-04-10.
+Null rate per export_date around the schema change date 2026-04-10.
 
 | export_date | rows | pct_null_proceeds | pct_null_IsPrime |
 |---|---|---|---|
@@ -690,45 +691,45 @@ Tỷ lệ null theo export_date quanh ngày đổi schema 2026-04-10.
 | 2026-04-11 | 2676 | 0.0 | 100.0 |
 | 2026-04-12 | 2707 | 0.0 | 100.0 |
 
-#### Bảng `duplicates`
+#### Table `duplicates`
 
-Tỷ lệ trùng = 1 - count(distinct khóa) / count(*). Dedup giữ bản cập nhật mới nhất theo khóa. Walmart: mỗi lần kéo có `fetched_at` riêng, nên bản trùng nào cũng thành bản cũ hơn.
+Duplicate rate = 1 - count(distinct key) / count(*). Dedup keeps the latest update per key. Walmart: each pull has its own `fetched_at`, so every duplicate becomes an older copy.
 
 | dataset | rows_before | distinct_keys | dup_pct_before | identical_copies | older_versions | rows_after | dup_pct_after | dup_pct_truth |
 |---|---|---|---|---|---|---|---|---|
 | amazon.orders | 508227 | 498156 | 1.98 | 5108 | 4963 | 498156 | 0.0 | 1.98 |
 | walmart.orders | 51523 | 50499 | 1.99 | 0 | 1024 | 50499 | 0.0 | 1.99 |
 
-#### Bảng `volume`
+#### Table `volume`
 
-Dung lượng sau khi lưu, theo nơi lưu và định dạng.
+Size after storage, by storage location and format.
 
-Số `files` dưới đây đo trước khi mỗi ngày mô phỏng có file riêng; nay mỗi thư mục
-`export_date=` có nhiều file part nên số file lớn hơn khoảng một bậc, còn `size_mb`
-gần như không đổi. Chạy lại `uv run python -m generator report` để lấy số mới.
+The `files` numbers below were measured before each simulated day had its own file; now each
+`export_date=` directory has many part files, so the file count is roughly an order of magnitude larger, while `size_mb`
+is nearly unchanged. Re-run `uv run python -m generator report` to get the new numbers.
 
 | dataset | storage | format | files | size_mb |
 |---|---|---|---|---|
 | amazon.orders | object store | JSON Lines | 180 | 388.02 |
-| walmart.orders | PostgreSQL (trung chuyển) | JSON Lines | 180 | 59.66 |
-| seller.skus | PostgreSQL (trung chuyển) | JSON Lines | 1 | 0.22 |
+| walmart.orders | PostgreSQL (staging) | JSON Lines | 180 | 59.66 |
+| seller.skus | PostgreSQL (staging) | JSON Lines | 1 | 0.22 |
 | labels | object store | Parquet | 1 | 13.26 |
 | order_line_keys | object store | Parquet | 2 | 21.72 |
-| walmart.orders | PostgreSQL (bảng, gồm index) | heap, cột JSONB |  | 73.61 |
-| seller.skus | PostgreSQL (bảng, gồm index) | heap |  | 0.31 |
+| walmart.orders | PostgreSQL (table, including indexes) | heap, JSONB column |  | 73.61 |
+| seller.skus | PostgreSQL (table, including indexes) | heap |  | 0.31 |
 
-## Trên AWS
+## On AWS
 
-Generator chạy trên EC2, batch lưu S3/PostgreSQL, stream phát Kafka Compose.
-[Receipt batch](../../evidence/aws/data-platform-aws-20261027.json) ghi 141.774.479.087 byte raw S3;
-[manifest stream](../../evidence/aws/stream-manifest-20261028.json) ghi Amazon 399.410 và TikTok 93.554 message.
+The generator runs on EC2, the batch is stored in S3/PostgreSQL, and the stream is emitted to Kafka on Compose.
+The [batch receipt](../../evidence/aws/data-platform-aws-20261027.json) records 141,774,479,087 bytes of raw S3;
+the [stream manifest](../../evidence/aws/stream-manifest-20261028.json) records 399,410 Amazon and 93,554 TikTok messages.
 
-![DataHub lọc AWS S3: bốn dataset nguồn Amazon, Shopee, Shopify và TikTok Shop ở source-exports](../../evidence/aws/datahub/s3-sources.png)
+![DataHub filtered to AWS S3: four source datasets Amazon, Shopee, Shopify and TikTok Shop under source-exports](../../evidence/aws/datahub/s3-sources.png)
 
-![Flink dedup_tiktok_state_proof: cạnh HASH tới Deduplicate, source gửi 93.554 record, job FINISHED](../../evidence/aws/flink-dedup-graph-20261028.png)
+![Flink dedup_tiktok_state_proof: HASH edge to Deduplicate, source sent 93,554 records, job FINISHED](../../evidence/aws/flink-dedup-graph-20261028.png)
 
-Ảnh metadata nguồn S3 và Flink nhận record xác nhận các phần của đường đi dữ liệu;
-số đặc tính AWS và giới hạn được ghi tại [batch AWS](data_quality_report_batch.md#trên-aws)
-và [stream AWS](data_quality_report_stream.md#trên-aws).
-[Code generator](../../../generator/__main__.py), [batch config](../../../configs/scale-100gb.yaml), [stream config](../../../configs/default.yaml).
-Chưa có report AWS riêng về skew/cardinality/schema/duplicate batch; không dùng histogram local thay capture cloud.
+The S3 source metadata screenshot and Flink receiving records confirm parts of the data path;
+AWS characteristic numbers and limitations are recorded in [batch on AWS](data_quality_report_batch.md#on-aws)
+and [stream on AWS](data_quality_report_stream.md#on-aws).
+[Generator code](../../../generator/__main__.py), [batch config](../../../configs/scale-100gb.yaml), [stream config](../../../configs/default.yaml).
+There is no separate AWS report on batch skew/cardinality/schema/duplicates yet; local histograms are not used in place of a cloud capture.

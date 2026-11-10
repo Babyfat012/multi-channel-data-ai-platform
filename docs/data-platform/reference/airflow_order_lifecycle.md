@@ -1,47 +1,47 @@
-<!-- Mô tả vận hành DAG nguồn v2, receipt và các giới hạn chưa kiểm bằng Docker. -->
-# Airflow — pipeline nguồn v2
+<!-- Describes operating the v2 source DAG, its receipts and the limits not yet checked with Docker. -->
+# Airflow — v2 source pipeline
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally; not the pipeline deployed on AWS.** The pipeline running on AWS is v1 (DP1 → DP4 + ML); see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-DAG [`dp_order_lifecycle`](../../../dags/dp_order_lifecycle.py) chạy tay từ fixture tới
-Gold/nhãn/feature. DAG mặc định tạm dừng, `schedule=None`, `catchup=False`,
-`max_active_runs=1`, `max_active_tasks=1`. Fixture chưa có lịch phát dữ liệu thật.
+The DAG [`dp_order_lifecycle`](../../../dags/dp_order_lifecycle.py) is triggered manually and runs from the fixture to
+Gold/labels/features. By default the DAG is paused, `schedule=None`, `catchup=False`,
+`max_active_runs=1`, `max_active_tasks=1`. The fixture has no real data release schedule yet.
 
 ```mermaid
 flowchart LR
     C[check_contracts] --> B[ingest_bronze] --> S[build_silver] --> G[build_gold] --> V[validate_gold]
 ```
 
-| Task | Lệnh / ứng dụng | Điều kiện lỗi |
+| Task | Command / application | Failure condition |
 |---|---|---|
-| `check_contracts` | `python -m spark_jobs.lib.data_contracts check-registry --contracts-dir /opt/contracts` qua PythonOperator | Exit khác 0; receipt giữ stdout/stderr |
-| `ingest_bronze` | `bronze/ingest_order_lifecycle.py --root … --run-id … --receipt …` | Manifest/snapshot Walmart không khớp, lỗi Spark |
-| `build_silver` | `silver/build_order_lifecycle.py --run-id … --as-of … --contracts-dir /opt/contracts --receipt …` | Check reconcile khác 0; riêng số cách ly không làm lỗi |
-| `build_gold` | `gold/build_order_lifecycle.py --cutoff … --run-id … --receipt …` | Silver khác snapshot cutoff, invariant sai hoặc generation nhãn đã có |
-| `validate_gold` | `gold/validate_order_lifecycle.py --cutoff … --run-id … --receipt …` | Bất kỳ invariant sai; exit khác 0 làm DAG fail |
+| `check_contracts` | `python -m spark_jobs.lib.data_contracts check-registry --contracts-dir /opt/contracts` via PythonOperator | Non-zero exit; the receipt keeps stdout/stderr |
+| `ingest_bronze` | `bronze/ingest_order_lifecycle.py --root … --run-id … --receipt …` | Walmart manifest/snapshot mismatch, Spark error |
+| `build_silver` | `silver/build_order_lifecycle.py --run-id … --as-of … --contracts-dir /opt/contracts --receipt …` | Non-zero reconcile check; the quarantine count alone does not fail it |
+| `build_gold` | `gold/build_order_lifecycle.py --cutoff … --run-id … --receipt …` | Silver differs from the cutoff snapshot, an invariant fails, or the label generation already exists |
+| `validate_gold` | `gold/validate_order_lifecycle.py --cutoff … --run-id … --receipt …` | Any failed invariant; a non-zero exit fails the DAG |
 
-Bốn Spark task dùng `PlatformSparkSubmitOperator` (Bronze qua subclass nhỏ),
-`conn_id=spark_default`, `deploy_mode=client`, packages từ Variable và driver
-`platform_order_lifecycle_driver_memory` (mặc định 3g; 1g từng OOM ở Gold/warehouse local). Credential lookup ở runtime. Bronze nhận nhóm `iceberg, postgres` để
-JDBC dùng `platform_postgres`; ba task còn lại dùng `iceberg`. Không thêm provider.
-Contracts CLI dùng thư viện chuẩn, chạy từ `/opt`, nơi có package `spark_jobs/`.
+The four Spark tasks use `PlatformSparkSubmitOperator` (Bronze through a small subclass),
+`conn_id=spark_default`, `deploy_mode=client`, packages from a Variable and driver memory
+`platform_order_lifecycle_driver_memory` (default 3g; 1g once caused OOM in Gold/warehouse locally). Credentials are looked up at runtime. Bronze gets the group `iceberg, postgres` so that
+JDBC uses `platform_postgres`; the other three tasks use `iceberg`. No provider is added.
+The contracts CLI uses the standard library and runs from `/opt`, where the `spark_jobs/` package lives.
 
-## Params và Variables
+## Params and Variables
 
-| Airflow Param | Mặc định | Cách dùng |
+| Airflow Param | Default | Usage |
 |---|---|---|
-| `source_root` | `null` | Dùng `platform_order_lifecycle_source_root`; nếu truyền thì là thư mục fixture có manifest nhìn thấy trong container |
-| `cutoff` | `null` | Dùng `platform_order_lifecycle_cutoff`; giá trị truyền phải là timestamp ISO UTC |
-| `walmart_jdbc` | `null` | Đọc bootstrap file; truyền `walmart_lifecycle.orders` để job `spark_jobs/bronze/ingest_order_lifecycle.py` đọc DB thay Walmart file |
+| `source_root` | `null` | Uses `platform_order_lifecycle_source_root`; if passed, it is a fixture directory with a manifest visible inside the container |
+| `cutoff` | `null` | Uses `platform_order_lifecycle_cutoff`; a passed value must be an ISO UTC timestamp |
+| `walmart_jdbc` | `null` | Reads the bootstrap file; pass `walmart_lifecycle.orders` so the job `spark_jobs/bronze/ingest_order_lifecycle.py` reads the DB instead of the Walmart file |
 
-`source_root` và `cutoff` dùng fallback Variable tại lúc render task, không gọi
-metadata DB khi import DAG. Null là giá trị mặc định có chủ ý; không đặt Jinja
-lồng trong Param. Silver nhận **cùng cutoff** bằng `--as-of`, vì Gold kiểm lại
-published Silver so với snapshot tại cutoff trước khi ghi.
+`source_root` and `cutoff` fall back to Variables at task render time, without calling the
+metadata DB at DAG import. Null is a deliberate default; do not nest Jinja
+inside a Param. Silver receives **the same cutoff** via `--as-of`, because Gold re-checks the
+published Silver against the snapshot at the cutoff before writing.
 
-Các Variable v2 được nạp bởi [`scripts/setup/setup_airflow.sh`](../../../scripts/setup/setup_airflow.sh):
+The v2 Variables are loaded by [`scripts/setup/setup_airflow.sh`](../../../scripts/setup/setup_airflow.sh):
 
-| Variable | Giá trị setup |
+| Variable | Setup value |
 |---|---|
 | `platform_order_lifecycle_receipt_dir` | `/opt/airflow/receipts/order_lifecycle` |
 | `platform_order_lifecycle_source_root` | `/data/order_lifecycle` |
@@ -50,57 +50,57 @@ Các Variable v2 được nạp bởi [`scripts/setup/setup_airflow.sh`](../../.
 | `platform_order_lifecycle_executor_memory` | `4g` |
 | `platform_order_lifecycle_executor_cores` | `2` |
 
-Cả hai DAG `dp_order_lifecycle` và `dp_order_lifecycle_warehouse` render ba Variable tài nguyên
-qua Jinja tại runtime. Subclass trong mỗi DAG mở rộng `template_fields`, kể cả
-Bronze; không phụ thuộc provider có template tài nguyên hay không. Setup nạp lại
-giá trị mặc định khi chạy lại; đổi Variable sau setup nếu cần. Driver nằm trong
-Airflow (client mode); chỉ chạy một DAG Spark tại một thời điểm và đo RAM thật
-trước khi tăng cấu hình. Xem checklist GCP.
+Both DAGs `dp_order_lifecycle` and `dp_order_lifecycle_warehouse` render the three resource Variables
+through Jinja at runtime. The subclass in each DAG extends `template_fields`, including
+Bronze; this does not depend on whether the provider templates resources. Setup reloads the
+default values when rerun; change the Variables after setup if needed. The driver runs inside
+Airflow (client mode); run only one Spark DAG at a time and measure real RAM
+before increasing the configuration. See the GCP checklist.
 
-DAG còn dùng `platform_spark_packages` đã có trong script setup. Connections, MinIO,
-warehouse và REST catalog dùng cấu hình runtime chung như [Airflow v1](../pipeline_orchestration.md).
+The DAG also uses `platform_spark_packages`, already in the setup script. Connections, MinIO,
+the warehouse and the REST catalog use the shared runtime configuration, as in [Airflow v1](../pipeline_orchestration.md).
 
-## Chuẩn bị và trigger — người vận hành chạy
+## Preparation and trigger — run by the operator
 
-Compose mount `${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}` chỉ đọc vào
-`/data/order_lifecycle` trên Airflow, Spark master và cả hai worker. Export biến này
-trên host trước khi gọi Compose nếu dùng fixture khác. Manifest phải đọc được
-từ driver, JSONL phải đọc được từ executor. `/opt/contracts` đã mount.
-Receipt bind `./out/receipts:/opt/airflow/receipts` để giữ trên host; UID Airflow
-phải ghi được thư mục này. Runbook tạo thư mục và cấp quyền ghi cho môi trường dev.
-Kiểm worker có Python tương thích driver nếu Gold chạy RDD Python; chưa kiểm
-điều đó trong sandbox.
+Compose mounts `${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}` read-only at
+`/data/order_lifecycle` on Airflow, the Spark master and both workers. Export this variable
+on the host before calling Compose if using a different fixture. The manifest must be readable
+from the driver, and the JSONL must be readable from the executors. `/opt/contracts` is already mounted.
+Receipts are bind-mounted with `./out/receipts:/opt/airflow/receipts` to keep them on the host; the Airflow UID
+must be able to write to this directory. The runbook creates the directory and grants write permission for the dev environment.
+Check that the workers have a Python compatible with the driver if Gold runs Python RDDs; this has not been checked
+in the sandbox.
 
-Runbook tách pha trên máy 14 GB: xem [Chạy thật DataHub v2](datahub_order_lifecycle.md#chạy-thật).
-`bash scripts/run/run_order_lifecycle_live.sh --phase source`, rồi `--phase airflow` sẽ bật các
-service cần thiết, đợi scheduler/worker, setup, unpause/trigger, poll tới trạng
-thái cuối, copy receipt theo `run_id` rồi dừng cả dependency để nhường RAM.
-Runbook đặt `platform_order_lifecycle_executor_memory=2g` sau setup cho fixture nhỏ để khớp worker
-2g mặc định; dùng `PLATFORM_V2_EXECUTOR_MEMORY` và tăng worker tương ứng nếu cần.
-Giá trị setup chung 4g trong bảng trên vẫn dùng cho môi trường đã cấp đủ RAM.
+The runbook splits phases on a 14 GB machine: see [Running DataHub v2 for real](datahub_order_lifecycle.md#running-for-real).
+`bash scripts/run/run_order_lifecycle_live.sh --phase source`, then `--phase airflow`, starts the
+required services, waits for the scheduler/worker, runs setup, unpauses/triggers, polls until the final
+state, copies the receipts by `run_id` and then stops the dependencies to free RAM.
+After setup the runbook sets `platform_order_lifecycle_executor_memory=2g` for the small fixture to match the default
+2g worker; use `PLATFORM_V2_EXECUTOR_MEMORY` and enlarge the workers accordingly if needed.
+The shared setup value of 4g in the table above still applies to environments with enough RAM.
 
-Nếu bật JDBC, nạp trước bằng `scripts/setup/load_order_lifecycle_walmart.py --root <fixture>`;
-DAG không tự tạo dữ liệu hay nạp DB. Cần Lakekeeper, MinIO, PostgreSQL, Spark và
-Airflow đã sẵn sàng. Lệnh dưới đây không bật/tắt service:
+If JDBC is enabled, load the data first with `scripts/setup/load_order_lifecycle_walmart.py --root <fixture>`;
+the DAG does not create data or load the DB itself. Lakekeeper, MinIO, PostgreSQL, Spark and
+Airflow must be ready. The commands below do not start/stop services:
 
 ```bash
 bash scripts/setup/setup_airflow.sh
-# Setup nạp lại cả các giá trị v1 hiện hữu; người vận hành chọn lúc phù hợp.
+# Setup also reloads the existing v1 values; the operator chooses a suitable time.
 docker compose --profile airflow exec -T airflow airflow dags list-import-errors --output json
 docker compose --profile airflow exec -T airflow airflow dags unpause dp_order_lifecycle
 docker compose --profile airflow exec -T airflow airflow dags trigger dp_order_lifecycle \
   --conf '{"source_root":"/data/order_lifecycle","cutoff":"2026-06-01T00:00:00.000000Z","walmart_jdbc":"walmart_lifecycle.orders"}'
 ```
 
-Dùng `run_id` mới cho mỗi lần công bố Gold. Nhãn append theo generation và từ chối
-cùng generation; clear/retry Gold sau khi đã append có thể lỗi vì generation đã có.
-`max_active_runs=1` chỉ khóa DAG này; không bảo vệ trước job Spark chạy tay cùng bảng.
+Use a new `run_id` for each Gold publication. Labels are appended per generation and the same
+generation is rejected; clearing/retrying Gold after it has appended may fail because the generation already exists.
+`max_active_runs=1` only locks this DAG; it does not protect against a manually run Spark job on the same tables.
 
-Import thật trong image đã được người vận hành xác nhận:
-**10 DAG, 0 lỗi**, gồm `dp_order_lifecycle`, `dp_order_lifecycle_cdc`,
-`dp_order_lifecycle_warehouse` và bảy DAG snapshots giữ tên
-(ghi nhận local (receipt không đính kèm repo)). Đây là kiểm import;
-chạy thật DAG trên Compose chưa thực hiện. Lệnh tái kiểm do người vận hành chạy:
+A real import inside the image was confirmed by the operator:
+**10 DAGs, 0 errors**, including `dp_order_lifecycle`, `dp_order_lifecycle_cdc`,
+`dp_order_lifecycle_warehouse` and seven snapshot DAGs that keep their names
+(recorded locally; receipt not attached to the repo). This is an import check;
+a real DAG run on Compose has not been done. Recheck command, run by the operator:
 
 ```bash
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=256m \
@@ -109,45 +109,45 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=256m \
   "from airflow.models import DagBag; b=DagBag('/opt/airflow/dags', include_examples=False); print(b.import_errors); assert not b.import_errors; print(sorted(b.dag_ids))"
 ```
 
-## Đọc receipt
+## Reading receipts
 
-Mỗi chặng dùng thư mục `{{ var.value.platform_order_lifecycle_receipt_dir }}/{{ ts_nodash }}/`:
+Each stage uses the directory `{{ var.value.platform_order_lifecycle_receipt_dir }}/{{ ts_nodash }}/`:
 `check_contracts.json`, `ingest_bronze.json`, `build_silver.json`, `build_gold.json`,
-`validate_gold.json`. Receipt có `run_id` Airflow gốc. Directory theo logical
-time, không theo attempt; retry có thể ghi đè receipt cùng task. Tránh trigger hai
-run với cùng logical timestamp nếu cần giữ thư mục tách biệt.
+`validate_gold.json`. Receipts carry the original Airflow `run_id`. The directory follows logical
+time, not the attempt; a retry may overwrite the receipt of the same task. Avoid triggering two
+runs with the same logical timestamp if the directories need to stay separate.
 
-Contracts có exit code/stdout/stderr và `completed_at`. Bronze truyền
-`--receipt <DIRECTORY>/ingest_bronze.json` cho job `spark_jobs/bronze/ingest_order_lifecycle.py`. Khi thành công, operator giữ
-nguyên receipt Spark có `run_id`, `dataset_version`, `tables`, `rows`,
-`completed_at` và `schema_file` trỏ tới `schemas.json` cùng thư mục. Khi Spark
-lỗi, operator ghi receipt `status=failed`, bảng đích, `checks_available=false`
-và thời gian hoàn tất rồi truyền tiếp lỗi; receipt lỗi không xác nhận schema
-hay metrics đối soát Bronze. Manifest/boundary chi tiết vẫn nằm trong log.
+Contracts records the exit code/stdout/stderr and `completed_at`. Bronze passes
+`--receipt <DIRECTORY>/ingest_bronze.json` to the job `spark_jobs/bronze/ingest_order_lifecycle.py`. On success the operator keeps
+the Spark receipt as is, with `run_id`, `dataset_version`, `tables`, `rows`,
+`completed_at` and `schema_file` pointing to `schemas.json` in the same directory. When Spark
+fails, the operator writes a receipt with `status=failed`, the target tables, `checks_available=false`
+and the completion time, then re-raises the error; a failure receipt does not confirm the schema
+or the Bronze reconciliation metrics. The detailed manifest/boundary remains in the log.
 
-Silver/Gold/Validate dùng receipt nguyên bản của job; không bổ sung check từ
-suy đoán. Silver có `checks`, `info`, `quarantine.total/by_reason/by_schema_id`;
-chỉ `checks != 0` gây lỗi. Gold có trạng thái `failed_before_write`, `failed`
-hoặc `passed`; Validate đọc lại bảng Gold. Lỗi trước khi job kịp ghi receipt có
-thể chỉ còn log Airflow; không suy từ thiếu receipt rằng task thành công.
+Silver/Gold/Validate use the job's original receipt; no checks are added based on
+guesswork. Silver has `checks`, `info`, `quarantine.total/by_reason/by_schema_id`;
+only `checks != 0` causes a failure. Gold has the status `failed_before_write`, `failed`
+or `passed`; Validate reads the Gold tables back. A failure before the job manages to write a receipt may
+leave only the Airflow log; do not infer from a missing receipt that the task succeeded.
 
-Ví dụ người vận hành sao chép receipt sau run (volume Airflow giữ dữ liệu):
+Example of the operator copying receipts after a run (the Airflow volume keeps the data):
 
 ```bash
-mkdir -p out/receipts-v2-run/THAY_RUN_ID
+mkdir -p out/receipts-v2-run/REPLACE_RUN_ID
 docker compose --profile airflow cp \
-  airflow:/opt/airflow/receipts/order_lifecycle/THAY_TS_NODASH/. out/receipts-v2-run/THAY_RUN_ID/
+  airflow:/opt/airflow/receipts/order_lifecycle/REPLACE_TS_NODASH/. out/receipts-v2-run/REPLACE_RUN_ID/
 ```
 
-Chuyển metadata bằng [publisher v2](datahub_order_lifecycle.md), giữ `schemas.json` cạnh
-receipt để đọc schema Bronze/Silver/Gold thực tế của run. Receipt cũ thiếu schema
-vẫn được đọc và publisher ghi rõ thiếu schema field. Các bảng hiện tại
-Bronze/Silver/fact/feature bị thay thế theo run; nhiều bảng chưa có transaction
-công bố chung. Fixture nhỏ không chứng minh scale hoặc refresh production.
+Send the metadata with the [v2 publisher](datahub_order_lifecycle.md), keeping `schemas.json` next to the
+receipt so the run's actual Bronze/Silver/Gold schema can be read. Older receipts without a schema
+can still be read, and the publisher states explicitly that the schema fields are missing. The current
+Bronze/Silver/fact/feature tables are replaced per run; many tables have no shared publication
+transaction yet. A small fixture does not prove scale or production refresh.
 
-**Chưa đo — Đo trên GCP:** `bash scripts/run/run_order_lifecycle_live.sh --phase source`
-rồi `bash scripts/run/run_order_lifecycle_live.sh --phase airflow` trên host đã chuẩn bị
-theo [runbook](datahub_order_lifecycle.md#chạy-thật) và checklist GCP.
-Người vận hành chọn bỏ bước lâu ở local; chưa có run_id, receipt chạy thật DAG,
-ảnh Graph/Grid hay thời gian chạy. Kết quả e2e small local PASS 92 s tại
-[e2e local](e2e_order_lifecycle_local.md) là harness, chưa chứng minh DAG chạy thành công.
+**Not measured yet — measure on GCP:** `bash scripts/run/run_order_lifecycle_live.sh --phase source`
+then `bash scripts/run/run_order_lifecycle_live.sh --phase airflow` on a host prepared
+following the [runbook](datahub_order_lifecycle.md#running-for-real) and the GCP checklist.
+The operator chose to skip the long steps locally; there is no run_id, real DAG-run receipt,
+Graph/Grid screenshot or run time yet. The local e2e small result, PASS in 92 s, in
+[e2e local](e2e_order_lifecycle_local.md) is a harness run and does not prove the DAG runs successfully.

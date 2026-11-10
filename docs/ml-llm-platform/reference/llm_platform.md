@@ -1,17 +1,17 @@
 # LLM Platform
 
-LLM Platform cung cấp hội thoại cho Seller bằng LLM, RAG và agent sử dụng dữ liệu, mô hình của hệ thống.
+The LLM Platform provides conversation for the Seller through an LLM, RAG and agents that use the system's data and models.
 
-| Phạm vi | Code / cấu hình | Tài liệu |
+| Scope | Code / config | Docs |
 |---|---|---|
-| LLM inference, agent và điều phối | `infra/k8s/agents/` | [Agent](llm_platform_agents.md) |
-| Tài liệu, embedding và truy xuất | `rag/`, `dags/ml_rag_ingest.py` | [RAG](../rag_pipeline.md) |
-| Gateway và truy cập công cụ | `infra/k8s/agents/`, `serving/` | [Gateway](../routing_gateway.md), [API](../web_api_mcp.md) |
-| Đánh giá và A/B | `ml/`, `infra/k8s/agents/` | [Eval](../agent_evaluation.md), [A/B](../ab_testing.md) |
-| Vận hành dùng chung | `infra/k8s/observability/`, `ci/jenkins/` | [Quan sát](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
+| LLM inference, agents and orchestration | `infra/k8s/agents/` | [Agents](llm_platform_agents.md) |
+| Documents, embeddings and retrieval | `rag/`, `dags/ml_rag_ingest.py` | [RAG](../rag_pipeline.md) |
+| Gateway and tool access | `infra/k8s/agents/`, `serving/` | [Gateway](../routing_gateway.md), [API](../web_api_mcp.md) |
+| Evaluation and A/B | `ml/`, `infra/k8s/agents/` | [Eval](../agent_evaluation.md), [A/B](../ab_testing.md) |
+| Shared operations | `infra/k8s/observability/`, `ci/jenkins/` | [Observability](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
 
-[Kiến trúc ML + LLM Platform](../../diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Evidence ML Platform / LLM Platform](ml_llm_platform_evidence.md).
+[ML + LLM Platform architecture](../../diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).
 
-Agent truy vấn số liệu từ [Data Platform](../../data-platform/reference/data_platform.md), feature và dự đoán từ [ML Platform](ml_platform.md). API và hạ tầng vận hành dùng chung được dẫn chiếu từ cả hai platform.
+Agents query figures from the [Data Platform](../../data-platform/reference/data_platform.md), and features and predictions from the [ML Platform](ml_platform.md). The API and shared operations infrastructure are referenced from both platforms.
 
-[Mục lục tài liệu](../../README.md) · [Data & AI Platform](../../../README.md)
+[Docs index](../../README.md) · [Data & AI Platform](../../../README.md)

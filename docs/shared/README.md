@@ -1,15 +1,15 @@
-# Tài liệu dùng chung
+# Shared documentation
 
-- [Kiến trúc Data & AI Platform Data Platform đã triển khai](architecture_decisions.md)
-- [Triển khai AWS — Data Platform mốc 1](aws_deploy.md)
-- [Chuẩn bị và triển khai cloud](cloud_setup.md)
-- [Quy ước viết code](code_style.md)
-- [Tổng quan business domain](domain.md)
-- [Rubric × cloud — kiểm kê](aws_validation.md)
+- [Data & AI Platform: deployed Data Platform architecture](architecture_decisions.md)
+- [AWS deployment — Data Platform milestone 1](aws_deploy.md)
+- [Cloud preparation and deployment](cloud_setup.md)
+- [Code conventions](code_style.md)
+- [Business domain overview](domain.md)
+- [AWS validation status](aws_validation.md)
 - [Data & AI Platform Multi-channel Seller Data Platform](terminology.md)
 
-- [Sơ đồ kiến trúc](../diagrams/README.md)
+- [Architecture diagrams](../diagrams/README.md)
 
-[Mục lục tài liệu](../README.md)
+[Documentation index](../README.md)
 
-- [Quan hệ bảng nghiệp vụ](../diagrams/schema-order-lifecycle.md)
+- [Business table relationships](../diagrams/schema-order-lifecycle.md)

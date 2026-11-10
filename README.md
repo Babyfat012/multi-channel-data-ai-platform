@@ -1,155 +1,155 @@
 # Multi-channel Data & AI Platform
 
-Nền tảng dữ liệu và AI cho một Seller bán hàng trên Amazon, TikTok Shop, Shopify, Walmart và Shopee. Hệ thống chuẩn hóa dữ liệu đa kênh, dự đoán rủi ro Return hoặc Refund của từng dòng đơn hàng, và cung cấp agent trả lời câu hỏi bằng dữ liệu. Toàn bộ dữ liệu được sinh giả lập.
+A data and AI platform for a Seller selling on Amazon, TikTok Shop, Shopify, Walmart and Shopee. The system normalizes multi-Channel data, predicts the Return or Refund risk of each Order Line, and provides an agent that answers questions with data. All data is synthetic.
 
-## Mục lục
+## Contents
 
-- [Platform cung cấp gì?](#platform-cung-cấp-gì)
-- [Bài toán nghiệp vụ](#bài-toán-nghiệp-vụ)
-- [Kiến trúc](#kiến-trúc)
-- [Bắt đầu](#bắt-đầu)
-- [Tài liệu](#tài-liệu)
-- [Cấu trúc repo](#cấu-trúc-repo)
-- [Phát triển và đóng góp](#phát-triển-và-đóng-góp)
-- [Kết quả kiểm chứng và giới hạn](#kết-quả-kiểm-chứng-và-giới-hạn)
-- [Giới hạn đã biết](#giới-hạn-đã-biết)
-- [Giấy phép](#giấy-phép)
+- [What does the platform provide?](#what-does-the-platform-provide)
+- [Business problem](#business-problem)
+- [Architecture](#architecture)
+- [Getting started](#getting-started)
+- [Documentation](#documentation)
+- [Repository layout](#repository-layout)
+- [Development and contributing](#development-and-contributing)
+- [Validation results and limitations](#validation-results-and-limitations)
+- [Known limitations](#known-limitations)
+- [License](#license)
 
-## Platform cung cấp gì?
+## What does the platform provide?
 
-| Phần | Chức năng | Công nghệ chính | Hướng dẫn |
+| Part | Function | Main technologies | Guide |
 |---|---|---|---|
-| **Data Platform** | Nguồn → Bronze / Silver / Gold → warehouse; batch, streaming, điều phối và quản trị | Spark, Kafka, Flink, Debezium, Iceberg, Lakekeeper, PostgreSQL, Trino, Airflow, DataHub | [Data Platform](docs/data-platform/README.md) |
-| **ML Platform** | Feature store, training, model registry, serving và giám sát drift | Feast, Redis, LightGBM, Kubeflow Pipelines, MLflow, KServe, Evidently | [ML Platform](docs/ml-llm-platform/README.md) |
-| **LLM Platform** | LLM inference, RAG, agent, gateway và đánh giá câu trả lời | llama.cpp, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/ml-llm-platform/README.md) |
+| **Data Platform** | Sources → Bronze / Silver / Gold → warehouse; batch, streaming, orchestration and governance | Spark, Kafka, Flink, Debezium, Iceberg, Lakekeeper, PostgreSQL, Trino, Airflow, DataHub | [Data Platform](docs/data-platform/README.md) |
+| **ML Platform** | Feature store, training, model registry, serving and drift monitoring | Feast, Redis, LightGBM, Kubeflow Pipelines, MLflow, KServe, Evidently | [ML Platform](docs/ml-llm-platform/README.md) |
+| **LLM Platform** | LLM inference, RAG, agents, gateway and answer evaluation | llama.cpp, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/ml-llm-platform/README.md) |
 
-Trên AWS: Data Platform chạy trên một EC2 (Docker Compose) với dữ liệu ở S3; ML Platform và LLM Platform chạy trên EKS. Hạ tầng dựng bằng Terraform, cấu hình EC2 bằng Ansible.
+On AWS: the Data Platform runs on one EC2 instance (Docker Compose) with data in S3; the ML Platform and LLM Platform run on EKS. Infrastructure is built with Terraform, and EC2 is configured with Ansible.
 
-## Bài toán nghiệp vụ
+## Business problem
 
-Một Seller bán trên bảy Storefront: Amazon US/UK/DE, TikTok Shop US, Shopify, Walmart US và Shopee VN. Mỗi kênh xuất dữ liệu theo schema riêng; hệ thống gom về một lakehouse Bronze / Silver / Gold rồi dựng feature cho bài toán:
+A Seller sells on seven Storefronts: Amazon US/UK/DE, TikTok Shop US, Shopify, Walmart US and Shopee VN. Each Channel exports data in its own schema; the system consolidates it into a Bronze / Silver / Gold lakehouse and then builds features for the problem:
 
-> Dòng đơn hàng này có bị Return hoặc Refund trong 30 ngày sau giao hàng không?
+> Will this Order Line be Returned or Refunded within 30 days of delivery?
 
-Agent truy xuất feature, gọi model dự đoán và tìm chính sách trả hàng qua MCP. Chi tiết: [business domain](docs/shared/domain.md), [thuật ngữ](docs/shared/terminology.md), [contract nhãn](docs/data-platform/reference/return_label_contract.md).
+The agent retrieves features, calls the prediction model and looks up the return policy through MCP. Details: [business domain](docs/shared/domain.md), [terminology](docs/shared/terminology.md), [label contract](docs/data-platform/reference/return_label_contract.md).
 
-## Kiến trúc
+## Architecture
 
-System architecture được chia theo đúng hai phạm vi: **Data Platform** và **ML + LLM Platform**.
-Mỗi khối là một đơn vị triển khai; mũi tên đi theo chiều dữ liệu, đánh số và tô màu theo từng luồng.
-Triển khai tham chiếu AWS ap-southeast-2: EC2 Data Platform + EKS `platform-apps`, S3 và ECR ngoài VPC.
+The system architecture is split into exactly two scopes: **Data Platform** and **ML + LLM Platform**.
+Each block is one deployment unit; arrows follow the direction of data and are numbered and colored per flow.
+Reference AWS deployment in ap-southeast-2: EC2 Data Platform + EKS `platform-apps`, with S3 and ECR outside the VPC.
 
 ### Data Platform
 
 [![Data Platform — system architecture](docs/diagrams/data-platform-system-architecture.svg)](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)
 
-Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)** (bấm ô chú giải để xem riêng từng luồng) · [Ảnh tĩnh phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html?static) · [PNG](docs/diagrams/data-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/data-platform-system-architecture.excalidraw)
+All flows run at the same time. **[Open the zoomable version](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)** (click a legend entry to show a single flow) · [Zoomable static image](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html?static) · [PNG](docs/diagrams/data-platform-system-architecture-excalidraw.png) · [Excalidraw source](docs/diagrams/data-platform-system-architecture.excalidraw)
 
 ### ML + LLM Platform
 
 [![ML + LLM Platform — system architecture](docs/diagrams/ml-llm-platform-system-architecture.svg)](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)
 
-Mọi luồng chạy cùng lúc. **[Mở bản phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)** (bấm ô chú giải để xem riêng từng luồng) · [Ảnh tĩnh phóng to được](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html?static) · [PNG](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Bản Excalidraw](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
+All flows run at the same time. **[Open the zoomable version](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)** (click a legend entry to show a single flow) · [Zoomable static image](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html?static) · [PNG](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Excalidraw source](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
 
-Stream feature chạy hai job PyFlink (online → Redis qua Feast, offline → Parquet trên S3). MCP server là pod riêng `feature-mcp`; `feature-api`, `feature-mcp` và KServe `return-risk` autoscale bằng KEDA.
+Stream features run as two PyFlink jobs (online → Redis via Feast, offline → Parquet on S3). The MCP server is a separate pod, `feature-mcp`; `feature-api`, `feature-mcp` and KServe `return-risk` autoscale with KEDA.
 
-Hai ảnh nối nhau qua Gold / feature / training data, replay Return qua Kafka và DataHub governance.
-[Đối chiếu khối kiến trúc với rubric và cấu hình](docs/diagrams/README.md).
+The two diagrams connect through Gold / features / training data, Return replay over Kafka, and DataHub governance.
+[Architecture blocks mapped to configuration and docs](docs/diagrams/README.md).
 
-## Bắt đầu
+## Getting started
 
-Yêu cầu: Python 3.12+, `uv`, Docker Engine và Docker Compose v2. Chạy các lệnh từ thư mục gốc repo.
-Kubernetes dùng cho ML/LLM; triển khai AWS dùng EKS `platform-apps`.
+Requirements: Python 3.12+, `uv`, Docker Engine and Docker Compose v2. Run commands from the repository root.
+Kubernetes is used for ML/LLM; the AWS deployment uses EKS `platform-apps`.
 
-Bắt đầu triển khai từ [Cloud setup](docs/shared/cloud_setup.md), sau đó theo [AWS runbook](docs/shared/aws_deploy.md) và [IaC](docs/ml-llm-platform/iac.md). Kết quả đã chạy và phần còn mở nằm trong [kiểm kê AWS](docs/shared/aws_validation.md).
+Start deploying from [Cloud setup](docs/shared/cloud_setup.md), then follow the [AWS runbook](docs/shared/aws_deploy.md) and [IaC](docs/ml-llm-platform/iac.md). Results so far and open items are in the [AWS validation status](docs/shared/aws_validation.md).
 
 <details>
-<summary>Dựng nguồn dữ liệu local để phát triển</summary>
+<summary>Set up local data sources for development</summary>
 
-Môi trường phát triển dùng Docker Compose và kind cho Kubernetes.
+The development environment uses Docker Compose, and kind for Kubernetes.
 
 ```bash
-cp .env.example .env          # đặt mật khẩu và cổng cho môi trường của bạn
+cp .env.example .env          # set passwords and ports for your environment
 uv sync --frozen
 docker compose up -d --build
 docker compose wait generator-load
 ```
 
-Bước này dựng nguồn dữ liệu giả lập với MinIO và PostgreSQL. Các dịch vụ xử lý, ML và Agent được bật theo
-profile và hướng dẫn riêng; xem [Docker Compose](docs/data-platform/docker.md).
+This step builds the synthetic data sources with MinIO and PostgreSQL. Processing, ML and Agent services are enabled
+per profile and have their own guides; see [Docker Compose](docs/data-platform/docker.md).
 
 </details>
 
-### Chọn phần cần triển khai
+### Choose what to deploy
 
-| Mục tiêu | Hướng dẫn |
+| Goal | Guide |
 |---|---|
-| Xử lý batch/stream, lakehouse và warehouse | [Data Platform](docs/data-platform/README.md) |
-| Feature store, training và model serving | [ML Platform](docs/ml-llm-platform/README.md) |
-| LLM inference, RAG và Agent | [LLM Platform](docs/ml-llm-platform/README.md) |
-| Hạ tầng AWS và cấu hình dịch vụ | [Cloud setup](docs/shared/cloud_setup.md), [AWS runbook](docs/shared/aws_deploy.md), [IaC](docs/ml-llm-platform/iac.md) |
+| Batch/stream processing, lakehouse and warehouse | [Data Platform](docs/data-platform/README.md) |
+| Feature store, training and model serving | [ML Platform](docs/ml-llm-platform/README.md) |
+| LLM inference, RAG and Agents | [LLM Platform](docs/ml-llm-platform/README.md) |
+| AWS infrastructure and service configuration | [Cloud setup](docs/shared/cloud_setup.md), [AWS runbook](docs/shared/aws_deploy.md), [IaC](docs/ml-llm-platform/iac.md) |
 
-## Tài liệu
+## Documentation
 
-Tài liệu bám theo rubric và các lần triển khai AWS; mỗi trang có code/config, kết quả và ảnh bằng chứng.
+The documentation follows the AWS deployments; each page has code/config, results and screenshot evidence.
 
-| Phần | Nội dung | Tài liệu |
+| Part | Content | Docs |
 |---|---|---|
-| EDAI-1 | Generator, Spark/Flink, storage, orchestration, governance, schema và novel ideas | [EDAI-1 — Data Platform](docs/data-platform/README.md) |
-| EDAI-2 | LLM/Agent, RAG, Feature Store, training/serving, CI/CD, IaC và observability | [EDAI-2 — ML / LLM Platform](docs/ml-llm-platform/README.md) |
-| Dùng chung | Domain, AWS setup/runbook, quyết định kiến trúc và quy ước code | [Dùng chung](docs/shared/README.md) |
-| Đối chiếu | Dòng rubric, bằng chứng AWS và phần còn thiếu | [kiểm kê AWS](docs/shared/aws_validation.md) |
+| Data Platform | Generator, Spark/Flink, storage, orchestration, governance, schema, Trino federation and WAL CDC | [Data Platform](docs/data-platform/README.md) |
+| ML/LLM Platform | LLM/Agent, RAG, Feature Store, training/serving, CI/CD, IaC and observability | [ML / LLM Platform](docs/ml-llm-platform/README.md) |
+| Shared | Domain, AWS setup/runbook, architecture decisions and code conventions | [Shared](docs/shared/README.md) |
+| Validation | AWS evidence and open gaps | [AWS validation status](docs/shared/aws_validation.md) |
 
-[Mục lục toàn bộ tài liệu](docs/README.md).
+[Full documentation index](docs/README.md).
 
-## Cấu trúc repo
+## Repository layout
 
 ```txt
-├── generator/        # Sinh dữ liệu giả lập năm kênh (skew, schema evolution, duplicate, late arrival)
-├── configs/          # Profile dữ liệu của generator (small → 100 GB)
-├── contracts/        # Hợp đồng dữ liệu và schema từng kênh
-├── spark_jobs/       # Spark batch: Bronze, Silver, Gold, CDC, bảo trì Iceberg
-├── flink_jobs/       # Flink streaming: late arrival, dedup, window, feature 24h
-├── sql/, trino/      # SQL warehouse và Trino liên nguồn
-├── dags/             # Pipeline Airflow DP1–DP4, materialize feature, RAG
-├── feature_repo/     # Feast: feature view, TTL, push stream vào offline/online store
-├── ml/               # Training (Kubeflow), đánh giá, drift (Evidently)
-├── serving/          # Feature API (FastAPI) + MCP tool, model KServe
-├── rag/              # Chunking, embedding và truy xuất tài liệu
-├── docker/           # Dockerfile các image (multistage)
-├── infra/            # Hạ tầng
-│   ├── aws/          #   Terraform (EC2, S3, ECR, EKS) và Ansible role cho EC2
-│   ├── k8s/          #   Manifest Kubernetes: agent, ingress, observability, RAG, CI
-│   └── helm/         #   Helm chart Feature API
-├── ci/               # Jenkinsfile và cấu hình Jenkins
-├── scripts/          # setup/ dựng dịch vụ · run/ chạy pipeline · evidence/ thu bằng chứng
-├── notebooks/        # Notebook phân tích: model + bootstrap, drift, benchmark LLM/A/B, EDA nhãn (đã chạy, có output)
-├── tests/            # Unit, Spark, harness kiểm thử
-└── docs/             # Tài liệu theo rubric, ưu tiên kết quả AWS
-    ├── README.md     # Mục lục chung
-    ├── data-platform/       # Data Platform: mỗi mục rubric một file
+├── generator/        # Synthetic data for five Channels (skew, schema evolution, duplicates, late arrival)
+├── configs/          # Generator data profiles (small → 100 GB)
+├── contracts/        # Data contracts and per-Channel schemas
+├── spark_jobs/       # Spark batch: Bronze, Silver, Gold, CDC, Iceberg maintenance
+├── flink_jobs/       # Flink streaming: late arrival, dedup, windows, 24h features
+├── sql/, trino/      # Warehouse SQL and Trino federation
+├── dags/             # Airflow pipelines DP1–DP4, feature materialization, RAG
+├── feature_repo/     # Feast: feature views, TTL, stream push to offline/online stores
+├── ml/               # Training (Kubeflow), evaluation, drift (Evidently)
+├── serving/          # Feature API (FastAPI) + MCP tools, KServe model
+├── rag/              # Document chunking, embedding and retrieval
+├── docker/           # Image Dockerfiles (multistage)
+├── infra/            # Infrastructure
+│   ├── aws/          #   Terraform (EC2, S3, ECR, EKS) and Ansible roles for EC2
+│   ├── k8s/          #   Kubernetes manifests: agents, ingress, observability, RAG, CI
+│   └── helm/         #   Feature API Helm chart
+├── ci/               # Jenkinsfiles and Jenkins configuration
+├── scripts/          # setup/ deploy services · run/ run pipelines · evidence/ collect evidence
+├── notebooks/        # Analysis notebooks: model + bootstrap, drift, LLM/A/B benchmark, label EDA (executed, with output)
+├── tests/            # Unit, Spark, test harnesses
+└── docs/             # Documentation, AWS results first
+    ├── README.md     # Main index
+    ├── data-platform/       # Data Platform: one file per component
     │   ├── README.md
     │   ├── docker.md
     │   ├── data_generator.md
     │   ├── processing_jobs.md
     │   ├── ...
-    │   └── reference/    # Các trang kỹ thuật nhỏ, gom một chỗ
-    ├── ml-llm-platform/       # ML / LLM Platform: mỗi mục rubric một file
+    │   └── reference/    # Smaller technical pages, kept together
+    ├── ml-llm-platform/       # ML / LLM Platform: one file per component
     │   ├── README.md
     │   ├── llm_inference_platform.md
     │   ├── global_model_config.md
     │   ├── observability.md
     │   ├── ...
     │   └── reference/
-    ├── shared/       # Domain, AWS runbook và kiểm kê rubric
-    ├── diagrams/     # Sơ đồ triển khai
-    └── evidence/, images/ # Receipt, log và ảnh chạy thật
+    ├── shared/       # Domain, AWS runbook and AWS validation status
+    ├── diagrams/     # Deployment diagrams
+    └── evidence/, images/ # Receipts, logs and screenshots from real runs
 ```
 
-## Phát triển và đóng góp
+## Development and contributing
 
-Đọc [quy ước code](docs/shared/code_style.md), [thuật ngữ](GLOSSARY.md) và tài liệu của thành phần cần thay đổi.
-Khi gửi thay đổi, mô tả vấn đề, hành vi sau sửa và cách kiểm chứng; cập nhật tài liệu liên quan nếu đổi cách dùng.
+Read the [code conventions](docs/shared/code_style.md), the [glossary](GLOSSARY.md) and the docs for the component you are changing.
+When submitting a change, describe the problem, the behavior after the fix and how you verified it; update related docs if usage changes.
 
 ```bash
 uv sync --frozen
@@ -158,29 +158,29 @@ uv run ruff format --check .
 uv run ruff check .
 ```
 
-Các lệnh trên kiểm tra code Python và bộ test mặc định. Hướng dẫn kiểm thử Spark, Web API và từng dịch vụ
-nằm trong tài liệu thành phần.
+These commands check the Python code and the default test suite. Instructions for testing Spark, the Web API and each service
+are in the component docs.
 
-## Kết quả kiểm chứng và giới hạn
+## Validation results and limitations
 
-Dự án dùng dữ liệu giả lập; các số đo gắn với môi trường, cấu hình và phạm vi dữ liệu của từng lần chạy.
-Run ID và artifact được giữ trong tài liệu kiểm chứng để phân biệt kết quả local với AWS.
+The project uses synthetic data; measurements are tied to the environment, configuration and data scope of each run.
+Run IDs and artifacts are kept in the validation docs to distinguish local results from AWS results.
 
-- [Data Platform — bằng chứng và giới hạn](docs/data-platform/evidence.md).
-- [ML/LLM Platform — bằng chứng và liên kết kết quả AWS](docs/shared/aws_validation.md).
-- [Trạng thái kiểm chứng theo rubric](docs/shared/aws_validation.md), gồm phần còn mở và các điểm yếu của bằng chứng.
+- [Data Platform — evidence and limitations](docs/data-platform/evidence.md).
+- [ML/LLM Platform — evidence and links to AWS results](docs/shared/aws_validation.md).
+- [Validation status](docs/shared/aws_validation.md), including open items and weaknesses of the evidence.
 
-## Giới hạn đã biết
+## Known limitations
 
-- [Agent eval](docs/ml-llm-platform/agent_evaluation.md): EKS (Jenkins `feature-api-agents` #13) Data Agent 12/12, Model Agent predict 12/12, nhưng **Model Agent policy (RAG) 3/5, dưới ngưỡng 0,95, build đỏ**: Qwen 1,5B đôi khi viết lệnh gọi tool thành văn bản thay vì gọi thật; gọi tool trực tiếp qua MCP vẫn trả chunk. Bộ 12 SKU có `labeled_count_90d` dưới 7 chữ số; response mask `phoneNumber` che số đếm 7 chữ số, khiến lượt top seller chỉ đạt 9/12. Hướng sửa là bỏ `phoneNumber` khỏi response mask; đang chờ duyệt vì giảm một lớp guardrail.
-- [Sandbox Agent](docs/shared/aws_validation.md): gọi tool đúng nhưng model 1,5B đọc `830847` thành `83,084`; đã chứng minh đường gọi tool, chưa bảo đảm chất lượng câu trả lời của model CPU nhỏ.
-- [Coordinator CI](docs/ml-llm-platform/agent_evaluation.md): cổng eval đạt 12/12 trên AWS (Jenkins #9) nhưng **chỉ chấm định tuyến** (có gọi `data_agent`/`model_agent` và có câu trả lời cuối), không chấm số vì model 1,5B hay rơi chữ số khi chép lại. Một LLM chạy CPU phục vụ chung mọi Agent nên chậm khi tải chồng ([số đo](docs/ml-llm-platform/agent_evaluation.md#coordinator-trên-aws-04112026)).
-- [Ảnh chi tiết](docs/shared/aws_validation.md): Spark UI Union/Window dedup, Flink RUNNING và late arrival, ERD DBeaver, Helm rollback, KEDA Model Agent/Coordinator có ảnh hoặc log trên AWS; Feature API, MCP và KServe scale 2→3→2, đo bằng request ngắn trong cluster, không phải tải production. MCP dùng chung code và image với Feature API, tách pod để scale và rollback độc lập.
-- [MLflow](docs/ml-llm-platform/training_pipeline.md): có ảnh Tags/Artifacts và đối chiếu SHA-256 của train/test với tag trên AWS; liên kết run MLflow với run KFP dựa vào thời điểm vì mã run KFP không được ghi vào MLflow.
-- [Stream feature](docs/ml-llm-platform/stream_features.md): hai job PyFlink (online → Redis, offline → Parquet S3); `approved_returns_24h` trên AWS được replay từ nhãn Gold, tốc độ đo được khoảng 60 tin/giây trên EC2, ước tính gần 2 giờ cho 401.129 tin. Hai job chạy độc lập nên hai kho có thể lệch tạm thời; at-least-once, khôi phục có thể ghi lại một lô. Event time phải nằm trong timestamp bản ghi Kafka: producer không đặt timestamp thì cửa sổ sai. Model `return-risk` trên AWS train trước khi feature có lịch sử nên chưa dùng feature này.
-- [Bật lại EKS từ 0 node](docs/shared/aws_deploy.md#bật-lại-eks-từ-0-node): cụm valkey của Substrate giữ IP pod cũ, phải `cluster meet` lại; IP node đổi nên phải chạy lại Ansible với `feast_redis`, `rag_pg`; `qwen` scale về 0 khi nghỉ phải bật lại trước eval. Chưa tự động hoá. Redis và pgvector gọi qua IP một node, node bị thay thì đổi.
-- [Partition Shopee](docs/data-platform/data_storage.md): chia tháng được áp dụng bằng maintenance rewrite; DP1 `createOrReplace` sẽ ghi lại partition ngày, chưa phải hành vi của pipeline.
+- [Agent eval](docs/ml-llm-platform/agent_evaluation.md): on EKS (Jenkins `feature-api-agents` #13) the Data Agent scores 12/12 and Model Agent predict 12/12, but **Model Agent policy (RAG) scores 3/5, below the 0.95 threshold, so the build is red**: Qwen 1.5B sometimes writes the tool call as text instead of actually calling the tool; calling the tool directly through MCP still returns chunks. The 12-SKU set has `labeled_count_90d` below 7 digits; the `phoneNumber` response mask hides 7-digit counts, which limits the top-seller turn to 9/12. The fix is to remove `phoneNumber` from the response mask; it is pending approval because it removes one guardrail layer.
+- [Sandbox Agent](docs/shared/aws_validation.md): calls the tool correctly, but the 1.5B model reads `830847` as `83,084`; the tool-call path is proven, but answer quality from a small CPU model is not guaranteed.
+- [Coordinator CI](docs/ml-llm-platform/agent_evaluation.md): the eval gate passes 12/12 on AWS (Jenkins #9) but **only scores routing** (whether `data_agent`/`model_agent` is called and a final answer is given), not numbers, because the 1.5B model often drops digits when copying them. One CPU-based LLM serves every Agent, so it is slow under overlapping load ([measurements](docs/ml-llm-platform/agent_evaluation.md#coordinator-on-aws-2026-11-04)).
+- [Detailed screenshots](docs/shared/aws_validation.md): Spark UI Union/Window dedup, Flink RUNNING and late arrival, DBeaver ERD, Helm rollback, and KEDA for Model Agent/Coordinator have screenshots or logs on AWS; Feature API, MCP and KServe scale 2→3→2, measured with short requests inside the cluster, not production load. MCP shares code and image with the Feature API but runs in a separate pod so it can scale and roll back independently.
+- [MLflow](docs/ml-llm-platform/training_pipeline.md): has Tags/Artifacts screenshots and a SHA-256 check of train/test against the tags on AWS; the link between an MLflow run and a KFP run is based on timestamps, because the KFP run ID is not recorded in MLflow.
+- [Stream features](docs/ml-llm-platform/stream_features.md): two PyFlink jobs (online → Redis, offline → Parquet on S3); `approved_returns_24h` on AWS is replayed from Gold labels at a measured rate of about 60 messages/second on EC2, an estimated ~2 hours for 401,129 messages. The two jobs run independently, so the two stores can temporarily diverge; delivery is at-least-once, and recovery may rewrite a batch. Event time must be in the Kafka record timestamp: if the producer does not set the timestamp, the windows are wrong. The `return-risk` model on AWS was trained before the feature had history, so it does not use this feature yet.
+- [Restarting EKS from 0 nodes](docs/shared/aws_deploy.md#restarting-eks-from-0-nodes): the Substrate valkey cluster keeps old pod IPs and must be re-joined with `cluster meet`; node IPs change, so Ansible must be re-run with `feast_redis` and `rag_pg`; `qwen`, scaled to 0 while idle, must be scaled back up before eval. Not automated yet. Redis and pgvector are reached through a single node IP, which changes when the node is replaced.
+- [Shopee partitioning](docs/data-platform/data_storage.md): monthly partitioning is applied by a maintenance rewrite; DP1 `createOrReplace` would rewrite daily partitions, so this is not yet pipeline behavior.
 
-## Giấy phép
+## License
 
-Dự án được phát hành theo [Apache License 2.0](LICENSE).
+The project is released under the [Apache License 2.0](LICENSE).

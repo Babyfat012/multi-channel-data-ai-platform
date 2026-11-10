@@ -1,49 +1,49 @@
-# Kiến trúc Data & AI Platform Data Platform đã triển khai
+# Data & AI Platform: deployed Data Platform architecture
 
-Nền tảng gom dữ liệu năm Channel của một Seller theo ba tầng Bronze, Silver,
-Gold. [Sơ đồ triển khai](../diagrams/data-platform-system-architecture-excalidraw.png) mô tả container và luồng
-dữ liệu; [thuật ngữ](terminology.md) định nghĩa các tầng và đối tượng nghiệp vụ.
+The platform consolidates data from a Seller's five Channels into three layers: Bronze, Silver,
+Gold. The [deployment diagram](../diagrams/data-platform-system-architecture-excalidraw.png) shows the containers and data
+flows; the [terminology](terminology.md) defines the layers and business objects.
 
-## Iceberg, MinIO và REST catalog
+## Iceberg, MinIO and the REST catalog
 
-Các bảng lakehouse dùng Iceberg, dữ liệu lưu trên MinIO; Lakekeeper cung cấp
-REST catalog và lưu metadata vận hành trong PostgreSQL. Spark xử lý Batch,
-Trino đọc các bảng qua catalog. Cấu hình và phép đo đã chạy được ghi trong
-[Spark](../data-platform/reference/spark.md), [Storage](../data-platform/data_storage.md) và [Trino](../data-platform/reference/trino.md).
+Lakehouse tables use Iceberg with data stored on MinIO; Lakekeeper provides the
+REST catalog and stores operational metadata in PostgreSQL. Spark handles Batch processing,
+and Trino reads the tables through the catalog. Configuration and the measurements that were run are recorded in
+[Spark](../data-platform/reference/spark.md), [Storage](../data-platform/data_storage.md) and [Trino](../data-platform/reference/trino.md).
 
-Bronze giữ payload JSON nguồn và provenance. Việc hai schema Amazon khác tên
-và cấu trúc được xử lý rõ ràng trong Silver bằng hai schema parse, chuẩn hóa
-cột rồi dedup; khả năng schema evolution của table format không tự thực hiện
-phép ánh xạ payload này. Amazon SCD2 lấy các phiên bản đã quan sát trong Bronze,
-không khôi phục những trạng thái chưa từng được xuất.
+Bronze keeps the source JSON payload and provenance. The two Amazon schemas, which differ in names
+and structure, are handled explicitly in Silver with two parse schemas, column
+normalization and then dedup; the table format's schema evolution does not perform
+this payload mapping by itself. Amazon SCD2 takes the versions observed in Bronze
+and does not reconstruct states that were never exported.
 
-## Warehouse là bản sao phục vụ truy vấn
+## The warehouse is a query-serving copy
 
-Gold Iceberg là đầu ra chính. Job xuất một lát Gold Walmart sang PostgreSQL
-warehouse để đo index và so dữ liệu giữa hai hệ thống bằng Trino. Bằng chứng
-hiện có là 1.875.607 Order Line Walmart; không tuyên bố đã nhân bản toàn bộ
-Gold năm Channel. DDL index, EXPLAIN và phép đối chiếu cùng SKU nằm trong
-[Storage](../data-platform/data_storage.md) và [Các cơ chế mở rộng](../data-platform/reference/data_integration.md).
+Gold Iceberg is the primary output. A job exports a Walmart slice of Gold to the PostgreSQL
+warehouse to measure indexing and to compare data between the two systems with Trino. The current
+evidence covers 1,875,607 Walmart Order Lines; there is no claim that all of Gold for the five
+Channels has been replicated. The index DDL, EXPLAIN and the same-SKU comparison are in
+[Storage](../data-platform/data_storage.md) and [Extension mechanisms](../data-platform/reference/data_integration.md).
 
-## Điều phối và quản trị
+## Orchestration and governance
 
-Airflow điều phối DP1 nguồn → Bronze, DP2 Bronze → Silver/Gold/SCD2 và DP3
-feature offline, với Validate sau mỗi chặng. Connection/Variable được lưu
-trong Airflow để dùng chung giữa các DAG. Các job hiện ghi bảng rồi Validate;
-không tuyên bố đã triển khai cơ chế branch Write-Audit-Publish.
+Airflow orchestrates DP1 sources → Bronze, DP2 Bronze → Silver/Gold/SCD2 and DP3
+offline features, with Validate after each stage. Connections/Variables are stored
+in Airflow to be shared across DAGs. The jobs currently write tables and then Validate;
+there is no claim that a Write-Audit-Publish branch mechanism has been implemented.
 
-DataHub nhận lineage và các assertion trích từ log Validate thành công. Các
-assertion hiện là bằng chứng của run được ghi nhận; việc publish sau mỗi run
-chưa được tự động hóa. Xem [Airflow](../data-platform/pipeline_orchestration.md) và [DataHub](../data-platform/data_governance.md).
+DataHub receives lineage and assertions extracted from successful Validate logs. The
+assertions are currently evidence for the recorded run; publishing after every run
+is not automated yet. See [Airflow](../data-platform/pipeline_orchestration.md) and [DataHub](../data-platform/data_governance.md).
 
-## Phạm vi dữ liệu và tài nguyên
+## Data scope and resources
 
-Manifest Batch ghi 100.012.790.412 byte cho Amazon, Walmart và SKU. Các run
-DP1/DP2/DP3 dùng Amazon 10 ngày, bảng Walmart hiện có và bộ nguồn nhỏ của ba
-Channel khác. Flink có proof baseline, late arrival, dedup và window trên
-nguồn Stream được ghi trong [Flink](../data-platform/reference/flink.md).
+The Batch manifest records 100,012,790,412 bytes for Amazon, Walmart and SKUs. The
+DP1/DP2/DP3 runs use 10 days of Amazon, the existing Walmart tables and a small source set for the other three
+Channels. Flink has proof of baseline, late arrival, dedup and windows on the
+Stream source, recorded in [Flink](../data-platform/reference/flink.md).
 
-Các service được bật theo từng nhóm để vừa RAM và đĩa máy phát triển. Không
-khởi động Compose toàn bộ khi chỉ cần chạy lại một proof; các lệnh nêu đúng
-service nằm trong tài liệu từng thành phần. Trạng thái và bằng chứng được
-tổng hợp tại [trạng thái Data Platform](../data-platform/reference/data_platform_order_lifecycle_status.md) và [evidence](../data-platform/evidence.md).
+Services are started in groups to fit the RAM and disk of a development machine. Do not
+start the whole Compose stack when you only need to rerun one proof; the commands naming the exact
+services are in each component's docs. Status and evidence are
+summarized in the [Data Platform status](../data-platform/reference/data_platform_order_lifecycle_status.md) and [evidence](../data-platform/evidence.md).

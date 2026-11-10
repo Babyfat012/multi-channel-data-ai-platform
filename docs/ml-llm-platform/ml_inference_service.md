@@ -1,43 +1,43 @@
-# ML Inference Service trên EKS
+# ML Inference Service on EKS
 
-EDAI-2, dòng 15: KServe với model-inside-image.
+KServe with model-inside-image.
 
-Code / cấu hình: [InferenceService](../../infra/k8s/ml/return-risk.yaml), [deployment script](../../scripts/run/deploy_return_risk.sh).
+Code / config: [InferenceService](../../infra/k8s/ml/return-risk.yaml), [deployment script](../../scripts/run/deploy_return_risk.sh).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+The results below come from runs on AWS and do not confirm the service is up.
 
-## Trên EKS
+## On EKS
 
-InferenceService [`return-risk`](../../infra/k8s/ml/return-risk.yaml) chạy ở namespace `ml-serving`. Cách đóng gói là
-model-inside-image: file model nằm sẵn trong image, không tải lúc khởi động. Image ECR chứa model MLflow `return-risk`
-v1 (alias `production`), build bằng [`deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh).
+The InferenceService [`return-risk`](../../infra/k8s/ml/return-risk.yaml) runs in namespace `ml-serving`. It is packaged as
+model-inside-image: the model file is baked into the image, not downloaded at startup. The ECR image contains the MLflow model `return-risk`
+v1 (alias `production`), built with [`deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh).
 
-Kiểm thử: gọi thẳng predictor qua port-forward với một đơn APP-00042, Amazon US, 1 cái, 25 USD. Kết quả `score` 0,1661,
-`abstain` false, `model_version` "1". Đây cũng là số mà Feature API `/predict` và model-agent trả về
-(xem [Web API](web_api_mcp.md#trên-eks)).
+Test: call the predictor directly through port-forward with one order of APP-00042, Amazon US, 1 unit, 25 USD. Result `score` 0.1661,
+`abstain` false, `model_version` "1". This is also the number the Feature API `/predict` and model-agent return
+(see [Web API](web_api_mcp.md#on-eks)).
 
-![KServe trên EKS: inferenceservice return-risk READY True, pod predictor Running, POST :predict trả score 0.1661 model_version 1](../evidence/aws/kserve-pod-predict-20261031.png)
+![KServe on EKS: inferenceservice return-risk READY True, predictor pod Running, POST :predict returns score 0.1661 model_version 1](../evidence/aws/kserve-pod-predict-20261031.png)
 
-**Nhiều replica và tự scale.** Cấu hình:
+**Multiple replicas and autoscaling.** Configuration:
 - `minReplicas: 2`, `maxReplicas: 3`.
-- `autoscalerClass: external`, vì EKS không có metrics-server để HPA scale theo CPU.
-- KEDA scale theo metric `return_risk_predictions_total`, ngưỡng 5 dự đoán/giây cho mỗi pod.
+- `autoscalerClass: external`, because EKS has no metrics-server for HPA to scale on CPU.
+- KEDA scales on the metric `return_risk_predictions_total`, threshold 5 predictions/second per pod.
 
-Kết quả khi bắn tải vào `:predict` trong 150 giây: lên 3 pod sau khoảng 48 s, về lại 2 pod sau khoảng 495 s
-([log](../evidence/aws/return-risk-autoscale.txt), [ảnh trong Agents](agents.md#model-agent-đủ-bộ-như-data-agent)).
+Result when sending load to `:predict` for 150 seconds: up to 3 pods after about 48 s, back to 2 pods after about 495 s
+([log](../evidence/aws/return-risk-autoscale.txt), [screenshots in Agents](agents.md#model-agent-has-the-same-full-set-as-data-agent)).
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+Local records keep their original environment and are not a substitute for cloud evidence.
 
-<!-- Mục đích: phục vụ model return-risk bằng KServe (model-inside-image) -->
+<!-- Purpose: serve the return-risk model with KServe (model-inside-image) -->
 ## Serve model return-risk — KServe
 
-Mục tiêu: KServe phục vụ model vừa train theo kiểu **model-inside-image**. Kết quả cần có: pod KServe, file YAML và
-ảnh gọi thử thành công.
+Goal: KServe serves the freshly trained model as **model-inside-image**. Evidence: the KServe pod, the YAML file and
+a screenshot of a successful test call.
 
-## Hợp đồng gọi
+## Call contract
 
 `POST http://return-risk-predictor.ml-serving.svc.cluster.local/v1/models/return-risk:predict`
 
@@ -46,29 +46,29 @@ Mục tiêu: KServe phục vụ model vừa train theo kiểu **model-inside-ima
                 "ordered_basis_qty": 3, "ordered_product_net_minor": 30000}]}
 ```
 
-Trả về `{"predictions": [{"seller_sku", "score", "abstain", "reason", "model_version"}]}`.
+Returns `{"predictions": [{"seller_sku", "score", "abstain", "reason", "model_version"}]}`.
 
-- `score` là tín hiệu để **xếp hạng**, không phải xác suất (Q38).
-- Người gọi chỉ gửi thuộc tính của đơn. Predictor **tự đọc** feature SKU từ Feast online (Redis), nên danh sách
-  feature chỉ được khai ở một chỗ.
-- `abstain` nghĩa là model từ chối khẳng định. SKU có dưới 20 line có nhãn trong 90 ngày thì trả
-  `abstain: true, reason: insufficient_history`. Quy tắc này chỉ áp dụng khi `labeled_count_90d` có giá trị.
-- Nếu count bị thiếu (`null`/NaN), predictor không gọi LightGBM cho dòng đó mà trả `score: null, abstain: true,
-  reason: feature_data_unavailable`. Predictor không tự coi count thiếu là 0.
-- Trong một batch có cả dòng đủ và thiếu count, chỉ dòng có count được chấm; thứ tự kết quả giữ đúng như đầu vào.
-  Các feature nullable khác giữ cách xử lý hiện tại.
-- Cách xử lý count thiếu là thay đổi trong repo, chưa kiểm chứng khi triển khai trên AWS.
+- `score` is a **ranking** signal, not a probability (Q38).
+- The caller only sends order attributes. The predictor **reads** the SKU features from Feast online (Redis) itself, so the feature
+  list is declared in one place only.
+- `abstain` means the model declines to make a claim. A SKU with fewer than 20 labeled lines in 90 days returns
+  `abstain: true, reason: insufficient_history`. This rule only applies when `labeled_count_90d` has a value.
+- If a count is missing (`null`/NaN), the predictor does not call LightGBM for that row and returns `score: null, abstain: true,
+  reason: feature_data_unavailable`. The predictor does not treat a missing count as 0.
+- In a batch with both rows that have counts and rows that don't, only rows with counts are scored; the result order matches the input.
+  Other nullable features keep their current handling.
+- The missing-count handling is a change in the repo that has not been verified in an AWS deployment.
 
-| Thành phần | File |
+| Component | File |
 |---|---|
 | Predictor | [`ml/serve.py`](../../ml/serve.py), test [`tests/unit/test_serve.py`](../../tests/unit/test_serve.py) |
-| Image (model nằm trong image) | [`docker/Dockerfile.serve`](../../docker/Dockerfile.serve) |
+| Image (model inside the image) | [`docker/Dockerfile.serve`](../../docker/Dockerfile.serve) |
 | InferenceService (RawDeployment) | [`infra/k8s/ml/return-risk.yaml`](../../infra/k8s/ml/return-risk.yaml) |
 | Deploy: MLflow alias `production` → image → kind → apply | [`scripts/run/deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh) |
 
-## Cài KServe (local)
+## Installing KServe (local)
 
-RawDeployment: không cần Knative/Istio, chỉ cert-manager + controller.
+RawDeployment: no Knative/Istio needed, only cert-manager + the controller.
 
 ```bash
 K="kubectl --context kind-platform"
@@ -80,43 +80,43 @@ helm --kube-context kind-platform install kserve oci://ghcr.io/kserve/charts/kse
 scripts/run/deploy_return_risk.sh
 ```
 
-## Bằng chứng
+## Evidence
 
 Deploy (kind, KServe v0.21.0 RawDeployment): `return-risk` READY = True, pod
 `return-risk-predictor-…` Running, image `platform-return-risk:v3` = MLflow `return-risk` v3 (alias
-`production`, PR-AUC 0,341 vs baseline 0,329 vs prevalence 0,312).
+`production`, PR-AUC 0.341 vs baseline 0.329 vs prevalence 0.312).
 
 ```text
 GET  /v1/models/return-risk          → {"name":"return-risk","ready":true}
-POST /v1/models/return-risk:predict  → sku-00002 0,346 · sku-00099 0,305 · sku-00003 0,254
+POST /v1/models/return-risk:predict  → sku-00002 0.346 · sku-00099 0.305 · sku-00003 0.254
 ```
 
-Thứ tự điểm khớp với tỷ lệ trả hàng thật trong dữ liệu (sku-00002 khoảng 54%, sku-00003 khoảng 7%).
-Cả ba đều `abstain: insufficient_history`, và điều đó là **đúng**: Redis giữ ảnh chụp mới nhất, còn đơn cuối cùng
-đặt ngày 2026-02-14, nên trong cửa sổ 90 ngày không còn line nào có nhãn. Model vẫn trả score để tham khảo nhưng
-không khẳng định.
+The score order matches the actual return rates in the data (sku-00002 about 54%, sku-00003 about 7%).
+All three are `abstain: insufficient_history`, and that is **correct**: Redis holds the latest snapshot, and the last order
+was placed on 2026-02-14, so there are no labeled lines left in the 90-day window. The model still returns a score for reference but
+makes no claim.
 
-Lỗi gặp khi deploy: client MLflow tải artifact bằng presigned URL trỏ tới `minio:9000`, nhưng tên này chỉ tồn tại
-trong mạng Docker. Cách sửa: script tải thẳng `model.lgb` qua endpoint proxy `/api/2.0/mlflow-artifacts/...`.
+Problem hit during deploy: the MLflow client downloads artifacts with a presigned URL pointing to `minio:9000`, but that name only exists
+inside the Docker network. Fix: the script downloads `model.lgb` directly through the proxy endpoint `/api/2.0/mlflow-artifacts/...`.
 
 ## Metric
 
-Pod tự khai annotation `prometheus.io/scrape|port=8080|path=/metrics`. Không dùng cờ `enable-prometheus-scraping`
-của KServe, vì cờ đó trỏ tới cổng 9091 của một sidecar gộp metric, mà chế độ RawDeployment không có sidecar này.
-Ngoài histogram độ trễ có sẵn của KServe (`request_predict_seconds`…), predictor xuất thêm metric nghiệp vụ:
+The pod declares the annotation `prometheus.io/scrape|port=8080|path=/metrics` itself. KServe's `enable-prometheus-scraping` flag is not used,
+because it points to port 9091 of a metric-aggregating sidecar, and RawDeployment mode has no such sidecar.
+Besides KServe's built-in latency histograms (`request_predict_seconds`…), the predictor exports business metrics:
 
-| Metric | Ý nghĩa |
+| Metric | Meaning |
 |---|---|
-| `return_risk_predictions_total{abstain}` | số dòng đã chấm, tách theo có abstain hay không |
-| `return_risk_errors_total{reason}` | request lỗi (vd `missing_field` → HTTP **400**, không phải 500) |
-| `return_risk_feast_lookup_seconds` | thời gian đọc feature online |
+| `return_risk_predictions_total{abstain}` | number of rows scored, split by abstain or not |
+| `return_risk_errors_total{reason}` | failed requests (e.g. `missing_field` → HTTP **400**, not 500) |
+| `return_risk_feast_lookup_seconds` | time to read online features |
 
-Kiểm qua Prometheus (route `metrics.`): gửi 5 request, mỗi request 2 dòng, và thêm 1 request thiếu trường.
-Prometheus đếm được `predictions{abstain="true"} = 10`, `errors{reason="missing_field"} = 1`, `feast_lookup_count = 5`.
+Checked through Prometheus (route `metrics.`): sent 5 requests of 2 rows each, plus 1 request with a missing field.
+Prometheus counted `predictions{abstain="true"} = 10`, `errors{reason="missing_field"} = 1`, `feast_lookup_count = 5`.
 
-**Bẫy:** nếu deploy lại với cùng tag `v3`, node kind vẫn giữ image cũ theo tag đó, nên pod chạy code cũ. Script
-giờ gắn tag dạng `v<version>-<băm code+model>` (ví dụ `v3-d18e5f42`), mỗi bản build có một tag riêng.
+**Pitfall:** redeploying with the same tag `v3` leaves the kind node holding the old image for that tag, so the pod runs old code. The script
+now tags images as `v<version>-<hash of code+model>` (e.g. `v3-d18e5f42`), so each build gets its own tag.
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

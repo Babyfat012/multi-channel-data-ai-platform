@@ -1,103 +1,103 @@
-# Source v2 — fixture nhỏ của gói B
+# Source v2 — small fixture for package B
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally, not the deployed pipeline.** The pipeline running on AWS is v1 (DP1 → DP4 + ML); see [Data Platform evidence](../evidence.md). Mentions of GCP below are an older plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-Triển khai local của [source contract v2](source_contract_order_lifecycle.md), giữ scope
-Q52–Q61. Entry point riêng: [generator/generate_order_lifecycle_fixture.py](../../../generator/generate_order_lifecycle_fixture.py).
-Không thay engine Batch/Stream v1 và không dùng root nguồn/evidence lịch sử.
+Local implementation of [source contract v2](source_contract_order_lifecycle.md), keeping the scope
+Q52–Q61. Separate entry point: [generator/generate_order_lifecycle_fixture.py](../../../generator/generate_order_lifecycle_fixture.py).
+It does not replace the v1 Batch/Stream engine and does not use the historical source/evidence roots.
 
 ```bash
-.venv/bin/python -m generator.generate_order_lifecycle_fixture --output out/source-v2-MOT-ROOT-CHUA-TON-TAI
+.venv/bin/python -m generator.generate_order_lifecycle_fixture --output out/source-v2-ROOT-THAT-DOES-NOT-EXIST-YET
 .venv/bin/pytest -q
 ```
 
-API `generate_fixture(root, FixtureConfig(...), delivery_parts=1, native_schema=1)`
-chỉ nhận đường dẫn local mới, kể cả thư mục rỗng đã tồn tại cũng bị từ chối.
-Không có resume/restart, Cloud IO, DB load, service startup hoặc sinh full-scale.
-Creation mặc định 3 ngày, giới hạn 2–7 ngày; 2 SKU, 1 Order/Channel/ngày,
-2 line/Order. Năm Channel: Amazon, Walmart, Shopify, TikTok Shop, Shopee.
-Fixture là bộ tình huống xác định, không phải phân bố kinh doanh để benchmark.
+The API `generate_fixture(root, FixtureConfig(...), delivery_parts=1, native_schema=1)`
+only accepts a new local path; even an existing empty directory is rejected.
+There is no resume/restart, Cloud IO, DB load, service startup or full-scale generation.
+Creation defaults to 3 days, limited to 2–7 days; 2 SKUs, 1 Order/Channel/day,
+2 lines/Order. Five Channels: Amazon, Walmart, Shopify, TikTok Shop, Shopee.
+The fixture is a deterministic set of scenarios, not a business distribution for benchmarking.
 
-## Nguồn và identity
+## Sources and identity
 
-`identity.json` được ghi trước các file dữ liệu: pin config, seed, population/world
-và physical outcome digest, contract/code/Python digest/version, module versions,
-required/optional source profiles, renderer config và ba horizon UTC exclusive.
-`manifest.json` chốt danh sách file, SHA-256/bytes/counts, authority/capability/scope,
-source snapshots, coverage và diagnostics. Layout operational theo contract:
+`identity.json` is written before the data files: it pins config, seed, population/world
+and physical outcome digest, contract/code/Python digest/version, module versions,
+required/optional source profiles, renderer config and three exclusive UTC horizons.
+`manifest.json` locks the file list, SHA-256/bytes/counts, authority/capability/scope,
+source snapshots, coverage and diagnostics. Operational layout per the contract:
 `dataset_version=.../producer=.../feed=.../export_date=.../part-00000.jsonl`.
-Coverage do đúng producer sở hữu feed xuất; không cấp quyền nguồn vận hành cho
-pool Channel-managed chỉ vì engine biết world.
+Coverage is exported by exactly the producer that owns the feed; operational source authority is
+not granted for a Channel-managed pool just because the engine knows the world.
 
-Các native Orders là **synthetic native-shaped fixture schemas**
-`sim-native-v2/<channel>/<version>`, không là chứng cứ gọi API thật hoặc dữ liệu
-byte-compatible với renderer v1. Đây là frozen creation observations, không claim
-status refresh. Native chỉ chứa fields Orders; delivery/approval/refund/stock xuất
-ở feed riêng. Fixture dùng USD/scale2 công bố trong currency table; không FX hoặc
-cộng các currency. Walmart là JSONL bootstrap có cột `purchase_order_id`,
-`raw_payload`, `fetched_at`; manifest vẫn pin boundary **JDBC**. Chưa nạp DB,
-chưa có receipt source snapshot của DB/JDBC, không thay boundary đó bằng file.
+The native Orders are **synthetic native-shaped fixture schemas**
+`sim-native-v2/<channel>/<version>`, not evidence of calling real APIs or data
+byte-compatible with the v1 renderer. They are frozen creation observations and make no claim of
+status refresh. Native files contain only Orders fields; delivery/approval/refund/stock are exported
+in separate feeds. The fixture uses USD/scale2 as published in the currency table; no FX and no
+adding currencies together. Walmart is a JSONL bootstrap with columns `purchase_order_id`,
+`raw_payload`, `fetched_at`; the manifest still pins the **JDBC** boundary. Nothing is loaded into a DB yet,
+there is no DB/JDBC source snapshot receipt yet, and that boundary is not replaced by a file.
 
-Envelope operational giữ revision, producer epoch/sequence, causal refs,
-effective/observed business clock và recorded execution clock. Sequence theo
-observation của từng producer. Native/account identity và stable units không phụ
-thuộc SKU mapping hay số lần renderer chia record. Business line key dùng tuple
-JSON versioned có dataset/seller/Channel/account/native Order/full native line key.
-Hash fact loại riêng execution-only `recorded_at`; checksum file/coverage hash toàn
-bộ emitted record, nên hai lần tái tạo cùng fact vẫn dedup dù execution time khác.
-`require_same_world` bắt buộc cùng world ID **và** physical outcome digest;
-seed bằng nhau không đủ.
+The operational envelope keeps revision, producer epoch/sequence, causal refs,
+effective/observed business clock and recorded execution clock. Sequence follows
+the observations of each producer. Native/account identity and stable units do not depend
+on SKU mapping or on how many times the renderer splits a record. The business line key uses a versioned
+JSON tuple with dataset/seller/Channel/account/native Order/full native line key.
+The fact hash excludes the execution-only `recorded_at`; the file checksum/coverage hash covers the whole
+emitted record, so two regenerations of the same fact still dedup even if execution time differs.
+`require_same_world` requires the same world ID **and** physical outcome digest;
+an equal seed is not enough.
 
-## Các tình huống đã xuất và kiểm
+## Scenarios exported and checked
 
-- Line A: ordered3, cancel trước ship1, delivered2, approve/receive1; gross330,
-  discount30, ordered300, canceled100 → headline200. Product Refund100 và
-  shipping Refund10 riêng cùng transaction; không trừ refund khỏi headline.
-- Line B: ordered3, hai allocation/shipment 2+1, giao hai ngày khác nhau;
-  terminal sau phần giao cuối. Delivery renderer có thể chia record cùng unit/time.
-- Refund ban đầu biết Order nhưng thiếu allocation, giữ cả line A/B trong scope
-  uncertainty; correction liên kết A đến muộn, không sửa record cũ. Coverage
-  refund revision1 complete về transport nhưng còn uncertainty; revision2 sạch
-  sau observation của correction. Interval refund bao phủ quá deadline30d của
-  mọi allocation, còn các feed khác close theo follow-up horizon.
-- Listing opening trước sale; business change có effective trước observed,
-  correction đổi attribution; sale binding, line ID và pool reservation cũ giữ
-  nguyên. Năm Storefront dùng chung một pool: opening200/SKU chỉ ghi một lần,
-  không cộng thành1000. Reserve/release/ship/receive/quarantine/disposition,
-  inbound promise5/receipt2/close thiếu3 và snapshot đối soát đều là feed riêng.
-- `fixture.probes` có role `diagnostic_fixture`, tách khỏi nguồn complete:
+- Line A: ordered3, cancel before ship1, delivered2, approve/receive1; gross330,
+  discount30, ordered300, canceled100 → headline200. Product Refund100 and a separate
+  shipping Refund10 in the same transaction; the refund is not subtracted from the headline.
+- Line B: ordered3, two allocations/shipments 2+1, delivered on two different days;
+  terminal after the last delivered portion. The delivery renderer can split records with the same unit/time.
+- An initial refund knows the Order but lacks the allocation, keeping both lines A/B in the
+  uncertainty scope; a correction linking to A arrives late and does not edit the old record. Refund coverage
+  revision1 is complete in terms of transport but still has uncertainty; revision2 is clean
+  after the correction is observed. The refund interval covers past deadline30d of
+  every allocation, while the other feeds close at the follow-up horizon.
+- Listing opening before the sale; a business change has effective before observed,
+  a correction changes attribution; the sale binding, line ID and old pool reservation stay
+  unchanged. Five Storefronts share one pool: opening200/SKU is recorded only once,
+  not summed to1000. Reserve/release/ship/receive/quarantine/disposition,
+  inbound promise5/receipt2/close short3 and the reconciliation snapshot are all separate feeds.
+- `fixture.probes` has role `diagnostic_fixture`, separate from the complete sources:
   retry, hash conflict, release-before-reserve, missing dependency/revision,
-  correction stock đảo thứ tự, native current_quantity2 rồi full snapshot mất
-  line. Đây là đầu vào âm cho C/D/E; không ingest probes như feed production.
+  out-of-order stock correction, native current_quantity2 then a full snapshot missing the
+  line. These are negative inputs for C/D/E; do not ingest probes as production feeds.
 
-`inspect_records` chỉ kiểm identity/revision/reference, trả ready/pending/conflict,
-không apply stock hay tính nhãn. `coverage_receipt` đối chiếu emitted set với
-expected partitions/sequences/count/digest và cutoff strict observed<C; thiếu
-capability trả unavailable, thiếu dữ liệu trong capability đã claim trả partial.
-Complete không xóa uncertainty hay tự chứng minh official negative.
+`inspect_records` only checks identity/revision/reference and returns ready/pending/conflict;
+it does not apply stock or compute labels. `coverage_receipt` reconciles the emitted set against
+expected partitions/sequences/count/digest and a strict cutoff observed<C; a missing
+capability returns unavailable, missing data within a claimed capability returns partial.
+Complete does not remove uncertainty or by itself prove an official negative.
 
-Ba horizon mặc định là creation `D0,D3)`, follow-up `[D0,D90)`, observation
-`[D0,D105)`. Physical fulfillment tối đa4d, qualification30d inclusive, allowance15d,
-source observation delay không vượt15d. Source event overflow hoặc tail cấu hình
-quá ngắn bị reject trước khi tạo root; không truncate rồi cấp complete. Manifest
-công bố counts terminal/maturity-deadline/censored theo cohort, actual max delay,
-tail bytes và runtime. Counts maturity không phải label eligibility.
+The three default horizons are creation `D0,D3)`, follow-up `[D0,D90)`, observation
+`[D0,D105)`. Physical fulfillment at most4d, qualification30d inclusive, allowance15d,
+source observation delay not exceeding15d. Source event overflow or a configured tail
+that is too short is rejected before the root is created; never truncate and then grant complete. The manifest
+publishes terminal/maturity-deadline/censored counts per cohort, actual max delay,
+tail bytes and runtime. Maturity counts are not label eligibility.
 
-## Artifact bàn giao
+## Handoff artifact
 
-Root mới: `out/source-v2-b-final-20261018-051930425055/`, xem
-[index `out/source-v2-b-final-20261018-051930425055/index.json` (local, không commit).
-Ba biến thể `default`, `render-split` (Amazon schema2/delivery split),
-`approve-d31`; mỗi biến thể 15 Orders, 30 lines, 2 SKU, đủ5 Channel;
-tổng source JSONL **2.511.009 byte**, 62 file/biến thể. Default/split cùng
-physical world; D29→D31 cùng intent digest nhưng khác outcome/world, dùng để
-kiểm qualification, không kết luận defect thay đổi. Output `out/` được git-ignore.
-Một root thử trước khi siết delay cap cũng được giữ nguyên, không resume/restart;
-chỉ root `source-v2-b-final-...` trên là artifact bàn giao của code hiện tại.
+New root: `out/source-v2-b-final-20261018-051930425055/`, see
+[index `out/source-v2-b-final-20261018-051930425055/index.json` (local, not committed).
+Three variants `default`, `render-split` (Amazon schema2/delivery split),
+`approve-d31`; each variant has 15 Orders, 30 lines, 2 SKUs, all5 Channels;
+total source JSONL **2,511,009 bytes**, 62 files/variant. Default/split share the same
+physical world; D29→D31 share the intent digest but differ in outcome/world, used to
+check qualification, not to conclude that defects changed. The `out/` output is git-ignored.
+A trial root from before the delay cap was tightened is also kept as is, with no resume/restart;
+only the `source-v2-b-final-...` root above is the handoff artifact of the current code.
 
-Test [tests/unit/generator/test_generate_order_lifecycle_fixture.py](../../../tests/unit/generator/test_generate_order_lifecycle_fixture.py) đi đỏ→xanh theo từng
-lát, assertions từ frozen emitted source và đối soát độc lập quantity/stock/money;
-không đọc oracle truth để dựng expected nhãn. Phần tiếp theo là C/D/E/J:
+The test [tests/unit/generator/test_generate_order_lifecycle_fixture.py](../../../tests/unit/generator/test_generate_order_lifecycle_fixture.py) went red→green slice
+by slice, with assertions from the frozen emitted source and independent reconciliation of quantity/stock/money;
+it does not read oracle truth to build expected labels. Next up are C/D/E/J:
 Bronze/Silver/JDBC ingestion, projections/reconciliation, label v2/eligibility,
-stream recovery và publication receipts. Chưa claim runtime các phần này,
-full-scale, Cloud hoặc benchmark năm Channel cho nhãn/stock.
+stream recovery and publication receipts. No runtime claim is made yet for these parts,
+full scale, Cloud or a five-Channel benchmark for labels/stock.

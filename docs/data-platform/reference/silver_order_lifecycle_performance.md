@@ -1,200 +1,200 @@
-# Vì sao Silver v2 chậm siêu tuyến tính
+# Why Silver v2 is superlinearly slow
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally, not the deployed pipeline.** The pipeline running on AWS is v1 (DP1 → DP4 + ML), see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-Phân tích hiệu năng Silver. Chỉ tài liệu và diff đề xuất, chưa áp dụng thay đổi Spark.
+Silver performance analysis. Documentation and proposed diffs only; no Spark changes have been applied.
 
-## Kết luận và phạm vi bằng chứng
+## Conclusion and scope of evidence
 
-**Ưu tiên sửa phép xử lý tập sequence trong `coverage_validity`, sau đó giảm tính lại lineage.**
-Medium dành **1.815,877 s** cho ResultStage 100/job 53, trong chặng Silver **2.090,103449 s**:
-**86,88%** thời gian Silver. Small tương ứng ResultStage 103/job 52 chỉ **8,706 s**.
-Nguồn tăng **13,24 lần**, Silver tăng **35,67 lần**, riêng stage này tăng **208,58 lần**.
-Các tỷ lệ là phép chia số trong nguồn dưới đây, không phải benchmark mới.
+**Fix the sequence-set processing in `coverage_validity` first, then reduce lineage recomputation.**
+Medium spends **1,815.877 s** in ResultStage 100/job 53, out of a Silver phase of **2,090.103449 s**:
+**86.88%** of Silver time. The corresponding Small ResultStage 103/job 52 takes only **8.706 s**.
+The source grows **13.24×**, Silver grows **35.67×**, and this stage alone grows **208.58×**.
+The ratios are divisions of the numbers in the sources below, not a new benchmark.
 
-- `M` = `out/e2e-v2-medium.G5BI4k/spark.log` (log local, không commit).
-- `S` = `out/e2e-v2-small.bpqNq2/spark.log` (log local, không commit).
-- `MR` = receipt medium `out/e2e-v2-medium.G5BI4k/receipt.json` (local, không commit), dòng 20–35, 55–87.
-- `SR` = receipt small `out/e2e-v2-small.bpqNq2/receipt.json` (local, không commit), dòng 20–35, 88–103.
-- Dạng `M:9173` là số dòng vật lý trong đúng file trên (có thể kiểm bằng `nl -ba`).
+- `M` = `out/e2e-v2-medium.G5BI4k/spark.log` (local log, not committed).
+- `S` = `out/e2e-v2-small.bpqNq2/spark.log` (local log, not committed).
+- `MR` = medium receipt `out/e2e-v2-medium.G5BI4k/receipt.json` (local, not committed), lines 20–35, 55–87.
+- `SR` = small receipt `out/e2e-v2-small.bpqNq2/receipt.json` (local, not committed), lines 20–35, 88–103.
+- The form `M:9173` is the physical line number in that exact file (can be checked with `nl -ba`).
 
-| Chỉ số | Small | Medium | Nguồn |
+| Metric | Small | Medium | Source |
 |---|---:|---:|---|
-| Bronze rows | 40.398 | 534.853 | SR:21–23; MR:21–23; commit M:4406 |
-| line_lifecycle / native_order_lines rows mỗi bảng | 3.631 | 48.874 | SR:24–29; MR:24–29 |
-| observed_evidence rows | 27.646 | 374.574 | SR:30–32; MR:30–32 |
+| Bronze rows | 40,398 | 534,853 | SR:21–23; MR:21–23; commit M:4406 |
+| line_lifecycle / native_order_lines rows per table | 3,631 | 48,874 | SR:24–29; MR:24–29 |
+| observed_evidence rows | 27,646 | 374,574 | SR:30–32; MR:30–32 |
 | coverage_validity rows | 15 | 15 | commit S:7217; M:9180; SR/MR:33–35 |
-| Silver (giây tường, gồm build, ghi và count bảng đã ghi) | 58,602433 | 2.090,103449 | SR:95–103; MR:62–70 |
-| Final stage coverage_validity (giây) | 8,706 | 1.815,877 | S:7210; M:9173 |
-| Job ghi cuối coverage_validity (giây) | 8,706962 | 1.815,890594 | S:7213; M:9176 |
+| Silver (wall-clock seconds, including build, write and count of the written tables) | 58.602433 | 2,090.103449 | SR:95–103; MR:62–70 |
+| Final stage coverage_validity (seconds) | 8.706 | 1,815.877 | S:7210; M:9173 |
+| Final coverage_validity write job (seconds) | 8.706962 | 1,815.890594 | S:7213; M:9176 |
 
-Receipt medium còn `status=running`, `gold_validate=failed/Py4JJavaError` (MR:3,83–87).
-Chỉ xác nhận Silver đã hoàn tất; không coi medium là E2E PASS. Không lấy lỗi Gold sau Silver
-làm nguyên nhân của stage đã kết thúc. Hai profile là hai dataset khác nhau, số ngày khác nhau;
-hai điểm đo không chứng minh toàn pipeline có độ phức tạp bậc hai và không ngoại suy thời gian 100 GB.
+The medium receipt still has `status=running`, `gold_validate=failed/Py4JJavaError` (MR:3,83–87).
+It only confirms that Silver completed; medium is not treated as an E2E PASS. The Gold error after Silver
+is not taken as the cause of a stage that had already finished. The two profiles are two different datasets with different numbers of days;
+two data points do not prove the whole pipeline has quadratic complexity, and the 100 GB time is not extrapolated.
 
-## Cách khoanh chặng và đọc thời gian
+## How the phase is delimited and timings are read
 
-Runner `scripts/run/run_order_lifecycle_local.py:160–167` ghi Bronze rồi gọi `build_silver`, ghi lần lượt
-`line_lifecycle`, `native_order_lines`, `observed_evidence`, `coverage_validity`; mỗi lần ghi
-được count **từ bảng Iceberg đã materialize** (`:94–105`), cuối Silver mới `clearCache()`.
+The runner `scripts/run/run_order_lifecycle_local.py:160–167` writes Bronze, then calls `build_silver`, writing in turn
+`line_lifecycle`, `native_order_lines`, `observed_evidence`, `coverage_validity`; each write
+is counted **from the materialized Iceberg table** (`:94–105`), and only at the end of Silver is `clearCache()` called.
 
-Khoanh M từ dòng 4479 (scan operational cho `_dedup`) đến 9244 (job count cuối coverage);
-S từ 3511 đến 7278. Thời gian tạo logical plan trước scan đầu vẫn nằm trong receipt.
-Xếp hạng **stage thực thi**, không cộng job chứa stage với stage đó. Các map-stage job AQE
-không có dòng `Job N finished … took` tương ứng trong log này: chỉ nhìn các dòng job finished
-sẽ bỏ mất nhiều scan tốn thời gian. `Final stage`, `Submitting … missing tasks`, dòng stage
-finished là ba tín hiệu dùng để lấy ID, số task và thời gian. Stage chạy đồng thời nên tổng
-các thời gian stage không bằng thời gian tường Silver.
+M is delimited from line 4479 (operational scan for `_dedup`) to 9244 (final coverage count job);
+S from 3511 to 7278. Logical plan construction time before the first scan is still included in the receipt.
+The ranking is of **executed stages**; a job containing a stage is not added to that stage. AQE map-stage jobs
+have no corresponding `Job N finished … took` line in this log: looking only at job finished lines
+would miss many expensive scans. `Final stage`, `Submitting … missing tasks` and the stage
+finished line are the three signals used to get the ID, task count and time. Stages run concurrently, so the sum
+of stage times does not equal Silver wall-clock time.
 
-Callsite Spark ghi thực tế chỉ có `NativeMethodAccessorImpl.java:0` cho count/create và
-`FutureTask.java:264` cho broadcast; **không có file Python:dòng** cho phần lớn job. Bảng dưới
-phân biệt callsite nguyên gốc và vị trí Python suy từ thứ tự action/cấu trúc code:
+The Spark callsites actually logged are only `NativeMethodAccessorImpl.java:0` for count/create and
+`FutureTask.java:264` for broadcast; **there is no Python file:line** for most jobs. The table below
+distinguishes the raw callsite from the Python location inferred from action order/code structure:
 
 - `D`: `_dedup`, `spark_jobs/lib/order_lifecycle_lakehouse.py:426–441`; count `:437–438`, collect `:439`.
 - `L`: `build_silver:522–523`, `line_lifecycle:646–668`, write `scripts/run/run_order_lifecycle_local.py:100`.
 - `N`: `native_order_lines:147–243`, write runner `:100`.
 - `E`: `observed_evidence:317–353`, write runner `:100`.
-- `V`: `coverage_validity:356–412`, write runner `:100`. V bao gồm các nhánh phụ huynh
-  chạy trước thông báo bắt đầu ghi ở M:9094/S:7132; không chỉ stage ghi cuối.
+- `V`: `coverage_validity:356–412`, write runner `:100`. V includes the parent branches
+  that run before the write-start message at M:9094/S:7132; not just the final write stage.
 
-## 20 stage Silver medium tốn thời gian nhất, đối chiếu small
+## The 20 most expensive medium Silver stages, compared with small
 
 `C` = `create at NativeMethodAccessorImpl.java:0`; `K` = `count at NativeMethodAccessorImpl.java:0`;
 `P` = `collect at /workspace/spark_jobs/lib/order_lifecycle_lakehouse.py:439`.
-`Sh` = ShuffleMapStage, `R` = ResultStage. Cột dòng ghi `submit/finished`: dòng submit có số task.
-So cùng vai trò/thứ tự nhánh, **không** ghép theo ID bằng nhau. AQE thay đổi DAG giữa hai run;
-những nhánh không ghép chắc chắn được ghi rõ. Nhãn root V theo thứ tự submit chỉ là đối chiếu
-vị trí, chưa có physical plan để khẳng định từng root là `cov`/`rows`/`declared`.
+`Sh` = ShuffleMapStage, `R` = ResultStage. The line column records `submit/finished`: the submit line has the task count.
+Stages are compared by the same role/branch order, **not** matched by equal IDs. AQE changes the DAG between the two runs;
+branches that cannot be matched with certainty are marked. The V root labels by submit order are only a positional
+comparison; there is no physical plan yet to confirm whether each root is `cov`/`rows`/`declared`.
 
-| # | Medium stage / loại | Vai trò / callsite | s medium | Tasks | M submit/finished | Small stage: s / tasks / S submit/finished | Shuffle |
+| # | Medium stage / type | Role / callsite | s medium | Tasks | M submit/finished | Small stage: s / tasks / S submit/finished | Shuffle |
 |---|---|---|---:|---:|---|---|---|
-| 1 | 100 / R | V: hoàn tất aggregate/so sequence + ghi / C | 1815.877 | 4 | 9106:9173 | 103: 8.706 / 5 / 7144:7210 | Xem fetch cuối bên dưới |
-| 2 | 84 / Sh | V: đọc/gate/dedup nhánh coverage / C | 69.159 | 14 | 8457:8997 | 87: 5.112 / 6 / 6592:6813 | Không có metric gắn stage |
-| 3 | 83 / Sh | V: đọc/gate/dedup nhánh coverage / C | 61.250 | 14 | 8444:8832 | 86: 5.120 / 6 / 6557:6781 | Không có metric gắn stage |
-| 4 | 82 / Sh | V: đọc/gate/dedup nhánh coverage / C | 38.178 | 14 | 8405:8627 | 85: 4.992 / 6 / 6531:6720 | Không có metric gắn stage |
-| 5 | 23 / Sh | L: materialize cache events / C | 29.102 | 13 | 5358:5454 | 23: 5.065 / 6 / 4177:4233 | Không có metric gắn stage |
-| 6 | 17 / Sh | D: collect conflict IDs / P | 25.699 | 13 | 5068:5154 | 17: 4.709 / 6 / 3967:4026 | Không có metric gắn stage |
-| 7 | 11 / Sh | D: unique.count / K | 25.087 | 13 | 4819:4922 | 11: 4.497 / 6 / 3786:3847 | Không có metric gắn stage |
-| 8 | 5 / Sh | D: ops.count lần đầu / K | 24.986 | 13 | 4510:4602 | 5: 5.478 / 6 / 3542:3598 | Không có metric gắn stage |
-| 9 | 8 / Sh | D: ops.count lần hai / K | 24.491 | 13 | 4669:4752 | 8: 4.327 / 6 / 3667:3719 | Không có metric gắn stage |
-| 10 | 76 / Sh | E: đọc/gate/dedup evidence / C | 23.235 | 14 | 7981:8108 | 79: 3.521 / 6 / 6180:6237 | Không có metric gắn stage |
-| 11 | 87 / Sh | V: aggregate/shuffle trung gian / C | 20.134 | 8 | 8707:8920 | V trung gian: 89/91/93, xem dưới; chưa ghép duy nhất | Không có metric gắn stage |
-| 12 | 86 / Sh | V: aggregate/shuffle trung gian / C | 19.328 | 8 | 8655:8798 | V trung gian: 89/91/93, xem dưới; chưa ghép duy nhất | Không có metric gắn stage |
-| 13 | 72 / R | N: ghi native (union parser) / C | 8.672 | 84 | 7058:7874 | 75: 1.261 / 36 / 5664:6071 | Không có metric gắn stage |
-| 14 | 78 / R | E: ghi observed_evidence / C | 8.030 | 8 | 8130:8214 | 81: 0.692 / 8 / 6259:6342 | Không có metric gắn stage |
-| 15 | 94 / Sh | V: aggregate/shuffle trung gian / C | 5.327 | 8 | 9015:9079 | 98: 0.536 / 8 / 7044:7119 | Không có metric gắn stage |
-| 16 | 89 / Sh | V: aggregate/shuffle trung gian / C | 5.172 | 8 | 8864:8951 | V trung gian: 89/91/93, xem dưới; chưa ghép duy nhất | Không có metric gắn stage |
-| 17 | 28 / R | L: nhánh lifecycle / C | 4.278 | 8 | 5552:5928 | 28: 0.530 / 8 / 4330:4601 | Không có metric gắn stage |
-| 18 | 29 / R | L: nhánh lifecycle / C | 4.255 | 8 | 5587:5925 | 29: 0.508 / 8 / 4365:4578 | Không có metric gắn stage |
-| 19 | 30 / R | L: nhánh lifecycle / C | 4.218 | 8 | 5632:5920 | 30: 0.519 / 8 / 4409:4688 | Không có metric gắn stage |
-| 20 | 31 / R | L: nhánh lifecycle / C | 4.190 | 8 | 5653:5931 | 31: 0.500 / 8 / 4430:4708 | Không có metric gắn stage |
+| 1 | 100 / R | V: finish aggregate/sequence comparison + write / C | 1815.877 | 4 | 9106:9173 | 103: 8.706 / 5 / 7144:7210 | See final fetch below |
+| 2 | 84 / Sh | V: read/gate/dedup coverage branch / C | 69.159 | 14 | 8457:8997 | 87: 5.112 / 6 / 6592:6813 | No stage-attached metric |
+| 3 | 83 / Sh | V: read/gate/dedup coverage branch / C | 61.250 | 14 | 8444:8832 | 86: 5.120 / 6 / 6557:6781 | No stage-attached metric |
+| 4 | 82 / Sh | V: read/gate/dedup coverage branch / C | 38.178 | 14 | 8405:8627 | 85: 4.992 / 6 / 6531:6720 | No stage-attached metric |
+| 5 | 23 / Sh | L: materialize cache events / C | 29.102 | 13 | 5358:5454 | 23: 5.065 / 6 / 4177:4233 | No stage-attached metric |
+| 6 | 17 / Sh | D: collect conflict IDs / P | 25.699 | 13 | 5068:5154 | 17: 4.709 / 6 / 3967:4026 | No stage-attached metric |
+| 7 | 11 / Sh | D: unique.count / K | 25.087 | 13 | 4819:4922 | 11: 4.497 / 6 / 3786:3847 | No stage-attached metric |
+| 8 | 5 / Sh | D: ops.count first time / K | 24.986 | 13 | 4510:4602 | 5: 5.478 / 6 / 3542:3598 | No stage-attached metric |
+| 9 | 8 / Sh | D: ops.count second time / K | 24.491 | 13 | 4669:4752 | 8: 4.327 / 6 / 3667:3719 | No stage-attached metric |
+| 10 | 76 / Sh | E: read/gate/dedup evidence / C | 23.235 | 14 | 7981:8108 | 79: 3.521 / 6 / 6180:6237 | No stage-attached metric |
+| 11 | 87 / Sh | V: intermediate aggregate/shuffle / C | 20.134 | 8 | 8707:8920 | Intermediate V: 89/91/93, see below; no unique match | No stage-attached metric |
+| 12 | 86 / Sh | V: intermediate aggregate/shuffle / C | 19.328 | 8 | 8655:8798 | Intermediate V: 89/91/93, see below; no unique match | No stage-attached metric |
+| 13 | 72 / R | N: native write (parser union) / C | 8.672 | 84 | 7058:7874 | 75: 1.261 / 36 / 5664:6071 | No stage-attached metric |
+| 14 | 78 / R | E: write observed_evidence / C | 8.030 | 8 | 8130:8214 | 81: 0.692 / 8 / 6259:6342 | No stage-attached metric |
+| 15 | 94 / Sh | V: intermediate aggregate/shuffle / C | 5.327 | 8 | 9015:9079 | 98: 0.536 / 8 / 7044:7119 | No stage-attached metric |
+| 16 | 89 / Sh | V: intermediate aggregate/shuffle / C | 5.172 | 8 | 8864:8951 | Intermediate V: 89/91/93, see below; no unique match | No stage-attached metric |
+| 17 | 28 / R | L: lifecycle branch / C | 4.278 | 8 | 5552:5928 | 28: 0.530 / 8 / 4330:4601 | No stage-attached metric |
+| 18 | 29 / R | L: lifecycle branch / C | 4.255 | 8 | 5587:5925 | 29: 0.508 / 8 / 4365:4578 | No stage-attached metric |
+| 19 | 30 / R | L: lifecycle branch / C | 4.218 | 8 | 5632:5920 | 30: 0.519 / 8 / 4409:4688 | No stage-attached metric |
+| 20 | 31 / R | L: lifecycle branch / C | 4.190 | 8 | 5653:5931 | 31: 0.500 / 8 / 4430:4708 | No stage-attached metric |
 
-Small V trung gian: stage 89 = 0,153 s / 8 task (S:6739–6804),
-91 = 0,336 s / 8 task (S:6866–6977), 93 = 0,224 s / 8 task (S:6921–7001).
-M có shuffle stage 86/87/89 ở vị trí tương ứng; S có nhánh broadcast ResultStage 93.
-Không suy ra tỷ số từng operator từ các cặp AQE này.
+Small intermediate V: stage 89 = 0.153 s / 8 tasks (S:6739–6804),
+91 = 0.336 s / 8 tasks (S:6866–6977), 93 = 0.224 s / 8 tasks (S:6921–7001).
+M has shuffle stages 86/87/89 in the corresponding positions; S has a broadcast ResultStage 93 branch.
+Per-operator ratios are not inferred from these AQE pairs.
 
-Shuffle log có fetch nhưng không có event-log/task-metrics tổng read/write từng stage.
-Các dòng fetch trong stage cuối V đều local, remote = 0:
+The shuffle log has fetches but no event-log/task-metrics read/write totals per stage.
+The fetch lines in the final V stage are all local, remote = 0:
 
-| Run / stage | Fetch quan sát được (mỗi dòng là một lần fetch, không phải tổng task) | Dòng |
+| Run / stage | Observed fetches (each line is one fetch, not a task total) | Lines |
 |---|---|---|
-| M / 100 | 67,1 MiB; 13,9 MiB; 110,5 MiB; 15,9 MiB | M:9122–9123,9131–9132 |
-| M / 100 | 312,6 KiB; 1.385,1 KiB; 503,4 KiB; 2,5 MiB, ngoài các block nhỏ | M:9139,9142,9150,9153 |
-| S / 103 | 5,4 MiB; 3,7 MiB; 2,9 MiB; 1.949,1 KiB; 1.157,6 KiB | S:7168–7174 |
+| M / 100 | 67.1 MiB; 13.9 MiB; 110.5 MiB; 15.9 MiB | M:9122–9123,9131–9132 |
+| M / 100 | 312.6 KiB; 1,385.1 KiB; 503.4 KiB; 2.5 MiB, plus small blocks | M:9139,9142,9150,9153 |
+| S / 103 | 5.4 MiB; 3.7 MiB; 2.9 MiB; 1,949.1 KiB; 1,157.6 KiB | S:7168–7174 |
 
-Không gán các dòng fetch xen kẽ của stage chạy song song cho một stage cụ thể;
-không cộng các số đã làm tròn thành “shuffle chính xác”.
+Interleaved fetch lines of concurrently running stages are not attributed to a specific stage;
+rounded numbers are not summed into an "exact shuffle".
 
-Kiểm chéo với job finished: M job 53/V = 1.815,890594 s (M:9176),
-38/N = 8,679103 s (M:7877), 42/E = 8,033009 s (M:8217);
-S job 52/V = 8,706962 s (S:7213), 37/N = 1,266062 s (S:6074),
-41/E = 0,693781 s (S:6345). Job ghi `L` cuối chỉ 0,285210 s (M:6798)
-vì phần scan/dedup/join đã chạy trong các map/broadcast stage trước đó.
-Job count cuối V = 0,409205 s (M:9244), chứng minh count bảng sau write
-không lặp lại toàn lineage V.
+Cross-check with job finished: M job 53/V = 1,815.890594 s (M:9176),
+38/N = 8.679103 s (M:7877), 42/E = 8.033009 s (M:8217);
+S job 52/V = 8.706962 s (S:7213), 37/N = 1.266062 s (S:6074),
+41/E = 0.693781 s (S:6345). The final `L` write job takes only 0.285210 s (M:6798)
+because the scan/dedup/join work already ran in earlier map/broadcast stages.
+The final V count job = 0.409205 s (M:9244), proving that counting the table after the write
+does not repeat the whole V lineage.
 
-## Nguyên nhân, giả thuyết và phép bác bỏ
+## Causes, hypotheses and refutation tests
 
-### H1 — So tập sequence bằng `array_distinct(array<struct>)`: ưu tiên cao nhất
+### H1 — Comparing sequence sets with `array_distinct(array<struct>)`: highest priority
 
-`coverage_validity:391,398–406` gom hai mảng struct `(partition,seq)`, sắp xếp,
-rồi `array_distinct` từng mảng trước khi so bằng. Mảng tăng theo số sự kiện của
-coverage, không theo số dòng đầu ra (chỉ 15). Đây là ứng viên cho chi phí bậc hai
-nếu runtime xử lý distinct struct bằng tìm tuyến tính trong phần tử đã gặp.
-**Chưa kiểm implementation Scala của runtime này; đây là giả thuyết, không phải
-kết luận profiler.** Không tải source mạng theo luật brief.
+`coverage_validity:391,398–406` collects two arrays of `(partition,seq)` structs, sorts them,
+then runs `array_distinct` on each array before comparing for equality. The arrays grow with the number of coverage
+events, not with the number of output rows (only 15). This is a candidate for quadratic cost
+if the runtime handles struct distinct via a linear search over already-seen elements.
+**The Scala implementation of this runtime has not been checked; this is a hypothesis, not a
+profiler conclusion.** Source code was not downloaded from the network, per the task constraints.
 
-Bằng chứng phân biệt với scan/I/O: bốn task M stage 100 bắt đầu cùng lúc M:9108–9115;
-kết thúc lần lượt **31.996 / 79.025 / 170.964 / 1.815.838 ms**
-(M:9159,9163,9167,9171). Small năm task kết thúc **431 / 636 / 1.323 / 3.798 / 8.675 ms**
-(S:7192,7196,7200,7204,7208). M fetch bắt đầu 13:34:27–29, nhưng task chậm nhất
-kết thúc 14:04:43. Chỉ một task giữ phần lớn thời gian tường: phù hợp xử lý mảng
-lớn trong một group, không phù hợp kết luận mọi task phải chờ remote shuffle.
+Evidence distinguishing it from scan/I/O: the four M stage 100 tasks start together at M:9108–9115;
+they finish at **31,996 / 79,025 / 170,964 / 1,815,838 ms** respectively
+(M:9159,9163,9167,9171). The five small tasks finish at **431 / 636 / 1,323 / 3,798 / 8,675 ms**
+(S:7192,7196,7200,7204,7208). M fetches start at 13:34:27–29, but the slowest task
+finishes at 14:04:43. A single task holds most of the wall-clock time: consistent with processing a large array
+within one group, not consistent with concluding that every task had to wait for remote shuffle.
 
-Dự đoán có thể bác bỏ: chỉ áp diff A, giữ nguyên digest/nguồn/tài nguyên, đo lại V;
-nếu stage cuối không giảm rõ rệt, H1 không giải thích được nút thắt. Phải dùng
-write/collect chứa `receipt_status`; chỉ `count()` có thể bị optimizer loại biểu
-thức cần đo. Lấy thread dump/profiler task chậm để phân biệt `ArrayDistinct` với
-sort/hash JSON nếu A không đủ. Không tuyên bố đã chứng minh H1 bằng pytest Python.
+Refutable prediction: apply only diff A, keep digest/source/resources unchanged, remeasure V;
+if the final stage does not drop clearly, H1 does not explain the bottleneck. A write/collect
+containing `receipt_status` must be used; a bare `count()` may let the optimizer eliminate the expression
+being measured. Take a thread dump/profiler of the slow task to distinguish `ArrayDistinct` from
+JSON sort/hash if A is not enough. Do not claim H1 has been proven with Python pytest.
 
-### H2 — Gom toàn payload JSON và sort/hash theo coverage: chắc chắn có, phần thời gian chưa tách
+### H2 — Collecting the whole JSON payload and sorting/hashing per coverage: definitely present, share of time not yet isolated
 
-`:385–394` join theo dataset/feed/producer/epoch và thời điểm quan sát, rồi
-`collect_list(struct(sid,raw_json))`, sort, dựng nguyên chuỗi JSON và SHA-256.
-Coverage revisions làm số cặp matched tăng theo số envelope có cùng scope.
-Không join theo từng Order Line; nhưng một coverage lớn vẫn gom nhiều raw JSON
-vào một task. Fetch M:9122–9132 và chênh task ở trên phù hợp với group lệch kích thước.
-Chưa có metric số matched/group hay heap/GC nên chưa chứng minh fan-out hoặc OOM.
+`:385–394` joins on dataset/feed/producer/epoch and observation time, then
+`collect_list(struct(sid,raw_json))`, sorts, builds the full JSON string and SHA-256.
+Coverage revisions make the number of matched pairs grow with the number of envelopes sharing the same scope.
+It does not join per Order Line; but one large coverage still gathers many raw JSON values
+into one task. Fetches M:9122–9132 and the task spread above are consistent with skewed group sizes.
+There are no metrics for matched count/group or heap/GC, so fan-out or OOM is not proven.
 
-Dự đoán: sau A, profile phần sort/concat/SHA và đo số matched theo evidence_event_id.
-Nếu CPU/memory còn chủ yếu ở digest, cần thiết kế hash theo iterator/stream theo đúng
-thứ tự canonical, không dùng `collect_list` chuỗi khổng lồ. Không thay bằng XOR/hash
-của hash con: sẽ đổi `record_set_sha256` và hợp đồng nguồn. Đề xuất dài hạn này chưa
-có diff an toàn vì cần chứng minh tương đương serialization và giới hạn kích thước.
-Tăng shuffle partitions không chia được một group coverage thành nhiều task.
+Prediction: after A, profile the sort/concat/SHA part and measure matched count per evidence_event_id.
+If CPU/memory is still mostly in the digest, a hash computed by iterator/stream in exactly the
+canonical order is needed, rather than `collect_list` into a huge string. Do not replace it with an XOR/hash
+of child hashes: that would change `record_set_sha256` and the source contract. This long-term proposal does not yet
+have a safe diff, because serialization equivalence and size limits must be proven.
+Increasing shuffle partitions cannot split one coverage group across several tasks.
 
-### H3 — Tính lại gate/dedup do chỉ cache `events`: chắc chắn có
+### H3 — Recomputing gate/dedup because only `events` is cached: definitely present
 
-`_dedup:437–439` thực hiện hai `ops.count()`, một `unique.count()` và collect conflict;
-`events.cache()` chỉ được đăng ký **sau** tất cả action này (`build_silver:522–523`).
-Gate `:464–492` có nhiều biểu thức `get_json_object` để kiểm required; không có UDF Python.
+`_dedup:437–439` performs two `ops.count()` calls, one `unique.count()` and a conflict collect;
+`events.cache()` is only registered **after** all of these actions (`build_silver:522–523`).
+The gate `:464–492` has many `get_json_object` expressions to check required fields; there is no Python UDF.
 
-M stage 5/8/11/17 đều đọc operational Bronze với 13 task, khoảng 25 s mỗi stage
-(M:4479,4640,4788,5037 và bảng). Stage 23 lại đọc cùng nhánh để materialize events
-(M:5358–5454). Cache events có ích cho lifecycle, nhưng không giúp các action đã chạy
-trước cache, native parser hoặc evidence vốn đi từ `known` riêng.
-Không thể mô tả hiện trạng là “hoàn toàn không cache”.
+M stages 5/8/11/17 all read operational Bronze with 13 tasks, about 25 s per stage
+(M:4479,4640,4788,5037 and the table). Stage 23 reads the same branch again to materialize events
+(M:5358–5454). Caching events helps lifecycle, but does not help actions that ran
+before the cache, the native parser, or evidence, which comes separately from `known`.
+The current state cannot be described as "no caching at all".
 
-Evidence được ghi vật lý xong ở M:8222–8224 nhưng `built['coverage_validity']` đã được
-xây từ DataFrame evidence gốc (`build_silver:639–641`). Gán `result[name] = spark.table`
-trong `write_tables` không thay lineage của V đã tạo. Vì vậy ba root stage V 82/83/84
-đọc lại Bronze với 14 task sau khi E đã ghi, từ 13:33:12 đến 13:34:22
-(M:8400–8457,8627,8832,8997). Chúng chạy chồng nhau, không cộng thành thời gian tiết kiệm.
-Diff C cắt lineage này ở bảng E vật lý trong runner; không giải quyết H1/H2.
+Evidence is physically written by M:8222–8224, but `built['coverage_validity']` was already
+built from the original evidence DataFrame (`build_silver:639–641`). Assigning `result[name] = spark.table`
+in `write_tables` does not replace the lineage of the V already created. That is why the three V root stages 82/83/84
+reread Bronze with 14 tasks after E had been written, from 13:33:12 to 13:34:22
+(M:8400–8457,8627,8832,8997). They overlap, so they do not add up to time saved.
+Diff C cuts this lineage at the physical E table in the runner; it does not address H1/H2.
 
-### H4 — Lifecycle fan-out, global window hoặc Python UDF: không phải ứng viên chính ở run này
+### H4 — Lifecycle fan-out, global window or Python UDF: not a main candidate in this run
 
-`line_lifecycle:648–666` aggregate từng fact về line trước left join;
-`_dedup`, `_latest`, coverage/uncertainty windows đều có `partitionBy`.
-Native explode là một dòng mỗi item và tổng native/lifecycle cùng bằng số line
-trong receipt. `coverage_receipts(known)` có `sequence/explode` và anti joins nhưng
-runner không materialize bảng này; không gán stage V cho hàm đó chỉ vì tên tương tự.
-`reconcile()` không được runner Silver gọi. `Registry`, `required_json_paths`
-được đọc trong lúc dựng biểu thức; không phải UDF chạy từng dòng.
-Không có bằng chứng log cho join bình phương theo Order Line trong Silver.
-Bằng nhau về count chưa chứng minh từng identity/tiền đúng: vẫn phải đối soát tập dòng.
+`line_lifecycle:648–666` aggregates each fact to line level before the left join;
+`_dedup`, `_latest`, and the coverage/uncertainty windows all have `partitionBy`.
+The native explode is one row per item, and the native/lifecycle totals both equal the line count
+in the receipt. `coverage_receipts(known)` has `sequence/explode` and anti joins, but
+the runner does not materialize this table; V stages are not attributed to that function just because of a similar name.
+`reconcile()` is not called by the Silver runner. `Registry` and `required_json_paths`
+are read while building expressions; they are not UDFs run per row.
+There is no log evidence of a quadratic join per Order Line in Silver.
+Equal counts do not prove each identity/amount is correct: the row sets still need reconciling.
 
-## Diff đề xuất, thứ tự áp dụng và hiệu quả có điều kiện
+## Proposed diffs, order of application and conditional impact
 
-Các diff dưới chỉ là đề xuất để người vận hành/implementer kế tiếp áp dụng. Không sửa
-`spark_jobs/*.py` hoặc runner trong task này. Mọi giây “tiết kiệm” dưới đây là ngân
-sách thời gian có thể tác động, không phải kết quả đã đo; không cộng cơ học giữa các diff.
+The diffs below are only proposals for the operator/next implementer to apply. No
+`spark_jobs/*.py` or runner changes were made in this task. Every "saved" second below is a time
+budget that could be affected, not a measured result; the diffs do not add up mechanically.
 
-### A — Distinct trong aggregate, so mảng đã chuẩn hóa
+### A — Distinct inside the aggregate, compare normalized arrays
 
-Vị trí `spark_jobs/lib/order_lifecycle_lakehouse.py:391,398–406`:
+Location `spark_jobs/lib/order_lifecycle_lakehouse.py:391,398–406`:
 
 ```diff
 @@ def coverage_validity(evidence: DataFrame) -> DataFrame:
@@ -210,22 +210,22 @@ Vị trí `spark_jobs/lib/order_lifecycle_lakehouse.py:391,398–406`:
 +                == F.coalesce("actual_seq", empty_seq))
 ```
 
-Giữ nguyên received_rows, digest, time filter, null coalesce và mọi điều kiện khác.
-Hai bên vẫn là tập struct sắp thứ tự; distinct sau sort và sort sau collect_set
-phải cho cùng kết quả. Struct có field null vẫn là struct khác null nên cần test
-riêng, không mặc định bỏ được các dòng thiếu partition/seq.
+Keep received_rows, digest, the time filter, null coalescing and every other condition unchanged.
+Both sides are still sorted sets of structs; distinct after sort and sort after collect_set
+must give the same result. A struct with a null field is still a non-null struct, so it needs its own
+test; rows missing partition/seq cannot be assumed droppable.
 
-Ngân sách tác động lớn nhất: stage V cuối **1.815,877 s** (M:9173). Nếu H1 chiếm chủ yếu,
-tiết kiệm phần lớn stage đó; phần Silver còn lại theo phép trừ là **274,226449 s**
-(MR:64 trừ M:9173), **không** phải dự báo runtime mới: A vẫn cần sort/hash/write.
-Phép thử nhạy cảm nhất là old/new `coverage_validity` trên cùng evidence với các group
-sequence lớn, action ghi `receipt_status`, kèm so kết quả hai chiều.
+Largest impact budget: the final V stage **1,815.877 s** (M:9173). If H1 dominates,
+most of that stage is saved; the remaining Silver time by subtraction is **274.226449 s**
+(MR:64 minus M:9173), which is **not** a new runtime forecast: A still needs sort/hash/write.
+The most sensitive test is old/new `coverage_validity` on the same evidence with large sequence
+groups, an action writing `receipt_status`, and a two-way result comparison.
 
-### C — Runner dùng evidence đã ghi làm nguồn coverage_validity
+### C — Runner uses the written evidence as the coverage_validity source
 
-Xếp thứ hai về ngân sách thời gian. Vị trí `scripts/run/run_order_lifecycle_local.py:94–105`.
-Điều kiện áp dụng: giữ thứ tự SILVER hiện tại, E trước V. Kiểm thứ tự này khi review;
-không chuyển tất cả dữ liệu sang collect phía driver.
+Second in time budget. Location `scripts/run/run_order_lifecycle_local.py:94–105`.
+Precondition: keep the current SILVER order, E before V. Check this order during review;
+do not move all the data to a driver-side collect.
 
 ```diff
 @@ def write_tables(spark, frames, zone, receipt, item):
@@ -236,24 +236,24 @@ không chuyển tất cả dữ liệu sang collect phía driver.
          target = f'local.{zone}.{name}'
 ```
 
-Đây là seam riêng của E2E, chưa tối ưu caller production
-`spark_jobs/silver/build_order_lifecycle.py`. Caller nào ghi E rồi V cũng cần quyết định vòng đời cache
-hoặc tái đọc bảng tương tự; không âm thầm thêm cache sống vô hạn vào API library.
-Các test gọi `build_silver` trực tiếp vẫn dùng DataFrame gốc.
+This is an E2E-specific seam; the production caller
+`spark_jobs/silver/build_order_lifecycle.py` is not optimized yet. Any caller that writes E then V also needs to decide the cache lifecycle
+or reread the table in a similar way; do not silently add an indefinitely living cache to the library API.
+Tests that call `build_silver` directly still use the original DataFrame.
 
-Ngân sách quan sát: đoạn root V từ **13:33:12 đến 13:34:22 ≈ 70 s**
-(M:8400–8457,8997), cùng shuffle trung gian trước stage cuối lúc **13:34:27** (M:9094).
-C có thể giảm một phần đoạn này, nhưng vẫn phải đọc Iceberg E, parse trường coverage,
-join và aggregate. Không hứa giảm tổng 38,178+61,250+69,159 s vì ba root chạy song song.
-C không làm mất chi phí E gốc **23,235 s** scan + **8,030 s** write (M:8108,8214).
+Observed budget: the V root segment from **13:33:12 to 13:34:22 ≈ 70 s**
+(M:8400–8457,8997), plus the intermediate shuffle before the final stage at **13:34:27** (M:9094).
+C may reduce part of this segment, but it still has to read Iceberg E, parse the coverage fields,
+join and aggregate. No reduction of the total 38.178+61.250+69.159 s is promised, because the three roots run in parallel.
+C does not remove the original E cost of **23.235 s** scan + **8.030 s** write (M:8108,8214).
 
-Rủi ro: dependency thứ tự E/V và thay đổi nguồn schema/type do round-trip Iceberg.
-Đối chiếu schema, null, timestamp và mọi dòng kết quả V trước/sau; thử output SILVER
-đúng thứ tự, xác nhận không phát sinh phụ thuộc bảng từ run cũ (catalog mỗi run riêng).
+Risks: the E/V ordering dependency, and schema/type source changes caused by the Iceberg round-trip.
+Compare schema, nulls, timestamps and every result row of V before/after; test SILVER output
+in the correct order, and confirm no table dependency on an old run appears (each run has its own catalog).
 
-### B — Không đếm `ops` hai lần
+### B — Do not count `ops` twice
 
-Vị trí `spark_jobs/lib/order_lifecycle_lakehouse.py:436–439`:
+Location `spark_jobs/lib/order_lifecycle_lakehouse.py:436–439`:
 
 ```diff
 @@ def _dedup(ops: DataFrame) -> tuple[DataFrame, dict]:
@@ -265,47 +265,47 @@ Vị trí `spark_jobs/lib/order_lifecycle_lakehouse.py:436–439`:
 +        "duplicate_rows": input_rows - unique.count(),
 ```
 
-Bỏ stage 8, ngân sách **24,491 s** M:4752 (small **4,327 s**, S:3719),
-trừ thay đổi scheduling/cache giữa các run. Không thay cửa sổ dedup, conflict IDs
-hay định nghĩa duplicate. Rủi ro thấp trên snapshot Bronze cố định; kiểm stats
-retry/conflict/correction giữ nguyên. Các lần `unique.count()`/collect/materialize
-events vẫn chạy lại: không tuyên bố B đã giải quyết toàn bộ dedup.
+Removes stage 8, a budget of **24.491 s** M:4752 (small **4.327 s**, S:3719),
+minus scheduling/cache changes between runs. It does not change the dedup window, conflict IDs
+or the definition of a duplicate. Low risk on a fixed Bronze snapshot; check that the
+retry/conflict/correction stats are unchanged. The `unique.count()`/collect/materialize
+events calls still rerun: B is not claimed to solve dedup as a whole.
 
-Nếu muốn cache `known` hoặc `unique` để tối ưu thêm: cần API sở hữu cache và giải phóng
-trong `finally` cho mọi caller, đo memory/spill trước khi quyết. `known` chứa raw_json
-của mọi feed; cache này cộng với events/digest có thể làm xấu heap local. Chưa đề xuất
-thêm cache đại trà hoặc tăng driver RAM như bằng chứng giải quyết H1.
+If you want to cache `known` or `unique` for further optimization: an API is needed that owns the cache and releases it
+in `finally` for every caller, with memory/spill measured before deciding. `known` holds the raw_json
+of every feed; this cache plus events/digest could worsen the local heap. Blanket caching or a larger driver RAM
+is not yet proposed as evidence of solving H1.
 
-## Cách chứng minh giữ nguyên kết quả và đo hiệu quả
+## How to prove results are unchanged and measure the impact
 
-Phân tích này dùng log đã ghi, chưa tái hiện trực tiếp biểu thức chậm, chưa có profiler hoặc benchmark sau diff. Cần chạy protocol dưới đây để kiểm chứng thay đổi.
+This analysis uses recorded logs; the slow expression has not been reproduced directly, and there is no profiler or post-diff benchmark yet. The protocol below must be run to verify the changes.
 
-người vận hành áp từng diff độc lập và giữ evidence trước/sau; A trước, C rồi B, cùng nguồn,
-seed/cutoff, cấu hình local[*]/driver memory/shuffle và máy không chạy thêm workload.
-Ghi event log/physical plan khi tái chạy để gắn chính xác operator và shuffle metrics
-vào stage, đồng thời lấy heap/GC/task CPU nếu stage V vẫn chậm. So sánh nhiều lượt
-và báo từng lượt; số stage/job có thể đổi nên so theo vai trò, không ghim ID.
+The operator applies each diff independently and keeps before/after evidence; A first, then C, then B, with the same source,
+seed/cutoff, local[*]/driver memory/shuffle configuration, and a machine running no other workload.
+Record the event log/physical plan on rerun to attach operator and shuffle metrics precisely
+to stages, and capture heap/GC/task CPU if the V stage is still slow. Compare several runs
+and report each one; stage/job numbers may change, so compare by role rather than pinning IDs.
 
-Các ca cần thêm vào Spark regression trước khi áp A (chưa viết trong task tài liệu):
+Cases to add to the Spark regression suite before applying A (not written in this documentation task):
 
-- So old/new V đầy đủ bằng `exceptAll` hai chiều và schema; giữ reference hàm cũ
-  trong môi trường thử để chạy hai implementation trên cùng DataFrame.
-- Coverage rỗng; thiếu partition; sequence null; range chồng lấn/lặp; sequence trùng
-  nhưng record count/digest không đúng; missing/unexpected sequence; unavailable;
-  phạm vi epoch/dataset khác nhau; nhiều revision và cutoff bằng đúng observed_at.
-- Giữ nguyên canonical digest: raw_json có khoảng trắng, thứ tự sid, sự kiện trùng sid
-  khác nội dung, retry và correction. `observed_evidence` vẫn giữ mọi revision và
-  xung đột; không thay nó bằng `events` latest đã loại conflict.
-- Đối chiếu không chỉ count: multiset tất cả cột của bốn bảng Silver, dedup stats,
-  quarantine và receipts; test điểm trước/sau refund correction và as_of native.
-- Phép đo riêng A: materialize evidence dùng chung, group sequence tăng dần,
-  ghi V với receipt_status, ghi thời gian/CPU và equality old/new. Chưa có script
-  này trong repo; người vận hành cần bổ sung, pytest hiện có không đo hiệu năng Spark.
+- Compare old/new V fully with two-way `exceptAll` and schema; keep a reference of the old function
+  in the test environment to run both implementations on the same DataFrame.
+- Empty coverage; missing partition; null sequence; overlapping/repeated ranges; duplicate sequences
+  with wrong record count/digest; missing/unexpected sequence; unavailable;
+  different epoch/dataset scopes; multiple revisions and a cutoff exactly equal to observed_at.
+- Keep the canonical digest unchanged: raw_json with whitespace, sid order, duplicate-sid events
+  with different content, retry and correction. `observed_evidence` still keeps every revision and
+  conflict; do not replace it with the latest `events` that has conflicts removed.
+- Reconcile more than counts: the multiset of all columns of the four Silver tables, dedup stats,
+  quarantine and receipts; point tests before/after a refund correction and native as_of.
+- A separate measurement for A: materialize shared evidence, increasing sequence groups,
+  write V with receipt_status, record time/CPU and old/new equality. This script does not
+  exist in the repo yet; the operator needs to add it, and the existing pytest suite does not measure Spark performance.
 
-Lệnh người vận hành phải chạy sau khi có bản sửa (image/cache offline có sẵn):
+Commands the operator must run once a fix exists (with the image/cache available offline):
 
 ```bash
-# Regression Silver fixture và scale, không mạng, không catalog dự án.
+# Silver fixture and scale regression, no network, no project catalog.
 docker run --rm --pull never --network none --read-only --tmpfs /tmp:rw,size=1g \
   --mount type=bind,src="$PWD",dst=/workspace,readonly --entrypoint python \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_lifecycle_silver.py
@@ -314,33 +314,33 @@ docker run --rm --pull never --network none --read-only --tmpfs /tmp:rw,size=2g 
   --mount type=bind,src="$PWD",dst=/workspace,readonly --entrypoint python \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_lifecycle_silver_scale.py
 
-# E2E tạo PostgreSQL/catalog riêng, giữ log/receipt, không dùng DB dự án.
+# E2E creates its own PostgreSQL/catalog, keeps log/receipt, does not use the project DB.
 bash tests/harness/run_order_lifecycle_scale.sh --profile small --driver-memory 6g
 bash tests/harness/run_order_lifecycle_scale.sh --profile medium --driver-memory 6g
 ```
 
-Harness có lệnh kiểm cache/image và Docker network internal theo thiết kế sẵn;
-người vận hành chạy các lệnh này, Codex không chạy. So small/medium Silver seconds,
-stage cuối V, phân bố task, các bảng/kiểm nghiệp vụ; medium có lỗi Gold hiện tại
-thì báo riêng, không coi `status=running`/Silver passed là E2E passed.
-Để đo đối chứng công bằng, chạy lại bản cũ cùng `--driver-memory 6g` và nguồn với bản mới;
-không dùng small lịch sử như bằng chứng tài nguyên hoàn toàn giống medium.
+The harness has commands to check the cache/image and an internal Docker network by design;
+the operator runs these commands, they were not run as part of this analysis. Compare small/medium Silver seconds,
+the final V stage, task distribution, and the business tables/checks; if medium still has the current Gold error,
+report it separately, and do not treat `status=running`/Silver passed as E2E passed.
+For a fair control measurement, rerun the old version with the same `--driver-memory 6g` and source as the new one;
+do not use the historical small run as evidence of resources identical to medium.
 
-## Kiểm tra đã thực hiện trong task
+## Checks performed in this task
 
-- Trích stage/job/task từ cả hai spark.log, khoanh Silver bằng scan/write/count
-  trong runner; không chạy Spark, không sửa mã thực thi.
-- Đã đọc toàn bộ `build_silver`, các helper được gọi và runner, thuật ngữ và
-  `docs/shared/architecture_decisions.md` liên quan Bronze/Silver.
-- `.venv/bin/pytest -q`: **679 passed, 1 skipped in 44.95s** (exit 0). Đây là test Python; không xác nhận hiệu năng hoặc tương đương Spark của diff chưa áp dụng.
+- Extracted stage/job/task from both spark.log files, delimiting Silver by scan/write/count
+  in the runner; did not run Spark and did not modify executable code.
+- Read all of `build_silver`, the helpers it calls and the runner, the terminology and
+  `docs/shared/architecture_decisions.md` relating to Bronze/Silver.
+- `.venv/bin/pytest -q`: **679 passed, 1 skipped in 44.95s** (exit 0). These are Python tests; they do not confirm the performance or Spark equivalence of the unapplied diffs.
 
-Không có khác biệt phạm vi so với brief/ANSWER: tài liệu ở đúng đường dẫn;
-chưa áp các diff đề xuất; chưa có bằng chứng thời gian tiết kiệm sau sửa.
+No scope deviations from the task: the document is at the intended path;
+the proposed diffs have not been applied; there is no evidence yet of time saved after a fix.
 
-## Tái tạo bảng xếp hạng từ log, không cần Spark
+## Reproducing the ranking from logs, without Spark
 
-Chạy từ root repo; script chỉ đọc log. Dòng submit được trích cùng ID stage, tránh
-đếm số dòng `Finished task` và nhầm task retry thành số partition.
+Run from the repo root; the script only reads logs. Submit lines are extracted together with the stage ID, to avoid
+counting `Finished task` lines and mistaking task retries for partition counts.
 
 ```bash
 python - <<'PY'

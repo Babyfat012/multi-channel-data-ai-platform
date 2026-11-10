@@ -1,153 +1,153 @@
-# Data contracts — Data contract, schema registry và cổng cách ly Silver v2
+# Data contracts — data contracts, schema registry and the Silver v2 quarantine gate
 
-Gói G đưa hợp đồng nguồn v2 vào `contracts/`, tự so tiến hóa schema và cách ly dữ
-liệu chưa hỗ trợ trước khi parse. Màn trình diễn dùng fixture nhỏ của
-[gói B](source_order_lifecycle_fixtures.md), không phải bằng chứng quy mô 100 GB.
+Package G puts the v2 source contracts into `contracts/`, automatically compares schema evolution and quarantines
+unsupported data before parsing. The demo uses the small fixture from
+[package B](source_order_lifecycle_fixtures.md); it is not evidence at 100 GB scale.
 
-## Vấn đề nguồn và mục tiêu
+## Source problems and goals
 
-Ba lỗ hổng được ghi trong lượt rà soát:
+Three gaps were recorded during the review:
 
-1. Payload đơn native không mang `schema_id`; nhãn nằm trong
-   `manifest.native_sources[channel]`. Nếu chỉ đọc envelope thì mất nhãn nguồn.
-   Nơi producer tạo nhãn hiện tại: `generator/generate_order_lifecycle_fixture.py:625`; nơi Bronze lấy
-   nhãn dự phòng sau sửa: `spark_jobs/lib/order_lifecycle_lakehouse.py:71`.
-2. Silver trước gói G đoán schema Amazon bằng hình dạng payload và luôn parse
-   Shopee theo v1; đổi tên field có thể ra null im lặng. Sau sửa, điểm chọn parser
-   ở `spark_jobs/lib/order_lifecycle_lakehouse.py:132` dùng `contract_parser`, được cổng
-   `spark_jobs/lib/order_lifecycle_lakehouse.py:341` lấy từ registry.
-3. Schema chỉ tồn tại trong code Spark, chưa có dữ liệu độc lập để máy so hai
-   phiên bản. Registry mới ở `contracts/registry.json`, thuật toán so ở
-   `spark_jobs/lib/data_contracts/compat.py:1`. Rủi ro này từng hiện hữu ở dữ liệu v1:
-   mô tả đợt thay dạng Amazon kéo dài 81 ngày nằm ở `docs/data-platform/reference/silver.md:463`.
+1. Native order payloads do not carry a `schema_id`; the label lives in
+   `manifest.native_sources[channel]`. Reading only the envelope loses the source label.
+   Where the producer currently creates the label: `generator/generate_order_lifecycle_fixture.py:625`; where Bronze takes the
+   fallback label after the fix: `spark_jobs/lib/order_lifecycle_lakehouse.py:71`.
+2. Silver before package G guessed the Amazon schema from the payload shape and always parsed
+   Shopee as v1; a field rename could silently produce nulls. After the fix, the parser selection point
+   at `spark_jobs/lib/order_lifecycle_lakehouse.py:132` uses `contract_parser`, which the gate at
+   `spark_jobs/lib/order_lifecycle_lakehouse.py:341` takes from the registry.
+3. Schemas existed only in Spark code, with no independent data for a machine to compare two
+   versions. The new registry is at `contracts/registry.json`, the comparison algorithm at
+   `spark_jobs/lib/data_contracts/compat.py:1`. This risk already materialized in the v1 data:
+   the description of the 81-day Amazon format change is at `docs/data-platform/reference/silver.md:463`.
 
-Các dẫn chiếu code trên mô tả vị trí hiện tại sau sửa; ba lỗ hổng là trạng thái
-trước gói G. Mục tiêu là giữ nguyên mọi dòng nguồn ở Bronze, đưa dòng không đạt
-hợp đồng sang bảng cách ly và tiếp tục xử lý các Channel còn đủ điều kiện.
+The code references above describe the current locations after the fix; the three gaps are the state
+before package G. The goal is to keep every source row in Bronze, move rows that fail the
+contract to a quarantine table, and keep processing the Channels that still qualify.
 
-## Thiết kế
+## Design
 
-| Thành phần | Trách nhiệm |
+| Component | Responsibility |
 |---|---|
-| `contracts/registry.json` | Subject, compatibility, version, schema, parser, status, đường dẫn định danh native |
-| `contracts/schemas/` | Tập con JSON Schema: type, properties, required, items; required là giao các trường quan sát |
-| `spark_jobs/lib/data_contracts/schema.py` | Infer, validate toàn bộ bản ghi trong Python, dựng required JSON paths cho Spark |
-| `spark_jobs/lib/data_contracts/compat.py` | Diff và phán quyết theo hướng đọc cũ/mới |
-| `spark_jobs/lib/data_contracts/registry.py` | Tra schema, tìm thư mục contracts, kiểm metadata và luật dùng lại parser |
-| `spark_jobs/lib/data_contracts/gate.py`, `spark_jobs/lib/data_contracts/__main__.py` | Cổng Python và CLI infer/diff/check-registry/gate, không cần Docker |
-| `spark_jobs/lib/order_lifecycle_lakehouse.py` | Bronze gắn nhãn, cổng đầu Silver bằng biểu thức Spark, parse theo registry, đối soát |
-| Job `spark_jobs/silver/build_order_lifecycle.py` | Ghi `silver.lifecycle_quarantine_records`, đối soát bảng đọc lại từ catalog và xuất receipt |
+| `contracts/registry.json` | Subject, compatibility, version, schema, parser, status, native identity path |
+| `contracts/schemas/` | A JSON Schema subset: type, properties, required, items; required is the intersection of the observed fields |
+| `spark_jobs/lib/data_contracts/schema.py` | Infer, validate whole records in Python, build required JSON paths for Spark |
+| `spark_jobs/lib/data_contracts/compat.py` | Diff and verdict by old/new reader direction |
+| `spark_jobs/lib/data_contracts/registry.py` | Schema lookup, locating the contracts directory, metadata checks and parser-reuse rules |
+| `spark_jobs/lib/data_contracts/gate.py`, `spark_jobs/lib/data_contracts/__main__.py` | Python gate and the infer/diff/check-registry/gate CLI, no Docker needed |
+| `spark_jobs/lib/order_lifecycle_lakehouse.py` | Bronze labeling, the gate at the start of Silver using Spark expressions, parsing per the registry, reconciliation |
+| Job `spark_jobs/silver/build_order_lifecycle.py` | Writes `silver.lifecycle_quarantine_records`, reconciles the tables read back from the catalog and emits a receipt |
 
-Package nằm trong `spark_jobs/` để dùng được cả `import data_contracts` trong
-container và `import spark_jobs.lib.data_contracts` từ repo. Nội bộ package dùng
-import tương đối và chỉ thư viện chuẩn, không có service hoặc dependency mới.
+The package lives in `spark_jobs/` so that both `import data_contracts` in the
+container and `import spark_jobs.lib.data_contracts` from the repo work. Inside the package it uses
+relative imports and only the standard library; there is no new service or dependency.
 
-Bronze thêm `contract_schema_id`: ưu tiên nhãn trong dòng, rồi nhãn feed native
-trong manifest, kể cả Walmart JDBC. Bronze không lọc vì vi phạm hợp đồng.
-Silver tra schema rồi chia accepted/quarantined **trước** khi parse; không dùng
-Python UDF. Amazon có hai parser riêng. TikTok v2 thêm `buyer_message` tùy chọn,
-được đăng ký với parser `tiktok_shop/1`, nên không cần nhánh code cho phiên bản mới.
-Shopee v2 đổi `order_sn` và `model_sku` thành `order_number` và `sku`; phiên bản
-này được sinh để demo và **không có** trong registry chính thức.
+Bronze adds `contract_schema_id`: the label in the row takes priority, then the native feed label
+in the manifest, including Walmart JDBC. Bronze does not filter on contract violations.
+Silver looks up the schema, then splits accepted/quarantined **before** parsing; no
+Python UDF is used. Amazon has two separate parsers. TikTok v2 adds an optional `buyer_message`,
+registered with parser `tiktok_shop/1`, so the new version needs no code branch.
+Shopee v2 renames `order_sn` and `model_sku` to `order_number` and `sku`; this version
+is generated for the demo and is **not** in the official registry.
 
-Registry gồm sáu schema native ban đầu, TikTok v2, chín feed vận hành và hai feed
-phụ coverage/uncertainties để cổng không cách ly nhầm chúng. Amazon dùng mode
-`NONE` vì hai export đã có parser riêng từ trước; các subject khác `BACKWARD`.
+The registry contains the six initial native schemas, TikTok v2, nine operational feeds and two auxiliary
+coverage/uncertainties feeds so the gate does not quarantine them by mistake. Amazon uses mode
+`NONE` because its two exports already had separate parsers; the other subjects use `BACKWARD`.
 
-Thứ tự tìm contracts dùng chung cho `Registry()` và CLI cần registry:
-`--contracts-dir` → `PLATFORM_CONTRACTS_DIR` → `/opt/contracts` nếu thư mục tồn tại →
-`contracts/` cạnh gốc repo tính từ vị trí package, không phụ thuộc thư mục chạy.
-Job `spark_jobs/silver/build_order_lifecycle.py` truyền mặc định `None` để sử dụng cùng quy tắc.
+The contracts lookup order shared by `Registry()` and the CLI commands that need the registry:
+`--contracts-dir` → `PLATFORM_CONTRACTS_DIR` → `/opt/contracts` if the directory exists →
+`contracts/` next to the repo root computed from the package location, independent of the working directory.
+The job `spark_jobs/silver/build_order_lifecycle.py` passes the default `None` to use the same rule.
 
-### Luật tiến hóa schema
+### Schema evolution rules
 
-| Mode | Ý nghĩa | Thay đổi phá vỡ |
+| Mode | Meaning | Breaking changes |
 |---|---|---|
-| `BACKWARD` | Reader mới đọc được dữ liệu cũ | Thêm field required, đổi kiểu, optional thành required |
-| `FORWARD` | Reader cũ đọc được dữ liệu mới | Xóa/đổi tên field required cũ, đổi kiểu, required cũ thành optional |
-| `FULL` | Đạt cả hai hướng | Hợp các thay đổi phá vỡ của hai hướng |
-| `NONE` | Không kiểm tương thích | Không chặn theo compatibility |
+| `BACKWARD` | A new reader can read old data | Adding a required field, changing a type, optional to required |
+| `FORWARD` | An old reader can read new data | Removing/renaming an old required field, changing a type, old required to optional |
+| `FULL` | Both directions hold | The union of both directions' breaking changes |
+| `NONE` | No compatibility check | Nothing is blocked on compatibility |
 
-`migrations` chỉ giải thích đường dẫn đổi tên để diff hiện `field_renamed`,
-không biến đổi tên thành tương thích. Version compatible được dùng lại parser;
-version breaking phải có parser khác hoặc `null` (chưa hỗ trợ). `check-registry`
-trả mã khác 0 nếu version breaking dùng lại parser trước.
+`migrations` only explains rename paths so the diff shows `field_renamed`;
+it does not make a rename compatible. A compatible version may reuse a parser;
+a breaking version must have a different parser or `null` (not yet supported). `check-registry`
+returns a non-zero code if a breaking version reuses an earlier parser.
 
-### Ba lý do cách ly, theo đúng thứ tự
+### Three quarantine reasons, in exactly this order
 
-| Reason | Điều kiện |
+| Reason | Condition |
 |---|---|
-| `unregistered_schema` | Thiếu nhãn hoặc nhãn không có trong registry |
-| `no_parser` | Có schema nhưng parser null hoặc Silver chưa có nhánh parser đó |
-| `contract_violation` | Có parser nhưng thiếu đường dẫn required; `detail` ghi đường dẫn |
+| `unregistered_schema` | Missing label or label not in the registry |
+| `no_parser` | Schema exists but the parser is null or Silver has no branch for that parser yet |
+| `contract_violation` | Parser exists but a required path is missing; `detail` records the path |
 
-Python gate còn kiểm cả kiểu JSON và mọi phần tử mảng. Spark gate kiểm các
-required path bằng `get_json_object(...).isNull()`, không kiểm đầy đủ kiểu.
-Bảng cách ly giữ `dataset_version, feed, producer, contract_schema_id, reason,
-detail, source_file, record_sha256, raw_json`. Receipt có `quarantine.total`,
-`by_reason`, `by_schema_id`; **số cách ly không làm fail job**. Bất biến đối soát
-khác 0 vẫn làm job lỗi.
+The Python gate also checks JSON types and every array element. The Spark gate checks the
+required paths with `get_json_object(...).isNull()` and does not fully check types.
+The quarantine table keeps `dataset_version, feed, producer, contract_schema_id, reason,
+detail, source_file, record_sha256, raw_json`. The receipt has `quarantine.total`,
+`by_reason`, `by_schema_id`; **quarantine counts do not fail the job**. A non-zero reconciliation invariant
+still fails the job.
 
-### Đối soát và định danh bản ghi cách ly
+### Reconciliation and identifying quarantined records
 
 `native_record_balance = native_records_total - parsed_native_records -
-quarantined_native_records` phải bằng 0 để không mất dòng im lặng.
-`identity_path` là metadata tùy chọn của version, nếu có phải là chuỗi bắt đầu
-bằng `$.`. Các schema native đã đăng ký đều có đường dẫn của chính chúng.
-`_native_order_identity(frame, registry)` chỉ dùng đường dẫn theo đúng
-`contract_schema_id`, không đoán payload của schema lạ.
+quarantined_native_records` must be 0 so that no row is silently lost.
+`identity_path` is optional version metadata; if present it must be a string starting
+with `$.`. Every registered native schema has its own path.
+`_native_order_identity(frame, registry)` uses only the path for exactly that
+`contract_schema_id` and does not guess the payload of an unknown schema.
 
-Nếu đọc được mã đơn, `quarantined_orders` đếm **mã đơn phân biệt** theo Channel
-và tách chúng khỏi tập OMS kỳ vọng. Nếu mã đơn null, toàn scope
-`(dataset_version, channel)` được loại khỏi đối soát native↔OMS; số dòng được
-báo ở `info.quarantined_native_records_without_order_identity`. Không gọi số
-này là số đơn. Cả hai DataFrame và registry snapshot đi qua dict `silver`; job
-21 giữ snapshot khi tạo dict đọc lại bảng nên không cần đổi chữ ký `reconcile`.
+If the order ID can be read, `quarantined_orders` counts **distinct order IDs** per Channel
+and removes them from the expected OMS set. If the order ID is null, the whole scope
+`(dataset_version, channel)` is excluded from native↔OMS reconciliation; the number of rows is
+reported in `info.quarantined_native_records_without_order_identity`. This number is not
+called a number of orders. Both DataFrames and the registry snapshot pass through the `silver` dict; job
+21 keeps the snapshot when building the dict that rereads the tables, so the `reconcile` signature does not need to change.
 
-Ca Shopee v2 phải báo **3 bản ghi cách ly không rõ mã đơn**, không phải ba đơn.
-Ca producer giữ nhãn Shopee v1 nhưng đổi tên `order_sn` cũng không đọc được mã
-đơn; kỳ vọng là một bản ghi không rõ mã đơn, scope Shopee được loại khỏi đối
-soát native↔OMS. Các Channel khác vẫn phải đối soát sạch. Đây là **kỳ vọng test
-Spark sau sửa**, chưa phải số đo chạy mới.
+The Shopee v2 case must report **3 quarantined records with unknown order ID**, not three orders.
+The case where the producer keeps the Shopee v1 label but renames `order_sn` also cannot read the
+order ID; the expectation is one record with unknown order ID, and the Shopee scope is excluded from
+native↔OMS reconciliation. The other Channels must still reconcile cleanly. This is the **Spark test
+expectation after the fix**, not a new run measurement.
 
-## Kết quả Python đo lại
+## Remeasured Python results
 
-Chạy `scripts/run/run_data_contracts_demo.sh`, không Docker:
+Running `scripts/run/run_data_contracts_demo.sh`, without Docker:
 
 | Fixture | Accepted | Quarantined | Reason |
 |---|---:|---:|---|
-| default | 550 | 0 | Không có |
+| default | 550 | 0 | None |
 | shopee=2 | 547 | 3 | `unregistered_schema` |
-| tiktok_shop=2 | 550 | 0 | Không có |
+| tiktok_shop=2 | 550 | 0 | None |
 
-`check-registry`: exit 0, không lỗi. Diff Shopee v1 → v2 theo `BACKWARD`: exit 1,
-liệt kê hai field removed (`order_sn`, `model_sku`) và hai field added required
-(`order_number`, `sku`) tại các đường dẫn order/item tương ứng.
+`check-registry`: exit 0, no errors. Diff Shopee v1 → v2 under `BACKWARD`: exit 1,
+listing two removed fields (`order_sn`, `model_sku`) and two added required fields
+(`order_number`, `sku`) at the corresponding order/item paths.
 
-Lệnh, stdout/stderr nguyên văn, mã exit, git HEAD và SHA-256 của code/registry
-nằm trong [evidence Data contracts](../../evidence/contracts-validation-20261018.json). Script hiện hành tạo receipt có timestamp tại `out/data-contracts-evidence/`; giữ nguyên file evidence lịch sử khi chạy lại.
+The commands, verbatim stdout/stderr, exit codes, git HEAD and SHA-256 of the code/registry
+are in the [Data contracts evidence](../../evidence/contracts-validation-20261018.json). The current script creates a timestamped receipt in `out/data-contracts-evidence/`; the historical evidence file is kept unchanged on reruns.
 
-Pytest riêng `tests/unit/spark_jobs/lib/test_data_contracts.py tests/unit/generator/test_generate_order_lifecycle_fixture.py`: **23 passed**.
-Toàn repo tại lúc chạy: **214 passed, 2 failed**; cả hai lỗi thuộc
-`tests/unit/spark_jobs/lib/test_maintenance_policy.py` của gói làm song song (thiếu config và hàm
-chưa có tại thời điểm kiểm). Không sửa file gói đó. Output đầy đủ nằm trong
-báo cáo (ghi chú nội bộ, không nằm trong repo).
+Targeted pytest `tests/unit/spark_jobs/lib/test_data_contracts.py tests/unit/generator/test_generate_order_lifecycle_fixture.py`: **23 passed**.
+Whole repo at the time of the run: **214 passed, 2 failed**; both failures belong to
+`tests/unit/spark_jobs/lib/test_maintenance_policy.py` from a package developed in parallel (missing config and a function
+that did not exist yet at the time of the check). That package's files were not modified. The full output is in the
+report (internal note, not in the repo).
 
-## Spark — người vận hành xác nhận riêng
+## Spark — confirmed separately by the operator
 
-Lượt chạy trước sửa `identity_path` bị người vận hành dừng vì đã lỗi thời (không dùng làm bằng chứng).
+The run before the `identity_path` fix was stopped by the operator because it was outdated (not used as evidence).
 
-**Sau sửa (người vận hành): `Ran 32 tests in 2749.990s — OK`** — 27 ca Silver v2 cũ + 5 ca hợp đồng, chạy
-`tests/spark/check_order_lifecycle_silver.py` trong `platform-airflow:2.10.5-spark3.5.3`, `--network none --read-only`,
-`PYSPARK_SUBMIT_ARGS='--driver-memory 3g pyspark-shell'`. Thời gian dài vì máy chạy song song nhiều job (bản cũ 27 ca
-chạy riêng mất 258 s); 1 GB driver từng gây `UNABLE_TO_ACQUIRE_MEMORY` khi chạy chồng nên đã nâng 3 GB.
+**After the fix (operator): `Ran 32 tests in 2749.990s — OK`** — the 27 existing Silver v2 cases + 5 contract cases, running
+`tests/spark/check_order_lifecycle_silver.py` in `platform-airflow:2.10.5-spark3.5.3`, `--network none --read-only`,
+`PYSPARK_SUBMIT_ARGS='--driver-memory 3g pyspark-shell'`. The long duration is because the machine was running many jobs in parallel (the old 27 cases
+run alone took 258 s); a 1 GB driver once caused `UNABLE_TO_ACQUIRE_MEMORY` under the overlapping load, so it was raised to 3 GB.
 
-Các test đã sửa để người vận hành chạy lại là
+The tests fixed for the operator to rerun are
 `test_contract_unknown_shopee_keeps_other_channels`,
 `test_contract_producer_lies_about_schema`,
-`test_contract_registered_but_missing_parser`. Các test default và TikTok
-compatible cùng 27 ca cũ vẫn nằm trong harness; không khẳng định chúng đã pass
-với bản sửa này. Lệnh cho người vận hành:
+`test_contract_registered_but_missing_parser`. The default and TikTok-compatible
+tests and the 27 old cases are still in the harness; it is not claimed that they have passed
+with this fix. Command for the operator:
 
 ```bash
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
@@ -155,17 +155,17 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_lifecycle_silver.py
 ```
 
-## Giới hạn và phần để gói I
+## Limitations and work left for package I
 
-- Spark chỉ kiểm phần tử mảng đầu `[0]`; không suy từ cổng này rằng mọi item đều
-  hợp lệ. Python validator kiểm toàn bộ phần tử; mảng rỗng và field nullable
-  không bị coi là thiếu required chỉ vì không có item/null.
-- Registry là file quản lý trong Git, chưa có service registry, discovery hoặc
-  tự đăng ký schema mới. Infer từ fixture phản ánh mẫu đã quan sát, cần rà tay.
-- Chưa có DAG/DataHub riêng cho contracts/quarantine; để gói I. Không thay DAG
-  hiện có trong gói này.
-- Khi bản ghi không rõ mã đơn, loại cả scope Channel khỏi đối soát native↔OMS
-  làm giảm phạm vi kiểm tra; receipt nêu rõ số bản ghi để không hiểu nhầm là
-  Channel đã đối soát đầy đủ.
-- Chưa đo hiệu năng/quy mô lớn, chưa chạy Spark sau sửa, chưa ghi bảng Iceberg
-  thật cho bản sửa identity_path. Demo Python không thay thế các bằng chứng đó.
+- Spark checks only the first array element `[0]`; do not infer from this gate that every item is
+  valid. The Python validator checks every element; empty arrays and nullable fields
+  are not treated as missing required fields just because there is no item/null.
+- The registry is a file managed in Git; there is no registry service, discovery or
+  automatic registration of new schemas yet. Inferring from a fixture reflects the observed sample and needs manual review.
+- There is no dedicated DAG/DataHub for contracts/quarantine yet; left for package I. Existing DAGs
+  are not changed in this package.
+- When a record has an unknown order ID, excluding the whole Channel scope from native↔OMS reconciliation
+  reduces the check's coverage; the receipt states the number of records so it is not misread as the
+  Channel having been fully reconciled.
+- Performance/large scale has not been measured, Spark has not been run after the fix, and no real Iceberg table
+  has been written for the identity_path fix. The Python demo does not replace that evidence.

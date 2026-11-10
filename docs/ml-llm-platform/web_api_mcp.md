@@ -1,180 +1,180 @@
-# Web API và MCP trên EKS
+# Web API and MCP on EKS
 
-EDAI-2, dòng 16–18: FastAPI/Pydantic, healthcheck, async, MCP và Helm rolling/fallback.
+This page covers FastAPI/Pydantic, health checks, async, MCP and Helm rolling update/fallback.
 
-Code / cấu hình: [API](../../serving/app.py), [Helm values](../../infra/helm/feature-api/values.yaml). [Kiểm thử API và tải EKS](validation_verification.md).
+Code / configuration: [API](../../serving/app.py), [Helm values](../../infra/helm/feature-api/values.yaml). [API tests and EKS load](validation_verification.md).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+The results below come from AWS runs; they do not confirm that the service is currently running.
 
-### Trên EKS
+### On EKS
 
-Feature API được cài bằng Helm, KEDA giữ tối thiểu 2 pod. API nằm sau ingress HTTPS `https://api.<ip>.sslip.io`
-(chứng chỉ Let's Encrypt). Lần `helm upgrade` lên image `813627b-pii1` (bản làm tròn số, xem
-[LLM và agent](reference/llm_platform_agents.md#trên-eks)) tạo revision 2, cập nhật cuốn chiếu (rolling) không gián đoạn.
+The Feature API is installed with Helm; KEDA keeps at least 2 pods. The API sits behind the HTTPS ingress `https://api.<ip>.sslip.io`
+(Let's Encrypt certificate). The `helm upgrade` to image `813627b-pii1` (the number-rounding build, see
+[LLM and agents](reference/llm_platform_agents.md#on-eks)) created revision 2, a rolling update with no downtime.
 
-![Swagger /features APP-00042: 15306 dòng có nhãn, 2599 Return, tỉ lệ 0.1698](../evidence/aws/feature-api-swagger-features-20261030.png)
+![Swagger /features APP-00042: 15306 labeled rows, 2599 Returns, rate 0.1698](../evidence/aws/feature-api-swagger-features-20261030.png)
 
-![Swagger /predict APP-00042 amazon US 1 cái 25 USD: score 0.1661, abstain false, model_version 1](../evidence/aws/feature-api-swagger-predict-20261030.png)
+![Swagger /predict APP-00042 amazon US qty 1 at 25 USD: score 0.1661, abstain false, model_version 1](../evidence/aws/feature-api-swagger-predict-20261030.png)
 
-Ảnh Swagger ở trên chỉ thấy `/features` và `/predict`; probe và health có bằng chứng riêng (cluster `platform-apps`).
+The Swagger screenshots above only show `/features` and `/predict`; probes and health have their own evidence (cluster `platform-apps`).
 
-**Probe cấu hình trong Deployment** (output [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh), file [eks-runtime-proof.txt](../evidence/aws/eks-runtime-proof.txt)):
-- Deployment `feature-api` có 2/2 pod, chạy trên hai node khác nhau.
-- Chiến lược `RollingUpdate` với `0 max unavailable, 1 max surge`: luôn giữ đủ pod cũ, chỉ thêm tối đa 1 pod mới mỗi lần.
-- Ba probe Kubernetes:
-  - `Liveness` (pod còn sống không) gọi `/healthz`, chu kỳ 10 s, lỗi 3 lần liên tiếp thì restart.
-  - `Readiness` (pod sẵn sàng nhận request chưa) gọi `/readyz`, chu kỳ 5 s, ngưỡng lỗi 3.
-  - `Startup` (pod đã khởi động xong chưa) gọi `/healthz`, chu kỳ 2 s, tối đa 30 lần.
-- Gọi `/healthz` và `/readyz` **bên trong từng pod** đều trả `200`.
+**Probes configured in the Deployment** (output of [`eks_runtime_proof.sh`](../../scripts/evidence/eks_runtime_proof.sh), file [eks-runtime-proof.txt](../evidence/aws/eks-runtime-proof.txt)):
+- Deployment `feature-api` has 2/2 pods, running on two different nodes.
+- `RollingUpdate` strategy with `0 max unavailable, 1 max surge`: always keeps the full set of old pods and adds at most 1 new pod at a time.
+- Three Kubernetes probes:
+  - `Liveness` (is the pod still alive) calls `/healthz`, period 10 s, restart after 3 consecutive failures.
+  - `Readiness` (is the pod ready to receive requests) calls `/readyz`, period 5 s, failure threshold 3.
+  - `Startup` (has the pod finished starting) calls `/healthz`, period 2 s, at most 30 attempts.
+- Calling `/healthz` and `/readyz` **inside each pod** returns `200`.
 
-![Output eks_runtime_proof.sh phần 1: Deployment feature-api, probe Liveness/Readiness/Startup, /healthz và /readyz 200 trong từng pod, KEDA/HPA](../evidence/aws/eks-runtime-proof-part1.png)
+![eks_runtime_proof.sh output part 1: Deployment feature-api, Liveness/Readiness/Startup probes, /healthz and /readyz 200 in each pod, KEDA/HPA](../evidence/aws/eks-runtime-proof-part1.png)
 
-**Gọi qua Swagger** (port-forward `svc/feature-api`, `http://127.0.0.1:8000/docs`): `GET /healthz` trả `200 {"status": "ok"}` và `GET /readyz` trả `200 {"status": "ready"}`.
+**Called through Swagger** (port-forward `svc/feature-api`, `http://127.0.0.1:8000/docs`): `GET /healthz` returns `200 {"status": "ok"}` and `GET /readyz` returns `200 {"status": "ready"}`.
 
 ![Swagger GET /healthz: 200, status ok](../evidence/aws/feature-api-healthz-swagger.png)
 
 ![Swagger GET /readyz: 200, status ready](../evidence/aws/feature-api-readyz-swagger.png)
 
-**Swagger (EKS, port-forward `svc/feature-api`):** ảnh tổng quan liệt kê sáu endpoint (`/healthz`, `/readyz`, `/features`, `/chunks`, `/predict`, `/chunks/by-id`).
-Endpoint `/metrics` cố ý được ẩn khỏi schema (`include_in_schema=False`); Prometheus lấy số đo ở đó. Hai ảnh sau là lời gọi trực tiếp từ Swagger.
+**Swagger (EKS, port-forward `svc/feature-api`):** the overview screenshot lists six endpoints (`/healthz`, `/readyz`, `/features`, `/chunks`, `/predict`, `/chunks/by-id`).
+The `/metrics` endpoint is deliberately hidden from the schema (`include_in_schema=False`); Prometheus scrapes it. The next two screenshots are direct calls from Swagger.
 
-![Swagger Feature API: sáu endpoint gồm /healthz, /readyz, /features, /chunks, /predict, /chunks/by-id](../evidence/aws/feature-api-swagger-overview-20261106.png)
+![Swagger Feature API: six endpoints including /healthz, /readyz, /features, /chunks, /predict, /chunks/by-id](../evidence/aws/feature-api-swagger-overview-20261106.png)
 
 ![Swagger GET /healthz 200, status ok](../evidence/aws/feature-api-swagger-healthz-20261106.png)
 
 ![Swagger GET /readyz 200, status ready](../evidence/aws/feature-api-swagger-readyz-20261106.png)
 
-#### MCP server trên EKS
+#### MCP server on EKS
 
-MCP (Model Context Protocol) là giao thức để Agent gọi tool. MCP server dùng thư viện `mcp`, chế độ stateless + JSON
-(không giữ phiên giữa các request), đường dẫn `/mcp/`. Server này chạy ở **pod riêng**, tách khỏi pod REST:
+MCP (Model Context Protocol) is the protocol Agents use to call tools. The MCP server uses the `mcp` library in stateless + JSON mode
+(no session kept between requests), at path `/mcp/`. This server runs in a **separate pod**, split from the REST pod:
 
 ```text
 agentgateway /mcp ──► Service feature-mcp ──► pod feature-mcp-*  (API_SURFACE=mcp: /mcp/, /healthz, /readyz, /metrics)
 Ingress api.…     ──► Service feature-api ──► pod feature-api-*  (API_SURFACE=rest: /features, /predict, /chunks, …)
-                                  cả hai ──► Feast/Redis, KServe return-risk, pgvector
+                                  both    ──► Feast/Redis, KServe return-risk, pgvector
 ```
 
-Cách tách:
-- Hai release Helm (`feature-api`, `feature-mcp`) dùng chung chart [`infra/helm/feature-api`](../../infra/helm/feature-api/Chart.yaml), chung image và chung code
-  [`serving/app.py`](../../serving/app.py) (`create_app(surface=…)` chọn phần nào được bật).
-- [`values-mcp.yaml`](../../infra/helm/feature-api/values-mcp.yaml) đặt `surface: mcp` và Service kiểu ClusterIP (chỉ truy cập trong cụm).
-- Mỗi release có Deployment, probe, Helm `--atomic` và ScaledObject riêng, nên MCP scale và rollback độc lập với REST.
-- Test `test_surface_splits_rest_and_mcp_pods`: pod REST trả 404 ở `/mcp/`, pod MCP trả 404 ở `/features`.
+How the split works:
+- Two Helm releases (`feature-api`, `feature-mcp`) share the chart [`infra/helm/feature-api`](../../infra/helm/feature-api/Chart.yaml), the image and the code
+  [`serving/app.py`](../../serving/app.py) (`create_app(surface=…)` selects which part is enabled).
+- [`values-mcp.yaml`](../../infra/helm/feature-api/values-mcp.yaml) sets `surface: mcp` and a ClusterIP Service (reachable only inside the cluster).
+- Each release has its own Deployment, probes, Helm `--atomic` and ScaledObject, so MCP scales and rolls back independently of REST.
+- Test `test_surface_splits_rest_and_mcp_pods`: the REST pod returns 404 at `/mcp/`, the MCP pod returns 404 at `/features`.
 
-Chạy thật trên EKS sau khi tách:
-- `feature-api` trả 200 ở `/features` và 404 ở `/mcp/`; `feature-mcp` thì ngược lại.
-- `helm list` có hai release, cùng image `4cc4502`.
-- Gateway trỏ tới `feature-mcp`.
+Actual run on EKS after the split:
+- `feature-api` returns 200 at `/features` and 404 at `/mcp/`; `feature-mcp` does the opposite.
+- `helm list` shows two releases, both on image `4cc4502`.
+- The gateway points to `feature-mcp`.
 
-Ảnh Registry và Grafana bên dưới được chụp trước khi tách.
+The Registry and Grafana screenshots below were taken before the split.
 
-Bốn tool dùng chung code với REST:
+Four tools share code with REST:
 
-| Tool | Làm gì | REST tương ứng |
+| Tool | What it does | Matching REST endpoint |
 |---|---|---|
-| `get_sku_features(seller_skus)` | feature online từ Feast/Redis | `POST /features` |
-| `predict_return_risk(...)` | gọi KServe `return-risk` | `POST /predict` |
-| `search_policy_chunks(query, top_k)` | tìm chính sách trả hàng (RAG, pgvector) | `POST /chunks` |
-| `get_policy_chunks(chunk_ids)` | lấy chunk theo id | `POST /chunks/by-id` |
+| `get_sku_features(seller_skus)` | online features from Feast/Redis | `POST /features` |
+| `predict_return_risk(...)` | calls KServe `return-risk` | `POST /predict` |
+| `search_policy_chunks(query, top_k)` | searches return policies (RAG, pgvector) | `POST /chunks` |
+| `get_policy_chunks(chunk_ids)` | fetches chunks by id | `POST /chunks/by-id` |
 
-Agent không gọi thẳng pod mà đi qua route `/mcp` của [agentgateway](agent_gateways.md) (API key, chỉ cho phép bốn tool trên).
-Smoke test trên EKS sau khi tách đạt **24/24 PASS** ([gateway-smoke-20261109.json](../evidence/aws/gateway-smoke-20261109.json)). Một số kiểm tra trong đó:
-- Gọi MCP không có key bị từ chối với 401; `initialize` có key trả 200.
-- `tools/list` trả đủ bốn tool.
-- `get_sku_features` có giá trị; `predict_return_risk` có `score` và `model_version`; `search_policy_chunks` trả ít nhất 1 chunk.
-- Tool ngoài danh sách bị chặn.
+Agents do not call the pod directly; they go through the `/mcp` route of [agentgateway](agent_gateways.md) (API key, only the four tools above are allowed).
+The smoke test on EKS after the split passed **24/24 PASS** ([gateway-smoke-20261109.json](../evidence/aws/gateway-smoke-20261109.json)). Some of its checks:
+- An MCP call without a key is rejected with 401; `initialize` with a key returns 200.
+- `tools/list` returns all four tools.
+- `get_sku_features` has values; `predict_return_risk` has `score` and `model_version`; `search_policy_chunks` returns at least 1 chunk.
+- A tool outside the list is blocked.
 
-![Bảng policy trên EKS: MCP không key 401, tools/list đủ bốn tool, get_sku_features, predict_return_risk, search_policy_chunks, tool ngoài danh sách bị chặn, A2A, rate limit 429, đều PASS](../evidence/aws/gateway-smoke-policy-table-20261109.png)
+![Policy table on EKS: MCP without key 401, tools/list returns all four tools, get_sku_features, predict_return_risk, search_policy_chunks, tool outside the list blocked, A2A, rate limit 429, all PASS](../evidence/aws/gateway-smoke-policy-table-20261109.png)
 
-MCP server đã đăng ký trong Agent Registry, và Grafana đếm từng lượt gọi tool theo kết quả (`mcp_tool_calls_total{tool,outcome}` do Feature API xuất ra):
+The MCP server is registered in the Agent Registry, and Grafana counts each tool call by outcome (`mcp_tool_calls_total{tool,outcome}` exported by the Feature API):
 
-![agentregistry UI trên EKS: 1 MCP server và 3 agent đã publish](../evidence/aws/agent-registry-ui-20261030.png)
+![agentregistry UI on EKS: 1 MCP server and 3 published agents](../evidence/aws/agent-registry-ui-20261030.png)
 
-![Grafana: mcp_tool_calls_total theo tool và outcome cho get_sku_features, search_policy_chunks, predict_return_risk, get_policy_chunks](../evidence/aws/grafana-mcp-tool-outcome-20261031.png)
+![Grafana: mcp_tool_calls_total by tool and outcome for get_sku_features, search_policy_chunks, predict_return_risk, get_policy_chunks](../evidence/aws/grafana-mcp-tool-outcome-20261031.png)
 
-Agent dùng các tool này: [Data Agent / Model Agent](agents.md), cấu hình route và backend MCP: [Agent Gateways](agent_gateways.md).
+Agents that use these tools: [Data Agent / Model Agent](agents.md); route and MCP backend configuration: [Agent Gateways](agent_gateways.md).
 
-Tại ảnh API, `approved_returns_24h` còn `null`. Lần chạy stream AWS sau đó đã có dữ liệu: [Streaming Feature](stream_features.md).
+In the API screenshot, `approved_returns_24h` is still `null`. A later AWS stream run has data: [Streaming Feature](stream_features.md).
 
-#### Helm rolling update và tự rollback trên EKS
+#### Helm rolling update and automatic rollback on EKS
 
-Kết luận trước: cả hai lần upgrade, kể cả lần cố tình hỏng, đều không làm rớt request nào (763/763 trả 200).
+Bottom line first: neither upgrade, including the deliberately broken one, dropped a single request (763/763 returned 200).
 
-Cách thử: chạy [`helm_rollout_fallback_test.sh`](../../scripts/evidence/helm_rollout_fallback_test.sh) trên cluster `platform-apps` (release `feature-api`, namespace `feature-store`).
-Trong lúc chạy hai lần `helm upgrade --atomic`, một pod probe **trong cluster** gửi `POST /features` liên tục, mỗi 0,2 giây một lần.
-Với `--atomic`, nếu bản mới không lên được trong thời hạn thì Helm tự rollback về bản trước. Log đầy đủ: [feature-api-helm-rollout.txt](../evidence/aws/feature-api-helm-rollout.txt).
+How it was tested: run [`helm_rollout_fallback_test.sh`](../../scripts/evidence/helm_rollout_fallback_test.sh) on cluster `platform-apps` (release `feature-api`, namespace `feature-store`).
+During two `helm upgrade --atomic` runs, a probe pod **inside the cluster** sends `POST /features` continuously, once every 0.2 seconds.
+With `--atomic`, if the new release does not come up within the timeout, Helm rolls back to the previous one automatically. Full log: [feature-api-helm-rollout.txt](../evidence/aws/feature-api-helm-rollout.txt).
 
-| Bước | Kết quả |
+| Step | Result |
 |---|---|
-| 1. Rolling update tốt (đổi `envChecksum`, `--timeout 4m`) | revision **13** `deployed`; rolling update `maxUnavailable 0, maxSurge 1` |
-| 2. Bản hỏng (`envSecret=does-not-exist`, `--timeout 90s`) | pod mới `CreateContainerConfigError: secret "does-not-exist" not found`; revision **14** `failed` (`context deadline exceeded`) |
-| 3. Tự rollback (`--atomic`) | Helm tạo revision **15** `deployed`, mô tả `Rollback to 13`; hai pod cũ chạy suốt, không bị thay |
-| Tải liên tục trong cả hai lần upgrade | **763 request, 763 trả 200**, không có lỗi |
+| 1. Good rolling update (change `envChecksum`, `--timeout 4m`) | revision **13** `deployed`; rolling update `maxUnavailable 0, maxSurge 1` |
+| 2. Broken release (`envSecret=does-not-exist`, `--timeout 90s`) | new pod `CreateContainerConfigError: secret "does-not-exist" not found`; revision **14** `failed` (`context deadline exceeded`) |
+| 3. Automatic rollback (`--atomic`) | Helm creates revision **15** `deployed`, description `Rollback to 13`; the two old pods kept running and were never replaced |
+| Continuous load during both upgrades | **763 requests, 763 returned 200**, no errors |
 
-`helm history` sau cùng: 13 `superseded`, 14 `failed`, 15 `deployed` (`Rollback to 13`). Đây là bằng chứng cho cả hai yêu cầu: rolling update không gián đoạn và tự fallback khi bản mới không khởi động được.
-Ghi nhận cũ của lần chạy local (583/583 request, rollback revision 12 → 13) vẫn ở mục tham khảo bên dưới.
+Final `helm history`: 13 `superseded`, 14 `failed`, 15 `deployed` (`Rollback to 13`). This is evidence for both requirements: rolling update without downtime and automatic fallback when the new release fails to start.
+The older record of the local run (583/583 requests, rollback revision 12 → 13) remains in the reference section below.
 
-#### Autoscale Feature API và MCP server (KEDA)
+#### Feature API and MCP server autoscaling (KEDA)
 
-Mỗi release Helm có [ScaledObject](../../infra/helm/feature-api/templates/scaledobject.yaml) (cấu hình scale của KEDA)
-riêng, bật trong [`values-aws.yaml`](../../infra/helm/feature-api/values-aws.yaml):
-- Tối thiểu 2 pod, tối đa 3 pod.
-- Scale theo số request/giây trong 1 phút gần nhất:
-  `sum(rate(http_requests_total{pod=~"<release>-.*", handler!~"/healthz|/readyz|/metrics"}[1m]))`, ngưỡng 10 request/giây mỗi pod.
-- Công thức bỏ qua request của probe và `/metrics` (giống cách làm với Agent), nên khi không có tải thật thì số pod về 2.
-- Release `feature-api` (REST) và `feature-mcp` (MCP) scale độc lập với nhau.
+Each Helm release has its own [ScaledObject](../../infra/helm/feature-api/templates/scaledobject.yaml) (KEDA scaling configuration),
+enabled in [`values-aws.yaml`](../../infra/helm/feature-api/values-aws.yaml):
+- Minimum 2 pods, maximum 3 pods.
+- Scales on requests/second over the last 1 minute:
+  `sum(rate(http_requests_total{pod=~"<release>-.*", handler!~"/healthz|/readyz|/metrics"}[1m]))`, threshold 10 requests/second per pod.
+- The formula ignores probe requests and `/metrics` (same approach as for Agents), so with no real load the pod count returns to 2.
+- Releases `feature-api` (REST) and `feature-mcp` (MCP) scale independently of each other.
 
-Cách đo: [`feature_api_scale_test.sh`](../../scripts/evidence/feature_api_scale_test.sh) tạo tải `POST /features` từ một
-pod trong cluster, rồi ghi lại giá trị target và số pod theo thời gian, tới khi số pod về lại 2.
+How it was measured: [`feature_api_scale_test.sh`](../../scripts/evidence/feature_api_scale_test.sh) generates `POST /features` load from a
+pod in the cluster, then records the target value and pod count over time until the pod count returns to 2.
 
-**Trên EKS** (4 luồng `curl` trong cluster, 150 giây, chạy song song hai release):
+**On EKS** (4 `curl` threads in the cluster, 150 seconds, both releases in parallel):
 
-| Release | Tải vào | Lên 3 pod | Về 2 pod | Log |
+| Release | Load | Up to 3 pods | Back to 2 pods | Log |
 |---|---|---:|---:|---|
 | `feature-api` | `POST /features` | ~47 s, `60538m/10` | ~489 s | [feature-api-autoscale.txt](../evidence/aws/feature-api-autoscale.txt) |
 | `feature-mcp` | `POST /mcp/` `tools/list` | ~46 s, `59296m/10` | ~490 s | [feature-mcp-autoscale.txt](../evidence/aws/feature-mcp-autoscale.txt) |
 
-Cột "Lên 3 pod" ghi thời điểm và giá trị target lúc đó: `m` là đơn vị phần nghìn của Kubernetes, nên `60538m/10` là trung bình khoảng 60,5 request/giây mỗi pod so với ngưỡng 10 (HPA ghi `(avg)`, file evidence ghi "ngưỡng 10/giây mỗi pod").
-Mốc thời gian chỉ chính xác theo chu kỳ lấy mẫu 15–25 giây của script. Events của HPA ghi `New size: 3` và `New size: 2`.
-Việc về 2 pod mất lâu là do HPA chờ ổn định 5 phút trước khi giảm. Tải ở đây là các request ngắn trong cluster, không phải tải production.
+The "Up to 3 pods" column records the time and the target value at that moment: `m` is the Kubernetes milli-unit, so `60538m/10` means an average of about 60.5 requests/second per pod against a threshold of 10 (HPA shows `(avg)`, the evidence file says "threshold 10/second per pod").
+Timestamps are only as precise as the script's 15–25 second sampling interval. HPA events record `New size: 3` and `New size: 2`.
+Returning to 2 pods takes a long time because HPA waits for a 5-minute stabilization window before scaling down. The load here is short in-cluster requests, not production traffic.
 
-![Lúc tải: HPA feature-api và feature-mcp đều REPLICAS 3, thêm pod wf27d và kq5wg](../evidence/aws/feature-api-mcp-scale-up-20261109.png)
+![Under load: HPA feature-api and feature-mcp both at REPLICAS 3, new pods wf27d and kq5wg](../evidence/aws/feature-api-mcp-scale-up-20261109.png)
 
-![Sau tải: cả hai về REPLICAS 2](../evidence/aws/feature-api-mcp-scale-down-20261109.png)
+![After load: both back to REPLICAS 2](../evidence/aws/feature-api-mcp-scale-down-20261109.png)
 
-#### Load test trên EKS
+#### Load test on EKS
 
-Locust (công cụ bắn tải) chạy trên laptop ở Việt Nam, đi qua `kubectl port-forward svc/feature-api` tới cụm ở Sydney
-(ap-southeast-2). Cấu hình: 20 user, 60 s, cùng file [`serving/locustfile.py`](../../serving/locustfile.py), SKU thật
-`APP-00042,APP-00482,ELE-01103`. Đi qua port-forward để tránh rate limit 50 request/giây của ingress.
+Locust (a load generation tool) ran on a laptop in Vietnam, through `kubectl port-forward svc/feature-api` to the cluster in Sydney
+(ap-southeast-2). Configuration: 20 users, 60 s, the same file [`serving/locustfile.py`](../../serving/locustfile.py), real SKUs
+`APP-00042,APP-00482,ELE-01103`. Port-forward is used to avoid the ingress rate limit of 50 requests/second.
 
-| Request | Số | Lỗi | p50 | p95 | p99 | req/s |
+| Request | Count | Errors | p50 | p95 | p99 | req/s |
 |---|---:|---:|---:|---:|---:|---:|
-| `POST /features` | 1.999 | 0 | 250 ms | 270 ms | 290 ms | 33,6 |
-| `POST /features [batch]` | 530 | 0 | 250 ms | 270 ms | 280 ms | 8,9 |
-| `GET /healthz` | 475 | 0 | 250 ms | 270 ms | 280 ms | 8,0 |
-| **Tổng** | **3.004** | **0** | 250 ms | 270 ms | 290 ms | **50,5** |
+| `POST /features` | 1,999 | 0 | 250 ms | 270 ms | 290 ms | 33.6 |
+| `POST /features [batch]` | 530 | 0 | 250 ms | 270 ms | 280 ms | 8.9 |
+| `GET /healthz` | 475 | 0 | 250 ms | 270 ms | 280 ms | 8.0 |
+| **Total** | **3,004** | **0** | 250 ms | 270 ms | 290 ms | **50.5** |
 
-Báo cáo HTML: [`evidence/aws/load-test-feature-api-20261030.html`](../evidence/aws/load-test-feature-api-20261030.html).
+HTML report: [`evidence/aws/load-test-feature-api-20261030.html`](../evidence/aws/load-test-feature-api-20261030.html).
 
-Cách đọc số:
-- `/healthz` gần như không làm gì mà vẫn mất khoảng 250 ms. Vậy gần hết thời gian là đường mạng từ laptop tới Sydney, không phải do API.
-- Đo phía server (`http_request_duration_seconds` của pod nhận tải): `/features` trung bình chỉ **1,8 ms**
-  (4,57 s chia cho 2.536 request).
-- Port-forward dồn toàn bộ tải vào 1 pod. Số req/s bị giới hạn bởi 20 user, mỗi lượt chờ khoảng 250 ms mạng, chứ
-  không phải bởi API.
-- Không có lỗi nào.
+How to read the numbers:
+- `/healthz` does almost nothing yet still takes about 250 ms. So nearly all the time is the network path from the laptop to Sydney, not the API.
+- Measured on the server side (`http_request_duration_seconds` of the pod receiving the load): `/features` averages only **1.8 ms**
+  (4.57 s divided by 2,536 requests).
+- Port-forward sends all load to 1 pod. The req/s figure is limited by 20 users each waiting about 250 ms of network per round, not
+  by the API.
+- There were no errors.
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+The local records keep their original environment and are not a substitute for cloud evidence.
 
-<!-- Mục đích: Web API kéo feature SKU từ kho ONLINE, -->
-## Web API kéo feature — ML Platform / LLM Platform
+<!-- Purpose: Web API that pulls SKU features from the ONLINE store, -->
+## Web API for pulling features — ML Platform / LLM Platform
 
-FastAPI + pydantic + healthcheck cho k8s, dùng async.
+FastAPI + pydantic + health checks for k8s, using async.
 
 ```
 Agent / client ──POST /features {"seller_skus": [...]}──► serving/app.py
@@ -183,24 +183,24 @@ Agent / client ──POST /features {"seller_skus": [...]}──► serving/app.
                                              Feast registry (MinIO) + Redis (kind platform)
 ```
 
-| Endpoint | Việc |
+| Endpoint | Purpose |
 |---|---|
-| `GET /healthz` | liveness: process còn sống |
-| `GET /readyz` | readiness: đã nạp Feast registry chưa; chưa nạp thì trả 503 |
-| `POST /features` | 1–100 SKU (`^[A-Za-z0-9_.-]{1,64}$`), trả 4 feature mỗi SKU |
+| `GET /healthz` | liveness: the process is alive |
+| `GET /readyz` | readiness: has the Feast registry been loaded; returns 503 if not |
+| `POST /features` | 1–100 SKUs (`^[A-Za-z0-9_.-]{1,64}$`), returns 4 features per SKU |
 
-Mỗi feature view (nhóm feature) được tra riêng và song song (`asyncio.gather`). Nếu SKU chưa có trong Redis, hoặc
-một view bị lỗi hay chưa đăng ký, thì các feature của view đó trả `null`. Chỉ khi **mọi** view đều lỗi mới trả 503.
+Each feature view (feature group) is looked up separately and in parallel (`asyncio.gather`). If a SKU is not in Redis yet, or
+a view fails or is not registered, that view's features return `null`. Only when **every** view fails does it return 503.
 
-Feature trả về: `labeled_count_90d`, `positive_count_90d`, `return_or_refund_rate_90d`
+Returned features: `labeled_count_90d`, `positive_count_90d`, `return_or_refund_rate_90d`
 (view `sku_return_daily`), `approved_returns_24h` (view `sku_return_24h`).
-SKU trùng trong request chỉ tra một lần, kết quả giữ thứ tự lần xuất hiện đầu.
+Duplicate SKUs in a request are looked up only once; results keep the order of first appearance.
 
-`POST /chunks` `{"query": "...", "top_k": 3}` (query 3–500 ký tự, top_k 1–10) tìm đoạn chính sách trả hàng
-trong Feast RAG (pgvector). Endpoint này chỉ bật khi pod có biến `FEAST_RAG_REGISTRY`; nếu không có thì trả 503. Pipeline nạp chunk:
+`POST /chunks` `{"query": "...", "top_k": 3}` (query 3–500 characters, top_k 1–10) searches return-policy passages
+in Feast RAG (pgvector). This endpoint is only enabled when the pod has the `FEAST_RAG_REGISTRY` variable; otherwise it returns 503. Chunk loading pipeline:
 [`docs/ml-llm-platform/rag_pipeline.md`](rag_pipeline.md).
 
-Code: [`serving/app.py`](../../serving/app.py). Test: [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
+Code: [`serving/app.py`](../../serving/app.py). Tests: [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
 
 ## Test
 
@@ -209,85 +209,85 @@ uv run --no-project --python 3.12 --with-requirements serving/requirements-dev.t
   pytest serving/tests -o pythonpath=. --cov=serving --cov-report=term-missing
 ```
 
-Kết quả 84 pass, coverage `serving/app.py` 98% (chỉ thiếu `load_store`, phần nạp Feast thật).
+Result: 84 pass, coverage of `serving/app.py` 98% (only `load_store`, the real Feast loading part, is missing).
 
-| Kỹ thuật | Ở đâu |
+| Technique | Where |
 |---|---|
-| fixture + mock | `store` (MagicMock + AsyncMock giả `get_online_features_async`), `client` |
-| Equivalence partitioning + boundary value | `test_sku_count_boundaries` (0 / 1 / 50 / 100 / 101 SKU), `test_sku_format` (độ dài 0 / 1 / 64 / 65, ký tự lạ) |
-| Property-based (idempotency) | `test_idempotent` (Hypothesis): gọi 2 lần và gửi lặp SKU ra cùng kết quả |
+| fixture + mock | `store` (MagicMock + AsyncMock faking `get_online_features_async`), `client` |
+| Equivalence partitioning + boundary value | `test_sku_count_boundaries` (0 / 1 / 50 / 100 / 101 SKUs), `test_sku_format` (length 0 / 1 / 64 / 65, unusual characters) |
+| Property-based (idempotency) | `test_idempotent` (Hypothesis): calling twice and sending duplicate SKUs give the same result |
 
 ## Mutation testing (mutmut)
 
-Cấu hình [`[tool.mutmut]`](../../pyproject.toml) chọn `serving/app.py`, dùng bộ test
-[`serving/tests/test_app.py`](../../serving/tests/test_app.py) và sao chép `rag` để test các nhánh RAG.
-Chạy offline với dependency đã cache (mutmut 3.3.1):
+The [`[tool.mutmut]`](../../pyproject.toml) configuration selects `serving/app.py`, uses the test suite
+[`serving/tests/test_app.py`](../../serving/tests/test_app.py) and copies `rag` to test the RAG branches.
+Run offline with cached dependencies (mutmut 3.3.1):
 
 ```bash
 UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements serving/requirements-dev.txt mutmut run --max-children 2
 UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements serving/requirements-dev.txt mutmut results
 ```
 
-Mutation testing kiểm chất lượng bộ test: công cụ tự sửa nhỏ code (mỗi bản sửa gọi là một mutant), rồi xem bộ test
-có fail không. Test fail nghĩa là test đã "giết" được mutant đó.
+Mutation testing checks the quality of the test suite: the tool makes small changes to the code (each change is called a mutant), then checks whether the
+tests fail. A failing test means the test "killed" that mutant.
 
-Lần chạy (laptop, 4 tiến trình, khoảng 2,5 phút): **171 mutant** trên `serving/app.py`.
+The run (laptop, 4 processes, about 2.5 minutes): **171 mutants** on `serving/app.py`.
 
-| Kết quả | Số | Nghĩa |
+| Result | Count | Meaning |
 |---|---:|---|
-| killed | 138 | test fail khi code bị đổi, tức test bắt được lỗi |
-| timeout | 19 | test chạy quá giới hạn thời gian của mutmut (code bị đổi làm request treo) — coi là bắt được |
-| no tests | 9 | `load_store` nạp Feast thật; test thay bằng `store_factory` giả nên không chạy hàm này (cố ý) |
-| survived | 5 | cả 5 là **mutant tương đương** (dưới) |
+| killed | 138 | tests fail when the code is changed, i.e. the tests catch the bug |
+| timeout | 19 | tests exceed mutmut's time limit (the changed code makes the request hang) — counted as caught |
+| no tests | 9 | `load_store` loads real Feast; tests replace it with a fake `store_factory` so this function never runs (intentional) |
+| survived | 5 | all 5 are **equivalent mutants** (below) |
 
-**Mutation score** = (killed + timeout) / (171 − no tests) = 157/162 = **96,9%** (chỉ tính killed: 138/162 = 85,2%).
+**Mutation score** = (killed + timeout) / (171 − no tests) = 157/162 = **96.9%** (killed only: 138/162 = 85.2%).
 
-5 mutant sống, xem bằng `mutmut show <tên>`:
-"Mutant tương đương" là bản sửa không làm đổi hành vi của chương trình, nên không test nào giết được nó.
-- `x_fetch_features__mutmut_29/32/33`: đổi `zip(VIEWS.values(), results, strict=True)` thành `strict=None`, `False`,
-  hoặc bỏ hẳn `strict`. Vì `results` sinh từ `asyncio.gather` trên chính `VIEWS`, hai dãy luôn dài bằng nhau, nên
-  `strict` không bao giờ làm đổi hành vi. Đây là mutant tương đương, không viết được test giết nó.
-- `x_create_app__mutmut_17/25`: đổi `host="0.0.0.0"` của MCP thành `None` hoặc `"XX0.0.0.0XX"`. SDK MCP chỉ bật chặn
-  DNS-rebinding khi host là `localhost`/`127.0.0.1`; mọi giá trị khác cho cùng hành vi, nên cũng là mutant tương đương.
+The 5 surviving mutants, viewable with `mutmut show <name>`:
+An "equivalent mutant" is a change that does not alter the program's behavior, so no test can kill it.
+- `x_fetch_features__mutmut_29/32/33`: change `zip(VIEWS.values(), results, strict=True)` to `strict=None`, `False`,
+  or drop `strict` entirely. Because `results` comes from `asyncio.gather` over `VIEWS` itself, the two sequences always have the same length, so
+  `strict` never changes behavior. These are equivalent mutants; no test can kill them.
+- `x_create_app__mutmut_17/25`: change the MCP `host="0.0.0.0"` to `None` or `"XX0.0.0.0XX"`. The MCP SDK only enables
+  DNS-rebinding protection when host is `localhost`/`127.0.0.1`; every other value gives the same behavior, so these are also equivalent mutants.
 
-![mutmut serving/app.py: 171 mutant, 138 killed, 19 timeout, 9 no tests, 5 survived tương đương; score 96,9%](../evidence/mutmut-serving-20261031.png)
+![mutmut serving/app.py: 171 mutants, 138 killed, 19 timeout, 9 no tests, 5 survived equivalent; score 96.9%](../evidence/mutmut-serving-20261031.png)
 
-Ảnh được dựng từ [output thật](../evidence/mutmut-serving-20261031.txt). File output giữ đủ danh sách timeout/no tests;
-ảnh bỏ các dòng đó cho gọn. Lần chạy đầu trong sandbox của công cụ AI bị treo vì sandbox chặn socket nội bộ (mà
-`TestClient` cần), không phải do lỗi test.
+The image was built from the [real output](../evidence/mutmut-serving-20261031.txt). The output file keeps the full timeout/no tests list;
+the image drops those lines for brevity. The first run inside the AI tool's sandbox hung because the sandbox blocks local sockets (which
+`TestClient` needs), not because of a test failure.
 
-Phạm vi mutate: mutmut 3.3.1 chỉ cho chọn mutant theo tên (`mutmut run [MUTANT_NAMES]...`); `mutmut run --help` không
-có tùy chọn chọn dòng theo Git diff. Lần này mutate **toàn bộ `serving/app.py`** (file thay đổi nhiều nhất của Web API)
-theo cấu hình trên, nên không khẳng định là chỉ mutate các dòng đã đổi. Ở lần sau, muốn giới hạn theo file thì dùng
-`git diff --name-only <base> -- '*.py'` lấy danh sách file đổi, rồi cập nhật `paths_to_mutate` tương ứng trước khi
-chạy. Cách này vẫn không giới hạn được tới từng dòng trong file.
+Mutation scope: mutmut 3.3.1 only lets you select mutants by name (`mutmut run [MUTANT_NAMES]...`); `mutmut run --help` has
+no option to select lines by Git diff. This run mutated **all of `serving/app.py`** (the most-changed file of the Web API)
+per the configuration above, so it does not claim to mutate only the changed lines. Next time, to limit by file, use
+`git diff --name-only <base> -- '*.py'` to get the list of changed files, then update `paths_to_mutate` accordingly before
+running. This still cannot limit mutation to individual lines within a file.
 
 ## Load test (locust)
 
-Chạy API thật (uvicorn, 1 worker) trong image `platform-feast:0.66.0`, nối tới Feast registry trên MinIO và Redis trong kind.
-Tải: 20 user, 60 s, chia theo tỷ lệ 4 : 1 : 1 giữa ba loại request (một SKU / lô 10 SKU / `healthz`). File: [`serving/locustfile.py`](../../serving/locustfile.py).
+Ran the real API (uvicorn, 1 worker) in image `platform-feast:0.66.0`, connected to the Feast registry on MinIO and Redis in kind.
+Load: 20 users, 60 s, split 4 : 1 : 1 across three request types (single SKU / batch of 10 SKUs / `healthz`). File: [`serving/locustfile.py`](../../serving/locustfile.py).
 
-| Request | Số | Lỗi | p50 | p95 | p99 | req/s |
+| Request | Count | Errors | p50 | p95 | p99 | req/s |
 |---|---:|---:|---:|---:|---:|---:|
-| `POST /features` | 5.811 | 0 | 6 ms | 19 ms | 34 ms | 97,6 |
-| `POST /features [batch]` | 1.495 | 0 | 7 ms | 20 ms | 32 ms | 25,1 |
-| `GET /healthz` | 1.402 | 0 | 3 ms | 10 ms | 16 ms | 23,6 |
-| **Tổng** | **8.708** | **0** | 6 ms | 18 ms | 31 ms | **146,3** |
+| `POST /features` | 5,811 | 0 | 6 ms | 19 ms | 34 ms | 97.6 |
+| `POST /features [batch]` | 1,495 | 0 | 7 ms | 20 ms | 32 ms | 25.1 |
+| `GET /healthz` | 1,402 | 0 | 3 ms | 10 ms | 16 ms | 23.6 |
+| **Total** | **8,708** | **0** | 6 ms | 18 ms | 31 ms | **146.3** |
 
-Báo cáo HTML: [`evidence/load-test-feature-api-20261021.html`](../evidence/load-test-feature-api-20261021.html).
-Giới hạn:
-- Locust chạy cùng container với API (cùng máy 14 GB).
-- Lúc đó view `sku_return_24h` chưa được đăng ký, nên mỗi request chỉ thật sự đọc Redis một lần.
-- Số này là mức sàn ở local, chưa phải số trên GKE.
+HTML report: [`evidence/load-test-feature-api-20261021.html`](../evidence/load-test-feature-api-20261021.html).
+Limitations:
+- Locust ran in the same container as the API (same 14 GB machine).
+- At that time the `sku_return_24h` view was not registered yet, so each request actually read Redis only once.
+- These numbers are a local baseline, not GKE numbers.
 
 ## MCP tool
 
-Cùng app mở thêm MCP server (thư viện `mcp` 2.3.0) tại `/mcp/`. Bản đầu chỉ có một tool `get_sku_features(seller_skus)`,
-dùng chung hàm `fetch_features` với REST; bản hiện tại có bốn tool, xem [MCP server trên EKS](#mcp-server-trên-eks).
-- Chế độ **stateless + JSON**: request MCP tới replica nào cũng xử lý được, không cần sticky session (gắn client với
-  một replica cố định), nên scale nhiều replica như API thường.
-- Input sai hoặc Redis lỗi thì trả `isError: true` kèm lời nhắn rõ (`ToolError`), để LLM tự sửa lại lời gọi.
-- Test: `test_mcp_*` trong [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
+The same app also exposes an MCP server (`mcp` library 2.3.0) at `/mcp/`. The first version had only one tool, `get_sku_features(seller_skus)`,
+sharing the `fetch_features` function with REST; the current version has four tools, see [MCP server on EKS](#mcp-server-on-eks).
+- **Stateless + JSON** mode: an MCP request can be handled by any replica, with no sticky session (pinning a client to
+  a fixed replica), so it scales to multiple replicas like a regular API.
+- Invalid input or a Redis error returns `isError: true` with a clear message (`ToolError`), so the LLM can correct its call.
+- Tests: `test_mcp_*` in [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
 
 ```bash
 curl -s -X POST http://platform-control-plane:30800/mcp/ -H 'Content-Type: application/json' \
@@ -295,56 +295,56 @@ curl -s -X POST http://platform-control-plane:30800/mcp/ -H 'Content-Type: appli
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_sku_features","arguments":{"seller_skus":["sku-A"]}}}'
 ```
 
-## Chạy trong k8s bằng helm (kind `platform`)
+## Running in k8s with helm (kind `platform`)
 
 ```bash
 bash scripts/setup/deploy_kind_feature_api.sh [tag]
 ```
 
-| Phần | File |
+| Part | File |
 |---|---|
-| Image (dựng trên `platform-feast:0.66.0`, 1,02 GB, phần lớn là layer Feast dùng chung) | [`docker/Dockerfile.serving`](../../docker/Dockerfile.serving) |
-| Helm chart: Deployment 2 replica + Service NodePort 30800 | [`infra/helm/feature-api/`](../../infra/helm/feature-api/Chart.yaml) |
-| Build → `kind load` → Secret từ `.env` → `helm upgrade --install --atomic` | [`scripts/setup/deploy_kind_feature_api.sh`](../../scripts/setup/deploy_kind_feature_api.sh) |
+| Image (built on `platform-feast:0.66.0`, 1.02 GB, mostly the shared Feast layer) | [`docker/Dockerfile.serving`](../../docker/Dockerfile.serving) |
+| Helm chart: Deployment with 2 replicas + NodePort Service 30800 | [`infra/helm/feature-api/`](../../infra/helm/feature-api/Chart.yaml) |
+| Build → `kind load` → Secret from `.env` → `helm upgrade --install --atomic` | [`scripts/setup/deploy_kind_feature_api.sh`](../../scripts/setup/deploy_kind_feature_api.sh) |
 
-- **Rolling update**: `maxUnavailable: 0, maxSurge: 1`, tức thêm 1 pod mới và chỉ bỏ pod cũ khi pod mới đã Ready.
-  Thêm `preStop: sleep 5s` để kube-proxy kịp gỡ pod cũ khỏi Service trước khi pod đó tắt. Thiếu bước này, lần đo
-  đầu tiên rớt 1/366 request đúng lúc pod cũ tắt.
-- **Tự fallback**: dùng `helm upgrade --atomic --timeout`. Nếu pod mới không Ready trong thời hạn, Helm tự rollback về
-  revision trước.
-- Probe: `startupProbe` + `livenessProbe` gọi `/healthz`, `readinessProbe` gọi `/readyz`.
-- Secret `feature-api-env` (khóa MinIO, registry, Redis) tạo lúc chạy script từ `.env`, không nằm trong Git.
-- Pod phân giải được `minio` (172.23.0.3) vì node kind nối vào mạng `platform_default`.
-  Redis gọi qua Service trong cụm `redis.feature-store.svc.cluster.local:6379`.
-- Request: 50m CPU / 128Mi RAM, limit 384Mi.
+- **Rolling update**: `maxUnavailable: 0, maxSurge: 1`, i.e. add 1 new pod and only remove an old pod once the new pod is Ready.
+  `preStop: sleep 5s` is added so kube-proxy has time to remove the old pod from the Service before that pod shuts down. Without this step, the first
+  measurement dropped 1/366 requests exactly when the old pod shut down.
+- **Automatic fallback**: uses `helm upgrade --atomic --timeout`. If the new pod is not Ready within the timeout, Helm rolls back to the
+  previous revision automatically.
+- Probes: `startupProbe` + `livenessProbe` call `/healthz`, `readinessProbe` calls `/readyz`.
+- Secret `feature-api-env` (MinIO, registry and Redis keys) is created from `.env` when the script runs; it is not in Git.
+- The pod can resolve `minio` (172.23.0.3) because the kind node is attached to the `platform_default` network.
+  Redis is called through the in-cluster Service `redis.feature-store.svc.cluster.local:6379`.
+- Requests: 50m CPU / 128Mi RAM, limit 384Mi.
 
-### Kiểm
+### Verification
 
-Trong suốt lúc thử, một container gửi `POST /features` mỗi 0,2 s. Các bước thử:
-1. 3 lần rolling update (v1 → v2 → v1 → v2).
-2. Một bản cố tình hỏng: `envSecret=does-not-exist` làm pod mới không khởi động được, với `--timeout 45s`.
+Throughout the test, a container sends `POST /features` every 0.2 s. Test steps:
+1. 3 rolling updates (v1 → v2 → v1 → v2).
+2. One deliberately broken release: `envSecret=does-not-exist` prevents the new pod from starting, with `--timeout 45s`.
 
-| Kết quả | |
+| Result | |
 |---|---|
-| Request | **583 / 583 trả 200**, 0 lỗi |
-| Bản hỏng | revision 12 `failed`, sau đó Helm tự tạo revision 13 `Rollback to 11`; 2 pod cũ phục vụ suốt |
+| Requests | **583 / 583 returned 200**, 0 errors |
+| Broken release | revision 12 `failed`, then Helm automatically created revision 13 `Rollback to 11`; the 2 old pods served throughout |
 
 Log: [`evidence/feature-api-helm-rollout-20261021.txt`](../evidence/feature-api-helm-rollout-20261021.txt).
-Giá trị feature lúc đó là `null` vì Redis vừa khởi động lại, chưa materialize.
+Feature values at that time were `null` because Redis had just restarted and had not been materialized yet.
 
-### Bản v3: thêm tìm chunk RAG
+### Version v3: adds RAG chunk search
 
-Image v3 có thêm `feast[postgres]`, `fastembed` và model `BAAI/bge-small-en-v1.5` nằm sẵn trong image
-(`RAG_MODEL_CACHE=/opt/models`); Secret thêm `FEAST_RAG_REGISTRY`, `RAG_PG_*`. Helm revision 14, 1 replica
-(`REPLICAS=1`, máy local chật RAM; rolling update/rollback đã chứng minh ở trên với 2 replica).
+Image v3 adds `feast[postgres]`, `fastembed` and the model `BAAI/bge-small-en-v1.5` baked into the image
+(`RAG_MODEL_CACHE=/opt/models`); the Secret adds `FEAST_RAG_REGISTRY`, `RAG_PG_*`. Helm revision 14, 1 replica
+(`REPLICAS=1`, the local machine was short on RAM; rolling update/rollback was already demonstrated above with 2 replicas).
 
-| Thử | Kết quả |
+| Test | Result |
 |---|---|
-| `POST /chunks` "How long does a Walmart buyer have to return?" | `walmart-returns / Return window` đứng đầu, distance 0,127 |
-| MCP qua agentgateway `tools/call search_policy_chunks` "Can a TikTok buyer get a refund without returning the item?" | `tiktok-shop-returns / Refund only` |
+| `POST /chunks` "How long does a Walmart buyer have to return?" | `walmart-returns / Return window` ranks first, distance 0.127 |
+| MCP via agentgateway `tools/call search_policy_chunks` "Can a TikTok buyer get a refund without returning the item?" | `tiktok-shop-returns / Refund only` |
 
-Agent dùng tool: [`docs/ml-llm-platform/reference/llm_platform_agents.md`](reference/llm_platform_agents.md).
+Agents using the tool: [`docs/ml-llm-platform/reference/llm_platform_agents.md`](reference/llm_platform_agents.md).
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

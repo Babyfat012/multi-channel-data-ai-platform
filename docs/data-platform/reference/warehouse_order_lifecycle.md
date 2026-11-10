@@ -1,159 +1,159 @@
-<!-- Warehouse PostgreSQL v2: mô hình, publish an toàn và quy trình thu bằng chứng thật. -->
-# Warehouse v2 trên PostgreSQL
+<!-- Warehouse PostgreSQL v2: model, safe publish and the process for collecting real evidence. -->
+# Warehouse v2 on PostgreSQL
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally; not the deployed pipeline.** The pipeline running on AWS is v1 (DP1 → DP4 + ML), see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that never ran; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-Phần này đo warehouse indexing. Lát Walmart v1 không đại diện
-năm Channel và mất index sau overwrite. Job `spark_jobs/warehouse/export_order_lifecycle.py` đọc `build_gold`, ghi schema mới
-`warehouse_lifecycle` trên PostgreSQL service của VM. Giữ nguyên v1, không quy đổi hay
-cộng chung currency. Cấu hình VM/storage/auth xem [AWS runbook](../../shared/aws_deploy.md).
+This part measures warehouse indexing. The Walmart v1 slice does not represent
+the five Channels and loses its indexes after overwrite. The job `spark_jobs/warehouse/export_order_lifecycle.py` reads `build_gold` and writes the new schema
+`warehouse_lifecycle` on the VM's PostgreSQL service. v1 is kept unchanged; currencies are not converted or
+summed together. For VM/storage/auth configuration see the [AWS runbook](../../shared/aws_deploy.md).
 
-| Bảng | Grain và dữ liệu giữ lại |
+| Table | Grain and retained data |
 |---|---|
-| `fact_order_lines` | PK `(dataset_version,line_id)`; toàn bộ cột Gold thật, identity năm Channel, currency, tiền minor bigint, ordered_basis_qty/canceled_unshipped_qty/allocated_qty/delivered_qty, headline và product refund tách riêng |
-| `label_return` | PK `(dataset_version,line_id,cutoff,generation_id)`; state, label nullable, label_version, computed_at, maturity/cohort, input_json, reasons và source_event_refs dạng text[] |
-| `feat_sku_return_rate_90d` | PK `(dataset_version,line_id)`; SKU, event_timestamp, created, counts/rate, label_version và generation_id |
+| `fact_order_lines` | PK `(dataset_version,line_id)`; every real Gold column, five-Channel identity, currency, money as minor-unit bigint, ordered_basis_qty/canceled_unshipped_qty/allocated_qty/delivered_qty, headline and product refund kept separate |
+| `label_return` | PK `(dataset_version,line_id,cutoff,generation_id)`; state, nullable label, label_version, computed_at, maturity/cohort, input_json, reasons and source_event_refs as text[] |
+| `feat_sku_return_rate_90d` | PK `(dataset_version,line_id)`; SKU, event_timestamp, created, counts/rate, label_version and generation_id |
 
-DDL [001](../../../sql/warehouse_lifecycle/001_tables.sql) lấy cột từ
-`spark_jobs/lib/order_lifecycle_gold.py` và `spark_jobs.lib.order_lifecycle_lakehouse.line_lifecycle`; Spark UTC timestamp
-ánh xạ PostgreSQL `timestamp` (không timezone), quantity nguyên và aggregate bigint,
-rate double precision. Không tự thêm gross/discount vốn không có trong fact Gold.
-Nhãn warehouse là **generation/cutoff đang export**, lịch sử bất biến vẫn ở Gold.
-CHECK giữ label NULL khi state khác labeled; không biến unknown thành 0.
+DDL [001](../../../sql/warehouse_lifecycle/001_tables.sql) takes its columns from
+`spark_jobs/lib/order_lifecycle_gold.py` and `spark_jobs.lib.order_lifecycle_lakehouse.line_lifecycle`; Spark UTC timestamps
+map to PostgreSQL `timestamp` (without time zone), quantities to integers and aggregates to bigint,
+rates to double precision. Gross/discount, which do not exist in the Gold fact, are not added.
+The warehouse label is the **generation/cutoff being exported**; the immutable history stays in Gold.
+A CHECK keeps label NULL when state is not labeled; unknown is never turned into 0.
 
-| Index từ [002](../../../sql/warehouse_lifecycle/002_indexes.sql) | Truy vấn |
+| Index from [002](../../../sql/warehouse_lifecycle/002_indexes.sql) | Query |
 |---|---|
-| PK của 001, đi cùng staging khi rename | Chống trùng grain, lookup line khi join |
-| `lifecycle_fact_sales(created_at) INCLUDE(channel,currency,headline_product_net_minor)` | Q1: headline 30 ngày, GROUP BY ngày UTC × channel × currency |
-| `lifecycle_fact_sku(seller_sku,dataset_version,line_id) INCLUDE(generation_id)` | Q2: chọn SKU rồi join fact/label bằng dataset, line và generation |
-| `lifecycle_label_cutoff(cutoff,dataset_version,line_id,generation_id) INCLUDE(label) WHERE state='labeled'` | Q2: mẫu số chỉ gồm labeled đúng cutoff, AVG(label) là tỉ lệ |
-| `lifecycle_feature_pit(dataset_version,seller_sku,event_timestamp DESC,created DESC)` | Q3: bản feature mới nhất có event_timestamp ≤ T và created ≤ thời điểm truy vấn biết dữ liệu |
+| PKs from 001, carried with staging on rename | Prevent grain duplicates, line lookup on join |
+| `lifecycle_fact_sales(created_at) INCLUDE(channel,currency,headline_product_net_minor)` | Q1: 30-day headline, GROUP BY UTC date × channel × currency |
+| `lifecycle_fact_sku(seller_sku,dataset_version,line_id) INCLUDE(generation_id)` | Q2: pick a SKU, then join fact/label on dataset, line and generation |
+| `lifecycle_label_cutoff(cutoff,dataset_version,line_id,generation_id) INCLUDE(label) WHERE state='labeled'` | Q2: the denominator includes only labeled rows at exactly the cutoff, AVG(label) is the rate |
+| `lifecycle_feature_pit(dataset_version,seller_sku,event_timestamp DESC,created DESC)` | Q3: the latest feature row with event_timestamp ≤ T and created ≤ the time the query knows the data |
 
-Năm Channel bắt buộc chính xác `amazon,walmart,shopee,shopify,tiktok_shop` khi export fact.
-Q3 giữ nguyên grain feature line của Gold, lấy một dòng với tie-break line_id; không
-cộng counts giữa các line. `created` là availability lúc tính nên có thể sau
-`event_timestamp`; truy vấn lúc đặt đơn có thể chưa có feature và trả 0 dòng.
-Phải chọn `--as-of` phù hợp mục tiêu kiểm, không ngầm coi feature tính sau là đã biết tại T.
+The five Channels must be exactly `amazon,walmart,shopee,shopify,tiktok_shop` when exporting the fact.
+Q3 keeps Gold's per-line feature grain, taking one row with line_id as tie-break; it does not
+sum counts across lines. `created` is the availability at computation time, so it can be after
+`event_timestamp`; a query at order placement time may find no feature yet and return 0 rows.
+Choose an `--as-of` that fits the check's goal; do not implicitly treat a feature computed later as known at T.
 
-## Publish an toàn
+## Safe publish
 
-1. CLI pin snapshot Iceberg hiện hành riêng từng bảng. Fact/feature phải toàn bộ
-   thuộc `--run-id`; nhãn lọc đúng generation và cutoff; snapshot thiếu hoặc bảng
-   rỗng fail closed. DAG validate Gold trước khi chạy export.
-2. Giữ session advisory lock chung export/benchmark. Tạo bảng thường staging
-   `<table>__load_<sha256(run_id)[:12]>` từ 001, gồm PK/CHECK, rồi append qua JDBC.
-   Không dùng TEMP TABLE vì Spark executors mở nhiều JDBC session.
-3. So logical count Gold và staging thực; fact so count và **bốn tổng tiền riêng
-   theo `(channel,currency)`**, decimal/numeric khi SUM để tránh tràn bigint.
-   Receipt ghi expected/actual và boolean từng check, không ghi credential.
-4. Chỉ khi tất cả checks true: một transaction rename các bảng cũ, đổi tên index
-   cũ để giải phóng tên schema-wide, rename staging thành bảng phục vụ, áp 002,
-   ANALYZE, rồi DROP bản cũ. Commit cả nhóm bảng. Lỗi bất kỳ rollback cả nhóm.
-5. Xóa staging do lần gọi tạo khi thất bại, giữ nguyên bảng đang phục vụ. Nếu
-   process bị kill, staging có thể còn: người vận hành kiểm tra/xóa đúng staging lỗi
-   trước retry cùng run-id; job không tự xóa staging đã tồn tại.
+1. The CLI pins the current Iceberg snapshot of each table separately. Fact/feature must belong entirely
+   to `--run-id`; labels are filtered to exactly the generation and cutoff; a missing snapshot or empty table
+   fails closed. The DAG validates Gold before running the export.
+2. Hold a session advisory lock shared by export/benchmark. Create regular staging tables
+   `<table>__load_<sha256(run_id)[:12]>` from 001, including PK/CHECK, then append via JDBC.
+   TEMP TABLEs are not used because Spark executors open multiple JDBC sessions.
+3. Compare the logical Gold count with the actual staging count; for the fact, compare count and **four money totals
+   per `(channel,currency)`**, using decimal/numeric in SUM to avoid bigint overflow.
+   The receipt records expected/actual and a boolean per check, never credentials.
+4. Only when all checks are true: in one transaction rename the old tables, rename the old indexes
+   to free their schema-wide names, rename staging to the serving tables, apply 002,
+   ANALYZE, then DROP the old copies. The whole group of tables is committed together. Any error rolls back the whole group.
+5. On failure, delete the staging tables created by this invocation and leave the serving tables unchanged. If the
+   process is killed, staging may remain: the operator checks/deletes exactly the failed staging tables
+   before retrying with the same run-id; the job does not delete pre-existing staging tables by itself.
 
-`--tables` là danh sách phân cách dấu phẩy; mặc định cả ba. Subset chỉ publish nhóm
-được chọn, vì vậy dùng mặc định cho generation đầy đủ. Writer phải dùng quy trình
-này và không có view/FK phụ thuộc bảng phục vụ: PostgreSQL view/FK bám OID bảng cũ,
-không bám tên; DROP không CASCADE sẽ từ chối và rollback nếu có dependency.
-Không cấp quyền riêng từng bảng trong gói này: swap tạo OID mới, người vận hành dùng cùng
-owner hoặc quyền mặc định cấp ở schema. Transaction rename cần khóa bảng và có
-thể chờ truy vấn đang chạy; benchmark cũng chặn ghi trong suốt phép đo.
+`--tables` is a comma-separated list; default all three. A subset publishes only the selected
+group, so use the default for a full generation. Writers must use this process,
+and there must be no views/FKs depending on the serving tables: PostgreSQL views/FKs bind to the old table's OID,
+not its name; a DROP without CASCADE will refuse and roll back if there is a dependency.
+This package does not grant per-table privileges: the swap creates new OIDs, so the operator uses the same
+owner or default privileges granted at the schema level. The rename transaction needs table locks and may
+wait for running queries; the benchmark also blocks writes for the whole measurement.
 
-## Chạy local và trên VM
+## Running locally and on the VM
 
-Venv có `psycopg`; image Airflow hiện có `psycopg2-binary==2.9.10`. Module tự chọn
-một trong hai driver, không cài thêm dependency. Spark cần JAR PostgreSQL 42.7.4
-sẵn trong image/cache và Iceberg runtime như runner hiện có. Chưa chạy Spark hoặc
-PostgreSQL thật trong sandbox.
+The venv has `psycopg`; the Airflow image currently has `psycopg2-binary==2.9.10`. The module picks
+one of the two drivers by itself; no extra dependency is installed. Spark needs the PostgreSQL 42.7.4 JAR
+already present in the image/cache and the Iceberg runtime like the existing runner. Spark and
+a real PostgreSQL have not been run in the sandbox.
 
-Compose hiện chỉ mount `spark_jobs/`, không mount `sql/`. Vì brief cấm sửa Compose,
-người vận hành copy hai migration vào container Airflow đang chạy; không cần sửa config:
+Compose currently mounts only `spark_jobs/`, not `sql/`. Because this package does not modify Compose,
+the operator copies the two migrations into the running Airflow container; no config change is needed:
 
 ```bash
-# người vận hành chạy sau khi stack đã sẵn sàng; copy lại sau recreate container.
-# SQL đã mount read-only tại /opt/sql/warehouse_lifecycle.
-# DAG mới dp_order_lifecycle_warehouse: Trigger tay với generation đã validate của dp_order_lifecycle.
-# {"run_id":"GOLD_GENERATION_DA_CO","cutoff":"2026-06-01T00:00:00.000000Z"}
+# The operator runs this once the stack is ready; copy again after the container is recreated.
+# SQL is mounted read-only at /opt/sql/warehouse_lifecycle.
+# New DAG dp_order_lifecycle_warehouse: trigger manually with a validated generation of dp_order_lifecycle.
+# {"run_id":"EXISTING_GOLD_GENERATION","cutoff":"2026-06-01T00:00:00.000000Z"}
 ```
 
-DAG mới có `validate_gold >> export_warehouse`, schedule=None, một run tại
-một thời điểm; không sửa DAG nguồn. SQL dir mặc định `/opt/sql/warehouse_lifecycle`, có thể
-đặt Airflow Variable `platform_order_lifecycle_warehouse_sql_dir`. Receipt dưới Variable
-`platform_order_lifecycle_receipt_dir`/warehouse/TS_NODASH. Trên GCP cũng copy SQL bằng lệnh trên
-trong `/opt/platform`, dùng PostgreSQL trên VM và credential Connection `platform_postgres`.
+The new DAG has `validate_gold >> export_warehouse`, schedule=None, one run at
+a time; the source DAG is not modified. The default SQL dir is `/opt/sql/warehouse_lifecycle`, which can be
+overridden with the Airflow Variable `platform_order_lifecycle_warehouse_sql_dir`. Receipts go under the Variable
+`platform_order_lifecycle_receipt_dir`/warehouse/TS_NODASH. On GCP the SQL is also copied with the command above
+in `/opt/platform`, using PostgreSQL on the VM and the credentials of the Connection `platform_postgres`.
 
-CLI ngoài DAG (trong image/runtime có Spark và catalog):
+CLI outside the DAG (in an image/runtime that has Spark and the catalog):
 
 ```bash
-spark-submit --jars /DUONG_DAN_CACHE/postgresql-42.7.4.jar \
+spark-submit --jars /CACHE_PATH/postgresql-42.7.4.jar \
   spark_jobs/warehouse/export_order_lifecycle.py \
-  --run-id GOLD_GENERATION_DA_CO --cutoff 2026-06-01T00:00:00.000000Z \
+  --run-id EXISTING_GOLD_GENERATION --cutoff 2026-06-01T00:00:00.000000Z \
   --receipt /tmp/warehouse-v2-export.json --sql-dir sql/warehouse_lifecycle
 ```
 
-Cần cả cấu hình/JAR Iceberg/GCS/MinIO của runtime hiện tại; CLI minh họa phần JDBC
-và arguments, không thay runner catalog. Kết nối từ env như job `spark_jobs/warehouse/export_order_snapshot_lines.py`:
+The current runtime's Iceberg/GCS/MinIO configuration/JARs are also needed; the CLI illustrates the JDBC part
+and the arguments and does not replace the catalog runner. Connection settings come from env, like the job `spark_jobs/warehouse/export_order_snapshot_lines.py`:
 `POSTGRES_HOST` (postgres), `POSTGRES_PORT` (5432), `POSTGRES_DB` (sources),
-`POSTGRES_USER`, `POSTGRES_PASSWORD`. Không đặt secret trong arguments/log.
+`POSTGRES_USER`, `POSTGRES_PASSWORD`. Do not put secrets in arguments/logs.
 
-## Harness PostgreSQL 16 tạm — người vận hành chạy
+## Temporary PostgreSQL 16 harness — run by the operator
 
-Dùng DB **trống riêng**; harness từ chối schema warehouse_lifecycle đã tồn tại. người vận hành
-chuẩn bị container `postgres:16` trên loopback hoặc Docker network riêng và đưa
-URI qua env `WAREHOUSE_TEST_DSN`; không dùng DB đang phục vụ. Môi trường chạy
-Python cần PySpark 3.5.3, Java và driver PostgreSQL Python sẵn có. Không tải JAR:
+Use a **separate empty** DB; the harness refuses an existing warehouse_lifecycle schema. The operator
+prepares a `postgres:16` container on loopback or a separate Docker network and passes the
+URI via the env `WAREHOUSE_TEST_DSN`; do not use a serving DB. The Python runtime
+needs PySpark 3.5.3, Java and a PostgreSQL Python driver already available. No JARs are downloaded:
 
 ```bash
-# Env này chứa URI DB tạm: postgresql://USER:PASSWORD@127.0.0.1:PORT/DB
-# người vận hành đặt WAREHOUSE_TEST_DSN trong môi trường, không ghi vào report.
-PYSPARK_SUBMIT_ARGS='--jars /DUONG_DAN_CACHE/postgresql-42.7.4.jar pyspark-shell' \
+# This env holds the temporary DB URI: postgresql://USER:PASSWORD@127.0.0.1:PORT/DB
+# The operator sets WAREHOUSE_TEST_DSN in the environment and does not write it into the report.
+PYSPARK_SUBMIT_ARGS='--jars /CACHE_PATH/postgresql-42.7.4.jar pyspark-shell' \
   python tests/spark/check_order_lifecycle_warehouse.py
 ```
 
-Harness build fixture → Silver → Gold thật, load 1 thành công; load sai tiền
-staging bị chặn và toàn bộ giá trị bảng phục vụ giữ bản 1; lỗi DDL giữa swap cũng
-rollback bản 1; load hợp lệ tiếp theo vẫn có bốn index phụ. Staging sai được dọn,
-DB tạm giữ bản hợp lệ cuối để kiểm thêm. người vận hành tự quản vòng đời container.
+The harness builds fixture → Silver → real Gold, load 1 succeeds; a load with wrong staging money
+is blocked and every serving-table value keeps version 1; a DDL error mid-swap also
+rolls back to version 1; the next valid load still has the four secondary indexes. Bad staging is cleaned up,
+and the temporary DB keeps the last valid version for further checks. The operator manages the container lifecycle.
 
-## EXPLAIN trước/sau trên cùng dữ liệu
+## EXPLAIN before/after on the same data
 
 ```bash
-# Env POSTGRES_* trỏ DB cần đo; chọn giá trị thực có trong Gold đang phục vụ.
+# POSTGRES_* env points to the DB to measure; pick real values present in the serving Gold.
 .venv/bin/python scripts/evidence/measure_order_lifecycle_warehouse.py \
-  --cutoff 2026-06-01T00:00:00Z --sku SELLER_SKU_THUC --dataset DATASET_VERSION_THUC \
+  --cutoff 2026-06-01T00:00:00Z --sku REAL_SELLER_SKU --dataset REAL_DATASET_VERSION \
   --event-timestamp 2026-04-01T00:00:00Z --as-of 2026-10-19T00:00:00Z \
   --receipt /tmp/warehouse-v2-explain.json
 ```
 
-Script lấy advisory lock, khóa SHARE cả ba bảng, REPEATABLE READ; bỏ **mọi index
-phụ** của ba bảng (giữ PK), ANALYZE rồi đo Q1–Q3 mỗi query năm lần. Sau đó tạo
-002 và đo tiếp năm lần. Toàn bộ DROP/CREATE/ANALYZE được rollback cuối cùng;
-index có trước phép đo được phục hồi cả khi lỗi. Không ép enable_seqscan=false.
+The script takes the advisory lock, a SHARE lock on all three tables, REPEATABLE READ; drops **every secondary
+index** of the three tables (keeping the PKs), runs ANALYZE, then measures Q1–Q3 five times each. It then creates
+002 and measures five more times. All DROP/CREATE/ANALYZE are rolled back at the end;
+indexes existing before the measurement are restored even on error. enable_seqscan=false is not forced.
 
-JSON có từng plan đầy đủ, node gốc, actual rows, shared read/hit/total blocks và
-median từng metric. Node gốc đã gồm child buffers, không cộng lại. So **plan và
-median shared hit+read**, cùng read/hit tách riêng: pha sau có thể cache nóng hơn,
-không diễn giải shared read giảm là toàn bộ lợi ích index. Không dùng timing làm
-proof chính. Fixture nhỏ, range ít chọn lọc hoặc query trả 0 dòng có thể dùng
-Seq Scan ở cả hai pha; ghi đúng kết quả, không khẳng định index luôn nhanh hơn.
+The JSON has each full plan, the root node, actual rows, shared read/hit/total blocks and
+the median of each metric. The root node already includes child buffers; they are not added again. Compare **the plan and the
+median shared hit+read**, plus read/hit separately: the later phase may have a warmer cache,
+so a drop in shared reads is not to be read as the whole index benefit. Timing is not used as
+the primary proof. A small fixture, a low-selectivity range or a query returning 0 rows may use
+Seq Scan in both phases; record the actual result and do not claim the index is always faster.
 
-Số đo **e2e small local**, sau sửa và đổi tên; nguồn 45 ngày ×
-50 đơn, 100 SKU, PASS 92 s. Nguồn số và chi tiết run tại [e2e local](e2e_order_lifecycle_local.md),
-được người vận hành xác nhận trong ghi nhận local (receipt không đính kèm repo).
-Warehouse-checks trên PostgreSQL thật **PASS 116 s trước đổi tên**: load, chặn lệch
-tiền, rollback DDL và swap giữ index; đây không phải số đo speedup.
+**e2e small local** measurements, after the fix and the rename; source 45 days ×
+50 orders, 100 SKUs, PASS 92 s. The source numbers and run details are in [e2e local](e2e_order_lifecycle_local.md),
+confirmed by the operator in the local notes (receipt not attached to the repo).
+Warehouse checks on real PostgreSQL **PASS 116 s before the rename**: load, money-mismatch blocking,
+DDL rollback and swap keeping indexes; this is not a speedup measurement.
 
-| Query | Trước: node / buffers hit+read / rows (median n=5) | Sau: node / buffers hit+read / rows (median n=5) |
+| Query | Before: node / buffers hit+read / rows (median n=5) | After: node / buffers hit+read / rows (median n=5) |
 |---|---|---|
-| Q1 headline ngày × Channel × currency | Aggregate / 173 / 0 | Aggregate / 2 / 0 |
-| Q2 SKU return rate tại cutoff | Aggregate / 583 / 5 | Aggregate / 583 / 5 |
+| Q1 headline date × Channel × currency | Aggregate / 173 / 0 | Aggregate / 2 / 0 |
+| Q2 SKU return rate at cutoff | Aggregate / 583 / 5 | Aggregate / 583 / 5 |
 | Q3 SKU feature PIT | Limit / 104 / 1 | Limit / 4 / 1 |
 
-Q3 giảm 104 → 4 buffer nhờ index; Q2 không đổi. Q1 giảm 173 → 2 nhưng cửa sổ
-rỗng (0 dòng), không chứng minh lợi ích index. Medium chưa tới EXPLAIN do lần
-trước sửa bị OOM ở gold_validate; chưa chạy lại sau sửa.
-Đo trên GCP: `bash tests/harness/run_order_lifecycle_scale.sh --profile medium --driver-memory 6g`
-trên host đã chuẩn bị; đo DB phục vụ bằng lệnh `measure_order_lifecycle_warehouse.py`
-ở trên với tham số thực. Lưu JSON kèm run/cutoff và ảnh plan thật; chưa có số GCP.
+Q3 drops 104 → 4 buffers thanks to the index; Q2 is unchanged. Q1 drops 173 → 2 but the window
+is empty (0 rows), so it does not prove an index benefit. Medium has not reached EXPLAIN because the
+pre-fix run hit OOM in gold_validate; it has not been rerun after the fix.
+Measuring on GCP: `bash tests/harness/run_order_lifecycle_scale.sh --profile medium --driver-memory 6g`
+on a prepared host; measure the serving DB with the `measure_order_lifecycle_warehouse.py` command
+above with real parameters. Save the JSON with run/cutoff and real plan screenshots; there are no GCP numbers yet.

@@ -1,99 +1,99 @@
-# Bronze/Silver nguồn v2 — gói C
+# Bronze/Silver for the v2 source — package C
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally, not the deployed pipeline.** The pipeline running on AWS is v1 (DP1 → DP4 + ML), see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-Đưa bộ nguồn v2 nhỏ của [gói B](source_order_lifecycle_fixtures.md) vào lakehouse theo
-[source contract v2](source_contract_order_lifecycle.md). Đây là **fixture nhỏ** (5 Channel,
-3 ngày tạo đơn, 15 Order, 30 Order Line), không phải dữ liệu nghiệm thu
-100 GB. Các bảng `_dp1`/`_dp2` làm bằng chứng cũ **không bị đụng**: nguồn v2
-ghi vào namespace mới `ingest_bronze` và `build_silver`.
+Loads the small v2 source set from [package B](source_order_lifecycle_fixtures.md) into the lakehouse according to
+the [v2 source contract](source_contract_order_lifecycle.md). This is a **small fixture** (5 Channels,
+3 order-creation days, 15 Orders, 30 Order Lines), not the full 100 GB
+dataset. The `_dp1`/`_dp2` tables used as earlier evidence **are not touched**: the v2 source
+writes to the new namespaces `ingest_bronze` and `build_silver`.
 
-## Thiết kế
+## Design
 
-| Tầng | Bảng | Grain | Ghi chú |
+| Layer | Table | Grain | Notes |
 |---|---|---|---|
-| Bronze | `bronze.lifecycle_raw_records` | Một dòng nguồn | **Một bảng chung** mọi feed, giữ nguyên `raw_json`, partition theo `feed`. Thêm feed hay đổi schema không phải sửa bảng. Cột `ingestion_boundary` ghi `file` hoặc `jdbc` |
-| Silver | `lifecycle_stg_line_commitments` | Order Line (revision mới nhất) | Số lượng đặt/hủy, tiền đặt/hủy, `headline_product_net_minor` = đặt − hủy trước ship |
-| Silver | `lifecycle_stg_allocations` | Allocation | Một line có thể có nhiều allocation (giao tách 2+1) |
-| Silver | `lifecycle_stg_deliveries` | Sự kiện giao | Số lượng thực giao theo allocation |
-| Silver | `lifecycle_stg_return_events` | Sự kiện return (lịch sử) | requested → approved → received |
-| Silver | `lifecycle_stg_refunds` | Giao dịch refund (revision mới nhất) | Refund **tách riêng**, không trừ vào headline; refund chưa gắn line giữ `unresolved_scope_ref` |
-| Silver | `lifecycle_stg_listing_versions` | Revision của Listing (lịch sử) | `is_latest` đánh dấu bản đang hiệu lực; correction thay bản sai, bản sai vẫn còn |
-| Silver | `lifecycle_stg_stock_operations`, `lifecycle_stg_stock_snapshots`, `lifecycle_stg_inbound_events` | Thao tác kho / snapshot / nhập | Pool Seller chung |
-| Silver | `lifecycle_stg_uncertainties`, `lifecycle_stg_coverage` | Bất định / độ phủ nguồn | Đọc từ feed phụ của producer |
-| Silver | `lifecycle_stg_line_lifecycle` | Order Line | Gộp allocation/giao/return/refund **về grain line trước khi join**, nên không fan-out |
-| Silver | `lifecycle_stg_native_order_lines` | Line trong đơn native | Parse dạng gốc của 5 Channel (Amazon hai schema) ra cột chung: số lượng, tiền gốc, tiền sau giảm giá. Walmart không gửi giá gốc nên `gross_minor` null |
-| Silver | `lifecycle_stg_coverage_receipts` | Coverage envelope | Kết quả áp coverage của producer lên đúng tập dòng đã nhận, kèm lý do nếu thiếu |
-| Silver | `lifecycle_stg_observed_evidence` | Một bản ghi quan sát | Feed nhãn + coverage + uncertainty đã qua cổng hợp đồng, **mọi revision** (chỉ bỏ retry trùng y); khóa `ev_line_id`/`ev_order_id`/`corrects_source_event_id` để Gold gom theo line. Partition `days(source_observed_at)` |
-| Silver | `lifecycle_stg_coverage_validity` | Revision coverage | `complete`/`partial` theo luật `spark_jobs.lib.return_label.source_line`, kiểm một lần cho cả dataset |
-| Silver | `lifecycle_stg_build_info` | Một lần dựng | `run_id`, `as_of`; Gold v2 từ chối chạy nếu `as_of` ≠ cutoff |
+| Bronze | `bronze.lifecycle_raw_records` | One source row | **One shared table** for every feed, keeping `raw_json` as is, partitioned by `feed`. Adding a feed or changing a schema does not require altering the table. The `ingestion_boundary` column records `file` or `jdbc` |
+| Silver | `lifecycle_stg_line_commitments` | Order Line (latest revision) | Ordered/canceled quantities, ordered/canceled amounts, `headline_product_net_minor` = ordered − canceled before shipping |
+| Silver | `lifecycle_stg_allocations` | Allocation | One line can have several allocations (split delivery 2+1) |
+| Silver | `lifecycle_stg_deliveries` | Delivery event | Quantity actually delivered per allocation |
+| Silver | `lifecycle_stg_return_events` | Return event (history) | requested → approved → received |
+| Silver | `lifecycle_stg_refunds` | Refund transaction (latest revision) | Refunds are kept **separate**, not subtracted from headline; a refund not yet attached to a line keeps `unresolved_scope_ref` |
+| Silver | `lifecycle_stg_listing_versions` | Listing revision (history) | `is_latest` marks the version in effect; a correction replaces the wrong version, and the wrong version is kept |
+| Silver | `lifecycle_stg_stock_operations`, `lifecycle_stg_stock_snapshots`, `lifecycle_stg_inbound_events` | Stock operation / snapshot / inbound | Shared Seller pool |
+| Silver | `lifecycle_stg_uncertainties`, `lifecycle_stg_coverage` | Uncertainty / source coverage | Read from the producer's auxiliary feeds |
+| Silver | `lifecycle_stg_line_lifecycle` | Order Line | Aggregates allocation/delivery/return/refund **to line grain before joining**, so there is no fan-out |
+| Silver | `lifecycle_stg_native_order_lines` | Line in a native order | Parses the native shape of the 5 Channels (Amazon with two schemas) into common columns: quantity, gross amount, amount after discount. Walmart does not send the gross price, so `gross_minor` is null |
+| Silver | `lifecycle_stg_coverage_receipts` | Coverage envelope | Result of applying the producer's coverage to exactly the set of rows received, with the reason if anything is missing |
+| Silver | `lifecycle_stg_observed_evidence` | One observation record | Label feeds + coverage + uncertainty that passed the contract gate, **every revision** (only exact retry duplicates are dropped); keys `ev_line_id`/`ev_order_id`/`corrects_source_event_id` let Gold group by line. Partitioned by `days(source_observed_at)` |
+| Silver | `lifecycle_stg_coverage_validity` | Coverage revision | `complete`/`partial` according to the rules in `spark_jobs.lib.return_label.source_line`, checked once for the whole dataset |
+| Silver | `lifecycle_stg_build_info` | One build | `run_id`, `as_of`; Gold v2 refuses to run if `as_of` ≠ cutoff |
 
-Quy tắc dùng chung (code ở [`spark_jobs/lib/order_lifecycle_lakehouse.py`](../../../spark_jobs/lib/order_lifecycle_lakehouse.py)):
+Shared rules (code in [`spark_jobs/lib/order_lifecycle_lakehouse.py`](../../../spark_jobs/lib/order_lifecycle_lakehouse.py)):
 
-- **Định danh sự kiện** = `(dataset_version, producer, source_epoch, source_event_id)`.
-  Bản lặp cùng nội dung bị bỏ; cùng id mà khác nội dung là **xung đột**, bị loại
-  khỏi Silver và làm job lỗi. Hash nội dung bỏ `recorded_at` vì đó là giờ máy
-  chạy, không phải sự thật nguồn.
-- **Revision lớn nhất thắng**: correction thay thế bản bị sửa, không cộng thêm.
-  Ví dụ: sửa số tồn đầu kỳ 200 → 199 thì sổ kho dùng 199, không phải 399.
-- **`as_of`**: chỉ dùng dòng có `source_observed_at` trước thời điểm đó, để dựng
-  lại đúng những gì đã biết lúc ấy. Snapshot Order native (không có `source_observed_at`) được coi là biết ở
-  **cuối ngày export** (`export_date` + 1 ngày). Bản đầu các dòng này bị lọc mất khi có `as_of` ⇒
-  `seller_sku` của mọi line thành null (lỗi chỉ lộ khi DAG v2 truyền `--as-of`).
+- **Event identity** = `(dataset_version, producer, source_epoch, source_event_id)`.
+  Repeats with the same content are dropped; the same id with different content is a **conflict**, which is excluded
+  from Silver and makes the job fail. The content hash ignores `recorded_at` because that is the time of the machine
+  running it, not a source fact.
+- **Highest revision wins**: a correction replaces the corrected record; it is not added on top.
+  Example: correcting opening stock 200 → 199 makes the stock ledger use 199, not 399.
+- **`as_of`**: only rows with `source_observed_at` before that time are used, to rebuild
+  exactly what was known at that point. Native Order snapshots (which have no `source_observed_at`) are treated as known at
+  **the end of the export day** (`export_date` + 1 day). The first version of these rows was filtered out when `as_of` was set ⇒
+  `seller_sku` of every line became null (a bug that only shows when the v2 DAG passes `--as-of`).
 
-## Walmart qua JDBC
+## Walmart over JDBC
 
-Manifest khai Walmart là DB phòng ban khác (boundary **JDBC**), file JSONL chỉ là
-bootstrap để nạp DB. Vì vậy:
+The manifest declares Walmart as another department's DB (**JDBC** boundary); the JSONL file is only
+a bootstrap for loading the DB. Therefore:
 
-1. [`scripts/setup/load_order_lifecycle_walmart.py`](../../../scripts/setup/load_order_lifecycle_walmart.py) nạp file
-   bootstrap vào bảng mới `walmart_lifecycle.orders` (khóa `dataset_version` +
-   `purchase_order_id`). `raw_payload` kiểu **TEXT**, không JSONB, để DB không sắp
-   lại khóa của chuỗi gốc. Nạp lại cùng `dataset_version` thì xóa rồi chèn trong
-   một transaction, không nhân đôi. Bảng v1 `walmart.orders` không bị đụng.
-2. Job `spark_jobs/bronze/ingest_order_lifecycle.py` với `--walmart-jdbc walmart_lifecycle.orders` bỏ dòng Walmart từ file, đọc qua
-   JDBC bằng `json_build_object(...)::text`, và dừng lỗi nếu tập mã đơn khác
-   `native_sources.walmart.snapshot_scope.order_ids` (thiếu, thừa hoặc trùng).
+1. [`scripts/setup/load_order_lifecycle_walmart.py`](../../../scripts/setup/load_order_lifecycle_walmart.py) loads the bootstrap
+   file into the new table `walmart_lifecycle.orders` (key `dataset_version` +
+   `purchase_order_id`). `raw_payload` is **TEXT**, not JSONB, so the DB does not reorder
+   the keys of the original string. Reloading the same `dataset_version` deletes then inserts within
+   one transaction, without duplicating. The v1 table `walmart.orders` is not touched.
+2. The job `spark_jobs/bronze/ingest_order_lifecycle.py` with `--walmart-jdbc walmart_lifecycle.orders` drops the Walmart rows from the file, reads them over
+   JDBC using `json_build_object(...)::text`, and fails if the set of order IDs differs from
+   `native_sources.walmart.snapshot_scope.order_ids` (missing, extra or duplicate).
 
-## Đối soát — mọi check phải bằng 0
+## Reconciliation — every check must be 0
 
-Job `spark_jobs/silver/build_order_lifecycle.py` đối soát trên **bảng vừa ghi** (đọc lại từ
-catalog), check nào khác 0 thì job lỗi.
+The job `spark_jobs/silver/build_order_lifecycle.py` reconciles against **the tables just written** (reread from the
+catalog); any check that is not 0 makes the job fail.
 
-| Check | Ý nghĩa |
+| Check | Meaning |
 |---|---|
-| `event_conflicts` | Cùng id sự kiện mà khác nội dung, hoặc cùng entity/revision mà khác id |
-| `missing_dependencies` | Sự kiện trỏ tới sự kiện gốc không có (`depends_on`, `corrects`) |
-| `duplicate_lines`, `orphan_allocations` | Line trùng; allocation không có line |
-| `quantity_mismatch_lines` | Line đã kết thúc mà đặt ≠ hủy + đã phân bổ |
-| `delivery_mismatch_allocations` | Allocation đã giao mà số giao ≠ số phân bổ, hoặc giao vượt |
-| `fanout_line_rows`, `fanout_headline_delta_minor` | Bảng line lifecycle lệch số dòng hoặc tổng headline so với bảng line |
-| `refund_unscoped_rows` | Refund chưa gắn line mà **không** giữ vùng bất định (bị bỏ im lặng) |
-| `refund_exceeds_headline_lines` | Refund sản phẩm thành công vượt headline của line |
-| `stock_snapshot_mismatches` | Cộng dồn thao tác kho tới thời điểm snapshot ≠ snapshot |
-| `listing_binding_orphans` | Line bán theo mapping Listing không tồn tại |
-| `native_unparsed_rows` | Đơn native không parse ra được mã đơn/mã line |
-| `native_lines_without_commitment`, `commitments_without_native` | Line chỉ có ở một phía: Channel nói có mà Seller không ghi, hoặc ngược lại |
-| `native_quantity_mismatches`, `native_money_mismatches` | Số lượng / tiền sau giảm giá / tiền tệ của đơn native khác số **đặt ban đầu** của OMS (native là ảnh chụp lúc tạo đơn, nên không so với số sau hủy) |
-| `coverage_receipt_failures` | Envelope `complete` mà tập dòng nhận được thiếu/thừa số thứ tự, sai số dòng, ngoài khoảng sự kiện, hoặc hash cả tập khác `record_set_sha256` |
-| `feeds_without_complete_coverage` | Feed có sự kiện mà không có coverage nào đạt |
+| `event_conflicts` | Same event id with different content, or same entity/revision with a different id |
+| `missing_dependencies` | Event points to an original event that does not exist (`depends_on`, `corrects`) |
+| `duplicate_lines`, `orphan_allocations` | Duplicate line; allocation without a line |
+| `quantity_mismatch_lines` | Finished line where ordered ≠ canceled + allocated |
+| `delivery_mismatch_allocations` | Delivered allocation where delivered ≠ allocated, or over-delivered |
+| `fanout_line_rows`, `fanout_headline_delta_minor` | The line lifecycle table differs in row count or headline total from the line table |
+| `refund_unscoped_rows` | Refund not attached to a line that does **not** keep an uncertainty scope (silently dropped) |
+| `refund_exceeds_headline_lines` | Successful product refund exceeds the line's headline |
+| `stock_snapshot_mismatches` | Cumulative stock operations up to the snapshot time ≠ snapshot |
+| `listing_binding_orphans` | Line sold through a Listing mapping that does not exist |
+| `native_unparsed_rows` | Native order whose order ID/line ID cannot be parsed |
+| `native_lines_without_commitment`, `commitments_without_native` | Line present on only one side: the Channel says it exists but the Seller did not record it, or vice versa |
+| `native_quantity_mismatches`, `native_money_mismatches` | Quantity / amount after discount / currency of the native order differs from the OMS **original ordered** values (native is a snapshot at order creation, so it is not compared with post-cancellation values) |
+| `coverage_receipt_failures` | A `complete` envelope where the received row set is missing/has extra sequence numbers, has the wrong row count, falls outside the event range, or the whole-set hash differs from `record_set_sha256` |
+| `feeds_without_complete_coverage` | Feed with events but no passing coverage |
 
-Coverage `unavailable` (scope pool Channel quản lý, không có quyền nguồn vận hành)
-không bị kiểm mà được đếm ở `info.coverage_unavailable_scopes`; ở đó dữ liệu là
-**không biết**, không phải 0.
+`unavailable` coverage (pool scope managed by the Channel, with no access to the operational source)
+is not checked but counted in `info.coverage_unavailable_scopes`; there the data is
+**unknown**, not 0.
 
-## Kết quả
+## Results
 
-**Test Spark** (27 ca, image `platform-airflow:2.10.5-spark3.5.3`, `local[1]`, không
-mạng, workspace chỉ đọc, fixture sinh mới trong `/tmp`): **27/27 OK**. Ngoài ca
-sạch, test cố tình làm hỏng dữ liệu và kiểm check bắt được: bản lặp do retry,
-cùng id khác nội dung, mất sự kiện gốc, mất allocation thứ hai, correction tồn
-kho, tiền Walmart lệch, mất một đơn Shopee, thiếu một dòng kho (coverage báo
-`missing_sequence` + `record_count_mismatch`), sửa lén nội dung một dòng giao
-hàng (coverage báo `record_set_digest_mismatch`); Amazon schema 2 parse ra cùng
-kết quả; dòng Walmart dạng JDBC (JSON có khoảng trắng) thay dòng file vẫn
-parse và đối soát sạch; và kiểm `as_of` trước correction refund thấy **15** refund còn bất định có
-giữ vùng ảnh hưởng, sau correction còn **0**.
+**Spark tests** (27 cases, image `platform-airflow:2.10.5-spark3.5.3`, `local[1]`, no
+network, read-only workspace, fixture freshly generated in `/tmp`): **27/27 OK**. Besides the clean
+case, the tests deliberately corrupt the data and check that the checks catch it: retry repeats,
+same id with different content, a missing original event, a missing second allocation, a stock
+correction, a mismatched Walmart amount, a missing Shopee order, a missing stock row (coverage reports
+`missing_sequence` + `record_count_mismatch`), a silently altered delivery row
+(coverage reports `record_set_digest_mismatch`); Amazon schema 2 parses to the same
+result; Walmart rows in JDBC form (JSON with whitespace) replacing the file rows still
+parse and reconcile cleanly; and checking `as_of` before a refund correction finds **15** unresolved refunds that
+keep their affected scope, and **0** after the correction.
 
 ```bash
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
@@ -101,17 +101,17 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_lifecycle_silver.py
 ```
 
-**Chạy thật vào Lakekeeper/MinIO** trên biến thể `default`
+**Real run against Lakekeeper/MinIO** on the `default` variant
 (`dataset-9b9767a38a44fce25446af2afb6836e6`):
 
-- Nạp PostgreSQL hai lần liên tiếp: file 3 = DB 3 cả hai lần.
-- Bronze: manifest **550** dòng nguồn = Bronze **550** (file 547 + **JDBC 3**), lỗi 0;
-  Walmart JDBC thiếu/thừa/trùng 0; run `bronze-v2-20261018-jdbc`
+- Loading PostgreSQL twice in a row: file 3 = DB 3 both times.
+- Bronze: manifest **550** source rows = Bronze **550** (file 547 + **JDBC 3**), errors 0;
+  Walmart JDBC missing/extra/duplicate 0; run `bronze-v2-20261018-jdbc`
   ([receipt](../../evidence/bronze-v2-jdbc-20261018.json)).
-- Silver: 489 sự kiện vận hành, 0 bản lặp, **30** Order Line, **45** allocation,
-  headline **750.000** minor USD (= 15 × (20.000 + 30.000)), refund chưa gắn
-  line 0, bất định chưa giải quyết 0; **30** line native khớp 30 line OMS;
-  coverage **9** complete, **6** scope unavailable; **19/19 check bằng 0**, run
+- Silver: 489 operational events, 0 repeats, **30** Order Lines, **45** allocations,
+  headline **750,000** minor USD (= 15 × (20,000 + 30,000)), refunds not attached to a
+  line 0, unresolved uncertainties 0; **30** native lines match 30 OMS lines;
+  coverage **9** complete, **6** scopes unavailable; **19/19 checks are 0**, run
   `silver-v2-20261018-jdbc`. Receipt: [`silver-v2-receipt-20261018.json`](../../evidence/silver-v2-receipt-20261018.json).
 
 ```bash
@@ -124,18 +124,18 @@ scripts/run/run_order_lifecycle_spark.sh /opt/spark_jobs/silver/build_order_life
   --receipt /receipts/silver-v2-receipt-20261018.json
 ```
 
-Fixture nằm trong `out/` (bị Git bỏ qua); tái tạo bằng
-`python -m generator.generate_order_lifecycle_fixture --output <thư mục mới>` theo [gói B](source_order_lifecycle_fixtures.md).
+The fixture lives in `out/` (ignored by Git); regenerate it with
+`python -m generator.generate_order_lifecycle_fixture --output <new directory>` per [package B](source_order_lifecycle_fixtures.md).
 
-## Giới hạn — chưa làm trong bước này
+## Limitations — not done in this step
 
-- JDBC Walmart đọc một lượt, chưa chia partition song song như job v1 (fixture
-  chỉ 3 đơn); chưa có receipt snapshot của chính DB (LSN/txid).
-- Coverage đã được kiểm trong job, nhưng chưa có bước publish để chặn; hiện job
-  chỉ báo lỗi.
-- Tiền native được đổi từ chuỗi thập phân theo scale 2 (USD trong fixture);
-  chưa đọc bảng currency để xử lý tiền tệ có scale khác.
-- Chưa có Gold, nhãn v2 (gói E), DAG Airflow, DataHub cho các bảng v2.
-- Bronze ghi đè toàn bảng mỗi lần chạy, chưa nạp tăng dần theo run.
-- Chạy `--as-of` sẽ ghi đè cùng các bảng Silver; bằng chứng `as_of` hiện nằm ở
-  test Spark, chưa có bảng riêng theo thời điểm.
+- Walmart JDBC is read in one pass, not split into parallel partitions like the v1 job (the fixture
+  has only 3 orders); there is no snapshot receipt from the DB itself yet (LSN/txid).
+- Coverage is checked in the job, but there is no publish step to block on it yet; currently the job
+  only reports an error.
+- Native amounts are converted from decimal strings at scale 2 (USD in the fixture);
+  the currency table is not read yet to handle currencies with a different scale.
+- There is no Gold, label v2 (package E), Airflow DAG or DataHub for the v2 tables yet.
+- Bronze overwrites the whole table on every run; it does not load incrementally per run yet.
+- Running with `--as-of` overwrites the same Silver tables; the `as_of` evidence currently lives in
+  the Spark tests, with no separate point-in-time tables yet.

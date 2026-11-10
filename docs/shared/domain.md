@@ -1,115 +1,115 @@
-# Tổng quan business domain
+# Business domain overview
 
-Tài liệu giải thích chi tiết business domain của dự án: các thuật ngữ, bài toán dự đoán và những vấn đề dữ liệu mà generator phải mô phỏng. README chỉ tóm tắt phần này.
+This document explains the project's business domain in detail: the terminology, the prediction problem and the data problems the generator must simulate. The README only summarizes it.
 
-## Mục lục
+## Contents
 
-1. [Bức tranh tổng thể](#1-bức-tranh-tổng-thể)
-2. [Các danh từ chính](#2-các-danh-từ-chính)
-3. [Sản phẩm](#3-sản-phẩm)
-4. [Đơn hàng](#4-đơn-hàng)
-5. [Bài toán dự đoán](#5-bài-toán-dự-đoán)
-6. [Dữ liệu chảy vào thế nào](#6-dữ-liệu-chảy-vào-thế-nào)
-7. [Quy tắc về tiền và thời gian](#7-quy-tắc-về-tiền-và-thời-gian)
-8. [Các bài toán dữ liệu generator phải sinh ra](#8-các-bài-toán-dữ-liệu-generator-phải-sinh-ra)
-9. [Phần mở rộng riêng của Amazon](#9-phần-mở-rộng-riêng-của-amazon)
-10. [Giả định và giới hạn](#10-giả-định-và-giới-hạn)
+1. [The big picture](#1-the-big-picture)
+2. [Key nouns](#2-key-nouns)
+3. [Products](#3-products)
+4. [Orders](#4-orders)
+5. [The prediction problem](#5-the-prediction-problem)
+6. [How data flows in](#6-how-data-flows-in)
+7. [Money and time rules](#7-money-and-time-rules)
+8. [Data problems the generator must produce](#8-data-problems-the-generator-must-produce)
+9. [Amazon-specific extensions](#9-amazon-specific-extensions)
+10. [Assumptions and limitations](#10-assumptions-and-limitations)
 
-## 1. Bức tranh tổng thể
+## 1. The big picture
 
-Dự án không xây một sàn như Amazon. Dự án xây **hệ thống dữ liệu của một người bán hàng** bán trên nhiều sàn cùng lúc. Người bán này cần gom dữ liệu từ 5 sàn về một chỗ để phân tích và dự đoán.
+The project does not build a marketplace like Amazon. It builds **the data system of a single Seller** who sells on several marketplaces at once. This Seller needs to bring data from 5 marketplaces into one place for analysis and prediction.
 
-Ví dụ xuyên suốt: công ty **ACME** bán áo hoodie trên Amazon, TikTok Shop, Shopify, Walmart và Shopee. Mỗi sàn trả dữ liệu theo một kiểu khác nhau, và hệ thống gom hết lại.
+Running example: the company **ACME** sells hoodies on Amazon, TikTok Shop, Shopify, Walmart and Shopee. Each marketplace returns data in a different shape, and the system consolidates all of it.
 
-Toàn bộ dữ liệu là **giả lập (synthetic)**. Amazon là mô hình tham chiếu sâu nhất, bốn Channel còn lại mô hình hóa mỏng hơn.
+All data is **synthetic**. Amazon is the most deeply modeled reference; the other four Channels are modeled more thinly.
 
-## 2. Các danh từ chính
+## 2. Key nouns
 
-| Thuật ngữ | Nghĩa | Ví dụ với ACME |
+| Term | Meaning | Example with ACME |
 |---|---|---|
-| **Seller** | Người bán duy nhất mà hệ thống phục vụ | ACME |
-| **Channel** | Nền tảng bên ngoài | Amazon, TikTok Shop, Shopify, Walmart, Shopee |
-| **Marketplace** | Gian hàng theo quốc gia trong một Channel (chỉ Channel nào bán theo quốc gia mới có) | Amazon DE |
-| **Storefront** | "Chỗ cụ thể ACME bán hàng" = Channel + Marketplace nếu có | Amazon DE, TikTok Shop, store Shopify của ACME |
+| **Seller** | The single seller the system serves | ACME |
+| **Channel** | An external platform | Amazon, TikTok Shop, Shopify, Walmart, Shopee |
+| **Marketplace** | A country-specific store within a Channel (only Channels that sell per country have one) | Amazon DE |
+| **Storefront** | "The specific place where ACME sells" = Channel + Marketplace, if any | Amazon DE, TikTok Shop, ACME's Shopify store |
 
-Có 7 Storefront: Amazon US/UK/DE, TikTok Shop US, Shopify (một store), Walmart US, Shopee VN.
+There are 7 Storefronts: Amazon US/UK/DE, TikTok Shop US, Shopify (one store), Walmart US, Shopee VN.
 
-Marketplace chỉ xuất hiện ở Channel bán theo quốc gia. TikTok Shop không có, nên cần từ **Storefront** để gọi chung mọi trường hợp.
+A Marketplace only exists on Channels that sell per country. TikTok Shop has none, so the term **Storefront** is needed to cover every case.
 
-## 3. Sản phẩm
+## 3. Products
 
-- **SKU** là mã do ACME tự đặt, ví dụ `HOODIE-BLK-M`. Đây là mã chung xuyên mọi sàn.
-- **Listing** là bản đăng bán của SKU đó trên một Storefront. Amazon US có ASIN riêng, Shopify có variant ID riêng, giá cũng khác nhau.
+- **SKU** is a code ACME assigns itself, for example `HOODIE-BLK-M`. It is the common code across all marketplaces.
+- **Listing** is the offer of that SKU on one Storefront. Amazon US has its own ASIN, Shopify has its own variant ID, and prices differ too.
 
-Một SKU có nhiều Listing. Nhờ SKU, ta nhận ra "cùng một cái áo đang bán ở 5 nơi". Giá và trạng thái của Listing thay đổi theo thời gian, đây là chỗ đặt dim SCD2.
+One SKU has many Listings. The SKU is what lets us recognize "the same hoodie being sold in 5 places". Listing price and status change over time, which is where the SCD2 dimension sits.
 
-## 4. Đơn hàng
+## 4. Orders
 
-- **Order** là một đơn mà sàn giao cho ACME xử lý.
-- **Order Line** là một dòng sản phẩm trong đơn, ví dụ "2 cái hoodie đen size M".
-- **Order Status** là bộ trạng thái chuẩn: `pending_payment` → `awaiting_shipment` → `shipped` → `delivered` → `completed`, cùng nhánh phụ `cancelled` và `returned`.
+- **Order** is an order the marketplace hands to ACME to fulfill.
+- **Order Line** is one product line in an order, for example "2 black hoodies, size M".
+- **Order Status** is the canonical set of states: `pending_payment` → `awaiting_shipment` → `shipped` → `delivered` → `completed`, plus the side branches `cancelled` and `returned`.
 
-Mỗi sàn dùng tên trạng thái khác nhau (TikTok Shop có `AWAITING_COLLECTION`, Shopify tách trạng thái thanh toán và giao hàng). Ta giữ lại trạng thái gốc ở Silver và có một bảng ánh xạ sang trạng thái chuẩn.
+Each marketplace uses different status names (TikTok Shop has `AWAITING_COLLECTION`, Shopify separates payment and fulfillment status). We keep the original status in Silver and have a mapping table to the canonical status.
 
-Hai thuật ngữ liên quan: **Return** là buyer gửi trả một Order Line sau khi đã giao, **Refund** là tiền được hoàn cho buyer (có hoặc không kèm Return).
+Two related terms: **Return** is when the buyer sends back an Order Line after delivery; **Refund** is money returned to the buyer (with or without a Return).
 
-## 5. Bài toán dự đoán
+## 5. The prediction problem
 
-Câu hỏi ML: *"Order Line này có bị Return hoặc Refund trong 30 ngày sau khi giao không?"*
+The ML question: *"Will this Order Line be Returned or Refunded within 30 days of delivery?"*
 
-| Tình huống | Cách xử lý |
+| Situation | Handling |
 |---|---|
-| Khi nào dự đoán? | Ngay lúc đơn được tạo |
-| Bị hủy trước khi giao | Không tính, vì chưa từng giao |
-| Mua 2 cái, trả 1 cái | Tính là có (nhãn dương) |
-| Vừa giao 10 ngày trước | Chưa biết nhãn, loại khỏi tập train |
+| When is the prediction made? | As soon as the order is created |
+| Cancelled before delivery | Not counted, since it was never delivered |
+| Bought 2, returned 1 | Counted as yes (positive label) |
+| Delivered only 10 days ago | Label not known yet, excluded from the training set |
 
-**Vì sao không dự đoán "khách có mua lại không"?** Amazon và TikTok Shop giấu danh tính người mua, Shopify có thể null với khách checkout không đăng nhập, chỉ Walmart trả đủ. Nên không có `customer_id` dùng chung được giữa 5 Channel.
+**Why not predict "will the customer buy again"?** Amazon and TikTok Shop hide buyer identity, Shopify can be null for guest checkout, and only Walmart returns it fully. So there is no `customer_id` that can be shared across the 5 Channels.
 
-Vì vậy Online Feature Store tra cứu theo **`sku_id` + `storefront_id`**, ví dụ "tỷ lệ trả hàng 90 ngày của hoodie đen ở Amazon DE".
+That is why the Online Feature Store looks up by **`sku_id` + `storefront_id`**, for example "90-day return rate of the black hoodie on Amazon DE".
 
-Nhãn đến sau 30 ngày. Đây chính là tình huống "chưa có đáp án thật mà vẫn phải giám sát drift".
+Labels arrive 30 days later. This is exactly the situation of "having to monitor drift before the ground truth is available".
 
-## 6. Dữ liệu chảy vào thế nào
+## 6. How data flows in
 
-- **Batch**: lịch sử 180 ngày của cả 5 Channel, mỗi Channel một định dạng riêng, đặt trong MinIO/PostgreSQL để kéo về Bronze.
-- **Stream**: event đổi trạng thái đơn và trả hàng, đi qua Kafka và Flink. Mỗi sàn "hỏng" theo kiểu riêng:
-  - TikTok Shop và Shopify (webhook): hay gửi trùng.
-  - Amazon (notification): hay đến trễ.
-  - Walmart và Shopee (giả định polling): đến theo lô.
+- **Batch**: 180 days of history for all 5 Channels, each Channel in its own format, placed in MinIO/PostgreSQL to be pulled into Bronze.
+- **Stream**: order status change and return events, flowing through Kafka and Flink. Each marketplace "breaks" in its own way:
+  - TikTok Shop and Shopify (webhooks): often send duplicates.
+  - Amazon (notifications): often arrive late.
+  - Walmart and Shopee (assumed polling): arrive in batches.
 
-Bên seller **không có clickstream** (lượt xem, giỏ hàng), vì đó là dữ liệu nội bộ của sàn.
+The Seller side has **no clickstream** (views, carts), since that is the marketplace's internal data.
 
-## 7. Quy tắc về tiền và thời gian
+## 7. Money and time rules
 
-- Số tiền gốc giữ nguyên kèm mã tiền tệ gốc, thêm một cột quy ra **USD** theo tỷ giá từng ngày.
-- Shopify có hai loại tiền tệ trên một đơn (tiền của store và tiền khách trả), giữ cả hai.
-- Thời gian lưu **UTC**, tách `event_time` (lúc sự kiện xảy ra) và `ingested_at` (lúc hệ thống nhận). Khoảng chênh giữa hai mốc này là late arrival.
+- Original amounts are kept with their original currency code, plus a column converted to **USD** at the daily exchange rate.
+- Shopify has two currencies per order (the store currency and the currency the customer paid in); both are kept.
+- Times are stored in **UTC**, separating `event_time` (when the event happened) and `ingested_at` (when the system received it). The gap between the two is late arrival.
 
-## 8. Các bài toán dữ liệu generator phải sinh ra
+## 8. Data problems the generator must produce
 
-| Vấn đề | Cụ thể |
+| Problem | Details |
 |---|---|
-| **Skew** | Order theo Storefront: Amazon US 45%, TikTok Shop US 15%, Amazon UK 12%, Amazon DE 10%, Shopify 8%, Walmart US 7%, Shopee VN 3%. Vài SKU chiếm phần lớn doanh số (Zipf). 8 danh mục với tỷ lệ trả hàng khác nhau, quần áo khoảng 22%, đồ gia dụng khoảng 4% |
-| **High cardinality** | Giữ 2.000 SKU. Cardinality cao nằm ở mã Order (khoảng 720 nghìn), mã Order Line (hơn 1 triệu), mã vận đơn và mã buyer theo Channel |
-| **Schema evolution** | Từ một ngày cố định, dữ liệu đơn Amazon chuyển từ model Orders v0 sang Orders 2026-01-01: đổi tên field, đổi cấu trúc, thêm field mới nên partition cũ bị null |
-| **Duplicate offline** | Khoảng 2% dòng bị trùng do export chồng lấn ngày, gồm bản trùng y hệt và bản sửa lại mới hơn |
-| **Data drift** | (1) Covariate: đợt sale kiểu Prime Day làm mức giảm giá và phân phối SKU đổi đột ngột trên các Storefront Amazon. (2) Concept: livestream TikTok làm tỷ lệ trả quần áo tăng gần gấp đôi nhưng feature trông vẫn bình thường |
-| **Duplicate, burst, late (stream)** | Tùy đặc tính từng Channel như mục 6 |
+| **Skew** | Orders by Storefront: Amazon US 45%, TikTok Shop US 15%, Amazon UK 12%, Amazon DE 10%, Shopify 8%, Walmart US 7%, Shopee VN 3%. A few SKUs account for most of the sales (Zipf). 8 categories with different return rates, apparel about 22%, household goods about 4% |
+| **High cardinality** | 2,000 SKUs are kept. High cardinality is in the Order IDs (about 720 thousand), Order Line IDs (over 1 million), tracking numbers and per-Channel buyer IDs |
+| **Schema evolution** | From a fixed date, Amazon order data switches from the Orders v0 model to Orders 2026-01-01: renamed fields, changed structure, and new fields, so older partitions are null |
+| **Offline duplicates** | About 2% of rows are duplicated due to overlapping export days, including exact duplicates and newer corrected versions |
+| **Data drift** | (1) Covariate: a Prime Day-style sale abruptly changes the discount level and SKU distribution on the Amazon Storefronts. (2) Concept: TikTok livestreams almost double the apparel return rate while the features still look normal |
+| **Duplicates, bursts, late arrivals (stream)** | Depending on each Channel's characteristics, as in section 6 |
 
-Mọi con số đều là config của generator, có thể tăng khi chạy trên cloud. Thiết kế chi tiết xem [generator-design.md](../data-platform/reference/generator_design.md).
+All numbers are generator config and can be increased when running on the cloud. For the detailed design see [generator-design.md](../data-platform/reference/generator_design.md).
 
-## 9. Phần mở rộng riêng của Amazon
+## 9. Amazon-specific extensions
 
-Amazon được làm sâu hơn các Channel khác:
+Amazon is modeled more deeply than the other Channels:
 
-- **Fulfillment Method** (ai giao hàng: Seller hay Channel, như FBA/FBM), áp dụng cho cả 5 Channel vì nó ảnh hưởng mạnh tới tỷ lệ trả hàng.
-- **Mã lý do Return** riêng của Amazon.
+- **Fulfillment Method** (who ships: the Seller or the Channel, as in FBA/FBM), applied to all 5 Channels because it strongly affects the return rate.
+- Amazon's own **Return reason codes**.
 
-Phí, settlement, quảng cáo, tồn kho FBA chưa làm ở giai đoạn này, có thể mở rộng sau.
+Fees, settlements, advertising and FBA inventory are not covered at this stage and can be added later.
 
-## 10. Giả định và giới hạn
+## 10. Assumptions and limitations
 
-- **Mức xác minh của dạng dữ liệu từng Channel**: đơn hàng và trả hàng của cả 5 Channel đã đối chiếu với tài liệu chính thức. Một số chi tiết vẫn là *giả định* (ví dụ ngày giao thực tế của Amazon và Shopee, notification của Amazon). Danh sách đầy đủ, kèm nguồn và mức tin cậy, xem [channel-sources.md](../data-platform/reference/channel_sources.md).
-- **Dữ liệu hoàn toàn giả lập**: phân phối (tỷ trọng Storefront, tỷ lệ trả hàng theo danh mục) là tham số của generator, không phải số liệu thật.
-- **Không có clickstream**: dữ liệu lượt xem, giỏ hàng là dữ liệu nội bộ của sàn, nằm ngoài phạm vi góc nhìn Seller.
+- **Verification level of each Channel's data shape**: orders and returns for all 5 Channels have been checked against official documentation. Some details are still *assumptions* (for example the actual delivery date for Amazon and Shopee, and Amazon notifications). For the full list, with sources and confidence levels, see [channel-sources.md](../data-platform/reference/channel_sources.md).
+- **Fully synthetic data**: distributions (Storefront shares, return rates by category) are generator parameters, not real figures.
+- **No clickstream**: view and cart data is the marketplace's internal data, outside the Seller's point of view.

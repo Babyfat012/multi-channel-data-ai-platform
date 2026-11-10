@@ -1,176 +1,176 @@
-# Data Governance trên AWS
+# Data Governance on AWS
 
-Trang này ứng với EDAI-1, dòng 28–33 của rubric: lineage (dữ liệu đi từ đâu tới đâu) và validation (kiểm tra chất
-lượng dữ liệu) của ba pipeline DP1/DP2/DP3.
+This page covers lineage (where data comes from and where it goes) and validation (data quality
+checks) of the three pipelines DP1/DP2/DP3.
 
-Code / cấu hình: [Manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json).
+Code / configuration: [AWS manifest](../evidence/aws/datahub-validation-aws-20261029.json).
 
-Các kết quả dưới đây là của các lần chạy AWS đã ghi lại; trang này không khẳng định dịch vụ hiện vẫn đang bật.
+The results below are from recorded AWS runs; this page does not claim the services are still running.
 
-## Trên AWS
+## On AWS
 
-DataHub 1.7.0.1 chạy bằng Compose trên EC2. Lần publish metadata của sáu DAG ghi vào DataHub 22 dataset, 30 job và 16
-assertion (luật kiểm tra chất lượng), tất cả đều PASS. Thông tin được đưa vào bằng hai script:
+DataHub 1.7.0.1 runs with Compose on EC2. The metadata publish of six DAGs wrote 22 datasets, 30 jobs and 16
+assertions (data quality rules) into DataHub, all PASS. The information is loaded by two scripts:
 
-- [Publisher](../../scripts/run/publish_order_snapshots_datahub.py) khai lineage dựa trên input/output của từng DAG.
-- [Builder validation](../../scripts/evidence/build_order_snapshots_datahub_validation.py) lấy kết quả kiểm tra từ log
-  của các task Airflow đã chạy thành công.
+- The [publisher](../../scripts/run/publish_order_snapshots_datahub.py) declares lineage based on the inputs/outputs of each DAG.
+- The [validation builder](../../scripts/evidence/build_order_snapshots_datahub_validation.py) takes the check results from the logs
+  of Airflow tasks that succeeded.
 
-[Manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json) ghi run_id, task_id, rule và số đo của từng check.
-Ảnh tab Quality chỉ cho thấy assertion có dấu xanh. Muốn biết run_id và số chi tiết thì đọc manifest; không suy ra
-từ nhãn “hours ago” trên giao diện.
+The [AWS manifest](../evidence/aws/datahub-validation-aws-20261029.json) records the run_id, task_id, rule and measurements of each check.
+The Quality tab screenshots only show that the assertions have a green check. For the run_id and detailed numbers, read the manifest; do not infer them
+from the “hours ago” label in the UI.
 
-| DAG / run_id | Bảng và nhiệm vụ | Assertion đã ghi |
+| DAG / run_id | Tables and purpose | Recorded assertions |
 |---|---|---|
-| `dp1_bronze` / `manual__2026-10-27T14:58:12+00:00` | Task `ingest_amazon` đọc payload từ S3 và ghi vào `bronze.raw_amazon_orders_dp1`. Bốn bảng raw còn lại giữ dữ liệu nguồn của từng kênh | `validate_amazon`: số dòng nguồn bằng số dòng Bronze, đều 108.248.563; 0 dòng invalid. Mỗi kênh có check riêng |
-| `dp2_silver` / `manual__2026-10-27T16:05:58+00:00` | Task `build_gold_order_lines` gộp năm bảng `silver.stg_*_order_lines_dp2` thành `gold.fact_order_lines_dp2`. Bảng `gold.dim_amazon_order_dp2` giữ lịch sử theo kiểu SCD2 (lưu cả bản hiện hành và các bản cũ) | `validate_gold_order_lines`: Gold có 227.200.303 dòng, bằng Silver; 0 dòng invalid, 0 khóa trùng. Validator của bảng dimension kiểm tra khóa nối với fact và mỗi đơn chỉ có một bản hiện hành |
-| `dp3_features` / `manual__2026-10-28T00:05:21.167441+00:00` | Task `build_return_features` đọc `gold.fact_order_lines_dp2` và ghi `gold.feat_order_line_return_dp3`: feature tại thời điểm đặt Order | `validate_return_features`: 227.200.303 dòng, bằng Gold. Số dòng thiếu (missing), thừa (extra), sai event time, trùng khóa và invalid đều bằng 0 |
+| `dp1_bronze` / `manual__2026-10-27T14:58:12+00:00` | Task `ingest_amazon` reads the payload from S3 and writes to `bronze.raw_amazon_orders_dp1`. The other four raw tables hold the source data of each Channel | `validate_amazon`: source row count equals Bronze row count, both 108,248,563; 0 invalid rows. Each Channel has its own check |
+| `dp2_silver` / `manual__2026-10-27T16:05:58+00:00` | Task `build_gold_order_lines` merges the five `silver.stg_*_order_lines_dp2` tables into `gold.fact_order_lines_dp2`. Table `gold.dim_amazon_order_dp2` keeps history as SCD2 (stores both the current and the older versions) | `validate_gold_order_lines`: Gold has 227,200,303 rows, equal to Silver; 0 invalid rows, 0 duplicate keys. The dimension table's validator checks the join key with the fact table and that each order has only one current version |
+| `dp3_features` / `manual__2026-10-28T00:05:21.167441+00:00` | Task `build_return_features` reads `gold.fact_order_lines_dp2` and writes `gold.feat_order_line_return_dp3`: features at the time the Order was placed | `validate_return_features`: 227,200,303 rows, equal to Gold. Missing, extra, wrong event time, duplicate key and invalid counts are all 0 |
 
-Code pipeline và vai trò từng task: [Airflow AWS](pipeline_orchestration.md#trên-aws).
+Pipeline code and the role of each task: [Airflow AWS](pipeline_orchestration.md#on-aws).
 
-### DP1: nguồn và Bronze
+### DP1: sources and Bronze
 
-![DataHub lọc AWS S3: bốn dataset nguồn Amazon, Shopee, Shopify và TikTok Shop ở source-exports](../evidence/aws/datahub/s3-sources.png)
+![DataHub filtered to AWS S3: four source datasets Amazon, Shopee, Shopify and TikTok Shop under source-exports](../evidence/aws/datahub/s3-sources.png)
 
-![DataHub Bronze Amazon: nguồn S3 qua ingest_amazon tới raw_amazon_orders_dp1 và các task downstream](../evidence/aws/datahub/dp1-lineage.png)
+![DataHub Bronze Amazon: S3 source through ingest_amazon to raw_amazon_orders_dp1 and downstream tasks](../evidence/aws/datahub/dp1-lineage.png)
 
-![DataHub Quality raw_amazon_orders_dp1: assertion dp1_bronze.validate_amazon có dấu xanh và Passing (1)](../evidence/aws/datahub/dp1-validation.png)
+![DataHub Quality raw_amazon_orders_dp1: assertion dp1_bronze.validate_amazon with a green check and Passing (1)](../evidence/aws/datahub/dp1-validation.png)
 
-### DP2: Silver và Gold
+### DP2: Silver and Gold
 
-![DataHub Gold fact: năm nhánh Bronze qua task Silver, hợp vào build_gold_order_lines rồi fact_order_lines_dp2](../evidence/aws/datahub/dp2-lineage.png)
+![DataHub Gold fact: five Bronze branches through Silver tasks, merging into build_gold_order_lines and then fact_order_lines_dp2](../evidence/aws/datahub/dp2-lineage.png)
 
-![DataHub Quality fact_order_lines_dp2: assertion dp2_silver.validate_gold_order_lines có dấu xanh](../evidence/aws/datahub/dp2-validation.png)
+![DataHub Quality fact_order_lines_dp2: assertion dp2_silver.validate_gold_order_lines with a green check](../evidence/aws/datahub/dp2-validation.png)
 
-### DP3: feature
+### DP3: features
 
-![DataHub: fact_order_lines tới build_return_features, feat_order_line_return rồi validate_return_features](../evidence/aws/datahub/dp3-lineage.png)
+![DataHub: fact_order_lines to build_return_features, feat_order_line_return and then validate_return_features](../evidence/aws/datahub/dp3-lineage.png)
 
-![DataHub Quality feat_order_line_return_dp3: assertion dp3_features.validate_return_features có dấu xanh](../evidence/aws/datahub/dp3-validation.png)
+![DataHub Quality feat_order_line_return_dp3: assertion dp3_features.validate_return_features with a green check](../evidence/aws/datahub/dp3-validation.png)
 
-### CDC, nhãn và warehouse
+### CDC, labels and warehouse
 
-[DAG CDC](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`: task `ingest_walmart_cdc` đọc thay
-đổi từ Kafka và ghi vào `bronze.raw_walmart_cdc_v2`. Validator kiểm 3 offset; không có tin thiếu, thừa hay sai payload.
-[Probe và giải thích CDC](reference/cdc.md#trên-aws).
+[CDC DAG](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`: task `ingest_walmart_cdc` reads changes
+from Kafka and writes them into `bronze.raw_walmart_cdc_v2`. The validator checks 3 offsets; no missing, extra or wrong-payload messages.
+[CDC probe and explanation](reference/cdc.md#on-aws).
 
-![DataHub CDC: Kafka orders qua ingest_walmart_cdc tới raw_walmart_cdc_v2 và validate_walmart_cdc](../evidence/aws/datahub/dp1-cdc-lineage.png)
+![DataHub CDC: Kafka orders through ingest_walmart_cdc to raw_walmart_cdc_v2 and validate_walmart_cdc](../evidence/aws/datahub/dp1-cdc-lineage.png)
 
-![DataHub Quality raw_walmart_cdc_v2: assertion dp1_cdc.validate_walmart_cdc có dấu xanh](../evidence/aws/datahub/dp1-cdc-validation.png)
+![DataHub Quality raw_walmart_cdc_v2: assertion dp1_cdc.validate_walmart_cdc with a green check](../evidence/aws/datahub/dp1-cdc-validation.png)
 
-[DAG nhãn](../../dags/dp3_return_labels.py), run `manual__2026-10-28T16:18:15.667507+00:00`:
-task `build_and_validate_return_labels` nối Gold với đáp án do generator sinh, ghi ra `gold.fact_return_labels_dp3`
-gồm 179.436.428 dòng; theo manifest, 0 dòng trùng và 0 dòng invalid. Nhãn được để ở bảng riêng, tách khỏi feature,
-để tránh leakage (mô hình vô tình nhìn thấy đáp án khi train).
+[Label DAG](../../dags/dp3_return_labels.py), run `manual__2026-10-28T16:18:15.667507+00:00`:
+task `build_and_validate_return_labels` joins Gold with the answers produced by the generator and writes `gold.fact_return_labels_dp3`
+with 179,436,428 rows; per the manifest, 0 duplicate rows and 0 invalid rows. Labels are kept in a separate table, apart from the features,
+to avoid leakage (the model accidentally seeing the answer during training).
 
-![DataHub: năm nhánh Silver qua Gold fact và task build_and_validate tới fact_return_labels_dp3](../evidence/aws/datahub/dp3-return-labels-lineage.png)
+![DataHub: five Silver branches through Gold fact and the build_and_validate task to fact_return_labels_dp3](../evidence/aws/datahub/dp3-return-labels-lineage.png)
 
-[DAG warehouse](../../dags/dp4_warehouse.py), run `manual__2026-10-29T08:34:06.602356+00:00`:
-task `export_and_index_warehouse` chép 30 ngày dữ liệu Gold sang PostgreSQL `warehouse.fact_order_lines_30d_dp2`.
-Trước khi tạo index, assertion đối soát 37.045.741 dòng: đủ năm Channel, số dòng mỗi bên khớp nhau.
+[Warehouse DAG](../../dags/dp4_warehouse.py), run `manual__2026-10-29T08:34:06.602356+00:00`:
+task `export_and_index_warehouse` copies 30 days of Gold data into PostgreSQL `warehouse.fact_order_lines_30d_dp2`.
+Before the index is created, an assertion reconciles 37,045,741 rows: all five Channels present, row counts matching on both sides.
 
-![DataHub: năm bảng Silver qua Gold fact và export_and_index_warehouse tới warehouse.fact_order_lines_30d_dp2](../evidence/aws/datahub/dp4-warehouse-lineage.png)
+![DataHub: five Silver tables through Gold fact and export_and_index_warehouse to warehouse.fact_order_lines_30d_dp2](../evidence/aws/datahub/dp4-warehouse-lineage.png)
 
-![DataHub Quality warehouse.fact_order_lines_30d_dp2: assertion dp4_warehouse.export_and_index_warehouse có dấu xanh](../evidence/aws/datahub/dp4-warehouse-validation.png)
+![DataHub Quality warehouse.fact_order_lines_30d_dp2: assertion dp4_warehouse.export_and_index_warehouse with a green check](../evidence/aws/datahub/dp4-warehouse-validation.png)
 
-Giới hạn:
+Limitations:
 
-- Lineage được khai trong publisher, chưa tự suy ra từ Spark execution plan.
-- Metadata và assertion ở đây là lịch sử của các run có trong manifest; không khẳng định mọi run sau này đều tự
-  publish.
-- Sidebar của UI đang lỗi, nhưng các trang dataset/Lineage/Quality trong ảnh vẫn mở được.
+- Lineage is declared in the publisher and is not yet derived from the Spark execution plan.
+- The metadata and assertions here are the history of the runs in the manifest; this does not claim every later run publishes
+  automatically.
+- The UI sidebar is broken, but the dataset/Lineage/Quality pages in the screenshots still open.
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+Local records keep their original environment and do not replace cloud evidence.
 
-## DataHub — lineage và data validation của DP1/DP2/DP3
+## DataHub — lineage and data validation of DP1/DP2/DP3
 
-## Phạm vi bằng chứng
+## Evidence scope
 
-DataHub GMS `v1.7.0.1` đã nhận **21 dataset** (22 sau khi thêm bảng CDC v2), **29 Airflow job** và **15 assertion**
-từ `scripts/run/publish_order_snapshots_datahub.py`. Sáu dataset nguồn gồm JSONL Amazon,
-ba nguồn JSONL Channel nhỏ, bảng PostgreSQL `walmart.orders` và topic Kafka CDC;
-15 dataset đích là các bảng Iceberg Bronze/Silver/Gold. Metadata nối nguồn →
-Bronze → Silver → Gold → feature bằng input/output của job Airflow và cạnh
-dataset lineage. Nhánh CDC nối topic Kafka với bảng Bronze riêng.
+DataHub GMS `v1.7.0.1` received **21 datasets** (22 after adding the CDC v2 table), **29 Airflow jobs** and **15 assertions**
+from `scripts/run/publish_order_snapshots_datahub.py`. The six source datasets are the Amazon JSONL,
+three small-Channel JSONL sources, the PostgreSQL table `walmart.orders` and the CDC Kafka topic;
+the 15 target datasets are the Bronze/Silver/Gold Iceberg tables. The metadata connects source →
+Bronze → Silver → Gold → features through the Airflow jobs' inputs/outputs and
+dataset lineage edges. The CDC branch connects the Kafka topic to a separate Bronze table.
 
-Các assertion đọc kết quả **đã chạy** từ log Airflow trong volume `platform_airflow-data`;
-không chạy lại Spark khi publish. `scripts/evidence/build_order_snapshots_datahub_validation.py`
-chỉ nhận attempt có dòng `Marking task as SUCCESS`, trích số đo và thời điểm,
-đối chiếu điều kiện PASS rồi ghi
-[`evidence/datahub-validation.json`](../evidence/datahub-validation.json). Mỗi assertion
-trên DataHub giữ `run_id` và metrics gốc trong kết quả SUCCESS. Đây là bản ghi
-bằng chứng của các run đã hoàn tất, chưa phải lịch giám sát validation tự động.
+The assertions read the results of **completed** runs from the Airflow logs in the volume `platform_airflow-data`;
+Spark is not rerun at publish time. `scripts/evidence/build_order_snapshots_datahub_validation.py`
+only accepts attempts that have the line `Marking task as SUCCESS`, extracts the measurements and timestamps,
+checks the PASS condition and then writes
+[`evidence/datahub-validation.json`](../evidence/datahub-validation.json). Each assertion
+in DataHub keeps the `run_id` and the original metrics of the SUCCESS result. This is an evidence
+record of completed runs, not an automated validation monitoring schedule.
 
-| Pipeline | Dataset trên ảnh | Upstream thể hiện trên Lineage | Validate SUCCESS |
+| Pipeline | Dataset in the screenshot | Upstream shown in Lineage | Validate SUCCESS |
 |---|---|---|---|
-| DP1 | `lakehouse.bronze.raw_amazon_orders_dp1` | JSONL Amazon → `ingest_amazon` → Bronze | Nguồn = Bronze **5.827.514**, lỗi **0**, run `manual__2026-10-13T15:30:09+00:00` |
-| DP2 | `lakehouse.gold.fact_order_lines_dp2` | Năm bảng Silver → `build_gold_order_lines` → Gold | Silver = Gold **10.194.358**, lỗi **0**, khóa trùng **0**, run `manual__2026-10-14T03:53:52+00:00` |
-| DP3 | `lakehouse.gold.feat_order_line_return_dp3` | Gold fact → `build_return_features` → feature | Gold = feature **10.194.358**, lỗi **0**, khóa trùng **0**, run `manual__2026-10-14T04:11:15+00:00` |
+| DP1 | `lakehouse.bronze.raw_amazon_orders_dp1` | Amazon JSONL → `ingest_amazon` → Bronze | Source = Bronze **5,827,514**, errors **0**, run `manual__2026-10-13T15:30:09+00:00` |
+| DP2 | `lakehouse.gold.fact_order_lines_dp2` | Five Silver tables → `build_gold_order_lines` → Gold | Silver = Gold **10,194,358**, errors **0**, duplicate keys **0**, run `manual__2026-10-14T03:53:52+00:00` |
+| DP3 | `lakehouse.gold.feat_order_line_return_dp3` | Gold fact → `build_return_features` → features | Gold = features **10,194,358**, errors **0**, duplicate keys **0**, run `manual__2026-10-14T04:11:15+00:00` |
 
-Ảnh được chụp từ tab `Lineage` và `Quality` của UI thật. Tab Quality hiển thị
-`AIRFLOW SPARK VALIDATE` và `1 Passing` cho từng dataset đại diện.
+The screenshots were taken from the `Lineage` and `Quality` tabs of the real UI. The Quality tab shows
+`AIRFLOW SPARK VALIDATE` and `1 Passing` for each representative dataset.
 
 ### DP1
 
-![Nguồn Amazon tới Bronze trong DataHub Lineage](../images/datahub/dp1-lineage.png)
+![Amazon source to Bronze in DataHub Lineage](../images/datahub/dp1-lineage.png)
 
-![Assertion DP1 hiển thị Passing trong DataHub Quality](../images/datahub/dp1-validation.png)
+![DP1 assertion showing Passing in DataHub Quality](../images/datahub/dp1-validation.png)
 
 ### DP2
 
-![Năm bảng Silver tới Gold trong DataHub Lineage](../images/datahub/dp2-lineage.png)
+![Five Silver tables to Gold in DataHub Lineage](../images/datahub/dp2-lineage.png)
 
-![Assertion DP2 hiển thị Passing trong DataHub Quality](../images/datahub/dp2-validation.png)
+![DP2 assertion showing Passing in DataHub Quality](../images/datahub/dp2-validation.png)
 
 ### DP3
 
-![Gold fact tới feature trong DataHub Lineage](../images/datahub/dp3-lineage.png)
+![Gold fact to features in DataHub Lineage](../images/datahub/dp3-lineage.png)
 
-![Assertion DP3 hiển thị Passing trong DataHub Quality](../images/datahub/dp3-validation.png)
+![DP3 assertion showing Passing in DataHub Quality](../images/datahub/dp3-validation.png)
 
-## Bằng chứng chạy lại
+## Rerun evidence
 
-Code CDC (bảng mới `raw_walmart_cdc_v2`, boundary theo run,
-source epoch) và validator feature (so tập khóa, event time) đã đổi. Hai
-check này được chạy lại bằng code hiện tại; mười ba check còn lại giữ run cũ vì
-code của chúng không đổi.
+The CDC code (new table `raw_walmart_cdc_v2`, per-run boundary,
+source epoch) and the feature validator (key set comparison, event time) have changed. These two
+checks were rerun with the current code; the other thirteen checks keep their old runs because
+their code did not change.
 
-| Check | Run mới | Kết quả |
+| Check | New run | Result |
 |---|---|---|
-| DP1 CDC `lakehouse.bronze.raw_walmart_cdc_v2` | `manual__2026-10-18T05:14:10+00:00` | Kafka = Bronze = offset duy nhất **4**; thiếu, thừa, sai payload, lỗi đều **0** ([chi tiết](reference/cdc.md#kết-quả-cdc-v2)) |
-| DP3 `lakehouse.gold.feat_order_line_return_dp3` | `manual__2026-10-18T05:24:29+00:00` | Gold = feature **10.194.358**; thiếu, thừa, sai event time, khóa trùng, lỗi đều **0** |
+| DP1 CDC `lakehouse.bronze.raw_walmart_cdc_v2` | `manual__2026-10-18T05:14:10+00:00` | Kafka = Bronze = unique offsets **4**; missing, extra, wrong payload, errors all **0** ([details](reference/cdc.md#cdc-v2-results)) |
+| DP3 `lakehouse.gold.feat_order_line_return_dp3` | `manual__2026-10-18T05:24:29+00:00` | Gold = features **10,194,358**; missing, extra, wrong event time, duplicate keys, errors all **0** |
 
-Lần DP3 đầu tiên trong ngày (`manual__2026-10-18T05:16:26+00:00`) **thất bại**
-vì executor hết heap khi chỉ bật một Spark worker. Lệnh `createOrReplace` bị
-hủy nên bảng feature cũ vẫn nguyên. Bật đủ hai worker như cấu hình gốc thì run
-thứ hai thành công. Bản chạy lại vẫn là DP3 cũ trên Gold cũ, chưa phải
-feature/nhãn theo nguồn v2.
+The first DP3 run of the day (`manual__2026-10-18T05:16:26+00:00`) **failed**
+because the executor ran out of heap with only one Spark worker enabled. The `createOrReplace` command was
+aborted, so the old feature table stayed intact. With both workers enabled, as in the original configuration, the second
+run succeeded. The rerun is still the old DP3 on the old Gold, not yet
+features/labels from the v2 source.
 
-Manifest mới là [`datahub-validation-v2.json`](../evidence/datahub-validation-v2.json),
-tạo bằng `--run` và `--cdc-table`; mỗi check ghi `log_format` (`v1`, `cdc-v2`,
-`feature-v2`). Manifest cũ [`datahub-validation.json`](../evidence/datahub-validation.json)
-giữ nguyên. Check trên bảng v2 có assertion URN riêng (hậu tố `-v2`), nên kết
-quả của bảng CDC v1 vẫn là lịch sử riêng; bảng v1 được ghi là legacy trong
-mô tả dataset.
+The new manifest is [`datahub-validation-v2.json`](../evidence/datahub-validation-v2.json),
+created with `--run` and `--cdc-table`; each check records `log_format` (`v1`, `cdc-v2`,
+`feature-v2`). The old manifest [`datahub-validation.json`](../evidence/datahub-validation.json)
+is unchanged. Checks on v2 tables have their own assertion URN (suffix `-v2`), so the
+results of the v1 CDC table remain separate history; the v1 table is marked as legacy in
+the dataset description.
 
-Ảnh Quality chỉ hiện `1 Passing`, không hiện `run_id`. Vì vậy kết quả assertion
-được đọc thẳng từ GraphQL của DataHub và lưu ở
+The Quality screenshots only show `1 Passing`, not the `run_id`. So the assertion results
+were read directly from DataHub's GraphQL and saved in
 [`datahub-assertions-v2-20261018.json`](../evidence/datahub-assertions-v2-20261018.json):
-check DP3 có hai lần SUCCESS, lần mới nhất là run sau khi đổi code; check CDC v2 có
-run sau khi đổi code; check CDC v1 vẫn là run trước đó.
+the DP3 check has two SUCCESS results, the latest being the run after the code change; the CDC v2 check has
+a run after the code change; the CDC v1 check is still the earlier run.
 
-![CDC v2: topic Kafka → ingest_walmart_cdc → raw_walmart_cdc_v2 → validate](../images/datahub/v2/dp1-cdc-lineage.png)
+![CDC v2: Kafka topic → ingest_walmart_cdc → raw_walmart_cdc_v2 → validate](../images/datahub/v2/dp1-cdc-lineage.png)
 
-![Assertion CDC v2 hiển thị Passing](../images/datahub/v2/dp1-cdc-validation.png)
+![CDC v2 assertion showing Passing](../images/datahub/v2/dp1-cdc-validation.png)
 
-![Gold fact tới feature, sau lần chạy lại DP3](../images/datahub/v2/dp3-lineage.png)
+![Gold fact to features, after the DP3 rerun](../images/datahub/v2/dp3-lineage.png)
 
-![Assertion DP3 hiển thị Passing, kết quả mới nhất là run sau khi đổi code](../images/datahub/v2/dp3-validation.png)
+![DP3 assertion showing Passing, the latest result being the run after the code change](../images/datahub/v2/dp3-validation.png)
 
-Tái tạo bộ v2 (sau khi các run trên đã có trong volume Airflow):
+Reproducing the v2 set (once the runs above are in the Airflow volume):
 
 ```bash
 docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
@@ -185,14 +185,14 @@ docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
 .venv/bin/python scripts/evidence/capture_order_snapshots_datahub_evidence.py --profile v2
 ```
 
-## Cách tái tạo trên máy đã chuẩn bị DataHub quickstart
+## How to reproduce on a machine with DataHub quickstart set up
 
-Image `mysql:8.2` tại lần pull này có `/bin/bash` 0 byte; image frontend
-`v1.7.0.1` có nhiều Play JAR 0 byte. File
+The `mysql:8.2` image at this pull had a 0-byte `/bin/bash`; the frontend image
+`v1.7.0.1` had many 0-byte Play JARs. The file
 [`docker/datahub-compose.override.yml`](../../docker/datahub-compose.override.yml)
-dùng MySQL `8.0` và frontend `v1.6.0.2` đã kiểm tra chạy được cùng GMS
-`v1.7.0.1`. Đây là cấu hình phục vụ proof cục bộ, cần đồng bộ phiên bản khi triển
-khai dài hạn.
+uses MySQL `8.0` and frontend `v1.6.0.2`, verified to work with GMS
+`v1.7.0.1`. This configuration serves the local proof; versions need to be aligned for a long-term
+deployment.
 
 ```bash
 DATAHUB_VERSION=v1.7.0.1 UI_INGESTION_DEFAULT_CLI_VERSION=1.7.0.14 \
@@ -210,12 +210,12 @@ docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
 .venv/bin/python scripts/evidence/capture_order_snapshots_datahub_evidence.py
 ```
 
-Lần khởi tạo này OpenSearch tự khóa tạo index khi ổ hệ thống còn 13 GB; sau khi
-giải phóng image Data & AI Platform không dùng, đã tắt `cluster.routing.allocation.disk.threshold_enabled`
-cho OpenSearch DataHub **một node**, kiểm tra dung lượng bằng `df -h /` trong lúc
-chạy. Nếu Compose dừng ở `403 cluster create-index blocked`, chỉ sau khi xác
-nhận ổ vẫn còn đủ chỗ, gỡ khóa trong OpenSearch DataHub rồi chạy lại lệnh
-`docker compose ... up -d` ở trên:
+During this initialization, OpenSearch blocked index creation on its own when the system disk had 13 GB left; after
+freeing unused Data & AI Platform images, `cluster.routing.allocation.disk.threshold_enabled` was disabled
+for the **single-node** DataHub OpenSearch, with disk usage checked using `df -h /` while
+running. If Compose stops at `403 cluster create-index blocked`, then only after
+confirming the disk still has enough space, remove the block in the DataHub OpenSearch and rerun the
+`docker compose ... up -d` command above:
 
 ```bash
 docker exec datahub-opensearch-1 curl -sS -X PUT \
@@ -224,11 +224,11 @@ docker exec datahub-opensearch-1 curl -sS -X PUT \
   -d '{"persistent":{"cluster.routing.allocation.disk.threshold_enabled":false,"cluster.blocks.create_index":null}}'
 ```
 
-Không áp dụng cấu hình đó cho môi trường chia sẻ hoặc production.
-Không xóa Docker volume để lấy chỗ: các volume lớn khác thuộc dự án khác.
+Do not apply that configuration to shared or production environments.
+Do not delete Docker volumes to free space: the other large volumes belong to other projects.
 
-UI ở `http://localhost:9002`; GMS ở `http://localhost:8089`.
+UI at `http://localhost:9002`; GMS at `http://localhost:8089`.
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

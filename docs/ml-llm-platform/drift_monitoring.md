@@ -1,127 +1,127 @@
-# Drift Monitoring trên AWS
+# Drift Monitoring on AWS
 
-EDAI-2, dòng 57: novel idea — phát hiện drift theo Channel (kênh bán).
+Per-Channel drift detection.
 
-Drift là khi dữ liệu mới có phân phối khác dữ liệu lúc train model. Khi đó điểm dự đoán của model có thể không còn đáng tin.
-Ở đây một Job Evidently chạy trên EKS so dữ liệu mới với dữ liệu tham chiếu và báo động khi lệch quá ngưỡng.
-Job được chạy khi cần kiểm, chưa tự động train lại model khi có drift.
+Drift is when new data has a different distribution from the data the model was trained on. When that happens, the model's prediction scores may no longer be reliable.
+Here an Evidently Job running on EKS compares new data against reference data and raises an alert when the shift exceeds a threshold.
+The Job is run on demand when a check is needed; it does not yet retrain the model automatically when drift is found.
 
-Các kết quả dưới đây là của những lần chạy trên AWS; tài liệu không khẳng định dịch vụ hiện vẫn đang bật.
+The results below come from runs on AWS; the docs do not claim the services are still up.
 
-<a id="trên-aws-pipeline-a--2026-10-31"></a>
-## Drift trên EKS
+<a id="on-aws-pipeline-a-2026-10-31"></a>
+## Drift on EKS
 
-**Kết luận:** phép so trên dữ liệu ổn định không báo động. Phép so giả lập việc đơn hàng dồn về một sàn (chỉ Shopee)
-báo drift đúng ở cột `seller_sku`, với điểm 0,2028, vượt ngưỡng 0,2. Chạy lại Job lần hai cho ra đúng các số này.
+**Conclusion:** the comparison on stable data raises no alert. The comparison that simulates orders concentrating on one marketplace (Shopee only)
+correctly reports drift on column `seller_sku`, with a score of 0.2028, above the 0.2 threshold. Rerunning the Job a second time gave exactly the same numbers.
 
-Cách làm:
+Method:
 
-- Dữ liệu: bảng `training_lines` trên S3 của môi trường AWS (`s3://platform-665116832975-lakehouse/feature-store/training_lines`, lấy mẫu 2‰).
-- Hai phép so, cả hai đều lấy 30 ngày đầu làm dữ liệu tham chiếu:
-  - `stable`: so với toàn bộ phần dữ liệu sau đó. Đây là trường hợp không có gì thay đổi, nên kỳ vọng không báo động.
-  - `channel_shift`: so với phần dữ liệu sau đó nhưng **chỉ giữ kênh Shopee**, mô phỏng cơ cấu đơn dồn về một sàn. Kỳ vọng có báo động.
-  - Lô "đợt Sale" cũ chỉ là dữ liệu tham khảo, không dùng cho phép đo AWS này.
-- Nơi chạy: Job [`infra/k8s/ml/drift-job.yaml`](../../infra/k8s/ml/drift-job.yaml) trên EKS, context `platform-apps`, namespace `kubeflow`, tên Job `mle-drift`.
-  Job dùng service account `pipeline-runner`; qua Pod Identity, account này chỉ được đọc `feature-store/*`.
-- Phiên bản: **Evidently 0.7.23 và pandas 2.3.3**. pandas 3 làm Evidently lỗi khi import, nên lần chạy này dùng pandas 2.3.3.
+- Data: the `training_lines` table on S3 in the AWS environment (`s3://platform-665116832975-lakehouse/feature-store/training_lines`, 2‰ sample).
+- Two comparisons, both using the first 30 days as reference data:
+  - `stable`: compared with all the data after that. This is the no-change case, so no alert is expected.
+  - `channel_shift`: compared with the data after that but **keeping only the Shopee Channel**, simulating an order mix concentrating on one marketplace. An alert is expected.
+  - The old "Sale Event" batch is reference material only and is not used for this AWS measurement.
+- Where it runs: Job [`infra/k8s/ml/drift-job.yaml`](../../infra/k8s/ml/drift-job.yaml) on EKS, context `platform-apps`, namespace `kubeflow`, Job name `mle-drift`.
+  The Job uses the service account `pipeline-runner`; through Pod Identity, this account can only read `feature-store/*`.
+- Versions: **Evidently 0.7.23 and pandas 2.3.3**. pandas 3 makes Evidently fail on import, so this run uses pandas 2.3.3.
 
-Kết quả: [mle-drift-20261031.json](../evidence/aws/mle-drift-20261031.json).
+Results: [mle-drift-20261031.json](../evidence/aws/mle-drift-20261031.json).
 
-Điểm drift dùng khoảng cách JS (Jensen-Shannon): 0 là hai phân phối giống hệt, càng lớn càng lệch. Một cột bị coi là drift khi điểm vượt ngưỡng của cột đó.
+The drift score uses JS (Jensen-Shannon) distance: 0 means the two distributions are identical, larger means more different. A column counts as drifted when its score exceeds that column's threshold.
 
-| Phép so | Dòng tham chiếu / hiện tại | JS `seller_sku` (ngưỡng 0,2) | JS `label` (ngưỡng 0,1) | Alert |
+| Comparison | Reference / current rows | JS `seller_sku` (threshold 0.2) | JS `label` (threshold 0.1) | Alert |
 |---|---:|---:|---:|---|
-| `stable` | 72.109 / 287.348 | 0,0664 | 0,0008 | không |
-| `channel_shift` | 72.109 / 8.320 | **0,2028 > 0,2** | 0,0298 | **có: seller_sku** |
+| `stable` | 72,109 / 287,348 | 0.0664 | 0.0008 | no |
+| `channel_shift` | 72,109 / 8,320 | **0.2028 > 0.2** | 0.0298 | **yes: seller_sku** |
 
-Cách đọc: lô `stable` không báo động. Lô `channel_shift` chỉ giữ Shopee nên tỉ lệ các SKU thay đổi, làm cột `seller_sku` vượt ngưỡng;
-cột `label` (nhãn trả hàng) vẫn dưới ngưỡng. Các số này đo trên dữ liệu S3 của AWS; số của lô Sale chạy local không được dùng thay.
+How to read it: the `stable` batch raises no alert. The `channel_shift` batch keeps only Shopee, so the SKU proportions change and the `seller_sku` column exceeds its threshold;
+the `label` column (return label) stays below its threshold. These numbers were measured on the AWS S3 data; the numbers from the local Sale batch are not used in their place.
 
-### Từng bước và ảnh
+### Step by step with screenshots
 
-Quy trình có bốn bước. Bốn ảnh ngay dưới đây chạy **ở local trên dữ liệu mô phỏng** (60 ngày, 400 dòng mỗi ngày, kênh Shopee dồn về nửa sau danh mục SKU).
-Mục đích là chứng minh quy trình chạy được trước khi đưa lên EKS. Điểm JS trong các ảnh này **không phải** số đo AWS ở bảng trên.
+The process has four steps. The four screenshots right below were run **locally on simulated data** (60 days, 400 rows per day, the Shopee Channel concentrating on the second half of the SKU catalog).
+The purpose is to show the process works before moving it to EKS. The JS scores in these screenshots are **not** the AWS measurements in the table above.
 
-1. **Dữ liệu tham chiếu và hiện tại:** từ `training_lines`, lấy 30 ngày đầu làm tham chiếu. Với `stable`, dữ liệu hiện tại là phần sau; với `channel_shift`, là phần sau nhưng chỉ của Shopee.
+1. **Reference and current data:** from `training_lines`, take the first 30 days as reference. For `stable`, the current data is the rest; for `channel_shift`, it is the rest but Shopee only.
 
-   ![Bước 1 (local, mô phỏng): hai cửa sổ tham chiếu và hiện tại của stable và channel_shift, ngày, số dòng, nhãn dương, SKU, kênh](../evidence/drift-data-local-20261104.png)
-2. **Báo cáo `stable`:** Evidently so từng cột bằng khoảng cách Jensen-Shannon. Lô có cùng phân phối nên không cột nào vượt ngưỡng.
+   ![Step 1 (local, simulated): the reference and current windows of stable and channel_shift, dates, row counts, positive labels, SKUs, Channels](../evidence/drift-data-local-20261104.png)
+2. **`stable` report:** Evidently compares each column with Jensen-Shannon distance. The batch has the same distribution, so no column exceeds its threshold.
 
-   ![Evidently stable (local, mô phỏng): seller_sku không drift](../evidence/drift-stable-local-20261104.png)
+   ![Evidently stable (local, simulated): seller_sku no drift](../evidence/drift-stable-local-20261104.png)
 
-3. **Báo cáo `channel_shift`:** cột `seller_sku` vượt ngưỡng 0,2, cột `label` thì không.
+3. **`channel_shift` report:** column `seller_sku` exceeds the 0.2 threshold, column `label` does not.
 
-   ![Evidently channel_shift (local, mô phỏng): seller_sku drift, JS 0,649](../evidence/drift-channel_shift-local-20261104.png)
+   ![Evidently channel_shift (local, simulated): seller_sku drift, JS 0.649](../evidence/drift-channel_shift-local-20261104.png)
 
-4. **Bảng kết quả và alert** (cùng cấu trúc với `mle-drift-20261031.json`):
+4. **Results table and alert** (same structure as `mle-drift-20261031.json`):
 
-   ![Bảng JS theo cột: stable ổn định, channel_shift alert](../evidence/drift-summary-local-20261104.png)
+   ![Per-column JS table: stable is stable, channel_shift alerts](../evidence/drift-summary-local-20261104.png)
 
-**Báo cáo Evidently từ EKS.** Để có ảnh báo cáo thật từ EKS, Job [`mle-drift`](../../infra/k8s/ml/drift-job.yaml) được chạy lại (namespace `kubeflow`, đầu vào vẫn là `training_lines` trên S3 như lần trước):
+**Evidently reports from EKS.** To get real report screenshots from EKS, the Job [`mle-drift`](../../infra/k8s/ml/drift-job.yaml) was rerun (namespace `kubeflow`, input still `training_lines` on S3 as before):
 
-1. Pod được giữ lại 15 phút sau khi chạy xong, đủ thời gian chép báo cáo HTML ra bằng `kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks`.
-2. Chụp ảnh báo cáo bằng [`capture_drift_evidence.py`](../../scripts/evidence/capture_drift_evidence.py) (`--html-dir drift-eks --summary drift-eks/summary.json`).
+1. The pod is kept for 15 minutes after it finishes, enough time to copy the HTML reports out with `kubectl -n kubeflow cp <pod>:/tmp/drift ./drift-eks`.
+2. Screenshot the reports with [`capture_drift_evidence.py`](../../scripts/evidence/capture_drift_evidence.py) (`--html-dir drift-eks --summary drift-eks/summary.json`).
 
-Kết quả lần chạy lại **trùng với lần trước đến từng chữ số thập phân** ([drift-summary-eks.json](../evidence/aws/drift-summary-eks.json)), nghĩa là phép đo ổn định và chạy lại được.
+The rerun's results **match the previous run down to every decimal place** ([drift-summary-eks.json](../evidence/aws/drift-summary-eks.json)), meaning the measurement is stable and reproducible.
 
-**Bước 1 trên EKS: dữ liệu tham chiếu và hiện tại.** Ảnh dưới dựng từ chính tập `training_lines` trên S3 (đầu vào của Job, 359.457 dòng), bằng hàm `ml.drift.comparisons` với `--reference-days 30`.
-Số dòng tính ra **đúng bằng** `reference_rows`/`current_rows` trong summary của Job (stable 72.109 / 287.348; channel_shift 72.109 / 8.320).
-Vì vậy ảnh mô tả đúng hai khoảng dữ liệu mà Evidently đã so:
+**Step 1 on EKS: reference and current data.** The screenshot below is built from the same `training_lines` dataset on S3 (the Job's input, 359,457 rows), using the function `ml.drift.comparisons` with `--reference-days 30`.
+The computed row counts are **exactly equal** to `reference_rows`/`current_rows` in the Job's summary (stable 72,109 / 287,348; channel_shift 72,109 / 8,320).
+So the screenshot correctly describes the two data ranges Evidently compared:
 
-- Tham chiếu: 01/01–30/01. Hiện tại: từ 31/01.
-- Ở `channel_shift`, dữ liệu hiện tại chỉ còn Shopee: 8.320 dòng, 1.678 SKU, tỉ lệ nhãn dương 8,75% (tham chiếu là 11,28%).
+- Reference: Jan 1–Jan 30. Current: from Jan 31.
+- In `channel_shift`, the current data is Shopee only: 8,320 rows, 1,678 SKUs, positive label rate 8.75% (reference is 11.28%).
 
-![Bước 1 trên EKS: hai cửa sổ dữ liệu của stable và channel_shift từ training_lines trên S3, số dòng khớp summary của Job](../evidence/aws/drift-data-aws.png)
+![Step 1 on EKS: the two data windows of stable and channel_shift from training_lines on S3, row counts match the Job's summary](../evidence/aws/drift-data-aws.png)
 
-![Evidently trên EKS, phép so stable: seller_sku và label không drift](../evidence/aws/drift-stable-aws.png)
+![Evidently on EKS, stable comparison: seller_sku and label no drift](../evidence/aws/drift-stable-aws.png)
 
-![Evidently trên EKS, phép so channel_shift: seller_sku drift, JS 0,2028 vượt ngưỡng 0,2; label không drift](../evidence/aws/drift-channel_shift-aws.png)
+![Evidently on EKS, channel_shift comparison: seller_sku drift, JS 0.2028 above the 0.2 threshold; label no drift](../evidence/aws/drift-channel_shift-aws.png)
 
-![Bảng Jensen-Shannon theo cột từ summary.json của EKS: stable không alert, channel_shift có alert](../evidence/aws/drift-summary-aws.png)
+![Per-column Jensen-Shannon table from the EKS summary.json: stable no alert, channel_shift alerts](../evidence/aws/drift-summary-aws.png)
 
-Lưu ý khi đọc ảnh `channel_shift`: biểu đồ phân phối của `seller_sku` gần như trống, vì cột này có hàng nghìn giá trị khác nhau và mỗi giá trị chỉ chiếm tỉ lệ rất nhỏ.
-Thông tin chính là điểm Jensen-Shannon và kết luận `Detected`. Cột `Alert` trong bảng tóm tắt là kết luận của cả phép so, không phải của từng cột.
+Note when reading the `channel_shift` screenshot: the `seller_sku` distribution chart is almost empty, because this column has thousands of distinct values and each value is a tiny share.
+The key information is the Jensen-Shannon score and the `Detected` verdict. The `Alert` column in the summary table is the verdict for the whole comparison, not for each column.
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+Local records keep their original environment and are not a substitute for cloud evidence.
 
-<!-- Mục đích: theo dõi data drift đầu vào model bằng Evidently, có proof chạy được. -->
-## ML-N2: theo dõi data drift (Evidently)
+<!-- Purpose: monitor model input data drift with Evidently, with a runnable proof. -->
+## Data drift monitoring (Evidently)
 
-Evidently so phân phối dữ liệu đầu vào của một lô mới với lô tham chiếu (giai đoạn train) và cảnh báo khi lệch.
-Cảnh báo này là tín hiệu để kiểm lại model **trước khi** tin vào điểm dự đoán, ví dụ khi đợt Sale làm thay đổi cơ cấu SKU.
+Evidently compares the input data distribution of a new batch with a reference batch (the training period) and warns when they differ.
+This warning is a signal to recheck the model **before** trusting its prediction scores, e.g. when a Sale Event changes the SKU mix.
 
-| Thành phần | File |
+| Component | File |
 |---|---|
-| Kiểm drift + tóm tắt | [`ml/drift.py`](../../ml/drift.py), test [`tests/unit/test_drift.py`](../../tests/unit/test_drift.py) |
-| Lô "đợt Sale" | `generator.generate_order_lifecycle --sku-zipf-s 0.3` (SKU khuyến mãi dàn đều) |
-| Kết quả | [`evidence/mle-drift-summary-20261021.json`](../evidence/mle-drift-summary-20261021.json), HTML ở `out/drift/` |
+| Drift check + summary | [`ml/drift.py`](../../ml/drift.py), test [`tests/unit/test_drift.py`](../../tests/unit/test_drift.py) |
+| "Sale Event" batch | `generator.generate_order_lifecycle --sku-zipf-s 0.3` (promoted SKUs spread evenly) |
+| Results | [`evidence/mle-drift-summary-20261021.json`](../evidence/mle-drift-summary-20261021.json), HTML in `out/drift/` |
 
-## Cách đo
+## How it is measured
 
-- Cột: `seller_sku`, `label`, đều là cột phân loại. Phương pháp: khoảng cách **Jensen-Shannon**.
-- Ngưỡng: `seller_sku` là 0,2. Cột này có khoảng 100 giá trị; chỉ riêng nhiễu do lấy mẫu khoảng 1.000 dòng đã cho điểm 0,14, nên ngưỡng phải cao hơn mức đó.
-  `label` dùng ngưỡng mặc định 0,1.
-- `alert` bật khi có ít nhất một cột bị drift.
+- Columns: `seller_sku`, `label`, both categorical. Method: **Jensen-Shannon** distance.
+- Thresholds: `seller_sku` is 0.2. This column has about 100 values; sampling noise alone on about 1,000 rows already gives a score of 0.14, so the threshold must be above that.
+  `label` uses the default threshold of 0.1.
+- `alert` fires when at least one column has drifted.
 
-**Bẫy đã gặp:** khi dữ liệu trên 1.000 dòng, Evidently tự đổi phương pháp từ chi-square sang Jensen-Shannon.
-Hai phương pháp đọc ngược nhau: chi-square trả p-value, số **nhỏ** nghĩa là drift; Jensen-Shannon trả khoảng cách, số **lớn** nghĩa là drift.
-Bản code đầu đọc mọi số như p-value, nên kết luận ngược hẳn: báo `label` drift và bỏ sót `seller_sku`.
-Lỗi được phát hiện khi tính lại bằng chi-square của scipy. Cách sửa: xác định chiều so dựa vào tên phương pháp ghi trong metric; test phủ cả hai chiều và các giá trị sát ngưỡng.
+**Pitfall hit:** when the data has more than 1,000 rows, Evidently switches the method from chi-square to Jensen-Shannon on its own.
+The two methods read in opposite directions: chi-square returns a p-value, where a **small** number means drift; Jensen-Shannon returns a distance, where a **large** number means drift.
+The first version of the code read every number as a p-value, so the conclusion was completely reversed: it reported `label` drift and missed `seller_sku`.
+The bug was found by recomputing with scipy's chi-square. Fix: determine the comparison direction from the method name recorded in the metric; tests cover both directions and values right at the threshold.
 
 ## Proof
 
-| Lô so với tham chiếu (30 ngày đầu, 2.307 line) | `seller_sku` | `label` | alert |
+| Batch compared with reference (first 30 days, 2,307 lines) | `seller_sku` | `label` | alert |
 |---|---|---|---|
-| 15 ngày sau, cùng phân phối (1.165 line) | 0,136 | 0,005 | **không** |
-| Đợt Sale 5 ngày, zipf 0,3 (1.228 line) | **0,436** | 0,001 | **có** |
+| 15 days later, same distribution (1,165 lines) | 0.136 | 0.005 | **no** |
+| 5-day Sale Event, zipf 0.3 (1,228 lines) | **0.436** | 0.001 | **yes** |
 
-Kiểm tra bằng tay: SKU đứng đầu chiếm 27,9% lô tham chiếu nhưng chỉ 3,3% trong đợt Sale, còn tỷ lệ trả hàng gần như
-giữ nguyên (0,299 / 0,306 / 0,300). Điều này khớp với kết quả chỉ `seller_sku` bị drift.
+Manual check: the top SKU makes up 27.9% of the reference batch but only 3.3% of the Sale Event, while the return rate stays almost
+unchanged (0.299 / 0.306 / 0.300). This matches the result that only `seller_sku` drifted.
 
-## Chạy
+## Run
 
 ```bash
 uv run --no-project --with evidently==0.7.23 --with s3fs==2026.9.0 --with pyarrow \
@@ -132,4 +132,4 @@ uv run --no-project --with evidently==0.7.23 --with s3fs==2026.9.0 --with pyarro
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

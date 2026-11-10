@@ -1,42 +1,42 @@
-# Coordinator Agent trên EKS
+# Coordinator Agent on EKS
 
-EDAI-2, dòng 25–26: điều phối hai Agent, multi-replica, autoscale và publish.
+Orchestrating two Agents, with multiple replicas, autoscaling and publishing.
 
-Coordinator là Agent điều phối. Nó nhận câu hỏi, gọi Data Agent và Model Agent qua A2A gateway, rồi gộp feature và kết quả dự đoán thành một câu trả lời.
+The Coordinator is the orchestrating Agent. It receives a question, calls Data Agent and Model Agent through the A2A gateway, then combines the features and prediction into one answer.
 Code: [coordinator.yaml](../../infra/k8s/agents/coordinator.yaml), [KEDA](../../infra/k8s/agents/coordinator-keda.yaml).
 
-## Bằng chứng EKS
+## EKS evidence
 
-Câu hỏi thử: SKU APP-00042, kênh Amazon US, 1 sản phẩm giá 25 USD.
-Coordinator trả tỉ lệ Return **0,1698** và điểm rủi ro **0,1661**, khớp với số khi gọi API trực tiếp.
+Test question: SKU APP-00042, Channel Amazon US, 1 unit at 25 USD.
+The Coordinator returns a Return rate of **0.1698** and a risk score of **0.1661**, matching the numbers from calling the API directly.
 
-![Coordinator tổng hợp câu trả lời](../evidence/aws/kagent-ui-coordinator-answer-20261030.png)
+![Coordinator combines the answer](../evidence/aws/kagent-ui-coordinator-answer-20261030.png)
 
-Coordinator đã được publish trong [Registry](agent_registry.md).
-Prompt của nó tên `platform-coordinator`, nhãn `production`, được quản lý trên Langfuse. Khi CI deploy, prompt được đồng bộ vào ConfigMap.
+The Coordinator has been published in the [Registry](agent_registry.md).
+Its prompt, named `platform-coordinator` with label `production`, is managed in Langfuse. When CI deploys, the prompt is synced into a ConfigMap.
 
-![Langfuse AWS: prompt của Coordinator và Agent](../evidence/aws/langfuse-prompts-20261030.png)
+![Langfuse on AWS: prompts for the Coordinator and Agents](../evidence/aws/langfuse-prompts-20261030.png)
 
-## Autoscale trên EKS
+## Autoscaling on EKS
 
-Cấu hình [KEDA Coordinator](../../infra/k8s/agents/coordinator-keda.yaml): tối thiểu 2 pod, tối đa 3; thêm pod khi mỗi pod nhận quá 0,5 request/giây trên route `a2a-coordinator`.
+[Coordinator KEDA](../../infra/k8s/agents/coordinator-keda.yaml) configuration: minimum 2 pods, maximum 3; add a pod when each pod receives more than 0.5 requests/second on route `a2a-coordinator`.
 
-Chạy [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh). Log [keda-coordinator.txt](../evidence/aws/keda-coordinator.txt) cho thấy số pod đi **2 → 3 → 2**:
-lên 3 sau khoảng 55 giây, và về 2 sau khoảng 8 phút.
-Bài này chạy cùng lúc với Model Agent; ảnh từng pod ở [Agents](agents.md#keda-model-agent-eks-platform-apps).
+Run [`keda_scale_test.sh`](../../scripts/evidence/keda_scale_test.sh). The log [keda-coordinator.txt](../evidence/aws/keda-coordinator.txt) shows the pod count going **2 → 3 → 2**:
+up to 3 after about 55 seconds, and back to 2 after about 8 minutes.
+This test ran at the same time as the Model Agent one; per-pod screenshots are in [Agents](agents.md#keda-model-agent-eks-platform-apps).
 
-Phần `Events` trong log có một cảnh báo `FailedGetExternalMetric` cũ (lặp hàng chục nghìn lần trong 2 ngày).
-Lúc đó node EKS đang scale về 0, nên API metric của KEDA không trả lời.
-Cảnh báo này không xuất hiện trong lần scale được ghi ở đây; các sự kiện `SuccessfulRescale` bên dưới là của lần chạy này.
+The `Events` section of the log contains an old `FailedGetExternalMetric` warning (repeated tens of thousands of times over 2 days).
+At that time the EKS nodes were scaling to 0, so the KEDA metrics API did not respond.
+This warning does not appear in the scaling run recorded here; the `SuccessfulRescale` events below belong to this run.
 
-![HPA Coordinator và Model Agent đều REPLICAS 3 khi có tải](../evidence/aws/keda-scale-up-model-agent-coordinator.png)
+![Coordinator and Model Agent HPAs both at REPLICAS 3 under load](../evidence/aws/keda-scale-up-model-agent-coordinator.png)
 
-![Sau khi tải dừng, HPA Coordinator và Model Agent về REPLICAS 2](../evidence/aws/keda-scale-down-model-agent-coordinator.png)
+![After the load stops, Coordinator and Model Agent HPAs return to REPLICAS 2](../evidence/aws/keda-scale-down-model-agent-coordinator.png)
 
-## Giới hạn
+## Limitations
 
-Cổng `Eval agent` đạt 12/12 (Jenkins #9), nhưng chỉ chấm việc định tuyến tới đúng Agent, không chấm con số trong câu trả lời.
-Hai lần chạy đầu báo đỏ hoặc chưa chạy xong, vì LLM chạy CPU bị chậm khi nhiều lượt gọi chồng lên nhau.
-Xem thêm: [CI/CD](cicd.md), [Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026).
+The `Eval agent` gate passed 12/12 (Jenkins #9), but it only scores routing to the right Agent, not the numbers in the answer.
+The first two runs were red or did not finish, because the CPU-hosted LLM slows down when several calls overlap.
+See also: [CI/CD](cicd.md), [Agent Evaluation](agent_evaluation.md#coordinator-on-aws-2026-11-04).
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

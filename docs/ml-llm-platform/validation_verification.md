@@ -1,214 +1,214 @@
-# Validation và Verification
+# Validation and Verification
 
-EDAI-2, dòng 28–32: coverage >90%, EP/BVA, mutation >80%, property-based và Locust.
+This page covers coverage >90%, EP/BVA, mutation >80%, property-based testing and Locust.
 
-**Kết luận:** coverage (tỉ lệ dòng code được test chạy qua) đạt 96%, mutation score vượt ngưỡng 80%, và load test Locust trên EKS
-chạy 3.004 request không lỗi. Test chạy trên máy phát triển; riêng load test gọi vào cụm EKS.
+**Conclusion:** coverage (the share of code lines exercised by tests) reaches 96%, the mutation score exceeds the 80% threshold, and the Locust load test on EKS
+ran 3,004 requests without errors. Tests run on the development machine; only the load test calls into the EKS cluster.
 
-Giải thích ngắn các loại kiểm thử:
+A short explanation of the test types:
 
-- **EP/BVA** (Equivalence Partitioning / Boundary Value Analysis): chia đầu vào thành các nhóm tương đương và thử đúng các giá trị ở biên, ví dụ 0, 1, giới hạn và giới hạn + 1.
-- **Property-based** (thư viện Hypothesis): thay vì viết từng ví dụ, khai báo một tính chất luôn phải đúng rồi để thư viện tự sinh hàng trăm đầu vào để thử.
-- **Mutation testing** (mutmut): cố ý sửa code thành nhiều bản lỗi nhỏ (gọi là mutant) rồi chạy test. Test làm tốt nếu phát hiện được phần lớn các mutant này.
-- **Locust**: công cụ load test, giả lập nhiều người dùng gọi API cùng lúc.
+- **EP/BVA** (Equivalence Partitioning / Boundary Value Analysis): split inputs into equivalence groups and test exactly the values at the boundaries, e.g. 0, 1, the limit and the limit + 1.
+- **Property-based** (Hypothesis library): instead of writing individual examples, declare a property that must always hold and let the library generate hundreds of inputs to test.
+- **Mutation testing** (mutmut): deliberately change the code into many small faulty versions (called mutants) and run the tests. The tests are good if they detect most of these mutants.
+- **Locust**: a load testing tool that simulates many users calling the API at the same time.
 
-## Kiểm chứng code
+## Code verification
 
-Test của PR chạy trên máy phát triển, không được ghi là test chạy trên AWS. Kết quả: 86 test pass, coverage của `serving/app.py` đạt **98%**, toàn bộ đạt **96%**.
+PR tests run on the development machine and are not recorded as tests run on AWS. Result: 86 tests pass, coverage of `serving/app.py` reaches **98%**, overall **96%**.
 
-- [Test API](../../serving/tests/test_app.py) dùng fixture, MagicMock/AsyncMock và httpx MockTransport để thay các dịch vụ thật.
-- EP/BVA thử số SKU 0/1/50/100/101 và độ dài 0/1/64/65.
-- Hypothesis kiểm idempotency: gọi lại cùng request, hoặc gửi SKU bị lặp, vẫn ra cùng kết quả.
-- [Model properties](../../tests/unit/test_model_properties.py) kiểm dự đoán và huấn luyện cho kết quả nhất quán, và việc chia dữ liệu theo thời gian.
+- [API tests](../../serving/tests/test_app.py) use fixtures, MagicMock/AsyncMock and httpx MockTransport to replace real services.
+- EP/BVA tests SKU counts 0/1/50/100/101 and lengths 0/1/64/65.
+- Hypothesis checks idempotency: repeating the same request, or sending duplicate SKUs, still gives the same result.
+- [Model properties](../../tests/unit/test_model_properties.py) checks that prediction and training give consistent results, and the time-based data split.
 
-![Coverage: 86 pass, app.py 98%, tổng 96%](../evidence/serving-coverage-20261031.png)
+![Coverage: 86 pass, app.py 98%, total 96%](../evidence/serving-coverage-20261031.png)
 
-### Ảnh từng loại kiểm thử
+### Screenshots of each test type
 
-Các ảnh dưới là **output terminal thật** của lần chạy trên máy phát triển. Script
-[`capture_testing_evidence.py`](../../scripts/evidence/capture_testing_evidence.py) chạy test rồi chụp lại, kèm file `.txt` cùng tên.
-Lần chạy này sau khi test và code đã thay đổi, nên số khác ảnh coverage ở trên: **90 test pass, `serving/app.py` 96%, tổng 96%** (vẫn trên ngưỡng 90%).
+The screenshots below are **real terminal output** from the run on the development machine. The script
+[`capture_testing_evidence.py`](../../scripts/evidence/capture_testing_evidence.py) runs the tests and captures them, with a `.txt` file of the same name.
+This run came after the tests and code had changed, so the numbers differ from the coverage screenshot above: **90 tests pass, `serving/app.py` 96%, total 96%** (still above the 90% threshold).
 
 **Coverage** (`pytest --cov=serving`): [`testing-coverage-20261104.txt`](../evidence/testing-coverage-20261104.txt)
 
-![pytest-cov serving: 90 passed, app.py 96%, tổng 96%](../evidence/testing-coverage-20261104.png)
+![pytest-cov serving: 90 passed, app.py 96%, total 96%](../evidence/testing-coverage-20261104.png)
 
-**EP/BVA**: 53 test theo nhóm tương đương và giá trị biên (số SKU 0/1/100/101, định dạng SKU, body sai kiểu, `top_k`, trường dự đoán thiếu hoặc sai):
+**EP/BVA**: 53 tests by equivalence group and boundary value (SKU count 0/1/100/101, SKU format, wrongly typed body, `top_k`, missing or invalid prediction fields):
 
-![pytest -v EP/BVA: 53 test boundaries, sku_format, bad_body, validation PASSED](../evidence/testing-epbva-20261104.png)
+![pytest -v EP/BVA: 53 tests boundaries, sku_format, bad_body, validation PASSED](../evidence/testing-epbva-20261104.png)
 
-**Property-based (hypothesis)**, kiểm hai nhóm tính chất:
+**Property-based (hypothesis)**, checking two groups of properties:
 
 - API (`test_idempotent`).
-- Model: dự đoán không đổi với cùng đầu vào; khi chia dữ liệu theo thời gian thì tập train không chứa dữ liệu tương lai; huấn luyện lại trên cùng dữ liệu ra cùng một model.
+- Model: prediction does not change for the same input; with a time-based split the training set contains no future data; retraining on the same data yields the same model.
 
-![hypothesis API: 50 ví dụ, 0 lỗi](../evidence/testing-hypothesis-20261104.png)
+![hypothesis API: 50 examples, 0 errors](../evidence/testing-hypothesis-20261104.png)
 
-![hypothesis model: 5 test, 100–200 ví dụ mỗi test, 0 lỗi](../evidence/testing-hypothesis-model-20261104.png)
+![hypothesis model: 5 tests, 100–200 examples per test, 0 errors](../evidence/testing-hypothesis-model-20261104.png)
 
-Ảnh mutation (mutmut) nằm ở mục dưới. **Locust** chạy trên EKS, ảnh báo cáo nằm ở mục [Load test trên EKS](#load-test-trên-eks).
+The mutation (mutmut) screenshots are in the section below. **Locust** runs on EKS; the report screenshot is in the [Load test on EKS](#load-test-on-eks) section.
 
 ## Mutation testing (mutmut)
 
-### Kết quả lịch sử: toàn bộ file
+### Historical result: whole file
 
-Cấu hình [`[tool.mutmut]`](../../pyproject.toml) chọn file `serving/app.py` để tạo mutant, dùng bộ test
-[`serving/tests/test_app.py`](../../serving/tests/test_app.py), và chép kèm thư mục `rag` để test được các nhánh RAG.
-Chạy offline với dependency đã có sẵn trong cache (mutmut 3.3.1):
+The [`[tool.mutmut]`](../../pyproject.toml) configuration selects the file `serving/app.py` for creating mutants, uses the test suite
+[`serving/tests/test_app.py`](../../serving/tests/test_app.py), and copies the `rag` directory along so the RAG branches can be tested.
+Run offline with dependencies already in the cache (mutmut 3.3.1):
 
 ```bash
 UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements serving/requirements-dev.txt mutmut run --max-children 2
 UV_OFFLINE=1 uv run --offline --no-project --python 3.12 --with-requirements serving/requirements-dev.txt mutmut results
 ```
 
-Lần chạy (laptop, 4 tiến trình, ~2,5 phút): **171 mutant** trên `serving/app.py`.
+The run (laptop, 4 processes, ~2.5 minutes): **171 mutants** on `serving/app.py`.
 
-| Kết quả | Số | Nghĩa |
+| Result | Count | Meaning |
 |---|---:|---|
-| killed | 138 | test fail khi code bị đổi, tức là test đã bắt được lỗi |
-| timeout | 19 | test chạy quá giới hạn thời gian của mutmut (code bị đổi làm request treo) — coi là bắt được |
-| no tests | 9 | `load_store` nạp Feast thật; test thay bằng `store_factory` giả nên không chạy hàm này (cố ý) |
-| survived | 5 | cả 5 là **mutant tương đương** (dưới) |
+| killed | 138 | tests fail when the code is changed, i.e. the tests caught the bug |
+| timeout | 19 | tests exceed mutmut's time limit (the changed code makes the request hang) — counted as caught |
+| no tests | 9 | `load_store` loads real Feast; tests replace it with a fake `store_factory` so this function never runs (intentional) |
+| survived | 5 | all 5 are **equivalent mutants** (below) |
 
-**Mutation score** = (killed + timeout) / (171 − no tests) = 157/162 = **96,9%**. Nếu chỉ tính killed: 138/162 = 85,2%.
+**Mutation score** = (killed + timeout) / (171 − no tests) = 157/162 = **96.9%**. Counting killed only: 138/162 = 85.2%.
 
-5 mutant còn sống (test không bắt được), xem bằng `mutmut show <tên>`. Cả 5 là mutant tương đương: bản sửa không làm thay đổi hành vi của code, nên không test nào có thể bắt được.
+The 5 surviving mutants (not caught by tests), viewable with `mutmut show <name>`. All 5 are equivalent mutants: the change does not alter the code's behavior, so no test can catch them.
 
-- `x_fetch_features__mutmut_29/32/33`: đổi `zip(VIEWS.values(), results, strict=True)` thành `strict=None`, `strict=False`, hoặc bỏ hẳn `strict`.
-  `results` sinh ra từ `asyncio.gather` trên chính `VIEWS`, nên hai dãy luôn dài bằng nhau. Do đó `strict` không bao giờ làm đổi hành vi.
-- `x_create_app__mutmut_17/25`: đổi `host="0.0.0.0"` của MCP thành `None` hoặc `"XX0.0.0.0XX"`. SDK MCP chỉ bật chặn
-  DNS-rebinding khi host là `localhost`/`127.0.0.1`; mọi giá trị khác đều cho cùng hành vi.
+- `x_fetch_features__mutmut_29/32/33`: change `zip(VIEWS.values(), results, strict=True)` to `strict=None`, `strict=False`, or drop `strict` entirely.
+  `results` comes from `asyncio.gather` over `VIEWS` itself, so the two sequences always have the same length. Therefore `strict` never changes behavior.
+- `x_create_app__mutmut_17/25`: change the MCP `host="0.0.0.0"` to `None` or `"XX0.0.0.0XX"`. The MCP SDK only enables
+  DNS-rebinding protection when host is `localhost`/`127.0.0.1`; every other value gives the same behavior.
 
-![mutmut serving/app.py: 171 mutant, 138 killed, 19 timeout, 9 no tests, 5 survived tương đương; score 96,9%](../evidence/mutmut-serving-20261031.png)
+![mutmut serving/app.py: 171 mutants, 138 killed, 19 timeout, 9 no tests, 5 survived equivalent; score 96.9%](../evidence/mutmut-serving-20261031.png)
 
-Ảnh dựng từ [output thật](../evidence/mutmut-serving-20261031.txt). File output giữ đủ danh sách timeout/no tests; trong ảnh bỏ các dòng đó cho gọn.
-Lần chạy đầu trong sandbox của công cụ AI bị treo, vì sandbox chặn socket nội bộ mà `TestClient` cần dùng; đây không phải lỗi của test.
+The image was built from the [real output](../evidence/mutmut-serving-20261031.txt). The output file keeps the full timeout/no tests list; the image drops those lines for brevity.
+The first run inside the AI tool's sandbox hung, because the sandbox blocks the local sockets that `TestClient` needs; this was not a test failure.
 
-Lần chạy này mutate toàn bộ `serving/app.py`, lúc đó chưa có bước chọn file theo Git diff. Kết quả được giữ nguyên
-làm bằng chứng lịch sử, không dùng để chứng minh việc chỉ mutate phần code thay đổi.
+This run mutated all of `serving/app.py`; at the time there was no step for selecting files by Git diff. The result is kept as is
+as historical evidence, not as proof of mutating only the changed code.
 
-### Chọn file thay đổi theo Git
+### Selecting changed files from Git
 
-Mục tiêu: chỉ chạy mutation trên những file vừa thay đổi, thay vì cả repo. Script [`run_changed_mutation.py`](../../scripts/evidence/run_changed_mutation.py) làm như sau:
+Goal: run mutation only on recently changed files, instead of the whole repo. The script [`run_changed_mutation.py`](../../scripts/evidence/run_changed_mutation.py) does the following:
 
-1. Nhận hai mốc Git `--base` và `--head`, đổi chúng thành commit SHA đầy đủ.
-2. Lấy danh sách file Python được thêm hoặc sửa bằng `git diff --no-renames --diff-filter=AM --name-only`.
-   File đổi tên được coi như xoá file cũ và thêm file mới; file bị xoá thì không mutate.
-3. Bỏ các file test, rồi chỉ giữ những file nằm trong `paths_to_mutate` của cấu hình Web API (hiện là `serving/app.py`).
-4. Ghi toàn bộ danh sách file được chọn và file bị loại vào manifest.
+1. Takes two Git refs `--base` and `--head` and resolves them to full commit SHAs.
+2. Gets the list of added or modified Python files with `git diff --no-renames --diff-filter=AM --name-only`.
+   A renamed file is treated as deleting the old file and adding a new one; deleted files are not mutated.
+3. Drops test files, then keeps only files listed in `paths_to_mutate` of the Web API configuration (currently `serving/app.py`).
+4. Writes the full list of selected and excluded files to the manifest.
 
-Các module DAG, ML và feature publication nằm ngoài phạm vi Web API, nên không được tính là đã kiểm chứng bằng lần chạy này.
+The DAG, ML and feature publication modules are outside the Web API scope, so they do not count as verified by this run.
 
-Script xuất code và test **đúng tại commit head** ra một thư mục tạm, rồi tạo cấu hình mutmut riêng chỉ chứa các file
-được chọn. Working tree và cấu hình gốc không bị sửa; thay đổi chưa commit không có trong bản xuất này.
-`also_copy` gồm `rag` và `feature_repo` để API import được các module nội bộ; các module này không bị mutate.
-Lưu ý: script chọn theo **file thay đổi** và vẫn mutate toàn bộ file đó, không giới hạn ở từng dòng thay đổi.
+The script exports the code and tests **exactly at the head commit** to a temporary directory, then creates a separate mutmut configuration containing only the
+selected files. The working tree and the original configuration are not modified; uncommitted changes are not in this export.
+`also_copy` includes `rag` and `feature_repo` so the API can import internal modules; these modules are not mutated.
+Note: the script selects by **changed file** and still mutates the whole file, not just the changed lines.
 
-Chạy từ gốc repo với Python 3.12 và dependency trong `serving/requirements-dev.txt`:
+Run from the repo root with Python 3.12 and the dependencies in `serving/requirements-dev.txt`:
 
 ```bash
-# Xem trước phạm vi, chưa chạy mutation.
+# Preview the scope, without running mutation.
 uv run --no-project --python 3.12 --with-requirements serving/requirements-dev.txt \
   python scripts/evidence/run_changed_mutation.py \
   --base '89cd44e^' --head 89cd44e --dry-run --output out/mutation-plan
 
-# Chạy thật trên cùng hai mốc; output phải là thư mục mới.
+# Real run on the same two refs; the output must be a new directory.
 uv run --no-project --python 3.12 --with-requirements serving/requirements-dev.txt \
   python scripts/evidence/run_changed_mutation.py \
   --base '89cd44e^' --head 89cd44e --max-children 2 --output out/mutation-changed
 ```
 
-Khi kiểm một thay đổi khác, thay hai ref bằng base/head cần đánh giá. Script so trực tiếp hai commit,
-không tự tìm merge-base.
+To check a different change, replace the two refs with the base/head to evaluate. The script compares the two commits directly
+and does not look for a merge-base.
 
-Trạng thái ghi trong manifest:
+Statuses recorded in the manifest:
 
-- Không có file phù hợp: ghi `skipped` (không ghi `passed`).
-- Chạy `--dry-run` và có file phù hợp: ghi `planned`.
+- No matching files: records `skipped` (not `passed`).
+- Run with `--dry-run` and matching files exist: records `planned`.
 
-Thư mục output giữ lại log `run.txt`, kết quả từng mutant `results.txt`, cấu hình
-`mutation-config.toml` và `manifest.json`. Manifest có SHA của code, SHA của cấu hình và phiên bản mutmut.
+The output directory keeps the log `run.txt`, per-mutant results `results.txt`, the configuration
+`mutation-config.toml` and `manifest.json`. The manifest has the code SHA, the configuration SHA and the mutmut version.
 
-Ngưỡng đạt của script là **killed / tổng mutant >80%**. Cách tính này chặt hơn báo cáo lịch sử ở trên: mẫu số tính cả `no tests`, và timeout không được cộng
-vào killed. Manifest ghi thêm hai cách tính có loại `no tests` để so với báo cáo lịch sử.
-Script trả lỗi khi còn mutant chưa kiểm, khi chạy lỗi, khi kết quả rỗng, hoặc khi score không đạt. Trạng thái skip không được tính là đạt rubric.
+The script's pass threshold is **killed / total mutants >80%**. This calculation is stricter than the historical report above: the denominator includes `no tests`, and timeouts are not added
+to killed. The manifest also records two calculations that exclude `no tests`, for comparison with the historical report.
+The script returns an error when there are unchecked mutants, when the run fails, when the result is empty, or when the score does not pass. A skip status is not counted as a pass.
 
-### Kết quả local: file được chọn từ Git diff
+### Local result: files selected from Git diff
 
-So base `3cd3fcd` (`89cd44e^`) với head `89cd44e`: commit này thêm/sửa 11 file Python,
-nhưng chỉ **`serving/app.py`** nằm trong phạm vi Web API nên chỉ file này được chọn. Test API và các module ngoài phạm vi được liệt kê
-ở `excluded_files`, không được tính là đã mutation-test trong lần này.
-Mutmut 3.3.1 chạy 2 tiến trình, xong trong khoảng 3 phút 31 giây, exit code 0.
+Comparing base `3cd3fcd` (`89cd44e^`) with head `89cd44e`: this commit adds/modifies 11 Python files,
+but only **`serving/app.py`** is within the Web API scope, so only this file is selected. The API tests and out-of-scope modules are listed
+in `excluded_files` and do not count as mutation-tested in this run.
+Mutmut 3.3.1 ran with 2 processes, finished in about 3 minutes 31 seconds, exit code 0.
 
-| Kết quả | Số mutant |
+| Result | Mutants |
 |---|---:|
 | Killed | 219 |
 | Survived | 12 |
 | No tests | 14 |
 | Timeout | 0 |
-| Tổng | 245 |
+| Total | 245 |
 
-**Score theo cách tính chặt = 219/245 = 89,4%, vượt ngưỡng 80%** (mẫu số tính cả `no tests`).
-Nếu loại `no tests`, score = 219/231 = **94,8%**.
+**Score by the strict calculation = 219/245 = 89.4%, above the 80% threshold** (the denominator includes `no tests`).
+Excluding `no tests`, score = 219/231 = **94.8%**.
 
-Giới hạn: chưa kết luận được 12 mutant còn sống có phải là mutant tương đương hay không;
-14 mutant không có test chạy qua vẫn là chỗ thiếu của bộ test. Các trạng thái còn lại bằng 0, không có mutant nào chưa kiểm.
+Limitation: it is not yet established whether the 12 surviving mutants are equivalent mutants;
+the 14 mutants with no covering test are still a gap in the test suite. The other statuses are 0; there are no unchecked mutants.
 
-Bằng chứng: [manifest và SHA code](../evidence/mutation-changed-serving-20261103.json),
-[log chạy](../evidence/mutation-changed-serving-20261103.txt),
-[kết quả từng mutant](../evidence/mutation-changed-serving-results-20261103.txt),
-[cấu hình thực chạy](../evidence/mutation-changed-serving-config-20261103.toml).
-Đây là kiểm chứng chạy local, giới hạn ở các file thay đổi trong phạm vi Web API. Nó không giới hạn theo từng dòng, và không phải lần chạy trên Jenkins/AWS.
+Evidence: [manifest and code SHA](../evidence/mutation-changed-serving-20261103.json),
+[run log](../evidence/mutation-changed-serving-20261103.txt),
+[per-mutant results](../evidence/mutation-changed-serving-results-20261103.txt),
+[configuration actually run](../evidence/mutation-changed-serving-config-20261103.toml).
+This is a local verification, limited to changed files within the Web API scope. It is not limited per line, and it is not a Jenkins/AWS run.
 
-**Chạy lại, có ảnh.** Cùng lệnh và cùng hai mốc (`89cd44e^` .. `89cd44e`), xong trong 2 phút 20 giây, exit code 0. Kết quả **trùng hệt lần trước**:
-245 mutant, 219 killed, 14 no tests, 12 survived, 0 timeout (score 89,4%; loại no tests 94,8%), cùng SHA code
-([manifest](../evidence/mutation-changed-serving-20261104.json), [log](../evidence/mutation-changed-serving-20261104.txt), [từng mutant](../evidence/mutation-changed-serving-results-20261104.txt)).
-Chạy lại ra cùng kết quả nghĩa là phép kiểm lặp lại được. Ghi chú: SHA cấu hình runner trong manifest khác nhau giữa hai lần, dù file cấu hình lưu lại giống hệt nhau; chưa xác định được nguyên nhân.
+**Rerun, with a screenshot.** Same command and same two refs (`89cd44e^` .. `89cd44e`), finished in 2 minutes 20 seconds, exit code 0. The result is **identical to the previous run**:
+245 mutants, 219 killed, 14 no tests, 12 survived, 0 timeout (score 89.4%; excluding no tests 94.8%), same code SHA
+([manifest](../evidence/mutation-changed-serving-20261104.json), [log](../evidence/mutation-changed-serving-20261104.txt), [per mutant](../evidence/mutation-changed-serving-results-20261104.txt)).
+Getting the same result on rerun means the check is reproducible. Note: the runner configuration SHA in the manifest differs between the two runs, even though the saved configuration files are identical; the cause has not been determined.
 
-![Mutation theo Git diff: lệnh run_changed_mutation, chọn serving/app.py, 245 mutant, 219 killed, 14 no tests, 12 survived, status passed, exit 0](../evidence/testing-mutation-changed-20261104.png)
+![Mutation by Git diff: run_changed_mutation command, selects serving/app.py, 245 mutants, 219 killed, 14 no tests, 12 survived, status passed, exit 0](../evidence/testing-mutation-changed-20261104.png)
 
-Ảnh là output terminal đã lọc bỏ ký tự spinner, dựng từ `run.txt` và `manifest.json` của đúng lần chạy này bằng
-[`capture_testing_evidence.py --mutation-dir`](../../scripts/evidence/capture_testing_evidence.py). Không chạy lại mutation chỉ để chụp ảnh.
+The image is terminal output with spinner characters filtered out, built from `run.txt` and `manifest.json` of this very run with
+[`capture_testing_evidence.py --mutation-dir`](../../scripts/evidence/capture_testing_evidence.py). Mutation was not rerun just to take the screenshot.
 
-#### Load test trên EKS
+#### Load test on EKS
 
-**Kết luận:** Feature API trên EKS chịu được 20 user đồng thời trong 60 s, không lỗi. Độ trễ ~250 ms người dùng thấy gần như hoàn toàn là do đường mạng
-từ Việt Nam sang Sydney; bản thân API chỉ mất trung bình 1,8 ms mỗi request (xem phần đọc số ở cuối mục).
+**Conclusion:** the Feature API on EKS handles 20 concurrent users for 60 s without errors. The ~250 ms latency users see is almost entirely the network path
+from Vietnam to Sydney; the API itself takes on average only 1.8 ms per request (see the reading of the numbers at the end of the section).
 
-Cách chạy: Locust chạy trên laptop (Việt Nam), đi qua `kubectl port-forward svc/feature-api` tới cụm ở Sydney
-(ap-southeast-2). 20 user, 60 s, dùng [`serving/locustfile.py`](../../serving/locustfile.py) với SKU thật
-`APP-00042,APP-00482,ELE-01103`. Dùng port-forward thay vì ingress để tránh rate limit 50 request/giây của ingress.
+How it was run: Locust ran on a laptop (Vietnam), through `kubectl port-forward svc/feature-api` to the cluster in Sydney
+(ap-southeast-2). 20 users, 60 s, using [`serving/locustfile.py`](../../serving/locustfile.py) with real SKUs
+`APP-00042,APP-00482,ELE-01103`. Port-forward is used instead of the ingress to avoid the ingress rate limit of 50 requests/second.
 
-| Request | Số | Lỗi | p50 | p95 | p99 | req/s |
+| Request | Count | Errors | p50 | p95 | p99 | req/s |
 |---|---:|---:|---:|---:|---:|---:|
-| `POST /features` | 1.999 | 0 | 250 ms | 270 ms | 290 ms | 33,6 |
-| `POST /features [batch]` | 530 | 0 | 250 ms | 270 ms | 280 ms | 8,9 |
-| `GET /healthz` | 475 | 0 | 250 ms | 270 ms | 280 ms | 8,0 |
-| **Tổng** | **3.004** | **0** | 250 ms | 270 ms | 290 ms | **50,5** |
+| `POST /features` | 1,999 | 0 | 250 ms | 270 ms | 290 ms | 33.6 |
+| `POST /features [batch]` | 530 | 0 | 250 ms | 270 ms | 280 ms | 8.9 |
+| `GET /healthz` | 475 | 0 | 250 ms | 270 ms | 280 ms | 8.0 |
+| **Total** | **3,004** | **0** | 250 ms | 270 ms | 290 ms | **50.5** |
 
-Báo cáo HTML: [`evidence/aws/load-test-feature-api-20261030.html`](../evidence/aws/load-test-feature-api-20261030.html).
+HTML report: [`evidence/aws/load-test-feature-api-20261030.html`](../evidence/aws/load-test-feature-api-20261030.html).
 
-**Chạy lại** (cùng cấu hình, sau khi node EKS được bật lại): 59 giây, 20 user, đi qua `kubectl port-forward svc/feature-api` (host `127.0.0.1:8000`),
-báo cáo HTML [locust-feature-api-eks.html](../evidence/aws/locust-feature-api-eks.html), số liệu [locust-feature-api-eks_stats.csv](../evidence/aws/locust-feature-api-eks_stats.csv).
+**Rerun** (same configuration, after the EKS nodes were brought back up): 59 seconds, 20 users, through `kubectl port-forward svc/feature-api` (host `127.0.0.1:8000`),
+HTML report [locust-feature-api-eks.html](../evidence/aws/locust-feature-api-eks.html), data [locust-feature-api-eks_stats.csv](../evidence/aws/locust-feature-api-eks_stats.csv).
 
-| Request | Số | Lỗi | p50 | p95 | p99 | req/s |
+| Request | Count | Errors | p50 | p95 | p99 | req/s |
 |---|---:|---:|---:|---:|---:|---:|
-| `POST /features` | 2.052 | 0 | 250 ms | 260 ms | 290 ms | 34,6 |
-| `POST /features [batch]` | 525 | 0 | 250 ms | 260 ms | 280 ms | 8,9 |
-| `GET /healthz` | 488 | 0 | 240 ms | 260 ms | 310 ms | 8,2 |
-| **Tổng** | **3.065** | **0** | 250 ms | 260 ms | 290 ms | **51,7** |
+| `POST /features` | 2,052 | 0 | 250 ms | 260 ms | 290 ms | 34.6 |
+| `POST /features [batch]` | 525 | 0 | 250 ms | 260 ms | 280 ms | 8.9 |
+| `GET /healthz` | 488 | 0 | 240 ms | 260 ms | 310 ms | 8.2 |
+| **Total** | **3,065** | **0** | 250 ms | 260 ms | 290 ms | **51.7** |
 
-![Báo cáo Locust trên EKS: 3.065 request, 0 lỗi, p50 250 ms, RPS ổn định khoảng 53, 20 user](../evidence/aws/locust-feature-api-eks.png)
+![Locust report on EKS: 3,065 requests, 0 errors, p50 250 ms, RPS steady around 53, 20 users](../evidence/aws/locust-feature-api-eks.png)
 
-Hai lần chạy cho kết quả gần như trùng nhau (3.004 và 3.065 request, đều không lỗi, p50 250 ms), nên hiệu năng ổn định giữa hai lần bật cụm.
-Trên biểu đồ thời gian phản hồi, p95 khoảng 800 ms ở giây đầu tiên (lúc kết nối còn đang khởi tạo), sau đó về mức ổn định khoảng 260 ms.
+The two runs gave nearly identical results (3,004 and 3,065 requests, both without errors, p50 250 ms), so performance is stable across the two cluster start-ups.
+On the response-time chart, p95 is about 800 ms in the first second (while connections are still being established), then settles at about 260 ms.
 
-Cách đọc số:
+How to read the numbers:
 
-- `/healthz` gần như không xử lý gì mà vẫn mất ~250 ms. Vậy gần hết thời gian là đường mạng từ laptop tới Sydney, không phải do API.
-- Đo phía server (metric `http_request_duration_seconds` của pod nhận tải): `/features` mất trung bình **1,8 ms**
-  (4,57 s cho 2.536 request).
-- Port-forward dồn toàn bộ tải vào 1 pod. Số request/giây bị giới hạn bởi 20 user, mỗi request chờ mạng ~250 ms, chứ không phải bởi API.
-- Không có request lỗi.
+- `/healthz` does almost no processing yet still takes ~250 ms. So nearly all the time is the network path from the laptop to Sydney, not the API.
+- Measured on the server side (metric `http_request_duration_seconds` of the pod receiving the load): `/features` averages **1.8 ms**
+  (4.57 s for 2,536 requests).
+- Port-forward sends all load to 1 pod. The requests/second figure is limited by 20 users each waiting ~250 ms of network per request, not by the API.
+- There were no failed requests.
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

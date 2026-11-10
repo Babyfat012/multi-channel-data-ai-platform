@@ -1,251 +1,251 @@
-# Processing Jobs trên AWS
+# Processing Jobs on AWS
 
-Trang này ứng với EDAI-1, dòng 11–19 của rubric. Có hai loại xử lý:
-- **Spark** xử lý offline (batch, chạy theo lô).
-- **Flink** xử lý streaming (chạy liên tục theo từng tin).
+This page covers the two kinds of processing:
+- **Spark** for offline processing (batch, run in batches).
+- **Flink** for streaming processing (runs continuously, message by message).
 
-Cả Spark và Flink đều chạy bằng Docker Compose trên EC2; lakehouse (kho bảng Iceberg) nằm ở S3. Mỗi mục dưới đây nêu baseline (lần chạy đối chứng), cấu hình, lựa chọn đánh đổi và giới hạn của ảnh chụp trên AWS.
+Both Spark and Flink run with Docker Compose on EC2; the lakehouse (Iceberg table store) lives on S3. Each section below states the baseline (control run), the configuration, the trade-offs chosen and the limitations of the screenshots on AWS.
 
-<a id="g-đo-lại-trên-aws-2026-10-29-ec2-r6ixlarge-4-vcpu-nguồn-s3a"></a>
-## Spark: benchmark trên EC2
+<a id="g-remeasured-on-aws-2026-10-29-ec2-r6ixlarge-4-vcpu-s3a-source"></a>
+## Spark: benchmark on EC2
 
-**Kết luận:** giữ chế độ ghi `hash`. Bỏ `hash` giúp ghi nhanh hơn khoảng 21%, nhưng tạo ra số file nhỏ nhiều gấp 15 lần, làm chậm mọi lần đọc sau đó.
+**Conclusion:** keep the `hash` write mode. Dropping `hash` makes writes about 21% faster, but produces 15 times as many small files, slowing down every later read.
 
-**Đo gì.** Thí nghiệm so hai cách Spark phân phối dữ liệu trước khi ghi vào bảng Iceberg:
-- `hash` (đối chứng): Spark xáo dữ liệu (shuffle) để gom các dòng cùng ngày về cùng một task rồi mới ghi.
-- `distribution-mode=none` (phương án b): không xáo, mỗi task ghi thẳng phần dữ liệu nó đang giữ.
+**What is measured.** The experiment compares two ways Spark distributes data before writing to an Iceberg table:
+- `hash` (control): Spark shuffles the data to gather rows of the same day into the same task before writing.
+- `distribution-mode=none` (option b): no shuffle; each task writes the data it already holds directly.
 
-**Đo thế nào.** Chạy lệnh `PLATFORM_STORAGE=s3 bash scripts/evidence/measure_order_snapshots_bronze.sh
-skew_0|skew_b` trên EC2:
-- Spark driver chạy trong container Airflow; có 2 Spark worker, mỗi worker 2 core; đọc dữ liệu raw trên S3 bằng IAM role.
-- Dữ liệu gồm 20 ngày mẫu, mỗi lần chạy 12.627.457 dòng.
-- AQE (Adaptive Query Execution, cơ chế Spark tự chỉnh kế hoạch lúc chạy) được tắt để số đo dễ so.
+**How it is measured.** Run `PLATFORM_STORAGE=s3 bash scripts/evidence/measure_order_snapshots_bronze.sh
+skew_0|skew_b` on EC2:
+- The Spark driver runs in the Airflow container; there are 2 Spark workers with 2 cores each; raw data is read from S3 through the IAM role.
+- The data is a 20-day sample, 12,627,457 rows per run.
+- AQE (Adaptive Query Execution, Spark's mechanism for adjusting the plan at runtime) is disabled so the numbers are easy to compare.
 
-| Lần chạy | Thời gian ("XONG sau") | Số file | Cỡ file trung bình |
+| Run | Time ("DONE in") | Files | Average file size |
 |---|---|---|---|
-| đối chứng `hash` | **trung bình 91,1 s** (ba lần: 93,8 / 88,7 / 90,7 s) | 20 | 47,3 MB |
-| **(b)** `distribution-mode=none` | **71,6 s** | **309** | **3,1 MB** |
+| control `hash` | **average 91.1 s** (three runs: 93.8 / 88.7 / 90.7 s) | 20 | 47.3 MB |
+| **(b)** `distribution-mode=none` | **71.6 s** | **309** | **3.1 MB** |
 
-Cách đọc bảng:
-- Ba lần chạy `hash` chênh nhau tối đa 5,1 s (5,6%). Đây là mức nhiễu đo.
-- Phương án (b) nhanh hơn 19,5 s, tức **−21,4%**, lớn gấp khoảng 4 lần mức nhiễu, nên khác biệt là thật.
-- Đổi lại, (b) tạo 309 file thay vì 20.
+How to read the table:
+- The three `hash` runs differ by at most 5.1 s (5.6%). This is the measurement noise.
+- Option (b) is 19.5 s faster, i.e. **−21.4%**, about 4 times the noise level, so the difference is real.
+- In exchange, (b) creates 309 files instead of 20.
 
-**Spark UI nói gì** (đọc từ History Server trên EC2):
-- Với `hash`, job ghi có **2 stage**. Stage 0 đọc 9,4 GiB bằng 114 task (44 s) và xáo 2,2 GiB. Stage 1 nhận 2,2 GiB đó bằng 200 task (31 s) và ghi ra 945,4 MiB.
-- Trong stage 1, task trung vị chỉ chạy **2 ms và ghi 0 dòng**, còn task lâu nhất chạy **12 s và ghi 2.173.164 dòng**. Lý do: dữ liệu chỉ có 20 ngày nên 180 trên 200 task không nhận được ngày nào, còn task giữ ngày đông nhất phải ghi khoảng 2,17 triệu dòng.
-- Với `none` chỉ có **1 stage** gồm 114 task (1,0 phút). Không có shuffle nên nhanh hơn. Tuy vậy, mỗi task ghi một file riêng cho mọi ngày mà nó gặp, dẫn tới 309 file nhỏ.
+**What the Spark UI says** (read from the History Server on EC2):
+- With `hash`, the write job has **2 stages**. Stage 0 reads 9.4 GiB with 114 tasks (44 s) and shuffles 2.2 GiB. Stage 1 receives those 2.2 GiB with 200 tasks (31 s) and writes 945.4 MiB.
+- In stage 1, the median task runs only **2 ms and writes 0 rows**, while the longest task runs **12 s and writes 2,173,164 rows**. Reason: the data only has 20 days, so 180 of the 200 tasks receive no day at all, while the task holding the busiest day has to write about 2.17 million rows.
+- With `none` there is only **1 stage** of 114 tasks (1.0 minute). Without a shuffle it is faster. However, each task writes a separate file for every day it encounters, resulting in 309 small files.
 
-Quyết định triển khai: **giữ `hash`**. Ghi nhanh hơn 21% không bù được việc có
-số file nhỏ nhiều gấp 15 lần cho mọi lần đọc sau (xem phần compaction, tức gộp file nhỏ, ở [storage.md](data_storage.md)).
-Ảnh AWS được nhúng ở [mục AWS](#trên-aws-2026-10-29).
+Deployment decision: **keep `hash`**. Writing 21% faster does not make up for having
+15 times as many small files for every later read (see the compaction section, i.e. merging small files, in [storage.md](data_storage.md)).
+The AWS screenshots are embedded in the [AWS section](#on-aws-2026-10-29).
 
-<a id="trên-aws-2026-10-29"></a>
-## Spark: tích hợp pipeline và Spark UI
+<a id="on-aws-2026-10-29"></a>
+## Spark: pipeline integration and Spark UI
 
-Thí nghiệm skew (dữ liệu dồn lệch vào vài task) chạy bằng Compose trên EC2 `r6i.xlarge`, với hai Spark worker, mỗi worker hai core, nguồn S3,
-20 ngày dữ liệu Amazon và AQE tắt. Số đo nằm ở [mục benchmark EC2](#g-đo-lại-trên-aws-2026-10-29-ec2-r6ixlarge-4-vcpu-nguồn-s3a)
-và trong [receipt](../evidence/aws/data-platform-aws-20261027.json) (file JSON ghi kết quả chạy, mục `spark_skew_aws`).
-Code: [script đo](../../scripts/evidence/measure_order_snapshots_bronze.sh),
-[job ingest](../../spark_jobs/bronze/ingest_amazon_order_snapshots.py).
+The skew experiment (data piling up in a few tasks) runs with Compose on EC2 `r6i.xlarge`, with two Spark workers of two cores each, an S3 source,
+20 days of Amazon data and AQE disabled. The numbers are in the [EC2 benchmark section](#g-remeasured-on-aws-2026-10-29-ec2-r6ixlarge-4-vcpu-s3a-source)
+and in the [receipt](../evidence/aws/data-platform-aws-20261027.json) (the JSON file recording run results, entry `spark_skew_aws`).
+Code: [measurement script](../../scripts/evidence/measure_order_snapshots_bronze.sh),
+[ingest job](../../spark_jobs/bronze/ingest_amazon_order_snapshots.py).
 
-Tóm tắt những gì Spark UI cho thấy:
-- Bản đối chứng `hash` có tổng 314 task trong hai stage.
-- Ở stage ghi, task trung vị mất 2 ms và ghi 0 dòng, nhưng task lâu nhất mất 12 s và ghi 2.173.164 dòng. Nghĩa là phần lớn partition hash rỗng, còn vài task phải gánh những ngày nhiều dữ liệu.
-- Đây là lệch dữ liệu theo **ngày ghi**. Nó không chứng minh có lệch theo SKU trong phép join.
-- Đặt `write.distribution-mode=none` thì bỏ được shuffle, chỉ còn một stage với 114 task. Thời gian giảm từ trung bình 91,1 xuống 71,6 giây, nhưng số file tăng từ 20 lên 309.
+Summary of what the Spark UI shows:
+- The `hash` control run has 314 tasks in total across two stages.
+- In the write stage, the median task takes 2 ms and writes 0 rows, but the longest task takes 12 s and writes 2,173,164 rows. That is, most hash partitions are empty, while a few tasks carry the days with lots of data.
+- This is data skew by **write day**. It does not prove there is skew by SKU in a join.
+- Setting `write.distribution-mode=none` removes the shuffle, leaving one stage with 114 tasks. Time drops from an average of 91.1 to 71.6 seconds, but the file count rises from 20 to 309.
 
-Vì vậy dự án giữ `hash` để tránh nhiều file nhỏ. Việc đổi spec cho các kênh nhỏ được đo riêng ở [Storage AWS](data_storage.md#trên-aws).
+So the project keeps `hash` to avoid many small files. Changing the spec for small Channels is measured separately in [Storage AWS](data_storage.md#on-aws).
 
-![Terminal EC2: ba run skew_0 mất 93,8, 88,7, 90,7 giây và skew_b mất 71,6 giây; mỗi run ghi 12.627.457 dòng](../evidence/aws/spark-skew-runs-20261029.png)
+![EC2 terminal: three skew_0 runs taking 93.8, 88.7, 90.7 seconds and skew_b taking 71.6 seconds; each run writes 12,627,457 rows](../evidence/aws/spark-skew-runs-20261029.png)
 
-![Spark Jobs đối chứng hash: createOrReplace có 2 stage và 314 task thành công](../evidence/aws/spark-ui-skew0-jobs-20261029.png)
+![Spark Jobs for the hash control: createOrReplace with 2 stages and 314 successful tasks](../evidence/aws/spark-ui-skew0-jobs-20261029.png)
 
-![Spark Stages hash: stage 0 có 114 task đọc 9,4 GiB, stage 1 có 200 task nhận shuffle 2,2 GiB](../evidence/aws/spark-ui-skew0-stages-20261029.png)
+![Spark Stages hash: stage 0 has 114 tasks reading 9.4 GiB, stage 1 has 200 tasks receiving a 2.2 GiB shuffle](../evidence/aws/spark-ui-skew0-stages-20261029.png)
 
-![Spark stage 1: median 2 ms và output 0 dòng; max 12 giây và output 2.173.164 dòng](../evidence/aws/spark-ui-skew0-stage1-summary-20261029.png)
+![Spark stage 1: median 2 ms and output 0 rows; max 12 seconds and output 2,173,164 rows](../evidence/aws/spark-ui-skew0-stage1-summary-20261029.png)
 
-![Spark Jobs none: createOrReplace hoàn tất một stage, 114 task, duration 1,0 phút](../evidence/aws/spark-ui-skewb-jobs-20261029.png)
+![Spark Jobs none: createOrReplace completes in one stage, 114 tasks, duration 1.0 minute](../evidence/aws/spark-ui-skewb-jobs-20261029.png)
 
-**Spark được gọi từ pipeline thế nào.** Airflow submit các job Spark theo ba DAG:
-- [dp1_bronze](../../dags/dp1_bronze.py): submit job ingest, sau đó validate từng nguồn.
-- [dp2_silver](../../dags/dp2_silver.py): submit job chuẩn hóa và bỏ trùng (Silver), sau đó dựng Gold và SCD2.
-- [dp3_features](../../dags/dp3_features.py): submit job dựng feature rồi validate feature.
+**How Spark is called from the pipeline.** Airflow submits the Spark jobs through three DAGs:
+- [dp1_bronze](../../dags/dp1_bronze.py): submits the ingest job, then validates each source.
+- [dp2_silver](../../dags/dp2_silver.py): submits the normalize-and-dedup job (Silver), then builds Gold and SCD2.
+- [dp3_features](../../dags/dp3_features.py): submits the feature-building job, then validates the features.
 
-Ảnh Graph, Gantt, log của Airflow và giải thích từng component nằm ở [Airflow AWS](pipeline_orchestration.md#trên-aws).
-Ảnh Spark Master dưới đây thuộc lần chạy DP1. Thí nghiệm skew ở trên chạy riêng bằng script,
-nên không gán run_id của benchmark cho run của DAG.
+Airflow Graph, Gantt and log screenshots and an explanation of each component are in [Airflow AWS](pipeline_orchestration.md#on-aws).
+The Spark Master screenshot below belongs to the DP1 run. The skew experiment above was run separately with a script,
+so the benchmark's run_id is not attributed to a DAG run.
 
-![Spark Master: hai worker ALIVE, mỗi worker hai core; ứng dụng dp1-validate-amazon của user airflow đang RUNNING](../evidence/aws/spark-master-2x2core-20261027.png)
+![Spark Master: two workers ALIVE with two cores each; application dp1-validate-amazon of user airflow RUNNING](../evidence/aws/spark-master-2x2core-20261027.png)
 
-![Airflow DP1: danh sách 10 task màu xanh và cạnh ingest nối validate trong Graph](../evidence/aws/dp1-bronze-graph-20261027.png)
+![Airflow DP1: list of 10 green tasks and the ingest-to-validate edges in Graph](../evidence/aws/dp1-bronze-graph-20261027.png)
 
-DP2 trên AWS đã validate Silver và Gold mà không có lỗi (xem [schema evolution và dedup](#trên-aws-2026-10-28)).
-Spark UI trên AWS của job Silver Amazon (bước Union gộp schema cũ/mới và bước Window bỏ trùng) nằm ở [mục Spark: schema evolution và dedup](#trên-aws-2026-10-28).
-Ảnh **local** của cùng job: [Union và Window dedup, schema details](reference/spark.md#10-proof-silver-schema-evolution-và-dedup-trong-execution-3) (Spark UI, nguồn Amazon).
+DP2 on AWS validated Silver and Gold with no errors (see [schema evolution and dedup](#on-aws-2026-10-28)).
+The AWS Spark UI of the Silver Amazon job (the Union step merging old/new schema and the Window dedup step) is in the [Spark: schema evolution and dedup section](#on-aws-2026-10-28).
+**Local** screenshots of the same job: [Union and Window dedup, schema details](reference/spark.md#10-silver-proof-schema-evolution-and-dedup-in-execution-3) (Spark UI, Amazon source).
 
-<a id="trên-aws-2026-10-28"></a>
-## Spark: schema evolution và dedup
+<a id="on-aws-2026-10-28"></a>
+## Spark: schema evolution and dedup
 
-**Kết luận:** job Silver Amazon đọc được cả schema cũ lẫn schema 2026 của Amazon, và bỏ đúng 3.098.355 bản trùng (1,974%). Tỷ lệ này khớp mức trùng mà generator cố ý tạo ra.
+**Conclusion:** the Silver Amazon job reads both the old schema and Amazon's 2026 schema, and removes exactly 3,098,355 duplicates (1.974%). This rate matches the duplicate level the generator deliberately creates.
 
-DP2 chạy Spark bằng Compose trên EC2; dữ liệu Bronze, Silver và Gold nằm ở S3.
-Run là `manual__2026-10-27T16:05:58+00:00`, ghi trong [receipt](../evidence/aws/data-platform-aws-20261027.json).
-[Job Amazon](../../spark_jobs/silver/build_amazon_order_snapshots.py) parse hai dạng schema rồi chuẩn hóa về một dạng.
-Sau đó nó dùng Window theo khóa để chỉ giữ revision (bản cập nhật) mới nhất của mỗi dòng. [DAG](../../dags/dp2_silver.py) đặt một bước validator ngay sau mỗi job Silver.
+DP2 runs Spark with Compose on EC2; the Bronze, Silver and Gold data lives on S3.
+The run is `manual__2026-10-27T16:05:58+00:00`, recorded in the [receipt](../evidence/aws/data-platform-aws-20261027.json).
+The [Amazon job](../../spark_jobs/silver/build_amazon_order_snapshots.py) parses the two schema forms and normalizes them into one.
+It then uses a keyed Window to keep only the latest revision of each row. The [DAG](../../dags/dp2_silver.py) places a validator step right after each Silver job.
 
-![Summary DP2: Total success 1, Total Tasks 14 và danh sách task Silver, Gold, SCD2 màu xanh](../evidence/aws/dp2-silver-summary-20261028.png)
+![DP2 Summary: Total success 1, Total Tasks 14 and the list of green Silver, Gold and SCD2 tasks](../evidence/aws/dp2-silver-summary-20261028.png)
 
-![Session Manager EC2: log DP2 ghi Silver validate PASS, Gold khớp từng Channel và Amazon SCD2 không lỗi](../evidence/aws/dp2-validate-logs-20261028.png)
+![Session Manager EC2: DP2 log showing Silver validate PASS, Gold matching per Channel and Amazon SCD2 with no errors](../evidence/aws/dp2-validate-logs-20261028.png)
 
-Số dòng Silver theo receipt:
+Silver row counts per the receipt:
 
-| Channel | Dòng Silver |
+| Channel | Silver rows |
 |---|---:|
-| Amazon | 153.849.901 |
-| Walmart | 15.562.675 |
-| TikTok Shop | 33.338.110 |
-| Shopify | 17.782.786 |
-| Shopee | 6.666.831 |
+| Amazon | 153,849,901 |
+| Walmart | 15,562,675 |
+| TikTok Shop | 33,338,110 |
+| Shopify | 17,782,786 |
+| Shopee | 6,666,831 |
 
-Gold khớp số của từng kênh. Không có dòng lỗi và không có khóa Order Line nào bị trùng.
-Hai ảnh trên chứng minh trạng thái DAG và kết quả của validator. Xem thêm [Airflow AWS](pipeline_orchestration.md#trên-aws).
+Gold matches the count of each Channel. There are no invalid rows and no duplicate Order Line keys.
+The two screenshots above prove the DAG state and the validator results. See also [Airflow AWS](pipeline_orchestration.md#on-aws).
 
-### Spark UI AWS: Union schema cũ/mới và Window dedup (Silver Amazon)
+### AWS Spark UI: Union of old/new schema and Window dedup (Silver Amazon)
 
-Ảnh trong mục này lấy từ event log (nhật ký Spark lưu sau khi job chạy) của task Silver Amazon trong DP2 run `manual__2026-10-27T16:05:58+00:00` (xem [receipt](../evidence/aws/data-platform-aws-20261027.json)):
-- Application `app-20261027160606-0024`, tên `silver-amazon-stg_amazon_order_lines_dp2`, chạy khoảng 52 phút và đã hoàn tất.
-- Event log được mở lại bằng Spark History Server trên EC2 (không chạy lại job) và chụp bằng [`capture_spark_silver_evidence.py`](../../scripts/evidence/capture_spark_silver_evidence.py).
-- Execution 3 là phần xử lý dữ liệu chính. Bản [REST](../evidence/aws/silver-amazon-execution-3-aws.json) lưu `status=COMPLETED`, kế hoạch thực thi (plan) và metrics.
+The screenshots in this section come from the event log (the Spark log saved after a job runs) of the Silver Amazon task in DP2 run `manual__2026-10-27T16:05:58+00:00` (see the [receipt](../evidence/aws/data-platform-aws-20261027.json)):
+- Application `app-20261027160606-0024`, named `silver-amazon-stg_amazon_order_lines_dp2`, ran for about 52 minutes and completed.
+- The event log was reopened with the Spark History Server on EC2 (without rerunning the job) and captured with [`capture_spark_silver_evidence.py`](../../scripts/evidence/capture_spark_silver_evidence.py).
+- Execution 3 is the main data processing part. The [REST](../evidence/aws/silver-amazon-execution-3-aws.json) export stores `status=COMPLETED`, the execution plan and the metrics.
 
-![Spark UI AWS, Query 3: hai nhánh BatchScan raw_amazon_orders_dp1 → Filter → Generate → Union → Sort → WindowGroupLimit → Window → Filter](../evidence/aws/12-silver-amazon-dedup-plan-aws.png)
+![AWS Spark UI, Query 3: two BatchScan raw_amazon_orders_dp1 branches → Filter → Generate → Union → Sort → WindowGroupLimit → Window → Filter](../evidence/aws/12-silver-amazon-dedup-plan-aws.png)
 
-Cách đọc plan ở ảnh trên:
-1. Hai nhánh cùng đọc bảng Bronze. Mỗi nhánh lọc và parse riêng một dạng schema.
-2. `Generate` tách mảng Order Line trong mỗi Order thành từng dòng.
-3. `Union` gộp hai nhánh lại.
-4. Dữ liệu được sắp xếp và chia theo khóa; `WindowGroupLimit`/`Window` chỉ giữ bản có `row_number = 1` (bản mới nhất).
+How to read the plan in the screenshot above:
+1. Both branches read the Bronze table. Each branch filters and parses one schema form.
+2. `Generate` explodes the array of Order Lines in each Order into individual rows.
+3. `Union` merges the two branches.
+4. The data is sorted and partitioned by key; `WindowGroupLimit`/`Window` keep only the row with `row_number = 1` (the latest version).
 
-Phần Details của plan cho thấy cách tách hai schema:
-- Nhánh schema cũ lọc theo `get_json_object(payload, $.AmazonOrderId)` và dùng `from_json` với `AmazonOrderId`/`OrderItems`.
-- Nhánh schema 2026 lọc theo `$.orderId` và dùng `from_json` với `orderId`/`orderItems`.
-- Cả hai nhánh cùng ánh xạ về một bộ cột Silver.
+The Details section of the plan shows how the two schemas are separated:
+- The old-schema branch filters on `get_json_object(payload, $.AmazonOrderId)` and uses `from_json` with `AmazonOrderId`/`OrderItems`.
+- The 2026-schema branch filters on `$.orderId` and uses `from_json` with `orderId`/`orderItems`.
+- Both branches map to the same set of Silver columns.
 
-![Details của execution 3 trên AWS: Filter theo AmazonOrderId và orderId, from_json hai schema, ánh xạ về cột Silver](../evidence/aws/13-silver-amazon-schema-details-aws.png)
+![Details of execution 3 on AWS: Filter on AmazonOrderId and orderId, from_json with two schemas, mapped to Silver columns](../evidence/aws/13-silver-amazon-schema-details-aws.png)
 
-| Số đo execution 3 (AWS) | Số dòng |
+| Execution 3 metrics (AWS) | Rows |
 |---|---:|
-| Order Line từ nhánh schema cũ (`Generate`, node 18) | 76.365.986 |
-| Order Line từ nhánh schema 2026 (`Generate`, node 26) | 80.584.967 |
-| Trước dedup (`WindowGroupLimit`, node 12) | 156.948.256 |
-| Sau dedup (`Filter`, node 6) | 153.849.901 |
-| **Bản trùng đã bỏ** | **3.098.355 (1,974%)** |
+| Order Lines from the old-schema branch (`Generate`, node 18) | 76,365,986 |
+| Order Lines from the 2026-schema branch (`Generate`, node 26) | 80,584,967 |
+| Before dedup (`WindowGroupLimit`, node 12) | 156,948,256 |
+| After dedup (`Filter`, node 6) | 153,849,901 |
+| **Duplicates removed** | **3,098,355 (1.974%)** |
 
-Số sau dedup (153.849.901) khớp số Silver Amazon trong receipt. Tỷ lệ trùng 1,974% khớp mức trùng offline mà generator tạo ra (1,98%).
+The post-dedup count (153,849,901) matches the Silver Amazon count in the receipt. The 1.974% duplicate rate matches the offline duplicate level produced by the generator (1.98%).
 
-<a id="flink-trên-aws-2026-10-28"></a>
-## Flink: baseline, late arrival, dedup và window
+<a id="flink-on-aws-2026-10-28"></a>
+## Flink: baseline, late arrival, dedup and window
 
-Flink 1.20.3 và Kafka chạy bằng Compose trên EC2. Lần chạy bounded (có điểm kết thúc, đọc tới offset cuối rồi dừng) ghi đầu ra lên ổ EBS tại `/mnt/platform-data/flink`.
-[Manifest AWS](../evidence/aws/stream-manifest-20261028.json) ghi job_id, số tin đầu vào/đầu ra và cấu hình generator.
-Ảnh Completed Jobs cho thấy các job baseline, late, dedup, state proof và windows đều ở trạng thái FINISHED.
+Flink 1.20.3 and Kafka run with Compose on EC2. The bounded run (it has an end: reads up to the last offset and stops) writes its output to the EBS disk at `/mnt/platform-data/flink`.
+The [AWS manifest](../evidence/aws/stream-manifest-20261028.json) records the job_ids, input/output message counts and the generator configuration.
+The Completed Jobs screenshot shows the baseline, late, dedup, state proof and windows jobs all in the FINISHED state.
 
-### Luồng xử lý stream tổng thể
+### Overall stream processing flow
 
-![Luồng xử lý stream: Generator phát vào hai topic Kafka; bốn job Flink SQL (baseline, late arrival, dedup, window) ghi CSV](../images/flink/stream-flow.svg)
+![Stream processing flow: the generator publishes into two Kafka topics; four Flink SQL jobs (baseline, late arrival, dedup, window) write CSV](../images/flink/stream-flow.svg)
 
-1. Generator phát dữ liệu vào hai topic Kafka: Amazon (có tin đến trễ và sai thứ tự) và TikTok (có tin trùng ID).
-2. Mỗi job SQL là một consumer group riêng trên Flink 1.20.3 (JobManager + TaskManager, Compose EC2). Mỗi job tự giữ watermark và state của mình.
-3. Đầu ra là file CSV trên EBS `/mnt/platform-data/flink`, được so với [manifest](../evidence/aws/stream-manifest-20261028.json).
+1. The generator publishes data into two Kafka topics: Amazon (with late and out-of-order messages) and TikTok (with duplicate-ID messages).
+2. Each SQL job is a separate consumer group on Flink 1.20.3 (JobManager + TaskManager, Compose on EC2). Each job keeps its own watermark and state.
+3. The output is CSV files on EBS `/mnt/platform-data/flink`, compared against the [manifest](../evidence/aws/stream-manifest-20261028.json).
 
-Pipeline stream phục vụ feature store (Kafka, qua Flink cửa sổ HOP 24 giờ, tới Redis/S3) là một job riêng; xem [Streaming Feature](../ml-llm-platform/stream_features.md).
+The stream pipeline serving the feature store (Kafka, through a Flink 24-hour HOP window, to Redis/S3) is a separate job; see [Streaming Feature](../ml-llm-platform/stream_features.md).
 
-### Late arrival: tin muộn được xử lý thế nào
+### Late arrival: how late messages are handled
 
-**Kết luận:** job late arrival chỉ tách ra những tin thực sự đến sau watermark. Cả 6.674 dòng nó ghi ra đều thỏa điều kiện này.
+**Conclusion:** the late arrival job only separates out messages that truly arrive after the watermark. All 6,674 rows it writes satisfy this condition.
 
-Amazon gửi notification không theo thứ tự thời gian. Để xử lý, [`late_arrival.sql`](../../flink_jobs/order_snapshots/late_arrival.sql)
-khai báo `WATERMARK FOR event_ts AS event_ts - INTERVAL '1' HOUR`.
-Watermark là mốc thời gian Flink coi là "đã nhận đủ tin đến trước mốc này". Ở đây, watermark của mỗi partition luôn đứng sau event time mới nhất đã thấy
-đúng một giờ.
-Một tin có `event_ts <= CURRENT_WATERMARK(event_ts)` là tin đến khi watermark đã vượt qua nó. Tin đó được ghi riêng vào
-`late-amazon-1ms`, kèm cột `watermark_time` để chính dòng dữ liệu chứng minh vì sao nó bị coi là muộn.
-Ví dụ dòng thật trong đầu ra `late-amazon-live` (AWS EC2, bản chạy liên tục):
+Amazon sends notifications out of chronological order. To handle this, [`late_arrival.sql`](../../flink_jobs/order_snapshots/late_arrival.sql)
+declares `WATERMARK FOR event_ts AS event_ts - INTERVAL '1' HOUR`.
+The watermark is the point in time Flink considers "all messages before this point have been received". Here, each partition's watermark always trails the latest event time seen
+by exactly one hour.
+A message with `event_ts <= CURRENT_WATERMARK(event_ts)` is one that arrives after the watermark has already passed it. Such a message is written separately to
+`late-amazon-1ms`, together with a `watermark_time` column so the data row itself proves why it is considered late.
+Real example rows from the `late-amazon-live` output (AWS EC2, continuous run):
 
-| notification_id | event_time (xảy ra) | publish_time (đến) | watermark_time lúc xử lý | partition | Vì sao là late |
+| notification_id | event_time (occurred) | publish_time (arrived) | watermark_time at processing | partition | Why it is late |
 |---|---|---|---|---:|---|
-| `qb8vznf1-5f5n-…` | 2026-06-30 01:24:05 | 2026-06-30 02:45:52 | 01:28:13 | 1 | event_time < watermark: tin này nằm sau watermark của partition 1 |
-| `5i4wg38o-v0ee-…` | 2026-06-30 08:04:34 | 2026-06-30 12:42:02 | 11:34:14 | 1 | event_time < watermark, đến trễ hơn 3 giờ so với watermark |
-| `b98ozk0b-uiw7-…` | 2026-06-30 17:25:59 | 2026-06-30 22:26:34 | 21:08:20 | 1 | event_time < watermark, đến trễ hơn 4 giờ so với watermark |
+| `qb8vznf1-5f5n-…` | 2026-06-30 01:24:05 | 2026-06-30 02:45:52 | 01:28:13 | 1 | event_time < watermark: this message is behind partition 1's watermark |
+| `5i4wg38o-v0ee-…` | 2026-06-30 08:04:34 | 2026-06-30 12:42:02 | 11:34:14 | 1 | event_time < watermark, more than 3 hours behind the watermark |
+| `b98ozk0b-uiw7-…` | 2026-06-30 17:25:59 | 2026-06-30 22:26:34 | 21:08:20 | 1 | event_time < watermark, more than 4 hours behind the watermark |
 
-Kiểm tra toàn bộ đầu ra: cả **6.674** dòng của lần chạy này đều có `event_time <= watermark_time` (lệnh kiểm in `TONG 6674 dong, event_time<=watermark: 6674`).
-Tin đến trễ nhưng chưa quá ngưỡng một giờ thì không vào file này. Vì thế số dòng ở đây nhỏ hơn số tin sai thứ tự mà generator tạo (19.729).
-Ảnh Completed Jobs và graph bên dưới chỉ chứng minh job đã chạy; **bằng chứng job xử lý đúng là cột `watermark_time` ở trên**.
-Các dòng trên lấy từ `/mnt/platform-data/flink/late-amazon-live/part-*` trên EC2; xem [output nguyên văn](../evidence/aws/flink-live-output-20261104.txt) và mục Trạng thái job.
+Check over the whole output: all **6,674** rows of this run have `event_time <= watermark_time` (the check command prints `TONG 6674 dong, event_time<=watermark: 6674`, i.e. "TOTAL 6674 rows").
+Messages that are late but not beyond the one-hour threshold do not go into this file. That is why the row count here is smaller than the number of out-of-order messages the generator created (19,729).
+The Completed Jobs screenshot and graph below only prove that the job ran; **the evidence that the job processes correctly is the `watermark_time` column above**.
+The rows above come from `/mnt/platform-data/flink/late-amazon-live/part-*` on EC2; see the [verbatim output](../evidence/aws/flink-live-output-20261104.txt) and the Job status section.
 
-![Terminal EC2: ba dòng late arrival từ late-amazon-live, TONG 6674 dòng đều có event_time <= watermark, và số dòng các thư mục *-live](../evidence/aws/flink-late-arrival-live.png)
+![EC2 terminal: three late arrival rows from late-amazon-live, TOTAL 6674 rows all with event_time <= watermark, and the row counts of the *-live directories](../evidence/aws/flink-late-arrival-live.png)
 
-Lệnh lấy 3 dòng ví dụ và kiểm tra điều kiện late từ đầu ra (đã chạy trên EC2, kết quả ở bảng trên):
+Command that extracts the 3 example rows and checks the late condition on the output (run on EC2, results in the table above):
 
 ```bash
 cat /mnt/platform-data/flink/late-amazon-live/part-* | tr -d '"' | awk -F, '{e=$2;sub("T"," ",e);sub("Z","",e);p=$3;sub("T"," ",p);sub("Z","",p);w=substr($4,1,19);t++;if(e<=w)ok++; if(t%80==1&&n<3){n++;printf "| `%s` | %s | %s | %s | %s |\n",$1,e,p,substr($4,12,8),$5}} END{printf "TONG %d dong, event_time<=watermark: %d\n",t,ok}'
 ```
 
-**Trạng thái job.** Lần chạy đầu là bản bounded: nó dùng `scan.bounded.mode = latest-offset`, nên cả bốn job SQL đọc tới offset cuối rồi dừng ở trạng thái `FINISHED`.
-Các số trong bảng "Bước / code" bên dưới và ảnh Completed Jobs đều lấy từ bản bounded đó.
-Sau đó bốn file SQL được sửa để chạy liên tục:
-- bỏ `scan.bounded.mode`;
-- bật checkpoint (ảnh chụp state định kỳ) ra EBS;
-- file CSV đóng lại mỗi 30 s;
-- đầu ra chuyển sang các thư mục `*-live`;
-- TaskManager nâng lên 6 slot ([`docker-compose.aws-stream.yml`](../../docker-compose.aws-stream.yml)).
+**Job status.** The first run was the bounded version: it used `scan.bounded.mode = latest-offset`, so all four SQL jobs read up to the last offset and then stopped in the `FINISHED` state.
+The numbers in the "Step / code" table below and the Completed Jobs screenshot all come from that bounded run.
+The four SQL files were then changed to run continuously:
+- removed `scan.bounded.mode`;
+- enabled checkpoints (periodic snapshots of state) to EBS;
+- CSV files roll every 30 s;
+- output moved to the `*-live` directories;
+- TaskManager raised to 6 slots ([`docker-compose.aws-stream.yml`](../../docker-compose.aws-stream.yml)).
 
-Riêng `dedup_state_proof.sql` vẫn để bounded vì chỉ dùng để chụp execution plan.
+Only `dedup_state_proof.sql` stays bounded, because it is used solely to capture the execution plan.
 
-**Chạy lại bản liên tục trên AWS.** Kafka trên EC2 đã mất hai topic của lần bounded (chỉ còn `ml.sku_return_24h` và `order_snapshots.return_events`), nên dữ liệu được phát lại bằng generator
+**Rerunning the continuous version on AWS.** Kafka on EC2 had lost the two topics of the bounded run (only `ml.sku_return_24h` and `order_snapshots.return_events` remained), so the data was republished with the generator
 (`platform-generator:opt`, seed 42, `--speed 0`):
-- **399.410** tin Amazon (132.222 + 133.332 + 133.856 qua 3 partition);
-- **93.554** tin TikTok (31.375 + 30.918 + 31.261).
+- **399,410** Amazon messages (132,222 + 133,332 + 133,856 across 3 partitions);
+- **93,554** TikTok messages (31,375 + 30,918 + 31,261).
 
-Số tin khớp từng tin với [manifest bounded](../evidence/aws/stream-manifest-20261028.json), nên các số trong bảng dưới vẫn so sánh được với lần bounded.
-Sau đó bốn file SQL được submit bằng `sql-client.sh`. Khoảng 5 phút sau, cả bốn job ở trạng thái **RUNNING**:
-dedup-tiktok 2 task, baseline-amazon 1, window-tiktok 3, late-amazon 1. TaskManager 1 có 6 slot (còn trống 2). Không có job nào Finished, Canceled hay Failed.
+The message counts match the [bounded manifest](../evidence/aws/stream-manifest-20261028.json) message for message, so the numbers in the table below remain comparable with the bounded run.
+The four SQL files were then submitted with `sql-client.sh`. About 5 minutes later, all four jobs were **RUNNING**:
+dedup-tiktok 2 tasks, baseline-amazon 1, window-tiktok 3, late-amazon 1. TaskManager 1 has 6 slots (2 free). No job is Finished, Canceled or Failed.
 
-![Flink 1.20.3 Running Jobs trên AWS: flink-dedup-tiktok, flink-baseline-amazon, flink-window-tiktok, flink-late-amazon đều RUNNING](../evidence/aws/flink-running-jobs.png)
+![Flink 1.20.3 Running Jobs on AWS: flink-dedup-tiktok, flink-baseline-amazon, flink-window-tiktok, flink-late-amazon all RUNNING](../evidence/aws/flink-running-jobs.png)
 
-![Flink Overview trên AWS: 4 Running Jobs, Total Task Slots 6, Available 2, Finished 0, Canceled 0, Failed 0](../evidence/aws/flink-overview-4-running.png)
+![Flink Overview on AWS: 4 Running Jobs, Total Task Slots 6, Available 2, Finished 0, Canceled 0, Failed 0](../evidence/aws/flink-overview-4-running.png)
 
-Số dòng đầu ra trong các thư mục `*-live` của lần chạy liên tục (đếm bằng `wc -l` trên EC2, [output nguyên văn](../evidence/aws/flink-live-output-20261104.txt)), so với manifest của bản bounded:
+Output row counts in the `*-live` directories of the continuous run (counted with `wc -l` on EC2, [verbatim output](../evidence/aws/flink-live-output-20261104.txt)), compared with the manifest of the bounded run:
 
-| Thư mục | Dòng (liên tục) | Manifest (bounded) | Ghi chú |
+| Directory | Rows (continuous) | Manifest (bounded) | Notes |
 |---|---:|---:|---|
-| `baseline-amazon-live` | **399.410** | 399.410 | khớp |
-| `unique-tiktok-live` | **92.157** | 92.157 | khớp (93.554 tin vào, bỏ 1.397 tin trùng) |
-| `tiktok-tumble-5m-live` | 7.553 | 7.555 | thiếu 2 cửa sổ cuối: luồng không kết thúc nên không có watermark cuối để đóng các cửa sổ này |
-| `tiktok-hop-5m-1m-live` | 37.863 | 37.870 | thiếu 7 cửa sổ cuối, cùng lý do |
-| `late-amazon-live` | 6.674 | 10.166 | không tất định: số này phụ thuộc vào thời điểm mỗi partition phát watermark |
+| `baseline-amazon-live` | **399,410** | 399,410 | matches |
+| `unique-tiktok-live` | **92,157** | 92,157 | matches (93,554 messages in, 1,397 duplicates dropped) |
+| `tiktok-tumble-5m-live` | 7,553 | 7,555 | missing the last 2 windows: the stream never ends, so there is no final watermark to close these windows |
+| `tiktok-hop-5m-1m-live` | 37,863 | 37,870 | missing the last 7 windows, same reason |
+| `late-amazon-live` | 6,674 | 10,166 | nondeterministic: this number depends on when each partition emits its watermark |
 
-Job ML `ml-sku-return-24h` chưa được submit lại trong buổi này (ảnh lúc nó Running đã có ở [Streaming Feature](../ml-llm-platform/stream_features.md#trên-aws-pipeline-a-2026-10-30)).
+The ML job `ml-sku-return-24h` was not resubmitted in this session (a screenshot of it Running is already in [Streaming Feature](../ml-llm-platform/stream_features.md#on-aws-pipeline-a-2026-10-30)).
 
-Bảng dưới tóm tắt từng job của bản bounded, kèm số liệu lấy từ manifest:
+The table below summarizes each job of the bounded run, with numbers from the manifest:
 
-| Bước / code | Vấn đề và cách xử lý | Số AWS từ manifest |
+| Step / code | Problem and how it is handled | AWS numbers from the manifest |
 |---|---|---|
-| [Baseline](../../flink_jobs/order_snapshots/baseline.sql) | Đọc Amazon bản bounded, chưa tách tin muộn | 399.410 dòng, job `ffd9de8a94c5bf67179482bfe03d3b59` |
-| [Late arrival](../../flink_jobs/order_snapshots/late_arrival.sql) | Watermark theo event time, trễ 1 giờ; tin thỏa `event_ts <= CURRENT_WATERMARK(event_ts)` được ghi ra đích riêng | 10.166 dòng, job `b172bcf2510b47e1cbcd532f3078a82d` |
-| [Dedup](../../flink_jobs/order_snapshots/dedup_webhooks.sql), [state proof](../../flink_jobs/order_snapshots/dedup_state_proof.sql) | TikTok có tin trùng ID. `ROW_NUMBER` giữ bản đầu tiên; cạnh HASH đưa các tin cùng ID về cùng một operator Deduplicate theo khóa | 93.554 vào, 92.157 ra, bỏ 1.397; job state proof `f5b642f64b133e28ec0f57021f1eab22` |
-| [Window SQL](../../flink_jobs/order_snapshots/windows.sql) | Đếm Order mới theo cửa sổ tumbling 5 phút (cửa sổ nối tiếp, không chồng nhau) và HOP 5 phút trượt mỗi 1 phút | 7.555 cửa sổ tumbling / 37.870 cửa sổ HOP, job `dad323a91493cdf365c5a3d3d4dd0adf` |
+| [Baseline](../../flink_jobs/order_snapshots/baseline.sql) | Reads Amazon in bounded mode, without separating late messages | 399,410 rows, job `ffd9de8a94c5bf67179482bfe03d3b59` |
+| [Late arrival](../../flink_jobs/order_snapshots/late_arrival.sql) | Event-time watermark with a 1-hour delay; messages satisfying `event_ts <= CURRENT_WATERMARK(event_ts)` are written to a separate sink | 10,166 rows, job `b172bcf2510b47e1cbcd532f3078a82d` |
+| [Dedup](../../flink_jobs/order_snapshots/dedup_webhooks.sql), [state proof](../../flink_jobs/order_snapshots/dedup_state_proof.sql) | TikTok has duplicate-ID messages. `ROW_NUMBER` keeps the first one; the HASH edge routes messages with the same ID to the same keyed Deduplicate operator | 93,554 in, 92,157 out, 1,397 dropped; state proof job `f5b642f64b133e28ec0f57021f1eab22` |
+| [Window SQL](../../flink_jobs/order_snapshots/windows.sql) | Counts new Orders per 5-minute tumbling window (consecutive, non-overlapping windows) and per 5-minute HOP window sliding every 1 minute | 7,555 tumbling windows / 37,870 HOP windows, job `dad323a91493cdf365c5a3d3d4dd0adf` |
 
-![Flink 1.20.3 Completed Jobs: baseline Amazon, late Amazon, hai job dedup và job cửa sổ đều FINISHED](../evidence/aws/flink-completed-jobs-20261028.png)
+![Flink 1.20.3 Completed Jobs: baseline Amazon, late Amazon, two dedup jobs and the window job all FINISHED](../evidence/aws/flink-completed-jobs-20261028.png)
 
-![Flink dedup_tiktok_state_proof: cạnh HASH tới Deduplicate, source gửi 93.554 record, job FINISHED](../evidence/aws/flink-dedup-graph-20261028.png)
+![Flink dedup_tiktok_state_proof: HASH edge to Deduplicate, source sent 93,554 records, job FINISHED](../evidence/aws/flink-dedup-graph-20261028.png)
 
-Ghi chú khi đọc các ảnh trên:
-- UI của job dedup cho thấy cạnh HASH dẫn tới Deduplicate và 93.554 record được nhận. Điều này chứng minh operator dedup theo khóa đã thực sự chạy.
-- Số 92.157 dòng đầu ra lấy từ manifest. Cột Records Sent của file sink trên UI bằng 0, nhưng đó không có nghĩa là mất dữ liệu.
-- Ảnh Completed Jobs chỉ xác nhận job late đã FINISHED. Lần chạy liên tục bổ sung ảnh terminal AWS lấy ba tin muộn và kiểm điều kiện `event_time <= watermark` đúng cho 6.674/6.674 dòng ([ảnh](../evidence/aws/flink-late-arrival-live.png)).
-- Vẫn chưa có ảnh UI Flink trên AWS mở operator watermark. Ảnh **local** của cùng job late: [watermark và tin muộn](reference/flink.md#bắt-tin-đến-muộn-bằng-watermark) (UI Flink local).
-- Con số 10.166 không tất định: watermark được phát theo chu kỳ, nên số này khác với số tin sai thứ tự 19.729 mà generator đếm trên toàn bộ dữ liệu.
-- Cửa sổ dài hạn trên AWS (24 giờ, trượt 1 giờ) có [ảnh operator/checkpoint riêng](../ml-llm-platform/stream_features.md#trên-aws-pipeline-a-2026-10-30).
+Notes on reading the screenshots above:
+- The dedup job's UI shows the HASH edge leading to Deduplicate and 93,554 records received. This proves the keyed dedup operator actually ran.
+- The 92,157 output rows come from the manifest. The file sink's Records Sent column in the UI is 0, but that does not mean data was lost.
+- The Completed Jobs screenshot only confirms the late job FINISHED. The continuous run adds an AWS terminal screenshot extracting three late messages and checking that `event_time <= watermark` holds for 6,674/6,674 rows ([screenshot](../evidence/aws/flink-late-arrival-live.png)).
+- There is still no AWS Flink UI screenshot with the watermark operator opened. **Local** screenshot of the same late job: [watermark and late messages](reference/flink.md#catching-late-messages-with-a-watermark) (local Flink UI).
+- The number 10,166 is nondeterministic: the watermark is emitted periodically, so this number differs from the 19,729 out-of-order messages the generator counts over the whole dataset.
+- The long-running window on AWS (24 hours, sliding 1 hour) has [its own operator/checkpoint screenshot](../ml-llm-platform/stream_features.md#on-aws-pipeline-a-2026-10-30).
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

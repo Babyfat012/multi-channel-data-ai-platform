@@ -1,34 +1,34 @@
-# Chạy đầu-cuối v2 trên nguồn scale local
+# End-to-end v2 run on a local scale source
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally; not the pipeline deployed on AWS.** The pipeline running on AWS is v1 (DP1 → DP4 + ML); see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-Runner `scripts/run/run_order_lifecycle_local.py` kiểm cả chuỗi nguồn scale → Bronze → Silver → Gold →
-PostgreSQL → EXPLAIN trước/sau index. Một Spark session `local[*]`, Iceberg Hadoop
-catalog trong `/tmp`, không cần Lakekeeper/MinIO. Không đọc truth làm input.
-Đây là kiểm chạy được trước GCP, chưa phải bằng chứng GCP hay 100 GB.
+The runner `scripts/run/run_order_lifecycle_local.py` checks the whole chain scale source → Bronze → Silver → Gold →
+PostgreSQL → EXPLAIN before/after indexing. One Spark session `local[*]`, an Iceberg Hadoop
+catalog in `/tmp`, no Lakekeeper/MinIO needed. Truth is never read as input.
+This is a runnability check before GCP, not GCP evidence and not 100 GB.
 
-người vận hành chạy từ root repo, image/cache JAR phải có sẵn:
+The operator runs it from the repo root; the image/JAR cache must already be present:
 
 ```bash
 bash tests/harness/run_order_lifecycle_scale.sh --profile small
 bash tests/harness/run_order_lifecycle_scale.sh --profile medium --driver-memory 6g
 ```
 
-Small = 50 đơn/ngày × 45 ngày; medium (mặc định) = 500 × 60, seed 7.
-Có thể truyền `--orders-per-day`, `--days`, `--seed`, `--sku-count`, `--sku-zipf-s`,
-`--cutoff`, `--run-id` qua harness. `--source /workspace/out/nguon-co-san` dùng
-nguồn đã sinh trong repo; đường dẫn này thuộc container. Nguồn được mount chỉ đọc.
-Không truyền lại `--receipt` qua harness: nó đã đặt `/proof/receipt.json`.
+Small = 50 orders/day × 45 days; medium (the default) = 500 × 60, seed 7.
+`--orders-per-day`, `--days`, `--seed`, `--sku-count`, `--sku-zipf-s`,
+`--cutoff` and `--run-id` can be passed through the harness. `--source /workspace/out/nguon-co-san` uses
+a source already generated in the repo; this path is inside the container. The source is mounted read-only.
+Do not pass `--receipt` again through the harness: it already sets `/proof/receipt.json`.
 
-Harness tạo Docker network internal, PostgreSQL 15 riêng không publish port,
-chờ DB sẵn sàng, chạy image `platform-airflow:2.10.5-spark3.5.3`, dùng Iceberg/JDBC JAR
-ở volume `platform_airflow-data:/ivy:ro`, không tải mạng. Spark chạy bằng user mặc định
-image, không đổi HOME hoặc ép uid host; cleanup chown output về host và dọn đúng
-container/network riêng. Log/receipt giữ tại `out/e2e-v2-<profile>.<suffix>/` kể cả
-khi lỗi; catalog và nguồn tự sinh trong `/tmp` container được dọn sau chạy.
+The harness creates an internal Docker network and a dedicated PostgreSQL 15 that publishes no port,
+waits for the DB to be ready, runs the image `platform-airflow:2.10.5-spark3.5.3`, and uses the Iceberg/JDBC JARs
+from the volume `platform_airflow-data:/ivy:ro` without downloading anything. Spark runs as the image's default user,
+without changing HOME or forcing the host uid; cleanup chowns the output back to the host and removes exactly its own
+container/network. Logs/receipts are kept in `out/e2e-v2-<profile>.<suffix>/` even
+on failure; the catalog and the generated source in the container's `/tmp` are removed after the run.
 
-Để chạy trực tiếp trong runtime đã có Spark/JAR, đặt `WAREHOUSE_TEST_DSN` trong env
-(URI PostgreSQL như harness warehouse), hoặc `POSTGRES_HOST/PORT/DB/USER/PASSWORD`:
+To run directly in a runtime that already has Spark/JARs, set `WAREHOUSE_TEST_DSN` in the env
+(a PostgreSQL URI, as for the warehouse harness), or `POSTGRES_HOST/PORT/DB/USER/PASSWORD`:
 
 ```bash
 spark-submit --master 'local[*]' --driver-memory 6g --jars /cache/iceberg-runtime.jar,/cache/postgresql.jar \
@@ -36,52 +36,52 @@ spark-submit --master 'local[*]' --driver-memory 6g --jars /cache/iceberg-runtim
 .venv/bin/pytest -q
 ```
 
-DB phải trống, chưa có schema `warehouse_lifecycle`; runner từ chối ghi lên schema đã tồn
-tại. DSN/password không có trong receipt. Dùng DB tạm của harness để cô lập phép đo.
+The DB must be empty, without a `warehouse_lifecycle` schema; the runner refuses to write over an existing
+schema. The DSN/password is not stored in the receipt. Use the harness's temporary DB to isolate the measurement.
 
-Receipt schema 1 gồm tham số, dataset_version, cutoff, số dòng từng bảng và từng
-chặng, thời gian tường, toàn bộ checks/validation Gold, receipt export warehouse và
-EXPLAIN đầy đủ. Silver ghi bốn bảng Gold cần rồi đọc lại; Gold validate trước khi ghi,
-`feature_sample=50`, `sample_limit=200` mặc định của validator. Gold cũng đọc lại từ
-catalog trước export. Chặng gold_build có count để đo action thật; các lineage chưa
-cache có thể tính lại trong validate/write, vì vậy thời gian các chặng gồm cả tính lại.
-Export có receipt riêng `receipt-warehouse.json` và đối soát count/tiền trước publish.
-Chặng lỗi lưu loại exception, thời gian và số dòng đã đo; status tổng chỉ passed khi
-mọi chặng hoàn tất. Kill cứng/OOM có thể chỉ để lại receipt running gần nhất, không
-được coi là PASS.
+Receipt schema 1 contains the parameters, dataset_version, cutoff, row counts per table and per
+stage, wall-clock time, all Gold checks/validation, the warehouse export receipt and
+the full EXPLAIN. Silver writes the four tables Gold needs and reads them back; Gold validates before writing,
+with `feature_sample=50` and the validator's default `sample_limit=200`. Gold also reads back from
+the catalog before export. The gold_build stage has a count so that a real action is measured; uncached lineages
+can be recomputed in validate/write, so stage times include recomputation.
+The export has its own receipt, `receipt-warehouse.json`, and reconciles counts/amounts before publishing.
+A failed stage records the exception type, the time and the row counts measured; the overall status is passed only when
+every stage completes. A hard kill/OOM may leave only the most recent running receipt, which must
+not be treated as PASS.
 
-SKU benchmark là SKU nhiều dòng nhất ở fact, tie-break tên SKU; event_timestamp lấy
-một dòng feature thực của SKU đó, `as_of=created` của chính dòng đó. Dùng benchmark
-trong `scripts/evidence/measure_order_lifecycle_warehouse.py`: 3 query × 5 lần × hai pha pk_only/indexed,
-rollback index sau đo. Pha pk_only vẫn giữ primary key. So median shared hit+read,
-đọc plan đầy đủ; không suy lợi ích chỉ từ wall time/read giảm vì cache nóng dần.
-Cutoff mặc định = manifest.horizons.source_observation_end; với nguồn mặc định,
-Q1 cửa sổ 30 ngày cuối không còn đơn mới nên có thể trả 0 dòng. Báo đúng số này,
-không coi Q1 rỗng là bằng chứng index có ích; cần bộ nguồn/horizon thích hợp khi
-đánh giá Q1. Q2 vẫn dùng cutoff nhãn thật; không đổi cutoff benchmark âm thầm.
+The benchmark SKU is the SKU with the most rows in the fact table, tie-broken by SKU name; event_timestamp is taken from
+a real feature row of that SKU, with `as_of=created` of that same row. Use the benchmark
+in `scripts/evidence/measure_order_lifecycle_warehouse.py`: 3 queries × 5 runs × two phases, pk_only/indexed,
+rolling back the indexes after measuring. The pk_only phase still keeps the primary key. Compare the median shared hit+read
+and read the full plan; do not infer a benefit only from lower wall time/reads, because the cache warms up gradually.
+The default cutoff = manifest.horizons.source_observation_end; with the default source,
+Q1's last-30-day window has no new orders, so it may return 0 rows. Report this number as is,
+do not treat an empty Q1 as evidence that the index helps; a suitable source/horizon is needed when
+evaluating Q1. Q2 still uses the real label cutoff; do not silently change the benchmark cutoff.
 
-`peak_rss.python_driver_kib` đo `resource.RUSAGE_SELF.ru_maxrss` (Linux KiB).
-`terminated_children_kib` đo RUSAGE_CHILDREN, không phải tổng RSS Python+JVM;
-JVM còn sống hoặc JVM do spark-submit quản lý có thể không nằm trong metric này.
-Không dùng số đó như peak toàn bộ Spark/executors/container.
+`peak_rss.python_driver_kib` measures `resource.RUSAGE_SELF.ru_maxrss` (Linux KiB).
+`terminated_children_kib` measures RUSAGE_CHILDREN, not the total Python+JVM RSS;
+a JVM that is still alive or a JVM managed by spark-submit may not be included in this metric.
+Do not use that number as the peak of the whole Spark/executors/container.
 
-| Profile | Dataset / số dòng nguồn, fact | Source / Bronze / Silver (s) | Gold build / validate / write (s) | Warehouse / EXPLAIN (s) | RSS Python KiB |
+| Profile | Dataset / source row count, facts | Source / Bronze / Silver (s) | Gold build / validate / write (s) | Warehouse / EXPLAIN (s) | Python RSS KiB |
 |---|---|---|---|---|---|
-| small | `dataset-15244a34…` / 40.398 bản ghi nguồn, 3.631 fact | 3,3 / 7,4 / 51,5 | 7,6 / 10,9 / 1,8 | 2,8 / 0,3 | 161.296 |
-| medium | 534.853 bản ghi nguồn, 48.874 fact | 50,7 / 23,9 / 2.090,1 | 42,2 / **OOM** / — | — / — | — |
+| small | `dataset-15244a34…` / 40,398 source records, 3,631 facts | 3.3 / 7.4 / 51.5 | 7.6 / 10.9 / 1.8 | 2.8 / 0.3 | 161,296 |
+| medium | 534,853 source records, 48,874 facts | 50.7 / 23.9 / 2,090.1 | 42.2 / **OOM** / — | — / — | — |
 
-| Profile / query | Trước: node / median buffers hit+read / rows | Sau: node / median buffers hit+read / rows |
+| Profile / query | Before: node / median buffers hit+read / rows | After: node / median buffers hit+read / rows |
 |---|---|---|
 | small / Q1 | Aggregate / 173 / 0 | Aggregate / 2 / 0 |
 | small / Q2 | Aggregate / 583 / 5 | Aggregate / 583 / 5 |
 | small / Q3 | Limit / 104 / 1 | Limit / 4 / 1 |
-| medium / Q1 | chưa đo — medium chưa tới bước EXPLAIN | — |
-| medium / Q2 | chưa đo — medium chưa tới bước EXPLAIN | — |
-| medium / Q3 | chưa đo — medium chưa tới bước EXPLAIN | — |
+| medium / Q1 | not measured — medium did not reach the EXPLAIN step | — |
+| medium / Q2 | not measured — medium did not reach the EXPLAIN step | — |
+| medium / Q3 | not measured — medium did not reach the EXPLAIN step | — |
 
-Số đo local, `--driver-memory 6g`. **small**: chạy sau khi đổi tên và sau ba bản sửa bộ nhớ/hiệu năng; mọi check Gold = 0; số dòng mọi bảng trùng lần chạy trước khi đổi tên. **medium**: lần chạy *trước* các bản sửa: Silver 2.090 s (87% ở `coverage_validity`, đã sửa bằng `collect_set`), `gold_build` qua, `gold_validate` OOM ở oracle feature (đã sửa: gom theo SKU). Chưa chạy lại medium sau sửa. EXPLAIN small: Q1 cửa sổ 30 ngày cuối không có đơn (0 dòng) nên không chứng minh lợi ích index; Q3 giảm 104 → 4 buffer nhờ index; Q2 không đổi (583). Q1/Q2/Q3 là ba truy vấn mẫu của `scripts/evidence/measure_order_lifecycle_warehouse.py`.
+Local measurements, `--driver-memory 6g`. **small**: run after the rename and after three memory/performance fixes; every Gold check = 0; row counts of every table match the run before the rename. **medium**: the run *before* the fixes: Silver 2,090 s (87% in `coverage_validity`, fixed with `collect_set`), `gold_build` passed, `gold_validate` OOM in the feature oracle (fixed: grouped by SKU). Medium has not been rerun after the fixes. Small EXPLAIN: Q1's last-30-day window has no orders (0 rows), so it does not prove an index benefit; Q3 drops 104 → 4 buffers thanks to the index; Q2 is unchanged (583). Q1/Q2/Q3 are the three sample queries of `scripts/evidence/measure_order_lifecycle_warehouse.py`.
 
 
-Chưa chạy Docker/Spark/PostgreSQL trong sandbox Codex. Local dùng CPU/đĩa/cache
-máy dev, file Walmart bootstrap thay CDC/JDBC nguồn thật, không suy ra hiệu năng,
-chi phí hoặc độ bền trên GCP. người vận hành giữ JSON/log thực và điền bảng sau khi chạy.
+Docker/Spark/PostgreSQL were not run in the Codex sandbox. Local runs use the dev machine's CPU/disk/cache
+and a Walmart bootstrap file instead of real source CDC/JDBC; nothing is inferred about performance,
+cost or durability on GCP. The operator keeps the real JSON/logs and fills in the table after running.

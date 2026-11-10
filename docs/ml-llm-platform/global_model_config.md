@@ -1,25 +1,25 @@
 # Global Model Config
 
-EDAI-2, dòng 7: cấu hình model dùng chung cho mọi Agent.
+A shared model configuration for every Agent.
 
-Mọi Agent không tự khai model. Chúng trỏ tới **một** `ModelConfig` tên `default-model-config`; đổi model một lần ở đó thì cả ba Agent
-(Data, Model, Coordinator) đổi theo, không sửa manifest từng Agent.
+Agents do not declare their own model. They point to **one** `ModelConfig` named `default-model-config`; change the model once there and all three Agents
+(Data, Model, Coordinator) follow, without editing each Agent's manifest.
 
-Code: [Helm values kagent](../../infra/k8s/agents/kagent-values.yaml) (tạo `default-model-config`), [Data Agent](../../infra/k8s/agents/data-agent.yaml),
+Code: [kagent Helm values](../../infra/k8s/agents/kagent-values.yaml) (creates `default-model-config`), [Data Agent](../../infra/k8s/agents/data-agent.yaml),
 [Model Agent](../../infra/k8s/agents/model-agent.yaml), [Coordinator](../../infra/k8s/agents/coordinator.yaml),
-[ModelConfig nhánh B của A/B](../../infra/k8s/agents/ab-data-agent.yaml).
+[ModelConfig for A/B branch B](../../infra/k8s/agents/ab-data-agent.yaml).
 
-## Cấu hình gồm những gì
+## What the configuration contains
 
-| Trường | Giá trị | Vì sao |
+| Field | Value | Why |
 |---|---|---|
-| `provider` | `OpenAI` | llama.cpp server nói API kiểu OpenAI (`/v1/chat/completions`), nên dùng provider OpenAI chuẩn của kagent, không cần provider riêng |
-| `model` | `qwen2.5-1.5b-instruct` | Trùng `--alias` của llama.cpp ([LLM Inference](llm_inference_platform.md)); gateway và llama.cpp nhận diện model theo tên này |
-| `baseUrl` | `http://agentgateway.agentgateway.svc.cluster.local:3000/v1` | Agent **không gọi thẳng** llama.cpp mà đi qua agentgateway: có API key, rate limit, PII guardrail và số liệu token ([Gateways](agent_gateways.md)) |
-| `apiKeySecretRef` / `apiKeySecretKey` | Secret `kagent-agw-key`, khóa `AGW_AGENT_KEY` | Key gateway nằm trong Secret Kubernetes, không nằm trong manifest |
-| `temperature` | `0.1` | Agent gọi tool cần đầu ra ổn định, ít ngẫu nhiên |
+| `provider` | `OpenAI` | llama.cpp server speaks an OpenAI-style API (`/v1/chat/completions`), so kagent's standard OpenAI provider works; no custom provider needed |
+| `model` | `qwen2.5-1.5b-instruct` | Matches llama.cpp's `--alias` ([LLM Inference](llm_inference_platform.md)); the gateway and llama.cpp identify the model by this name |
+| `baseUrl` | `http://agentgateway.agentgateway.svc.cluster.local:3000/v1` | Agents **do not call** llama.cpp directly but go through agentgateway: API key, rate limit, PII guardrail and token metrics ([Gateways](agent_gateways.md)) |
+| `apiKeySecretRef` / `apiKeySecretKey` | Secret `kagent-agw-key`, key `AGW_AGENT_KEY` | The gateway key lives in a Kubernetes Secret, not in the manifest |
+| `temperature` | `0.1` | Tool-calling Agents need stable, low-randomness output |
 
-## Luồng một lời gọi LLM của Agent
+## The path of one Agent LLM call
 
 ```
 Agent (data / model / coordinator)
@@ -29,32 +29,32 @@ Agent (data / model / coordinator)
                  └─ Service qwen.llm:8080 (llama.cpp, Qwen2.5-1.5B-Instruct GGUF)
 ```
 
-Mọi lượt gọi LLM của cả ba Agent đi qua cùng một cửa, nên telemetry LLM (số token, TTFT = thời gian tới token đầu tiên, thời gian mỗi lượt) được gom ở một chỗ:
+Every LLM call from all three Agents goes through the same door, so LLM telemetry (token counts, TTFT = time to first token, per-turn duration) is collected in one place:
 [Observability](observability.md).
 
-## Đổi model và so hai cấu hình
+## Changing the model and comparing two configurations
 
-- **Đổi cho tất cả Agent:** sửa `model` ở `default-model-config` (và alias tương ứng ở llama.cpp). Agent không cần deploy lại manifest.
-- **Thử một cấu hình khác cho một Agent:** tạo `ModelConfig` thứ hai rồi để Agent tham chiếu nó. A/B Testing làm đúng cách này:
-  `ab-small-model-config` dùng `qwen2.5-0.5b-instruct`, cùng prompt và tool với Data Agent, chỉ khác model; so kết quả ở
+- **Change it for all Agents:** edit `model` in `default-model-config` (and the matching alias in llama.cpp). Agents do not need their manifests redeployed.
+- **Try a different configuration for one Agent:** create a second `ModelConfig` and have the Agent reference it. A/B Testing does exactly this:
+  `ab-small-model-config` uses `qwen2.5-0.5b-instruct`, with the same prompt and tools as Data Agent and only the model different; results are compared in
   [A/B Testing](ab_testing.md).
-- **Giới hạn:** cả ba Agent dùng chung một model CPU 1,5B nên chất lượng gọi tool bị chặn bởi model nhỏ (xem
-  [Agent Evaluation](agent_evaluation.md)); ModelConfig chung cũng nghĩa là lỗi model ảnh hưởng mọi Agent cùng lúc.
+- **Limitation:** all three Agents share one 1.5B CPU model, so tool-calling quality is capped by the small model (see
+  [Agent Evaluation](agent_evaluation.md)); a shared ModelConfig also means a model failure affects every Agent at once.
 
-## Bằng chứng
+## Evidence
 
-Ảnh EKS thể hiện ba Agent dùng chung model:
+EKS screenshot showing three Agents sharing the model:
 
-![kagent UI EKS: ba Agent dùng qwen2.5-1.5b-instruct](../evidence/aws/kagent-ui-agents-20261030.png)
+![EKS kagent UI: three Agents using qwen2.5-1.5b-instruct](../evidence/aws/kagent-ui-agents-20261030.png)
 
-Kiểm tra bằng lệnh trên EKS cho thấy:
-- Có hai ModelConfig: `default-model-config` (model 1,5B) và `ab-small-model-config` (model 0,5B).
-- Ba Agent `coordinator`, `data-agent`, `model-agent` dùng `default-model-config`; riêng `data-agent-b` của A/B dùng `ab-small-model-config`.
-- `status` là `Accepted`. Phần khóa API chỉ ghi tên Secret `kagent-agw-key`, không lộ giá trị khóa.
+Commands run on EKS show:
+- There are two ModelConfigs: `default-model-config` (1.5B model) and `ab-small-model-config` (0.5B model).
+- The three Agents `coordinator`, `data-agent`, `model-agent` use `default-model-config`; only the A/B `data-agent-b` uses `ab-small-model-config`.
+- `status` is `Accepted`. The API key part only names the Secret `kagent-agw-key`, without exposing the key value.
 
-![kubectl get modelconfig, default-model-config -o yaml và model của từng Agent](../evidence/aws/modelconfig-default-agents.png)
+![kubectl get modelconfig, default-model-config -o yaml and each Agent's model](../evidence/aws/modelconfig-default-agents.png)
 
-Lệnh đã dùng:
+Commands used:
 
 ```bash
 kubectl --context $KCTX -n kagent get modelconfig
@@ -62,4 +62,4 @@ kubectl --context $KCTX -n kagent get modelconfig default-model-config -o yaml  
 kubectl --context $KCTX -n kagent get agent -o custom-columns=AGENT:.metadata.name,MODEL:.spec.declarative.modelConfig
 ```
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

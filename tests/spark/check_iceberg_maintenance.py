@@ -168,7 +168,7 @@ if __name__ == "__main__":
     )
     if result.wasSuccessful():
         print(
-            "DE_N2_EVIDENCE_JSON="
+            "ICEBERG_MAINTENANCE_EVIDENCE_JSON="
             + json.dumps(
                 {
                     "suite": "tests.spark.check_iceberg_maintenance",

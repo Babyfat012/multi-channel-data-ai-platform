@@ -199,7 +199,7 @@ services:
   flink-taskmanager:
     profiles: !override [disabled-aws]
     scale: 0
-  # Federated Trino (Novel #1): Iceberg on S3 via the IAM role + EC2 PostgreSQL; enable only when measuring
+  # Federated Trino: Iceberg on S3 via the IAM role + EC2 PostgreSQL; enable only when measuring
   # (--profile query), nghe loopback, xem UI qua tunnel 8083.
   trino:
     profiles: !override [query]

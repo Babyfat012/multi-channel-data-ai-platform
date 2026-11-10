@@ -1,18 +1,18 @@
-# Novel Ideas — Trino và CDC trên AWS
+# Trino Federation and CDC on AWS
 
-Trang này ứng với EDAI-1, dòng 39–40 của rubric: mô tả ý tưởng, cách triển khai và bằng chứng chạy được. Có hai ý
-tưởng. Thứ nhất, dùng Trino để đối chiếu dữ liệu giữa Iceberg trên S3 và PostgreSQL trong một câu SQL. Thứ hai, dùng
-Debezium để giữ đủ các thay đổi create/update/delete của nguồn và chuyển chúng qua Kafka.
+This page covers two additions to the platform: the idea, how it is deployed, and evidence that it runs. First,
+Trino is used to reconcile data between Iceberg on S3 and PostgreSQL in one SQL statement. Second, Debezium is used
+to keep every create/update/delete change of the source and move it through Kafka.
 
-## Trên AWS
+## On AWS
 
-**Ý tưởng 1: truy vấn liên nguồn bằng Trino.** Trino 483 chạy trên EC2 (profile `query`, chỉ nghe loopback cổng
-8083). Catalog được khai trong [`trino/catalog-aws/lakehouse.properties`](../../trino/catalog-aws/lakehouse.properties):
+**Part 1: cross-source queries with Trino.** Trino 483 runs on EC2 (profile `query`, listening only on loopback port
+8083). The catalogs are declared in [`trino/catalog-aws/lakehouse.properties`](../../trino/catalog-aws/lakehouse.properties):
 
-- `lakehouse`: Iceberg REST (Lakekeeper) cùng S3 thật, truy cập qua IAM role của EC2 (không dùng access key).
-- `postgres`: PostgreSQL trên EC2.
+- `lakehouse`: Iceberg REST (Lakekeeper) with real S3, accessed through the EC2 IAM role (no access keys).
+- `postgres`: PostgreSQL on EC2.
 
-Câu SQL dưới đọc cùng lúc bảng Gold trên S3 và bảng warehouse 30 ngày trên PostgreSQL:
+The SQL below reads the Gold table on S3 and the 30-day warehouse table on PostgreSQL at the same time:
 
 ```sql
 SELECT 'iceberg' AS nguon, count(*) AS dong, sum(line_net_amount) AS tien
@@ -25,70 +25,72 @@ FROM postgres.warehouse.fact_order_lines_30d_dp2
 WHERE seller_sku = 'APP-00482'
 ```
 
+(`nguon`, `dong`, `tien` are the column aliases used in the recorded run: source, rows, amount.)
+
 | nguon | dong | tien |
 |---|---|---|
-| iceberg | 4.517 | 49.632.312,55 |
-| postgres | 4.517 | 49.632.312,55 |
+| iceberg | 4,517 | 49,632,312.55 |
+| postgres | 4,517 | 49,632,312.55 |
 
-Hai nguồn khớp cả số dòng lẫn tổng tiền. Kết quả này có hai ý nghĩa: đây là một truy vấn liên nguồn chạy được, đồng
-thời là phép kiểm chéo cho thấy DAG `dp4_warehouse` đã chép đúng 30 ngày từ Gold sang PostgreSQL.
+The two sources match in both row count and total amount. This result means two things: it is a working cross-source
+query, and it is a cross-check showing that the `dp4_warehouse` DAG copied exactly 30 days from Gold to PostgreSQL.
 
-Query `20261029_092844_00002_zfrx9` kết thúc ở trạng thái FINISHED sau 15,50 s (lập kế hoạch mất 571 ms), gồm 3
-stage. Stage 1 đọc Iceberg: quét 7,18M dòng, tổng thời gian xử lý (scheduled) 27,3 s trên 1 worker.
+Query `20261029_092844_00002_zfrx9` finished in the FINISHED state after 15.50 s (planning took 571 ms), with 3
+stages. Stage 1 reads Iceberg: it scanned 7.18M rows, with a total processing time (scheduled) of 27.3 s on 1 worker.
 
-![Trino Cluster overview: một worker, query UNION ALL hai nguồn FINISHED](../evidence/aws/trino-queries-20261029.png)
+![Trino Cluster overview: one worker, UNION ALL query over two sources FINISHED](../evidence/aws/trino-queries-20261029.png)
 
-![Trino query 20261029_092844_00002_zfrx9 FINISHED, elapsed 15,50 giây](../evidence/aws/trino-federation-overview-20261029.png)
+![Trino query 20261029_092844_00002_zfrx9 FINISHED, elapsed 15.50 seconds](../evidence/aws/trino-federation-overview-20261029.png)
 
-![Trino: SQL đọc lakehouse.gold và postgres.warehouse, cả ba stage FINISHED](../evidence/aws/trino-federation-stages-20261029.png)
+![Trino: SQL reading lakehouse.gold and postgres.warehouse, all three stages FINISHED](../evidence/aws/trino-federation-stages-20261029.png)
 
-Lợi ích: kiểm chéo Gold trên S3 với warehouse PostgreSQL chỉ bằng một câu SQL, bớt bước ghép kết quả bằng tay.
+Benefit: Gold on S3 can be cross-checked against the PostgreSQL warehouse with a single SQL statement, removing the manual step of combining results.
 
-Giới hạn và nguồn số:
+Limitations and sources of the numbers:
 
-- `UNION ALL` giữ riêng kết quả của từng nguồn. Hai con số tổng hợp khớp nhau chưa chứng minh từng dòng đều bằng nhau.
-- Số 4.517 và 49.632.312,55 lấy từ [receipt](../evidence/aws/data-platform-aws-20261027.json)
-  (`novel_trino_federation`). Ảnh UI chỉ cho thấy SQL đọc hai catalog và trạng thái FINISHED, không hiển thị bảng
-  kết quả CLI.
-- Catalog PostgreSQL: [postgres.properties](../../trino/catalog-aws/postgres.properties).
+- `UNION ALL` keeps the result of each source separate. Two matching aggregates do not prove that every row is equal.
+- The numbers 4,517 and 49,632,312.55 come from the [receipt](../evidence/aws/data-platform-aws-20261027.json)
+  (`novel_trino_federation`). The UI screenshots only show the SQL reading two catalogs and the FINISHED state; they do not show the CLI
+  result table.
+- PostgreSQL catalog: [postgres.properties](../../trino/catalog-aws/postgres.properties).
 
-## Trên AWS
+## On AWS
 
-**Ý tưởng 2: CDC (Change Data Capture, bắt thay đổi) bằng Debezium.** Debezium 3.4.3, PostgreSQL, Kafka, Airflow và
-Spark chạy bằng Compose trên EC2 ở Sydney; bảng Bronze Iceberg ghi lên S3. Ý tưởng là đọc WAL (nhật ký ghi của
-PostgreSQL) để giữ đủ create/update/delete xảy ra sau lần nạp batch, thay vì phải quét lại toàn bảng nguồn.
+**Part 2: CDC (Change Data Capture) with Debezium.** Debezium 3.4.3, PostgreSQL, Kafka, Airflow and
+Spark run with Compose on EC2 in Sydney; the Bronze Iceberg table is written to S3. The idea is to read the WAL (PostgreSQL's
+write-ahead log) to keep every create/update/delete that happens after the batch load, instead of rescanning the whole source table.
 
-DAG [dp1_cdc](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`, có hai bước:
+DAG [dp1_cdc](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`, has two steps:
 
-1. [ingest_walmart_cdc](../../spark_jobs/cdc/ingest_walmart_order_changes.py) chốt cố định khoảng offset sẽ đọc, rồi
-   ghi envelope (bản tin thay đổi đầy đủ) cùng provenance (thông tin nguồn gốc) vào Bronze.
-2. [validate_walmart_cdc](../../spark_jobs/cdc/validate_walmart_order_changes.py) so Kafka với Bronze, chỉ trong đúng
-   source epoch (lượt nguồn) của run đó.
+1. [ingest_walmart_cdc](../../spark_jobs/cdc/ingest_walmart_order_changes.py) pins a fixed offset range to read, then
+   writes the envelope (the full change message) together with provenance (source information) into Bronze.
+2. [validate_walmart_cdc](../../spark_jobs/cdc/validate_walmart_order_changes.py) compares Kafka with Bronze, only within the exact
+   source epoch of that run.
 
-Cấu hình connector: [setup_order_snapshots_debezium.py](../../scripts/setup/setup_order_snapshots_debezium.py).
+Connector configuration: [setup_order_snapshots_debezium.py](../../scripts/setup/setup_order_snapshots_debezium.py).
 
-Kết quả [probe AWS](../evidence/aws/cdc-probe-20261028.json) `CDC-DEMO-fb4b96588a6d` (probe là ba sự kiện thử ghi
-vào nguồn):
+Results of the [AWS probe](../evidence/aws/cdc-probe-20261028.json) `CDC-DEMO-fb4b96588a6d` (the probe is three test events written
+to the source):
 
-- Các sự kiện vào topic `platform_cdc.walmart.orders`, partition 0, offsets 0/1/2 tương ứng create/update/delete
-  (`c/u/d`).
-- Thời gian từ lúc commit ở nguồn tới lúc có trên Kafka lần lượt là 730,7 / 452,1 / 295,3 ms.
-- Nội dung đúng loại sự kiện: create có bản after, update có cả before lẫn after, delete có bản before.
-- Sau khi delete, nguồn còn 0 dòng probe.
-- Validator ghi: số tin trên Kafka bằng số dòng Bronze bằng số offset duy nhất, đều là 3. Số tin thiếu, thừa, sai
-  payload và lỗi đều bằng 0.
+- The events land in topic `platform_cdc.walmart.orders`, partition 0, offsets 0/1/2 for create/update/delete
+  (`c/u/d`) respectively.
+- The time from commit at the source to arrival in Kafka is 730.7 / 452.1 / 295.3 ms respectively.
+- The content matches the event type: create has an after image, update has both before and after, delete has a before image.
+- After the delete, the source has 0 probe rows left.
+- The validator records: the number of messages in Kafka equals the number of Bronze rows equals the number of unique offsets, all 3. Missing, extra, wrong
+  payload and error counts are all 0.
 
-Không dùng các số thời gian trên làm độ trễ từ commit tới Bronze.
+Do not use the times above as the latency from commit to Bronze.
 
-![Airflow validate_walmart_cdc: Kafka 3, Bronze 3, offset duy nhất 3; thiếu, thừa, sai payload và lỗi đều 0](../evidence/aws/dp1-cdc-validate-20261028.png)
+![Airflow validate_walmart_cdc: Kafka 3, Bronze 3, unique offsets 3; missing, extra, wrong payload and errors all 0](../evidence/aws/dp1-cdc-validate-20261028.png)
 
-![DataHub CDC: Kafka orders qua ingest_walmart_cdc tới raw_walmart_cdc_v2 và validate_walmart_cdc](../evidence/aws/datahub/dp1-cdc-lineage.png)
+![DataHub CDC: Kafka orders through ingest_walmart_cdc to raw_walmart_cdc_v2 and validate_walmart_cdc](../evidence/aws/datahub/dp1-cdc-lineage.png)
 
-![DataHub Quality raw_walmart_cdc_v2: assertion dp1_cdc.validate_walmart_cdc có dấu xanh](../evidence/aws/datahub/dp1-cdc-validation.png)
+![DataHub Quality raw_walmart_cdc_v2: assertion dp1_cdc.validate_walmart_cdc with a green check](../evidence/aws/datahub/dp1-cdc-validation.png)
 
-Ảnh Lineage cho thấy dữ liệu đi từ topic, qua task ingest, tới `bronze.raw_walmart_cdc_v2`. Ảnh Quality cho thấy
-assertion của validator có dấu xanh. [Manifest AWS](../evidence/aws/datahub-validation-aws-20261029.json) giữ cùng
-run_id và các số đo. Giới hạn: đây chỉ là probe ba sự kiện, chưa phải phép đo tải CDC, và chưa chứng minh Silver/Gold
-được cập nhật tự động.
+The Lineage screenshot shows data flowing from the topic, through the ingest task, to `bronze.raw_walmart_cdc_v2`. The Quality screenshot shows
+the validator's assertion with a green check. The [AWS manifest](../evidence/aws/datahub-validation-aws-20261029.json) keeps the same
+run_id and measurements. Limitation: this is only a three-event probe, not a CDC load measurement, and it does not prove Silver/Gold
+are updated automatically.
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

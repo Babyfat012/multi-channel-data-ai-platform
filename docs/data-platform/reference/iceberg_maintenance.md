@@ -1,158 +1,158 @@
-# Iceberg maintenance — Iceberg tự bảo trì theo chính sách
+# Iceberg maintenance — policy-driven self-maintenance for Iceberg
 
-Gói H bổ sung trigger metadata, retention generation, retry và hậu kiểm cho
-[acceptance ledger](../evidence.md). Dòng `de` 20 đã có compaction thủ công
-ở job `spark_jobs/maintenance/compact_amazon_order_snapshots.py`; tài liệu này không tái sử dụng ảnh/số đo đó làm bằng chứng maintenance.
-Theo [Spark mục 5b](spark.md), nhiễu thời gian từng đo khoảng 14,5%; chỉ số chính
-ở đây là số file, file ứng viên của probe, snapshot, số dòng và checksum.
+Package H adds metadata triggers, generation retention, retries and post-checks to the
+[acceptance ledger](../evidence.md). Manual compaction already exists
+in the job `spark_jobs/maintenance/compact_amazon_order_snapshots.py`; this document does not reuse those screenshots/measurements as maintenance evidence.
+Per [Spark section 5b](spark.md), timing noise was once measured at about 14.5%; the primary metrics
+here are file count, probe candidate files, snapshots, row count and checksum.
 
-## Thành phần và quyết định
+## Components and decisions
 
-`spark_jobs/lib/maintenance_policy.py` không import pyspark: metadata dict + cấu hình + thời gian
-UTC → kế hoạch JSON với lý do cho từng hành động, snapshot được bảo vệ và generation
-tag. `spark_jobs/maintenance/maintain_iceberg_tables.py` đọc `.files`, `.snapshots`, `.refs`, `.partitions`
-và `SHOW TBLPROPERTIES`, gọi policy rồi preflight SQL trước khi thi hành. Session
-production dùng `spark_jobs.lib.iceberg_session.build_spark`; local dùng Hadoop catalog riêng.
-Không thêm dependency, không tự tải jar trong test local.
+`spark_jobs/lib/maintenance_policy.py` does not import pyspark: metadata dict + configuration + UTC
+time → a JSON plan with a reason for each action, the protected snapshots and the generation
+tags. `spark_jobs/maintenance/maintain_iceberg_tables.py` reads `.files`, `.snapshots`, `.refs`, `.partitions`
+and `SHOW TBLPROPERTIES`, calls the policy, then preflights the SQL before executing. The
+production session uses `spark_jobs.lib.iceberg_session.build_spark`; local uses a separate Hadoop catalog.
+No dependency is added, and no jar is downloaded automatically in local tests.
 
-| Thứ tự | Kind | Trigger | Thi hành |
+| Order | Kind | Trigger | Execution |
 |---|---|---|---|
-| 1 | compact | Partition có ít nhất min_input_files và trung bình byte nhỏ hơn small_file_ratio × target_file_size_bytes | rewrite_data_files, binpack, where chỉ các partition đạt ngưỡng |
-| 2 | zorder | Có zorder_columns và chưa có mốc hoặc đủ zorder_min_new_files từ mốc | rewrite_data_files, sort, zorder(c1,c2), rewrite-all=true; ghi snapshot id mới vào platform.maintenance.last_zorder_snapshot_id |
-| 3 | expire_snapshots | Snapshot quá tuổi, ngoài retain_last và không bị ref trỏ tới | expire_snapshots với older_than UTC, retain_last |
-| 4 | remove_orphans | Luôn kiểm kê; older_than ít nhất 72 giờ | remove_orphan_files, dry_run=true mặc định; chỉ false tường minh mới xoá |
+| 1 | compact | A partition has at least min_input_files and average bytes below small_file_ratio × target_file_size_bytes | rewrite_data_files, binpack, where restricted to the partitions over the threshold |
+| 2 | zorder | zorder_columns is set and there is no marker yet, or at least zorder_min_new_files since the marker | rewrite_data_files, sort, zorder(c1,c2), rewrite-all=true; writes the new snapshot id to platform.maintenance.last_zorder_snapshot_id |
+| 3 | expire_snapshots | Snapshot older than the age limit, outside retain_last and not referenced by any ref | expire_snapshots with UTC older_than, retain_last |
+| 4 | remove_orphans | Always inventoried; older_than at least 72 hours | remove_orphan_files, dry_run=true by default; only an explicit false deletes |
 
-Đếm file mới đi theo parent_id từ snapshot main về mốc, không đếm nhánh khác.
-Mốc không còn trong ancestry → z-order lại một cách bảo thủ. `rewrite-all=true`
-đảm bảo bước z-order vẫn sắp file vừa được binpack; file đủ lớn không đồng nghĩa đã
-được sắp theo nội dung.
+New files are counted by following parent_id from the main snapshot back to the marker, not counting other branches.
+If the marker is no longer in the ancestry → z-order again, conservatively. `rewrite-all=true`
+ensures the z-order step still sorts files that were just binpacked; a file being large enough does not mean it has
+been sorted by content.
 
-**Quy tắc lập kế hoạch:** yêu cầu remove_orphans luôn có trong kế hoạch
-đồng thời yêu cầu kế hoạch lần hai rỗng. Implementation giữ cuộc kiểm kê dry-run;
-`no_op=true` và `reason="no-op: ..."` khi không còn hành động thay đổi bảng.
-`actions` lúc đó chỉ có remove_orphans dry-run, không phải mảng rỗng. Kiểm thử ghi
-rõ ngoại lệ này thay vì giả vờ hai yêu cầu có thể đồng thời được đáp ứng. Với
-orphans_dry_run=false, luôn còn một hành động xoá theo luật cấu hình.
+**Planning rule:** the requirement that remove_orphans is always in the plan
+conflicts with the requirement that the second plan is empty. The implementation keeps the dry-run inventory;
+`no_op=true` and `reason="no-op: ..."` when no table-changing action remains.
+`actions` then contains only the remove_orphans dry-run, not an empty array. The tests state
+this exception explicitly instead of pretending both requirements can be met at once. With
+orphans_dry_run=false, there is always one delete action per the configured rule.
 
-## Retention generation
+## Generation retention
 
-Generation là tag có tiền tố mặc định `gen-`, đổi qua generation_tag_prefix.
-Policy liệt kê `protected_snapshot_ids` từ **tất cả** tag/branch, không đưa chúng
-vào `expire_snapshots.snapshot_ids`. `generation_tags` là danh sách tag cần kiểm
-checksum. `main` cũng là một branch được bảo vệ.
+A generation is a tag with the default prefix `gen-`, changeable via generation_tag_prefix.
+The policy lists `protected_snapshot_ids` from **all** tags/branches and does not put them
+into `expire_snapshots.snapshot_ids`. `generation_tags` is the list of tags whose
+checksum must be checked. `main` is also a protected branch.
 
-Trước mọi procedure, job đọc từng generation qua `VERSION AS OF '<tag>'` và lưu
-count/checksum/schema. Ngay sau expire, và lần nữa cuối job, đọc lại từng tag rồi
-so với trước. Không đọc được hoặc sai checksum → fail. Iceberg vẫn là lớp thực
-thi retention: procedure dùng older_than/retain_last và xử lý ref theo Iceberg;
-danh sách ứng viên trong policy không được coi là số snapshot chắc chắn đã xoá.
-Không tự sửa retention của tag, không xoá tag/branch. Job từ chối chạy expiry
-nếu TTL ref (max_reference_age_in_ms hoặc history.expire.max-ref-age-ms) có thể
-làm Iceberg tự bỏ ref đang được bảo vệ. Kiểm này chạy trước mọi procedure và
-lặp lại sát CALL expiry; hậu kiểm vẫn cần thiết để phát hiện thay đổi đồng thời.
+Before any procedure, the job reads each generation via `VERSION AS OF '<tag>'` and stores
+count/checksum/schema. Right after expiry, and again at the end of the job, it rereads each tag and
+compares with before. Unreadable or wrong checksum → fail. Iceberg remains the layer that
+enforces retention: the procedure uses older_than/retain_last and handles refs the Iceberg way;
+the candidate list in the policy must not be treated as the number of snapshots certainly deleted.
+The job does not modify a tag's retention and does not delete tags/branches. The job refuses to run expiry
+if a ref TTL (max_reference_age_in_ms or history.expire.max-ref-age-ms) could
+make Iceberg drop a protected ref by itself. This check runs before any procedure and
+again right before the expiry CALL; the post-check is still needed to detect concurrent changes.
 
-## Retry, lỗi và receipt
+## Retry, errors and receipt
 
-`execute_actions` nhận callback procedure và hàm sleep; pytest dùng callback giả.
-CommitFailedException được retry. ValidationException chỉ retry khi thông điệp
-cho thấy concurrent/conflicting/found new/cannot commit/changed/already been committed.
-Validation schema sai không được retry. Tối đa mặc định 3 lần, backoff 1s, 2s,
-giới hạn 8s. Receipt lưu kind, attempt, status, error, transient, delay, result.
-Lỗi fatal hoặc hết lượt → dừng ngay, không thi hành action/bảng tiếp theo, ghi
-receipt failed và exit khác 0. Không rollback các action trước đã commit.
+`execute_actions` takes a procedure callback and a sleep function; pytest uses a fake callback.
+CommitFailedException is retried. ValidationException is retried only when the message
+indicates concurrent/conflicting/found new/cannot commit/changed/already been committed.
+A wrong schema validation is not retried. Default maximum 3 attempts, backoff 1s, 2s,
+capped at 8s. The receipt stores kind, attempt, status, error, transient, delay, result.
+A fatal error or exhausted attempts → stop immediately, do not run the next action/table, write a
+failed receipt and exit non-zero. Earlier actions that already committed are not rolled back.
 
-`--inject-transient-failures 2` giả hai lỗi **trước CALL** của action đầu, rồi thử
-lần ba. `--inject-fatal-failure` thất bại trước CALL đầu. Multi-table chỉ inject
-trên bảng đầu. Receipt JSON ghi atomic, có UTC timestamps, sha256 hai module code,
-sha256 cấu hình thực dùng, plan, SQL, từng attempt và toàn bộ số trước/sau.
+`--inject-transient-failures 2` fakes two errors **before the CALL** of the first action, then tries
+a third time. `--inject-fatal-failure` fails before the first CALL. Multi-table injects only
+on the first table. The JSON receipt is written atomically, with UTC timestamps, the sha256 of the two code modules,
+the sha256 of the configuration actually used, the plan, the SQL, each attempt and all before/after numbers.
 
-## Hậu kiểm và cách đo
+## Post-checks and how they are measured
 
-Trong cùng job execute, trước/sau đều đo:
+Within the same execute job, both before and after measure:
 
-- `count(*)` qua quan hệ logic, không lấy record_count metadata.
-- Fingerprint: tổng decimal(38,0) của `xxhash64` trên **mọi cột theo thứ tự schema**.
-  Cùng count, checksum và danh sách cột phải bằng hệt; tổng độc lập thứ tự dòng/file,
-  tránh overflow bigint. Đây là checksum xác suất, có khả năng collision.
-- Số data file hiện hành (`content=0`), tổng byte, số snapshot thực đọc metadata.
-- Với zorder_columns và probe_predicates: số file có lower_bound/upper_bound giao
-  mọi khoảng đóng AND của probe; thiếu một bound thì không dùng bound đó để loại
-  file. Chỉ loại khi có chứng cứ khoảng không giao. Date/timestamp được chuẩn hoá
-  theo kiểu metadata, timestamp về UTC.
-- Mỗi probe chạy count một lượt warmup + 3 lượt đo; receipt giữ từng số giây, n=3.
-  Không dùng thời gian để quyết định pass/fail hay khẳng định tăng tốc.
+- `count(*)` over the logical relation, not the record_count metadata.
+- Fingerprint: the decimal(38,0) sum of `xxhash64` over **all columns in schema order**.
+  Count, checksum and column list must be identical; the sum is independent of row/file order and
+  avoids bigint overflow. This is a probabilistic checksum and can collide.
+- Number of current data files (`content=0`), total bytes, number of snapshots actually read from metadata.
+- With zorder_columns and probe_predicates: the number of files whose lower_bound/upper_bound intersect
+  every closed AND range of the probe; if a bound is missing, that bound is not used to exclude
+  the file. A file is excluded only with evidence that the ranges do not intersect. Dates/timestamps are normalized
+  to the metadata type, timestamps to UTC.
+- Each probe runs count once as warmup + 3 measured runs; the receipt keeps each number of seconds, n=3.
+  Time is not used to decide pass/fail or to claim a speedup.
 
-Đây là **file ứng viên theo min/max**, không phải instrumentation số file Spark
-thực mở: Spark còn có thể dùng partition pruning/row group/delete files. Metrics
-phải được bật cho cột liên quan; truncated bounds làm ước lượng bảo thủ. Predicate
-cấu hình có dạng `{"name":"sku-0001","ranges":{"seller_sku":["sku-0001","sku-0001"]}}`.
-null là không chặn đầu khoảng; schema probe hiện hỗ trợ khoảng đóng, không OR/LIKE.
+These are **candidate files by min/max**, not instrumentation of the number of files Spark
+actually opens: Spark may also use partition pruning/row groups/delete files. Metrics
+must be enabled for the relevant columns; truncated bounds give a conservative estimate. A configured
+predicate looks like `{"name":"sku-0001","ranges":{"seller_sku":["sku-0001","sku-0001"]}}`.
+null means an unbounded end of the range; the probe schema currently supports closed ranges, no OR/LIKE.
 
-`--validate-receipt <execute.json>` chạy ở Spark session mới, chỉ nhận receipt
-success, kiểm before/after đã bằng nhau rồi đọc lại bảng/tag và so checksum/schema.
-Không ghi đè receipt gốc. Nếu dữ liệu được writer khác thay đổi trong cửa sổ
-bảo trì/validate thì checksum khác sẽ fail; cần chọn cửa sổ ít ghi để đọc bằng
-chứng nhất quán. Job không khoá writer hay cung cấp transaction nhiều action.
+`--validate-receipt <execute.json>` runs in a new Spark session, accepts only a success
+receipt, checks that before/after were equal, then rereads the table/tags and compares checksum/schema.
+It does not overwrite the original receipt. If another writer changes the data during the
+maintenance/validate window, the checksum differs and it fails; choose a low-write window to read
+consistent evidence. The job does not lock writers or provide a multi-action transaction.
 
-## Airflow và vận hành
+## Airflow and operations
 
-DAG mới `maintenance_iceberg` có schedule @daily, catchup=False,
-max_active_runs=1, is_paused_upon_creation=True. Ba task dùng
-PlatformSparkSubmitOperator: plan (--plan-only) → execute (--execute, có hậu kiểm) →
-validate (--validate-receipt, session mới). Execute lập lại kế hoạch từ metadata
-hiện hành; không thực thi mù một plan cũ.
+The new DAG `maintenance_iceberg` has schedule @daily, catchup=False,
+max_active_runs=1, is_paused_upon_creation=True. Three tasks use
+PlatformSparkSubmitOperator: plan (--plan-only) → execute (--execute, with post-checks) →
+validate (--validate-receipt, new session). Execute rebuilds the plan from the current
+metadata; it never blindly executes an old plan.
 
-Biến thêm trong `scripts/setup/bootstrap_airflow_config.py`:
+Variables added in `scripts/setup/bootstrap_airflow_config.py`:
 
-- platform_maintenance_tables: JSON array tên bảng đủ catalog.namespace.table;
-  mặc định chỉ demo `lakehouse.demo.maintenance_demo`.
-- platform_maintenance_receipt_dir: `/opt/airflow/logs/iceberg-maintenance`, nằm trên
-  volume Airflow; mỗi logical timestamp có plan.json và execute.json riêng.
+- platform_maintenance_tables: JSON array of fully qualified catalog.namespace.table names;
+  by default only the demo `lakehouse.demo.maintenance_demo`.
+- platform_maintenance_receipt_dir: `/opt/airflow/logs/iceberg-maintenance`, on the
+  Airflow volume; each logical timestamp has its own plan.json and execute.json.
 
-Compose hiện không mount configs/. Vì vậy `scripts/setup/setup_airflow.sh` **chỉ thêm** thao tác
-nạp nguyên configs/iceberg_maintenance.json qua stdin vào Variable
-platform_maintenance_config. DAG truyền nội dung bằng --config-json. Thao tác này
-không đổi cấu hình biến khác hay Compose. Sau khi đổi JSON cần nạp lại setup
-hoặc cập nhật đúng Variable. Không đặt secret trong cấu hình maintenance.
+Compose currently does not mount configs/. So `scripts/setup/setup_airflow.sh` **only adds** a step that
+loads the whole configs/iceberg_maintenance.json via stdin into the Variable
+platform_maintenance_config. The DAG passes the content with --config-json. This step
+does not change other variables' configuration or Compose. After changing the JSON, rerun setup
+or update exactly that Variable. Do not put secrets in the maintenance configuration.
 
-CLI ngoài DAG có thể dùng `--config /đường/dẫn/iceberg_maintenance.json` với bảng
-trong allowlist JSON. Local: `--catalog local --local-warehouse /tmp/warehouse`,
-jar đưa bằng spark-submit --jars đã cache. `--help` không cần pyspark.
+The CLI outside the DAG can use `--config /path/to/iceberg_maintenance.json` with tables
+in the JSON allowlist. Local: `--catalog local --local-warehouse /tmp/warehouse`,
+jars provided via spark-submit --jars from cache. `--help` does not need pyspark.
 
-## Kiểm thử và số đo thật
+## Tests and real measurements
 
-Pytest Python thuần đã chạy; output đầy đủ nằm trong
-report (ghi chú nội bộ, không nằm trong repo). Tracer đầu đỏ do module chưa có, rồi xanh;
-các vòng bổ sung có đỏ do thiếu config/hàm probe và một lỗi so timestamp ISO,
-sau đó đều xanh.
+The pure Python pytest suite has run; the full output is in the
+report (internal note, not in the repo). The first tracer was red because the module did not exist yet, then green;
+the additional rounds had reds due to a missing config/probe function and an ISO timestamp comparison bug,
+then all went green.
 
-**Spark local: đã chạy (người vận hành) — `Ran 3 tests in 39.176s OK`.**
-Receipt đầy đủ: [`docs/evidence/iceberg-maintenance-local-20261018.json`](../../evidence/iceberg-maintenance-local-20261018.json)
-(sha256 hai file code trong receipt khớp file trong repo lúc lưu).
+**Spark local: run (by the operator) — `Ran 3 tests in 39.176s OK`.**
+Full receipt: [`docs/evidence/iceberg-maintenance-local-20261018.json`](../../evidence/iceberg-maintenance-local-20261018.json)
+(the sha256 of the two code files in the receipt matched the files in the repo when it was saved).
 
-| Đo trên bảng `maintenance_normal` (8.192 dòng, 2 partition) | Trước | Sau |
+| Measured on table `maintenance_normal` (8,192 rows, 2 partitions) | Before | After |
 |---|---|---|
-| Số data file | 32 | 12 |
-| Số snapshot | 32 | 4 |
-| File phải đọc cho probe `seller_sku = 'sku-0001'` | 32 | 2 |
-| Fingerprint toàn bảng `sum(xxhash64)` | 253838296152053650978 | 253838296152053650978 (bằng hệt) |
-| Fingerprint tag `gen-1` (4.096 dòng) | 106188931843360907061 | 106188931843360907061 (bằng hệt) |
+| Data files | 32 | 12 |
+| Snapshots | 32 | 4 |
+| Files to read for probe `seller_sku = 'sku-0001'` | 32 | 2 |
+| Whole-table fingerprint `sum(xxhash64)` | 253838296152053650978 | 253838296152053650978 (identical) |
+| Tag `gen-1` fingerprint (4,096 rows) | 106188931843360907061 | 106188931843360907061 (identical) |
 
-- Lần lập kế hoạch thứ hai: `no_op = true`, chỉ còn `remove_orphans` dry-run (không đổi bảng).
-- Retry: `compact` lỗi tạm 2 lần (`CommitFailedException` giả lập) → lần 3 thành công, các bước sau chạy đủ.
-- Fatal: lỗi ở hành động đầu → dừng, không chạy tiếp, receipt `status = failed` ghi lỗi.
-- Thời gian probe có in trong receipt nhưng **không** dùng làm bằng chứng (nhiễu); bằng chứng là số file phải đọc.
+- Second planning pass: `no_op = true`, only the `remove_orphans` dry-run remains (no table change).
+- Retry: `compact` fails transiently twice (simulated `CommitFailedException`) → succeeds on the 3rd attempt, the following steps all run.
+- Fatal: error on the first action → stop, nothing further runs, the receipt has `status = failed` with the error.
+- Probe time is printed in the receipt but is **not** used as evidence (noisy); the evidence is the number of files to read.
 
-`tests/spark/check_iceberg_maintenance.py` chuẩn bị catalog Hadoop dưới /tmp, extension
-Iceberg CALL và jar 1.11.0 trong ivy. Ba ca độc lập tạo bảng có 32 append nhỏ,
-2 partition identity, seller_sku/created_at, tag gen-1 sau append 16. Test yêu
-cầu giảm file và probe-file, dữ liệu/tag bất biến, expiry giảm snapshot, lần hai
-no-op mutation, retry hai lỗi rồi thành công và fatal không đổi snapshot. Validation
-dùng newSession và JSON roundtrip. Retention test dùng tuổi 1 giây, chờ 1,1 giây
-cho dữ liệu ban đầu cũ hơn ngưỡng, retain_last=3 để giữ append cuối + compact +
-zorder; không mock clock để tạo bằng chứng idempotence.
+`tests/spark/check_iceberg_maintenance.py` prepares a Hadoop catalog under /tmp, the
+Iceberg CALL extension and the 1.11.0 jar in ivy. Three independent cases create a table with 32 small appends,
+2 identity partitions, seller_sku/created_at, tag gen-1 after append 16. The tests
+require fewer files and probe files, unchanged data/tags, expiry reducing snapshots, a second pass with
+no mutation, a retry of two errors followed by success, and a fatal error leaving snapshots unchanged. Validation
+uses newSession and a JSON roundtrip. The retention test uses an age of 1 second, waits 1.1 seconds
+so the initial data is older than the threshold, retain_last=3 to keep the last append + compact +
+zorder; the clock is not mocked to manufacture idempotence evidence.
 
-người vận hành chạy:
+The operator runs:
 
 ```bash
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g \
@@ -161,37 +161,37 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_iceberg_maintenance.py
 ```
 
-Suite chỉ in `DE_N2_EVIDENCE_JSON=...` sau khi tất cả test xanh. người vận hành có thể lưu
-JSON thật kèm code_sha256 vào evidence mới; test không ghi vào repo mount read-only.
-Số đo phụ thuộc kích thước file Spark/Parquet thật: các assertion **chưa được xác
-nhận** trong sandbox. Không coi việc compile hay pytest là đã kiểm API CALL.
+The suite prints `ICEBERG_MAINTENANCE_EVIDENCE_JSON=...` only after all tests are green. The operator can save the
+real JSON with code_sha256 into new evidence; the test does not write to the read-only repo mount.
+Measurements depend on real Spark/Parquet file sizes: the assertions are **not yet
+confirmed** in the sandbox. Compiling or pytest does not count as having checked the CALL API.
 
-## Giới hạn và việc chạy trên bảng thật
+## Limitations and running on real tables
 
-Compaction hỗ trợ partition identity và time (year/month/day/hour) bằng predicate
-trên cột nguồn. Bucket/truncate, tên cột nguồn lồng nhau và partition evolution
-không được hỗ trợ đầy đủ: preflight từ chối mapping không phù hợp trước CALL.
-File partition được thu thành JSON; identity date dùng literal chuỗi có Spark
-cast. Tên bảng chỉ nhận các thành phần ASCII an toàn, phải ghi đủ catalog và
-namespace. Cột map mà Spark không cho xxhash64 sẽ fail trước procedure; cần chốt
-canonicalization rồi bổ sung riêng trước khi áp dụng lên schema đó.
+Compaction supports identity and time (year/month/day/hour) partitions via predicates
+on the source column. Bucket/truncate, nested source column names and partition evolution
+are not fully supported: the preflight rejects unsuitable mappings before the CALL.
+Partition files are collected as JSON; identity dates use a string literal with a Spark
+cast. Table names accept only safe ASCII components and must include both catalog and
+namespace. A map column for which Spark does not allow xxhash64 fails before the procedure; a
+canonicalization must be settled and added separately before applying it to such a schema.
 
-Orphan luôn dry-run mặc định; cutoff ít nhất 72 giờ không đảm bảo đủ an toàn cho
-writer chạy lâu hơn 72 giờ, nên chỉ tắt dry-run sau khi người vận hành kiểm cửa sổ ghi.
-Không có thử nghiệm API Iceberg thực trong môi trường này; không tuyên bố tương
-thích đã được xác thực bằng runtime. Lịch mới chưa chạy, không bật/tắt service,
-không chạm Lakekeeper/MinIO và không kích hoạt DAG.
+Orphan removal is always dry-run by default; a cutoff of at least 72 hours is not safe enough for
+writers that run longer than 72 hours, so turn dry-run off only after the operator has checked the write window.
+There is no test against the real Iceberg API in this environment; compatibility is not claimed
+as validated at runtime. The new schedule has not run, no service was started/stopped,
+Lakekeeper/MinIO were not touched and the DAG was not enabled.
 
-**Chạy trên bảng thật: chưa chạy — người vận hành chạy sau.**
+**Running on real tables: not yet run — the operator will run it later.**
 
-## Trên AWS
+## On AWS
 
-DAG [maintenance_iceberg](../../../dags/maintenance_iceberg.py) chạy Compose EC2 trên bảng S3
+The DAG [maintenance_iceberg](../../../dags/maintenance_iceberg.py) ran on Compose EC2 against the S3 table
 `bronze.raw_shopee_orders_dp1`, run `scheduled__2026-10-27T00:00:00+00:00`.
-[Receipt AWS](../../evidence/aws/data-platform-aws-20261027.json) ghi plan → execute → validate 3/3 success,
-`no_op=true`: chỉ kiểm kê orphan dry-run; trước/sau đều 180 file, 4.689.957 dòng, fingerprint không đổi.
+The [AWS receipt](../../evidence/aws/data-platform-aws-20261027.json) records plan → execute → validate 3/3 success,
+`no_op=true`: only the orphan dry-run inventory; before/after both 180 files, 4,689,957 rows, fingerprint unchanged.
 
-[Job maintenance](../../../spark_jobs/maintenance/maintain_iceberg_tables.py) không gộp qua ranh giới partition ngày.
-Lần optimize riêng dùng [partition evolution + rewrite-all](../../../spark_jobs/maintenance/repartition_small_channel.py),
-180 → 6 file và giữ fingerprint. [Storage AWS](../data_storage.md#trên-aws) ghi số đo và giới hạn;
-chưa có ảnh riêng chụp compaction AWS trước/sau, không gọi no-op là optimize thành công.
+The [maintenance job](../../../spark_jobs/maintenance/maintain_iceberg_tables.py) does not merge across daily partition boundaries.
+A separate optimization run used [partition evolution + rewrite-all](../../../spark_jobs/maintenance/repartition_small_channel.py),
+180 → 6 files, keeping the fingerprint. [AWS storage](../data_storage.md#on-aws) records the measurements and limitations;
+there is no dedicated before/after screenshot of AWS compaction yet, and the no-op is not called a successful optimization.

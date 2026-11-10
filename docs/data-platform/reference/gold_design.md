@@ -1,176 +1,176 @@
-# Thiết kế tầng Gold — các quyết định đã triển khai
+# Gold layer design — implemented decisions
 
-Tài liệu này ghi các dữ kiện và lựa chọn đã chốt trước khi xây Gold.
-Gold fact, Amazon SCD2, feature và bridge nhãn đã được kiểm chứng trong
-[các run](gold.md). Từ vựng nghiệp vụ giữ ở
-[thuật ngữ và tầng dữ liệu](../../shared/terminology.md).
+This document records the facts and choices settled before building Gold.
+The Gold fact, Amazon SCD2, features and label bridge have been verified in
+[the runs](gold.md). Business vocabulary is kept in
+[terminology and data layers](../../shared/terminology.md).
 
-## Dữ kiện đã xác minh
+## Verified facts
 
-- Năm bảng Silver đều lưu **một dòng cho mỗi sản phẩm trong đơn hàng**. Mỗi kênh
-  bán hàng có một bảng riêng.
-- Dữ liệu đơn Amazon chỉ có khoảng thời gian **giao dự kiến**; không có thời điểm giao thật
+- All five Silver tables store **one row per product in an order**. Each sales
+  Channel has its own table.
+- Amazon order data only has an **estimated delivery** window; there is no actual delivery time
   (`generator/channels/amazon.py`, `spark_jobs/silver/build_amazon_order_snapshots.py`).
-- Bộ sinh dữ liệu ghi `"Delivered"` cho cả trạng thái **đã giao** và **đã hoàn tất**
-  của Walmart (`generator/channels/walmart.py`). Vì vậy `status_changed_at` có
-  thể là lúc hoàn tất, không thể coi chắc chắn là `delivered_at` (thời điểm giao).
-- Dữ liệu đáp án về việc trả hàng (`label`), thời điểm giao (`delivered_at`) và
-  thời điểm có đáp án (`label_available_at`) được giữ riêng trong
-  `ground-truth/labels`. Bảng `ground-truth/order_line_keys` nối mã nội bộ với mã
-  từng kênh (`generator/generate_order_snapshots.py`). Đáp án chỉ có sau thời hạn 30 ngày.
-- Mã `purchase_order_id` của Walmart từng trùng giữa hai đơn khác nhau. Muốn
-  xác định duy nhất một dòng sản phẩm phải dùng đồng thời
-  `purchase_order_id`, `customer_order_id`, `line_number` (`docs/data-platform/reference/silver.md` mục 3.1).
+- The data generator writes `"Delivered"` for both the **delivered** and **completed** statuses
+  of Walmart (`generator/channels/walmart.py`). So `status_changed_at` may
+  be the completion time and cannot be treated with certainty as `delivered_at` (delivery time).
+- Answer data about returns (`label`), delivery time (`delivered_at`) and
+  the time the answer becomes available (`label_available_at`) is kept separately in
+  `ground-truth/labels`. The table `ground-truth/order_line_keys` maps internal IDs to each
+  Channel's IDs (`generator/generate_order_snapshots.py`). The answer exists only after the 30-day deadline.
+- Walmart's `purchase_order_id` was once duplicated across two different orders. To
+  uniquely identify a product line you must use
+  `purchase_order_id`, `customer_order_id`, `line_number` together (`docs/data-platform/reference/silver.md` section 3.1).
 
-## ✅ Q1 — Bảng Gold đầu tiên chi tiết đến mức nào? (đã chốt)
+## ✅ Q1 — How granular is the first Gold table? (settled)
 
-| Lựa chọn | Được gì | Đánh đổi |
+| Option | Benefit | Trade-off |
 |---|---|---|
-| **A. Gộp năm kênh vào `fact_order_lines`, mỗi dòng là một sản phẩm trong đơn** | Dùng trực tiếp để tính doanh thu, làm bảng đặc trưng cho dự đoán, và nối với các bảng mô tả | Phải chuẩn hóa mã định danh và các cột khác nhau giữa các kênh; bảng lớn hơn |
-| **B. Làm bảng tổng hợp doanh thu theo ngày trước** | Bảng nhỏ, dễ trình bày báo cáo và đo tốc độ truy vấn | Vẫn phải làm bảng chi tiết sau đó mới hoàn thành phần dự đoán và sơ đồ quan hệ bảng |
+| **A. Merge the five Channels into `fact_order_lines`, one row per product in an order** | Used directly to compute revenue, as the feature table for prediction, and to join with descriptive tables | Identifiers and columns that differ across Channels must be normalized; larger table |
+| **B. Build a daily revenue aggregate first** | Small table, easy to present in reports and to benchmark query speed | The detail table still has to be built afterwards to complete prediction and the table relationship diagram |
 
-**Người dùng chọn A:** tạo `fact_order_lines`, một dòng cho mỗi sản phẩm trong
-đơn của cả năm Channel. Bảng này chỉ chứa những thông tin quan sát được từ đơn
-hàng. Không đưa đáp án trả hàng vào bảng và không lấy ngày giao dự kiến làm
-ngày giao thực tế. Sau khi bảng chi tiết ổn định, có thể tính bảng doanh thu
-theo ngày từ đó. Mỗi số tiền giữ nguyên đơn vị tiền tệ của nguồn; không cộng
-chéo USD/VND nếu chưa có bảng tỷ giá.
+**Chosen: A.** Create `fact_order_lines`, one row per product in an
+order across all five Channels. This table contains only information observable from the
+order. The return answer is not put in the table, and the estimated delivery date is not used as the
+actual delivery date. Once the detail table is stable, the daily revenue table can be computed
+from it. Each amount keeps the source's currency unit; USD/VND are not summed
+together without an exchange-rate table.
 
-## Hệ quả đã xác minh từ Q1
+## Verified consequences of Q1
 
-- Không Channel nào trong năm bảng Silver hiện có cột thời điểm giao thật đáng
-  tin cậy cho **mọi** Order Line. TikTok có trạng thái `DELIVERED`, nhưng
-  `update_time` của snapshot có thể là lần đổi trạng thái sau đó; Walmart gộp
-  trạng thái giao và hoàn tất thành `Delivered`. `delivered_at` chỉ nằm trong
-  ground truth. Vì vậy `fact_order_lines` không có cột tên `delivered_at`.
-  Thời gian giao dự kiến của Amazon/Walmart có thể giữ dưới tên
-  `estimated_delivery_start` và `estimated_delivery_end`, không đổi tên thành giao thật.
-- `fact_order_lines` dùng khóa ổn định từ Channel cùng bộ ID gốc; riêng Walmart
-  phải chứa cả `purchase_order_id`, `customer_order_id`, `line_number` trước
-  khi tạo khóa Gold. Điều này giữ hai đơn trùng `purchase_order_id` tách biệt.
-- Ground truth chỉ dùng ở DP3 khi tạo tập dữ liệu có nhãn; không đi vào fact.
-  `label_available_at` phải nhỏ hơn hoặc bằng mốc chốt dữ liệu của lần chạy.
+- None of the five Silver tables currently has a reliable actual delivery time column
+  for **every** Order Line. TikTok has the status `DELIVERED`, but the
+  snapshot's `update_time` may be a later status change; Walmart merges
+  delivered and completed into `Delivered`. `delivered_at` exists only in the
+  ground truth. So `fact_order_lines` has no column named `delivered_at`.
+  Amazon/Walmart's estimated delivery times can be kept under the names
+  `estimated_delivery_start` and `estimated_delivery_end`, not renamed as actual delivery.
+- `fact_order_lines` uses a stable key from the Channel plus the original ID set; Walmart
+  in particular must contain `purchase_order_id`, `customer_order_id`, `line_number` before
+  the Gold key is created. This keeps two orders sharing a `purchase_order_id` separate.
+- Ground truth is used only in DP3 when building the labeled dataset; it does not enter the fact.
+  `label_available_at` must be less than or equal to the run's data cutoff.
 
-## ✅ Q2 — DP3 dự đoán vào thời điểm nào? (đã chốt)
+## ✅ Q2 — When does DP3 predict? (settled)
 
-| Lựa chọn | Trường được dùng làm đặc trưng | Đánh đổi |
+| Option | Fields used as features | Trade-off |
 |---|---|---|
-| **A. Ngay khi Order được đặt** | Giá, số lượng, SKU, Channel, nơi nhận, dấu thời gian đặt hàng và lịch sử đã biết trước đó | Không dùng trạng thái giao hoặc thời điểm cập nhật muộn; sát việc ra quyết định sớm |
-| **B. Khi Order vừa giao** | Thêm các tín hiệu vận chuyển/giao hàng nếu Channel có | Năm Channel không cung cấp `delivered_at` đủ tin cậy; phải dùng mốc ground truth hoặc chấp nhận độ phủ không đều |
+| **A. As soon as the Order is placed** | Price, quantity, SKU, Channel, destination, order timestamp and history known before that | No delivery status or late update times; close to early decision-making |
+| **B. When the Order has just been delivered** | Adds shipping/delivery signals if the Channel has them | The five Channels do not provide a reliable enough `delivered_at`; would need the ground-truth timestamp or accept uneven coverage |
 
-**Người dùng chọn A:** dự đoán ngay lúc Order được đặt. Bảng Gold có thể lưu
-snapshot mới nhất để báo cáo, nhưng job feature DP3 chỉ chọn các cột thật sự
-biết được khi đặt hàng. `order_status` cuối cùng và `last_updated_time`
-không được dùng làm đặc trưng.
+**Chosen: A:** predict at the moment the Order is placed. The Gold table may store
+the latest snapshot for reporting, but the DP3 feature job selects only columns actually
+known at order time. The final `order_status` and `last_updated_time`
+are not used as features.
 
-## ✅ Q3 — Nối nhãn Walmart khi mã đơn bị trùng thế nào? (đã chốt)
+## ✅ Q3 — How are Walmart labels joined when order IDs collide? (settled)
 
-Mapping `ground-truth/order_line_keys/walmart` chỉ có
-`channel_order_id` và `channel_line_id`; payload Walmart còn có
-`customer_order_id`. Đã xác nhận mã `1678172477013` nối với hai Order nội bộ
-khác nhau (`ORD-011-539381-1` và `ORD-042-53671-1`) tại cùng line 1. Join
-theo cặp ID trong mapping sẽ gán nhãn sai hoặc nhân đôi dòng.
+The mapping `ground-truth/order_line_keys/walmart` has only
+`channel_order_id` and `channel_line_id`; the Walmart payload also has
+`customer_order_id`. It was confirmed that ID `1678172477013` maps to two different internal
+Orders (`ORD-011-539381-1` and `ORD-042-53671-1`) on the same line 1. Joining
+on the ID pair in the mapping would assign wrong labels or duplicate rows.
 
-| Lựa chọn | Cách làm | Đánh đổi |
+| Option | Approach | Trade-off |
 |---|---|---|
-| **A. Bổ sung `customer_order_id` vào bảng khóa nhãn bằng hàm sinh mã xác định và seed của lần sinh nguồn** | Nối chính xác cả ba khóa, giữ các dòng có va chạm | Phụ thuộc quy tắc mã của generator; phải ghi rõ đây là bridge của dữ liệu mô phỏng |
-| **B. Loại các khóa Walmart mơ hồ khỏi tập có nhãn** | Đơn giản, không phụ thuộc thuật toán sinh mã | Mất một số Order Line trong tập train/evaluation và phải thống kê số dòng bị loại |
+| **A. Add `customer_order_id` to the label key table using the deterministic ID function and the seed of the source generation run** | Joins exactly on all three keys, keeps colliding rows | Depends on the generator's ID rule; must be documented as a bridge for simulated data |
+| **B. Drop ambiguous Walmart keys from the labeled set** | Simple, independent of the ID-generation algorithm | Loses some Order Lines from the train/evaluation set and requires counting the dropped rows |
 
-**Người dùng chọn A.** `order_line_id` trong mapping có dạng mã Order nội bộ
-kèm `-line_number`, nên có thể khôi phục mã Order, tính lại `customer_order_id`
-theo `native_digits(seed, 'walmart_co', order_id, 13)` đã dùng trong renderer,
-rồi đối chiếu với payload nguồn. Job phải dừng nếu một khóa vẫn nối nhiều dòng.
+**Chosen: A.** The `order_line_id` in the mapping has the form internal Order ID
+plus `-line_number`, so the Order ID can be recovered, `customer_order_id` recomputed
+with `native_digits(seed, 'walmart_co', order_id, 13)` as used in the renderer,
+then compared with the source payload. The job must stop if a key still joins multiple rows.
 
-`scripts/run/prepare_walmart_label_keys.py` tạo Parquet bốn cột khóa từ mapping
-ground truth, dùng seed trong `/data/raw/run_manifest.json` và đúng hàm
-`native_digits` của generator. Bước này chạy trên host vì Airflow driver dùng
-Python 3.11 còn Spark worker dùng Python 3.10; UDF Python trong Spark bị lỗi
-`PYTHON_VERSION_MISMATCH`. Mã `spark_jobs/gold/build_walmart_order_snapshot_labels.py` đọc
-Parquet đã chuẩn bị, nối đủ ba khóa gốc với Gold fact, rồi mới lấy nhãn từ
-ground truth. Bảng nhãn tách khỏi Gold fact và bảng feature để không rò rỉ đáp
-án vào thời điểm đặt Order. Bridge đã chạy thành công với 1.319.345 dòng,
-không có khóa trùng hoặc dòng lỗi; xem [bằng chứng runtime](gold.md).
+`scripts/run/prepare_walmart_label_keys.py` builds a four-key-column Parquet from the
+ground-truth mapping, using the seed in `/data/raw/run_manifest.json` and exactly the generator's
+`native_digits` function. This step runs on the host because the Airflow driver uses
+Python 3.11 while the Spark worker uses Python 3.10; a Python UDF in Spark fails with
+`PYTHON_VERSION_MISMATCH`. The code `spark_jobs/gold/build_walmart_order_snapshot_labels.py` reads the
+prepared Parquet, joins all three original keys with the Gold fact, and only then takes labels from the
+ground truth. The label table is separate from the Gold fact and the feature table so the answer does not
+leak into Order placement time. The bridge ran successfully with 1,319,345 rows,
+no duplicate keys or bad rows; see [runtime evidence](gold.md).
 
-## ✅ Q4 — Nguồn lịch sử cho bảng chiều SCD2
+## ✅ Q4 — History source for the SCD2 dimension table
 
-Bảng dimension SCD2 sử dụng `valid_from_ts`, `valid_to_ts`, `is_current`
-và quan hệ với fact. Nguồn `seller.skus` hiện là catalog tĩnh; giá trên Order
-Line là giá giao dịch, không thể coi là lịch sử giá Listing. Bronze Amazon có
-các bản export chồng lấn của cùng Order, Silver giữ bản mới nhất, nên Bronze
-có thể cung cấp thay đổi Order Status thực tế của dữ liệu mô phỏng.
+The SCD2 dimension table uses `valid_from_ts`, `valid_to_ts`, `is_current`
+and a relationship with the fact. The `seller.skus` source is currently a static catalog; the price on an Order
+Line is the transaction price and cannot be treated as Listing price history. Amazon Bronze has
+overlapping exports of the same Order, Silver keeps the latest, so Bronze
+can provide the actual Order Status changes of the simulated data.
 
-| Lựa chọn | Cách làm | Đánh đổi |
+| Option | Approach | Trade-off |
 |---|---|---|
-| **A. `dim_amazon_order` với lịch sử Order Status từ Bronze Amazon** | Tạo một phiên bản khi trạng thái quan sát được đổi qua các Export Date; nối với fact Amazon bằng mã Order gốc | Chỉ chứng minh SCD2 cho Amazon; Mốc hiệu lực đã chốt theo Q5; giữ riêng ngày export đầu tiên quan sát phiên bản |
-| **B. `dim_sku` từ catalog Seller tĩnh** | Quan hệ SKU xuyên cả năm Channel rõ ràng | Không có thay đổi thuộc tính thật trong nguồn hiện tại; phải bổ sung lịch sử nguồn mới trước khi chứng minh SCD2 |
+| **A. `dim_amazon_order` with Order Status history from Amazon Bronze** | Create a version when the observed status changes across Export Dates; join with the Amazon fact on the original Order ID | Proves SCD2 only for Amazon; effective timestamp settled per Q5; the first export date that observed the version is kept separately |
+| **B. `dim_sku` from the static Seller catalog** | Clear SKU relationship across all five Channels | No real attribute changes in the current source; new source history must be added before SCD2 can be proven |
 
-**Đề xuất A:** có lịch sử nguồn đã được giao cho hệ thống và tránh bịa phiên
-bản SKU. **Người dùng chọn A.**
+**Proposed: A:** it has source history actually delivered to the system and avoids inventing SKU
+versions. **Chosen: A.**
 
-## ✅ Q5 — Mốc bắt đầu phiên bản SCD2
+## ✅ Q5 — SCD2 version start timestamp
 
-Sau Q4, kiểm tra `generator/channels/amazon.py` thấy mỗi snapshot Amazon ghi
-`LastUpdateDate` hoặc `lastUpdatedTime` từ `change.at` của trạng thái đang thấy.
-Vì vậy có hai mốc nguồn thật để đặt `valid_from_ts`:
+After Q4, checking `generator/channels/amazon.py` showed that each Amazon snapshot writes
+`LastUpdateDate` or `lastUpdatedTime` from the `change.at` of the currently visible status.
+So there are two real source timestamps for `valid_from_ts`:
 
-| Lựa chọn | Nghĩa của `valid_from_ts` | Đánh đổi |
+| Option | Meaning of `valid_from_ts` | Trade-off |
 |---|---|---|
-| **A. Thời điểm trạng thái đổi (`LastUpdateDate` / `lastUpdatedTime`)** | Thời điểm nghiệp vụ theo snapshot Amazon; phù hợp truy vấn trạng thái tại thời điểm Order Line | Chỉ những trạng thái có mặt trong các export đã nạp mới thành phiên bản; các bước trung gian không từng thấy vẫn thiếu |
-| **B. Ngày export quan sát trạng thái (`export_date`)** | Lúc hệ thống biết phiên bản đó | Mất độ chính xác theo giờ; ngày export có thể sau nhiều ngày so với lúc đổi trạng thái |
+| **A. Status change time (`LastUpdateDate` / `lastUpdatedTime`)** | Business time per the Amazon snapshot; suits querying status as of an Order Line time | Only statuses present in loaded exports become versions; intermediate steps never seen remain missing |
+| **B. Export date that observed the status (`export_date`)** | When the system learned about that version | Loses hour-level precision; the export date can be several days after the status change |
 
-**Đề xuất A:** nguồn mô phỏng ghi thời điểm đổi trạng thái trực tiếp. Giữ thêm
-`first_observed_export_date` để phân biệt thời điểm nghiệp vụ và thời điểm quan
-sát. **Người dùng chọn A.** Các trạng thái không từng xuất hiện
-trong Bronze vẫn không thể phục hồi; không tự lấp bằng lịch sử của generator.
+**Proposed: A:** the simulated source records the status change time directly. Also keep
+`first_observed_export_date` to distinguish business time from observation
+time. **Chosen: A.** Statuses that never appeared
+in Bronze still cannot be recovered; they are not filled from the generator's history.
 
-## ✅ Q6 — Gắn phiên bản chiều với Gold fact
+## ✅ Q6 — Attaching the dimension version to the Gold fact
 
-Fact Gold Amazon hiện giữ `channel_order_id` và `last_updated_time` của snapshot
-Silver mới nhất. Bảng SCD2 sẽ có nhiều phiên bản cho một Order, nên chỉ nối
-theo mã Order sẽ nhân dòng. Hai lựa chọn đều dùng đúng thời điểm phiên bản đã
-chốt ở Q5:
+The Amazon Gold fact currently keeps `channel_order_id` and `last_updated_time` from the latest
+Silver snapshot. The SCD2 table will have multiple versions per Order, so joining only
+on the Order ID would multiply rows. Both options use exactly the version timestamp
+settled in Q5:
 
-| Lựa chọn | Cách nối | Đánh đổi |
+| Option | Join method | Trade-off |
 |---|---|---|
-| **A. Thêm `amazon_order_version_key` vào fact và dim** | Khóa ổn định từ mã Order và thời điểm đổi trạng thái; fact Amazon trỏ đúng một phiên bản, Channel khác để null | Phải ghi lại Gold fact và chạy lại Validate/DP3 để có schema mới |
-| **B. Giữ fact hiện có, nối bằng mã Order + thời gian trong câu SQL** | Không cần ghi lại fact | Mỗi người viết query phải nhớ điều kiện thời gian; không có khóa phiên bản hiện rõ trong schema |
+| **A. Add `amazon_order_version_key` to the fact and the dim** | Stable key from the Order ID and the status change time; the Amazon fact points to exactly one version, other Channels null | The Gold fact must be rewritten and Validate/DP3 rerun to get the new schema |
+| **B. Keep the existing fact, join on Order ID + time in the SQL query** | No need to rewrite the fact | Every query author must remember the time condition; no explicit version key in the schema |
 
-**Đề xuất A:** quan hệ dim/fact có thể kiểm khóa và thể hiện rõ trong tài liệu
-schema. **Người dùng chọn A.**
+**Proposed: A:** the dim/fact relationship can be key-checked and shown clearly in the schema
+documentation. **Chosen: A.**
 
-## SCD2 đã triển khai và kiểm chứng
+## SCD2 implemented and verified
 
-- `lakehouse.gold.dim_amazon_order_dp2` có một dòng cho mỗi **phiên bản trạng thái
-  của một Order Amazon đã xuất hiện trong Bronze**. Nguồn là
-  `raw_amazon_orders_dp1`; parse cả schema v0 và 2026 như Silver, ở mức Order
-  để không nhân theo Order Line.
-- Khóa phiên bản ổn định từ `(order_id, last_updated_time)`; giữ
+- `lakehouse.gold.dim_amazon_order_dp2` has one row per **status version
+  of an Amazon Order that appeared in Bronze**. The source is
+  `raw_amazon_orders_dp1`; both the v0 and 2026 schemas are parsed as in Silver, at Order level
+  so as not to multiply by Order Line.
+- The version key is stable from `(order_id, last_updated_time)`; it keeps
   `order_status`, `channel_status`, `first_observed_export_date`,
-  `valid_from_ts`, `valid_to_ts`, `is_current`. `valid_from_ts` là thời điểm
-  trạng thái đổi trong payload. `valid_to_ts` là `valid_from_ts` của phiên bản
-  tiếp theo (biên **không bao gồm**); phiên bản cuối có `valid_to_ts = NULL`
-  và `is_current = true`.
-- Cùng Order và cùng thời điểm cập nhật có nhiều export thì gộp thành một
-  phiên bản. Hai schema Amazon có thể viết cùng trạng thái chuẩn khác nhau
-  (`Shipped` và `SHIPPED`); `channel_status` giữ chữ nguồn ở export mới nhất.
-  Nếu trạng thái **chuẩn** mâu thuẫn, job dừng thay vì chọn bừa.
-  Trạng thái đổi giữa hai lần export nhưng không lần nào được quan sát sẽ
-  không xuất hiện; không lấy lịch sử ẩn của generator để lấp.
-- Fact Gold Amazon thêm `amazon_order_version_key` từ bộ khóa trên; bốn Channel
-  còn lại để null. Validate yêu cầu mọi Order Line Amazon nối **đúng một**
-  phiên bản trong dim. Bảng feature DP3 không đưa trạng thái hay khóa chiều
-  này vào đặc trưng, vì dự đoán ở thời điểm Order được đặt.
-- Sau khi chạy lại Gold/Validate và DP3/Validate, cập nhật ảnh và số liệu runtime
-  thay cho bằng chứng cũ nếu đầu ra thay đổi. Bảng nhãn Walmart ở riêng và
-  không bị đổi schema.
+  `valid_from_ts`, `valid_to_ts`, `is_current`. `valid_from_ts` is the time
+  the status changed in the payload. `valid_to_ts` is the `valid_from_ts` of the next
+  version (**exclusive** bound); the last version has `valid_to_ts = NULL`
+  and `is_current = true`.
+- Multiple exports with the same Order and the same update time are merged into one
+  version. The two Amazon schemas may write the same canonical status differently
+  (`Shipped` and `SHIPPED`); `channel_status` keeps the source text from the latest export.
+  If the **canonical** status conflicts, the job stops instead of picking arbitrarily.
+  A status change between two exports that was never observed does not
+  appear; the generator's hidden history is not used to fill it.
+- The Amazon Gold fact adds `amazon_order_version_key` from the key above; the other four Channels
+  are null. Validate requires every Amazon Order Line to join **exactly one**
+  version in the dim. The DP3 feature table does not include this status or dimension key
+  as features, because prediction happens when the Order is placed.
+- After rerunning Gold/Validate and DP3/Validate, update the screenshots and runtime numbers
+  in place of the old evidence if the output changed. The Walmart label table is separate and
+  its schema is unchanged.
 
-## Trên AWS
+## On AWS
 
-DP2/DP3 Spark Compose EC2 đã ghi Gold trên S3; [Gold AWS](gold.md#trên-aws)
-nhúng log validator và dẫn code fact, SCD2, feature.
-[Manifest AWS](../../evidence/aws/datahub-validation-aws-20261029.json) ghi SCD2 không thiếu phiên bản,
-fact không trùng khóa, feature không sai event time trong các run được ghi.
+DP2/DP3 Spark on Compose EC2 wrote Gold to S3; [Gold on AWS](gold.md#on-aws)
+embeds the validator log and links the fact, SCD2 and feature code.
+The [AWS manifest](../../evidence/aws/datahub-validation-aws-20261029.json) records no missing SCD2 versions,
+no duplicate fact keys, and no wrong feature event times in the recorded runs.
 
-Quan hệ logic là `fact.amazon_order_version_key → dim.order_version_key`, feature nối fact bằng `order_line_key`.
-SCD2 dùng `valid_from_ts`, `valid_to_ts`, `is_current`; feature tách `event_timestamp` và `created` theo thiết kế trên.
-Chưa có capture metadata/ERD AWS để xác nhận trực quan các cột và quan hệ; ảnh schema local vẫn chỉ là đối chứng.
+The logical relationship is `fact.amazon_order_version_key → dim.order_version_key`; the feature joins the fact on `order_line_key`.
+SCD2 uses `valid_from_ts`, `valid_to_ts`, `is_current`; the feature separates `event_timestamp` and `created` per the design above.
+There is no AWS metadata/ERD capture yet to visually confirm the columns and relationships; the local schema screenshots remain only a reference.

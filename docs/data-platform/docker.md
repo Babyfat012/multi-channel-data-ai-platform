@@ -1,100 +1,100 @@
-# Docker và Docker Compose trên EC2
+# Docker and Docker Compose on EC2
 
-Trang này ứng với EDAI-1, dòng 3–4 của rubric: dùng Docker/Compose và tối ưu Dockerfile.
+This page covers using Docker/Compose and optimizing the Dockerfile.
 
-Code / cấu hình: [Dockerfile](../../Dockerfile), [Compose AWS](../../docker-compose.aws.yml).
+Code / configuration: [Dockerfile](../../Dockerfile), [Compose AWS](../../docker-compose.aws.yml).
 
-Các kết quả dưới đây là của các lần chạy AWS đã ghi lại; trang này không khẳng định dịch vụ hiện vẫn đang bật.
+The results below are from recorded AWS runs; this page does not claim the services are still running.
 
-## Trên AWS
+## On AWS
 
-Các dịch vụ chạy bằng Docker Compose trên EC2 ở Sydney; [receipt AWS](../evidence/aws/data-platform-aws-20261027.json)
-ghi lại các workload đó. Trang [Airflow AWS](pipeline_orchestration.md#trên-aws) nhúng ảnh Graph/Gantt của các
-pipeline đã chạy. Cấu hình triển khai: [Compose AWS](../../docker-compose.aws.yml).
+The services run with Docker Compose on EC2 in Sydney; the [AWS receipt](../evidence/aws/data-platform-aws-20261027.json)
+records those workloads. The [Airflow AWS](pipeline_orchestration.md#on-aws) page embeds Graph/Gantt screenshots of the
+pipelines that ran. Deployment configuration: [Compose AWS](../../docker-compose.aws.yml).
 
-Bảng dưới liệt kê các kỹ thuật tối ưu dùng trong [`Dockerfile`](../../Dockerfile), so với bản chưa tối ưu
+The table below lists the optimization techniques used in [`Dockerfile`](../../Dockerfile), compared with the unoptimized
 [`Dockerfile.naive`](../../docker/Dockerfile.naive):
 
-| Kỹ thuật | Cách áp dụng và tác dụng |
+| Technique | How it is applied and what it does |
 |---|---|
-| Base image slim | Dùng `python:3.12-slim`, giảm thành phần hệ điều hành không cần khi chạy |
-| Multi-stage | Stage cuối chỉ copy `.venv` và `configs/`, không mang theo công cụ cài đặt và cache của stage build |
-| Cache ngoài image | Dùng BuildKit `--mount=type=cache` cho `uv`, tái sử dụng cache khi build mà không lưu cache đó trong image |
-| Tách lớp thư viện và code | Copy `pyproject.toml` và `uv.lock`, cài thư viện trước khi copy generator; sửa code vẫn tận dụng cache lớp thư viện |
-| Giảm build context | [`.dockerignore`](../../.dockerignore) loại dữ liệu sinh, môi trường ảo, Git và tài liệu; áp dụng cho cả hai image |
+| Slim base image | Uses `python:3.12-slim`, removing OS components not needed at runtime |
+| Multi-stage | The final stage only copies `.venv` and `configs/`, without the install tools and cache of the build stage |
+| Cache outside the image | Uses BuildKit `--mount=type=cache` for `uv`, reusing the cache at build time without storing it in the image |
+| Separate dependency and code layers | Copies `pyproject.toml` and `uv.lock` and installs dependencies before copying the generator; code changes still reuse the dependency layer cache |
+| Smaller build context | [`.dockerignore`](../../.dockerignore) excludes generated data, virtual environments, Git and docs; applies to both images |
 
-**Đo lại trên chính EC2.** Script [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh)
-làm ba bước:
+**Re-measured on the EC2 instance itself.** The script [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh)
+does three steps:
 
-1. Build [`docker/Dockerfile.naive`](../../docker/Dockerfile.naive) và [`Dockerfile`](../../Dockerfile) từ cùng một bản code.
-2. Liệt kê thư viện cài trong từng image bằng `importlib.metadata`.
-3. So hai danh sách bằng `diff`.
+1. Build [`docker/Dockerfile.naive`](../../docker/Dockerfile.naive) and [`Dockerfile`](../../Dockerfile) from the same code.
+2. List the packages installed in each image with `importlib.metadata`.
+3. Compare the two lists with `diff`.
 
-Kết quả: hai image có **cùng 27 package** (cùng cài từ `requirements.lock`). Vì vậy phần dung lượng giảm là nhờ cách
-build, không phải do bỏ bớt thư viện.
+Result: the two images have **the same 27 packages** (both installed from `requirements.lock`). So the size reduction comes from how the image is
+built, not from dropping dependencies.
 
-| Image | Disk usage (sau giải nén, trên đĩa) | Content size (nén, đẩy registry) | `docker image inspect` Size |
+| Image | Disk usage (unpacked, on disk) | Content size (compressed, pushed to the registry) | `docker image inspect` Size |
 |---|---:|---:|---:|
-| `platform-generator:naive` | 2,4 GB | 670 MB | 2.395.921.890 B |
-| `platform-generator:opt` | 698 MB | 172 MB | 698.142.846 B |
+| `platform-generator:naive` | 2.4 GB | 670 MB | 2,395,921,890 B |
+| `platform-generator:opt` | 698 MB | 172 MB | 698,142,846 B |
 
-Bản tối ưu giảm **70,9%** dung lượng trên đĩa và **74,3%** dung lượng phải đẩy lên registry.
+The optimized image is **70.9%** smaller on disk and **74.3%** smaller to push to the registry.
 
-![EC2: compare_docker_dependencies.sh in digest + byte hai image, Cùng bộ thư viện: 27 package; docker image ls naive 2.4GB/670MB, opt 698MB/172MB](../evidence/aws/docker-naive-vs-opt-ec2-20261031.png)
+![EC2: compare_docker_dependencies.sh prints digest + bytes of both images, Same dependency set: 27 packages; docker image ls naive 2.4GB/670MB, opt 698MB/172MB](../evidence/aws/docker-naive-vs-opt-ec2-20261031.png)
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+Local records keep their original environment and do not replace cloud evidence.
 
-## Docker và Docker Compose
+## Docker and Docker Compose
 
-Tài liệu này ghi cách đóng gói generator thành image, cách dựng môi trường nguồn giả lập bằng Docker Compose, và số liệu tối ưu dung lượng image. Thiết kế tổng thể của generator xem [generator-design.md](reference/generator_design.md).
+This document describes how the generator is packaged as an image, how the simulated source environment is set up with Docker Compose, and the image size optimization numbers. For the overall generator design see [generator-design.md](reference/generator_design.md).
 
-## Mục lục
+## Contents
 
-1. [Môi trường nguồn bằng Docker Compose](#1-môi-trường-nguồn-bằng-docker-compose)
-2. [Tối ưu Dockerfile](#2-tối-ưu-dockerfile)
+1. [Source environment with Docker Compose](#1-source-environment-with-docker-compose)
+2. [Dockerfile optimization](#2-dockerfile-optimization)
 
-## 1. Môi trường nguồn bằng Docker Compose
+## 1. Source environment with Docker Compose
 
-`docker-compose.yml` dựng hai hệ thống giả lập nơi dữ liệu đang nằm trước khi pipeline DP1 kéo về Bronze:
+`docker-compose.yml` sets up two simulated systems where data lives before the DP1 pipeline pulls it into Bronze:
 
-| Service | Image | Vai trò | Kiểu chạy |
+| Service | Image | Role | Run mode |
 |---|---|---|---|
-| `minio` | `quay.io/minio/minio` (bản cố định theo ngày) | Object storage chứa export dạng file của Channel | Chạy liên tục. API cổng 9000, console cổng 9001 |
-| `minio-init` | như trên (có sẵn `mc`) | Tạo bucket `platform` | Chạy một lần |
-| `postgres` | `postgres:15` | Hệ thống của phòng ban khác: `walmart.orders`, `seller.skus` | Chạy liên tục, cổng 5432 |
-| `generator-batch` | `platform-generator` (build từ `Dockerfile`) | `generator.generate_order_snapshots`: sinh lịch sử, ghi thẳng vào MinIO | Chạy một lần, sau `minio-init` |
-| `generator-load` | `platform-generator` | `load-postgres`: đọc `pg-load/` trên MinIO, nạp vào PostgreSQL | Chạy một lần, sau `generator-batch` và khi `postgres` sẵn sàng |
-| `kafka` (profile `stream`) | `apache/kafka:3.9.1` | Kafka một node, chế độ KRaft. Trong Compose là `kafka:9092`, từ host là `localhost:9094` | Chạy liên tục |
-| `generator-stream` (profile `stream`) | `platform-generator` | `generator.publish_order_snapshot_events`: phát message sau `cutoff` vào Kafka, ghi `stream_manifest.json` vào MinIO | Chạy tới khi phát xong, sau khi `kafka` sẵn sàng |
+| `minio` | `quay.io/minio/minio` (date-pinned release) | Object storage holding the Channels' file exports | Runs continuously. API on port 9000, console on port 9001 |
+| `minio-init` | same as above (includes `mc`) | Creates the `platform` bucket | Runs once |
+| `postgres` | `postgres:15` | Another department's system: `walmart.orders`, `seller.skus` | Runs continuously, port 5432 |
+| `generator-batch` | `platform-generator` (built from `Dockerfile`) | `generator.generate_order_snapshots`: generates history and writes it straight into MinIO | Runs once, after `minio-init` |
+| `generator-load` | `platform-generator` | `load-postgres`: reads `pg-load/` on MinIO and loads it into PostgreSQL | Runs once, after `generator-batch` and once `postgres` is ready |
+| `kafka` (profile `stream`) | `apache/kafka:3.9.1` | Single-node Kafka in KRaft mode. Inside Compose it is `kafka:9092`, from the host `localhost:9094` | Runs continuously |
+| `generator-stream` (profile `stream`) | `platform-generator` | `generator.publish_order_snapshot_events`: publishes messages after the `cutoff` into Kafka and writes `stream_manifest.json` to MinIO | Runs until publishing is done, after `kafka` is ready |
 
-Thứ tự được đảm bảo bằng `depends_on` với `service_healthy` (MinIO, PostgreSQL có healthcheck) và `service_completed_successfully` (các bước chạy một lần).
+Ordering is guaranteed with `depends_on` using `service_healthy` (MinIO and PostgreSQL have healthchecks) and `service_completed_successfully` (the run-once steps).
 
 ```bash
-cp .env.example .env                  # đổi mật khẩu, cổng nếu cần
-docker compose up -d                  # mặc định configs/small.yaml
-docker compose wait generator-load    # chờ nạp PostgreSQL xong
-GENERATOR_CONFIG=configs/default.yaml docker compose up -d --force-recreate generator-batch generator-load   # đủ quy mô
+cp .env.example .env                  # change passwords and ports if needed
+docker compose up -d                  # defaults to configs/small.yaml
+docker compose wait generator-load    # wait for the PostgreSQL load to finish
+GENERATOR_CONFIG=configs/default.yaml docker compose up -d --force-recreate generator-batch generator-load   # full scale
 ```
 
-**Stream.** Kafka nằm trong profile `stream`, nên `docker compose up -d` không bật nó. `STREAM_SPEED` trong `.env` chỉnh tốc độ: 1 là đúng nhịp (khoảng 40 phút cho 30 ngày), 60 là nhanh gấp 60 lần (khoảng 40 giây).
+**Stream.** Kafka is in the `stream` profile, so `docker compose up -d` does not start it. `STREAM_SPEED` in `.env` sets the speed: 1 is real time (about 40 minutes for 30 days), 60 is 60 times faster (about 40 seconds).
 
 ```bash
 docker compose --profile stream up -d kafka
-docker compose --profile stream run --rm generator-stream     # in số đo khi xong
+docker compose --profile stream run --rm generator-stream     # prints measurements when done
 docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
     --bootstrap-server localhost:9092 --topic tiktok_shop.order-webhooks --from-beginning --max-messages 3
 ```
 
-**Sau khi sửa code, nhớ `docker compose build`.** `Dockerfile` cài generator bằng `uv sync --reinstall-package platform-generator`: thiếu cờ đó, cache của `uv` chỉ so `pyproject.toml` nên sửa code mà không đổi phiên bản thì image vẫn cài bản cũ, build vẫn báo thành công.
+**After changing code, remember to run `docker compose build`.** The `Dockerfile` installs the generator with `uv sync --reinstall-package platform-generator`: without that flag, the `uv` cache only compares `pyproject.toml`, so if code changes without a version bump the image still installs the old version and the build still reports success.
 
-**Vì sao chỉ một bucket `platform`.** Mỗi lần chạy ghi bốn thứ: `source-exports/`, `pg-load/`, `ground-truth/` và `run_manifest.json`. Manifest phải nằm trong một bucket, nên generator ghi vào gốc một bucket và bốn phần trên là bốn tiền tố. DP1 chỉ đọc `source-exports/`, còn `ground-truth/` dành cho phần huấn luyện mô hình.
+**Why only one `platform` bucket.** Each run writes four things: `source-exports/`, `pg-load/`, `ground-truth/` and `run_manifest.json`. The manifest has to live in one bucket, so the generator writes to the root of one bucket and the four parts above are four prefixes. DP1 only reads `source-exports/`; `ground-truth/` is for model training.
 
-**Mật khẩu và cổng** nằm trong `.env`, file này không được commit. Nếu máy đã có chương trình dùng cổng 9000, 9001 hoặc 5432, đổi `MINIO_API_PORT`, `MINIO_CONSOLE_PORT`, `POSTGRES_PORT` hoặc `KAFKA_PORT` trong `.env`.
+**Passwords and ports** live in `.env`, which is not committed. If the machine already has programs using ports 9000, 9001 or 5432, change `MINIO_API_PORT`, `MINIO_CONSOLE_PORT`, `POSTGRES_PORT` or `KAFKA_PORT` in `.env`.
 
-**Đọc từ máy host.** Lệnh `report` cần ba biến môi trường để đọc MinIO:
+**Reading from the host.** The `report` command needs three environment variables to read MinIO:
 
 ```bash
 set -a; . ./.env; set +a
@@ -104,50 +104,50 @@ uv run python -m generator report --source s3://platform \
     --dsn "postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB"
 ```
 
-## 2. Tối ưu Dockerfile
+## 2. Dockerfile optimization
 
-Hai Dockerfile cài cùng một generator với cùng thư viện, chỉ khác cách build:
+The two Dockerfiles install the same generator with the same dependencies; only the build approach differs:
 
 | | `docker/Dockerfile.naive` | `Dockerfile` |
 |---|---|---|
-| Base image | `python:3.12` (Debian đầy đủ, có trình biên dịch, header) | `python:3.12-slim` |
-| Số stage | 1 | 2: stage build cài vào `.venv`, stage chạy chỉ copy `.venv` |
-| Trình cài | `pip install .`, giữ cache pip trong image | `uv sync --frozen --no-dev --no-editable`, cache nằm ngoài image (`--mount=type=cache`) |
-| Nội dung copy | Cả build context | Stage chạy chỉ có `.venv` và `configs/`, không có mã nguồn, `uv` hay cache |
-| Phiên bản thư viện | Theo `pyproject.toml`, mỗi lần build có thể khác | Khóa theo `uv.lock` |
+| Base image | `python:3.12` (full Debian, with compilers and headers) | `python:3.12-slim` |
+| Stages | 1 | 2: the build stage installs into `.venv`, the runtime stage only copies `.venv` |
+| Installer | `pip install .`, keeps the pip cache in the image | `uv sync --frozen --no-dev --no-editable`, cache outside the image (`--mount=type=cache`) |
+| Copied content | The whole build context | The runtime stage only has `.venv` and `configs/`, no source code, `uv` or cache |
+| Dependency versions | From `pyproject.toml`, may differ on every build | Locked by `uv.lock` |
 | User | root | `nobody` |
 
-Cả hai dùng chung `.dockerignore`, loại `.venv`, `out/`, `.git`, `docs/` và `tests/` khỏi build context. Vì vậy phần chênh lệch dưới đây đến từ cách build, không phải từ việc copy nhầm dữ liệu.
+Both share the same `.dockerignore`, which excludes `.venv`, `out/`, `.git`, `docs/` and `tests/` from the build context. So the difference below comes from the build approach, not from accidentally copied data.
 
-### Kết quả
+### Results
 
-Đo bằng `docker images data-generator` (Docker 29):
+Measured with `docker images data-generator` (Docker 29):
 
-| Image | Dung lượng |
+| Image | Size |
 |---|---|
-| `data-generator:naive` | 2,35 GB |
+| `data-generator:naive` | 2.35 GB |
 | `platform-generator:optimize` | 677 MB |
 
-![Dung lượng hai image](../images/docker/docker.png)
+![Size of the two images](../images/docker/docker.png)
 
-Trong ảnh, cột `DISK USAGE` là dung lượng sau khi giải nén trên máy. Cột `CONTENT SIZE` là dung lượng nén khi đẩy lên registry, giảm từ 658 MB xuống 167 MB.
+In the screenshot, the `DISK USAGE` column is the unpacked size on the machine. The `CONTENT SIZE` column is the compressed size when pushed to the registry, down from 658 MB to 167 MB.
 
-Dung lượng giảm khoảng 71%. Phần lớn đến từ base image: `python:3.12` mang theo bộ công cụ build mà generator không cần lúc chạy. Phần còn lại đến từ việc không giữ cache cài đặt.
+The size drops by about 71%. Most of it comes from the base image: `python:3.12` ships a build toolchain the generator does not need at runtime. The rest comes from not keeping the install cache.
 
-**Phần còn lại của 677 MB là thư viện**, đo bằng `du` trong image:
+**The rest of the 677 MB is dependencies**, measured with `du` inside the image:
 
-| Thành phần | Dung lượng |
+| Component | Size |
 |---|---|
-| `pyarrow` (ghi Parquet) | 156 MB |
-| `duckdb` (lệnh `report`) | 58 MB |
-| `numpy` và thư viện đi kèm | 70 MB |
-| `botocore` (qua `s3fs`, ghi MinIO) | 30 MB |
-| `psycopg` bản binary (gồm libpq) | 19 MB |
-| Python của base slim (`/usr/local`) | 37 MB |
+| `pyarrow` (Parquet writing) | 156 MB |
+| `duckdb` (the `report` command) | 58 MB |
+| `numpy` and bundled libraries | 70 MB |
+| `botocore` (via `s3fs`, MinIO writes) | 30 MB |
+| `psycopg` binary build (includes libpq) | 19 MB |
+| Python of the slim base (`/usr/local`) | 37 MB |
 
-Muốn giảm thêm có thể tách `duckdb` thành nhóm thư viện tùy chọn, vì lệnh `report` thường chạy trên máy host. Hiện vẫn giữ trong image để chạy được báo cáo ngay trong Compose.
+To shrink further, `duckdb` could move into an optional dependency group, since the `report` command usually runs on the host. For now it stays in the image so the report can run inside Compose.
 
-### Cách đo lại
+### How to re-measure
 
 ```bash
 docker build -t data-generator:naive -f docker/Dockerfile.naive .
@@ -155,35 +155,35 @@ docker build -t platform-generator:optimize .
 docker images data-generator
 ```
 
-## 3. Đo lại 2026-10 — cùng bộ thư viện
+## 3. Re-measured 2026-10 — same dependency set
 
-Phép đo ở mục 2 là **lịch sử**: khi đó `Dockerfile.naive` cài `pip install .` (không khóa phiên bản), nên câu "cùng
-thư viện, chỉ khác cách build" chưa được chứng minh. Hiện tại image naive cài từ `requirements.lock` (xuất từ
-`uv.lock` bằng `scripts/setup/export_requirements_lock.sh`, có hash) rồi `pip install --no-deps .`. `scripts/evidence/compare_docker_dependencies.sh`
-build cả hai từ cùng working tree, liệt kê package bằng `importlib.metadata` trong từng image và **fail nếu khác nhau**.
+The measurement in section 2 is **historical**: at that time `Dockerfile.naive` ran `pip install .` (no pinned versions), so the claim "same
+dependencies, only the build approach differs" was not proven. Now the naive image installs from `requirements.lock` (exported from
+`uv.lock` with `scripts/setup/export_requirements_lock.sh`, with hashes) and then `pip install --no-deps .`. `scripts/evidence/compare_docker_dependencies.sh`
+builds both from the same working tree, lists the packages with `importlib.metadata` in each image and **fails if they differ**.
 
-| Image | Digest | Dung lượng |
+| Image | Digest | Size |
 |---|---|---|
-| `platform-generator:naive` | `sha256:d9af23a28aed…` | 2,39 GB |
+| `platform-generator:naive` | `sha256:d9af23a28aed…` | 2.39 GB |
 | `platform-generator:opt` | `sha256:00360a65a6a0…` | 698 MB |
 
-Hai image có cùng **27 package** (không tính pip/setuptools/wheel của base image và chính project). Vì vậy mức giảm
-**70,8 %** đến hoàn toàn từ cách build (base slim, multi-stage, không giữ cache). Receipt: [`evidence/docker-compare-20261019.json`](../evidence/docker-compare-20261019.json)
-(kèm sha256 của Dockerfile, lock file, `.dockerignore`). `.dockerignore` loại thêm `.briefs/`, `.vibe-wise/`, `.claude/`
-(ghi chú làm việc, không phải mã nguồn).
+The two images have the same **27 packages** (excluding the base image's pip/setuptools/wheel and the project itself). So the
+**70.8%** reduction comes entirely from the build approach (slim base, multi-stage, no cache kept). Receipt: [`evidence/docker-compare-20261019.json`](../evidence/docker-compare-20261019.json)
+(including the sha256 of the Dockerfile, the lock file and `.dockerignore`). `.dockerignore` also excludes `.briefs/`, `.vibe-wise/`, `.claude/`
+(working notes, not source code).
 
-## 4. Inventory image/service đã ghi nhận
+## 4. Recorded image/service inventory
 
-`scripts/evidence/inspect_docker_images.py` đọc `docker compose config` và `docker image inspect` (không pull):
-[local, mọi profile](../evidence/docker-inventory-local-20261019.json) — 20 service;
-[GCP overlay, profile catalog/spark/airflow](../evidence/docker-inventory-gcp-20261019.json) — 9 service, mọi port bind `127.0.0.1`.
+`scripts/evidence/inspect_docker_images.py` reads `docker compose config` and `docker image inspect` (no pull):
+[local, all profiles](../evidence/docker-inventory-local-20261019.json) — 20 services;
+[GCP overlay, profiles catalog/spark/airflow](../evidence/docker-inventory-gcp-20261019.json) — 9 services, every port bound to `127.0.0.1`.
 
-## Tên tài nguyên và dữ liệu đã có
+## Resource names and existing data
 
-Cấu hình hiện hành dùng Compose project `platform`, image `platform-*`, cụm kind `platform`, và tiền tố Airflow Connection/Variable `platform_`. Các tên này được dùng thống nhất trong script setup, manifest và hướng dẫn.
+The current configuration uses the Compose project `platform`, images `platform-*`, the kind cluster `platform`, and the Airflow Connection/Variable prefix `platform_`. These names are used consistently in setup scripts, manifests and guides.
 
-Nếu nâng cấp từ checkout có tên tài nguyên khác, named volume, bucket, database, Vault path và Airflow metadata cũ vẫn thuộc môi trường cũ. Đổi tên cấu hình không di chuyển dữ liệu hoặc secret. Giữ bản sao dữ liệu và cấu hình cần dùng, chọn môi trường đích rồi chạy lại các bước setup tương ứng; không dùng `down -v` để đổi tên. Evidence lịch sử giữ nguyên định danh của lần chạy gốc.
+If you upgrade from a checkout with different resource names, the old named volumes, buckets, databases, Vault paths and Airflow metadata still belong to the old environment. Renaming the configuration does not move data or secrets. Keep copies of the data and configuration you need, choose the target environment, then rerun the corresponding setup steps; do not use `down -v` to rename. Historical evidence keeps the identifiers of the original run.
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

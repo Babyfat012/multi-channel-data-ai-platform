@@ -1,112 +1,112 @@
-# Spark baseline và skew — workload v2
+# Spark baseline and skew — v2 workload
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally, not the deployed pipeline.** The pipeline running on AWS is v1 (DP1 → DP4 + ML), see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-workload lifecycle v2, độc lập với bằng chứng Bronze v1 tại
-[spark.md](spark.md). **Chưa đo Spark trong sandbox Codex**. Các số trong bảng
-chỉ được điền sau khi người vận hành chạy và lưu JSON/event log, không suy từ thời gian.
+The lifecycle v2 workload, independent of the Bronze v1 evidence in
+[spark.md](spark.md). **Spark has not been measured in the agent sandbox**. Numbers in the table
+are filled in only after the operator runs it and saves the JSON/event log; they are not inferred from timings.
 
-Job [measure/measure_order_lifecycle_skew.py](../../../spark_jobs/measure/measure_order_lifecycle_skew.py) gọi trực tiếp
-`bronze_from_root` → `build_silver` → `build_gold` của module thật, gồm tuyến
-`line_evidence` theo line/order/correction. Không sao chép pipeline Silver/Gold.
-Sau đó checkpoint cùng fact/segments một lần rồi chạy `sku_features` gốc và
-[`sku_features_salted`](../../../spark_jobs/lib/order_lifecycle_skew.py). Tách job group
-`silver_gold_build`, `baseline`, `salted`, `correctness`; so feature chỉ tính phần
-sweep và các join liên quan, không tính lại Silver trong mỗi phương án. Không ghi
-catalog/Iceberg, không phải benchmark tốc độ ghi lakehouse hay JDBC Walmart.
+The job [measure/measure_order_lifecycle_skew.py](../../../spark_jobs/measure/measure_order_lifecycle_skew.py) calls the real module's
+`bronze_from_root` → `build_silver` → `build_gold` directly, including the
+`line_evidence` path by line/order/correction. It does not copy the Silver/Gold pipeline.
+It then checkpoints the same fact/segments once and runs the original `sku_features` and
+[`sku_features_salted`](../../../spark_jobs/lib/order_lifecycle_skew.py). Job groups are separated into
+`silver_gold_build`, `baseline`, `salted`, `correctness`; the feature comparison only covers the
+sweep and related joins, without recomputing Silver for each option. It does not write
+to the catalog/Iceberg, and it is not a benchmark of lakehouse write speed or Walmart JDBC.
 
-Baseline mặc định: Spark local[2], UTC, shuffle partitions=16, AQE=false,
-`skewJoin.enabled=true` (chỉ có hiệu lực khi bật AQE), auto-broadcast=-1 để phân bố
-shuffle dễ quan sát. Salted giữ đúng cấu hình ấy. Đây là cấu hình thí nghiệm,
-không phải đề nghị thay cấu hình production. `--aqe` cho phép đo đối chứng riêng;
-không gộp số của AQE on vào bảng AQE off. Khi AQE đổi plan hoặc broadcast exchange,
-cần kiểm lại nhận diện stage trước khi so; giữ toàn bộ SQL plan/event log.
+Default baseline: Spark local[2], UTC, shuffle partitions=16, AQE=false,
+`skewJoin.enabled=true` (only effective when AQE is on), auto-broadcast=-1 to make the shuffle
+distribution easy to observe. Salted keeps exactly that configuration. This is an experimental configuration,
+not a proposal to change the production configuration. `--aqe` allows a separate control measurement;
+do not merge AQE-on numbers into the AQE-off table. When AQE changes the plan or the broadcast exchange,
+stage identification must be rechecked before comparing; keep the full SQL plan/event log.
 
-Nguồn sinh mặc định: seed=7, days=90, orders_per_day=20, sku_count=100,
-Zipf s=1.2, followup=270, observation=285. Khoảng tạo đơn đủ dài để feature có
-history mature, khác mẫu 10 ngày thường chỉ cho feature 0. Test Spark nhỏ dùng
-90 ngày × 4 đơn/ngày, 32 SKU, cùng seed. Không khẳng định hai bộ này có cùng
-`dataset_version`. Nguồn cụ thể được pin trong JSON bằng `dataset_versions`,
-manifest đầy đủ (seed/cấu hình/digest), SHA-256 manifest và cutoff; muốn replay dùng
-lại `--source` trỏ đúng root bất biến. Dataset ID phụ thuộc code/Python, không đoán
-ID trước khi sinh. Runtime JSON có Spark/Python/app ID; người vận hành ghi thêm image ID
-thực tế cùng bằng chứng. Có thể dùng nguồn 30 ngày đã ghim trong
-[source-order-lifecycle-scale.md](source_order_lifecycle_scale.md), nhưng phải kiểm `nonzero_features` trước
-khi dùng làm proof correctness có history.
+Default generated source: seed=7, days=90, orders_per_day=20, sku_count=100,
+Zipf s=1.2, followup=270, observation=285. The order-creation range is long enough for features to have
+mature history, unlike a 10-day sample that usually yields only zero features. The small Spark test uses
+90 days × 4 orders/day, 32 SKUs, the same seed. The two sets are not claimed to share the same
+`dataset_version`. The specific source is pinned in the JSON via `dataset_versions`,
+the full manifest (seed/configuration/digest), the manifest SHA-256 and the cutoff; to replay, reuse
+`--source` pointing at the exact immutable root. The dataset ID depends on code/Python; do not guess
+the ID before generating. The runtime JSON has the Spark/Python/app ID; the operator also records the actual image ID
+along with the evidence. The pinned 30-day source in
+[source-order-lifecycle-scale.md](source_order_lifecycle_scale.md) can be used, but `nonzero_features` must be checked before
+using it as a correctness proof with history.
 
-| Chỉ số, cùng input + AQE off | Baseline SKU | Salted SKU + bucket |
+| Metric, same input + AQE off | Baseline SKU | Salted SKU + bucket |
 |---|---|---|
-| dataset_version + seed + manifest hash | chưa đo | cùng nguồn |
-| Spark/Python/image ID/app ID | chưa đo | cùng runtime |
-| sweep stage ID + số task | chưa đo | chưa đo |
-| records/task max / median / p95 | chưa đo | chưa đo |
-| records/task max ÷ median | chưa đo | chưa đo |
-| shuffle records/task max / median / p95 | chưa đo | chưa đo |
-| shuffle bytes/task max / median / p95 | chưa đo | chưa đo |
-| top-5 key theo số sự kiện sweep | chưa đo | chưa đo |
-| exceptAll baseline-only / salted-only | chưa đo | yêu cầu 0 / 0 |
+| dataset_version + seed + manifest hash | not measured | same source |
+| Spark/Python/image ID/app ID | not measured | same runtime |
+| sweep stage ID + task count | not measured | not measured |
+| records/task max / median / p95 | not measured | not measured |
+| records/task max ÷ median | not measured | not measured |
+| shuffle records/task max / median / p95 | not measured | not measured |
+| shuffle bytes/task max / median / p95 | not measured | not measured |
+| top-5 keys by sweep event count | not measured | not measured |
+| exceptAll baseline-only / salted-only | not measured | required 0 / 0 |
 
-**Chưa đo:** chạy `python tests/spark/check_order_lifecycle_skew.py`
-trong runtime Spark đã chuẩn bị; lệnh Docker và CLI lưu JSON/event log đầy đủ ở
-cuối tài liệu. Chưa có stage/task metrics,
-manifest hash, bag equality hay kết luận giảm skew v2; bảng trên giữ trạng thái
-chưa đo, không dùng bằng chứng v1 thay thế.
+**Not measured:** run `python tests/spark/check_order_lifecycle_skew.py`
+in a prepared Spark runtime; the Docker command and the CLI that saves the full JSON/event log are at the
+end of this document. There are no stage/task metrics,
+manifest hash, bag equality or v2 skew-reduction conclusion yet; the table above stays
+not measured, and v1 evidence is not used as a substitute.
 
-JSON có mọi stage, từng task thành công (partition index, task attempt, input
-records, shuffle records, shuffle bytes, duration), max/median/p95 và max/median.
-`records_read` là input records + shuffle records; đọc cache có thể trả 0, nên
-**không gọi nó là số output rows**. Shuffle bytes gồm remote + local bytes.
-Median gồm cả task rỗng; median=0 thì ratio=null, không thay mẫu số bằng 1. p95 là
-nearest-rank. Retry stage/task giữ riêng stage attempt, chỉ giữ attempt thành công
-cuối của mỗi partition; stage lỗi không dùng để kết luận.
+The JSON has every stage and each successful task (partition index, task attempt, input
+records, shuffle records, shuffle bytes, duration), max/median/p95 and max/median.
+`records_read` is input records + shuffle records; reading from cache may return 0, so
+**do not call it the output row count**. Shuffle bytes include remote + local bytes.
+The median includes empty tasks; if median=0 then ratio=null, the denominator is not replaced with 1. p95 is
+nearest-rank. Stage/task retries keep stage attempts separate, keeping only the last successful attempt
+of each partition; failed stages are not used for conclusions.
 
-Nhận diện sweep dựa vào metric accumulator của SQL Exchange hashpartitioning
-(dataset_version, seller_sku[, _bucket]) cấp dữ liệu cho Window qua Sort/wrapper,
-và stage consumer trực tiếp của exchange đó. Exchange của aggregate/join trùng
-khóa không được tự gắn vai trò sweep. Đọc cả SQLExecutionStart lẫn cập nhật plan
-AQE. `sweep_exchange_inputs` đánh dấu ứng viên; đối chiếu physical plan, parent stage
-và task metrics trong JSON trước khi chọn stage. Salted có cả prefix theo SKU trên
-**một dòng tổng mỗi bucket**, cần phân biệt với sweep cục bộ `bucket_sweep`.
-Một consumer có thể nhận thêm shuffle từ join; JSON giữ nguyên số tổng thật của
-task, không quy hết bytes đó cho window. `top5_partition_keys` đếm endpoint mở/đóng
-và query từ feature windows thật; đây là **tải logical key**, không phải phép gán
-chính xác key vào task. Các join order/line ở group build vẫn có metrics riêng.
+Sweep identification relies on the metric accumulators of the SQL Exchange hashpartitioning
+(dataset_version, seller_sku[, _bucket]) feeding the Window through Sort/wrapper,
+and the direct consumer stage of that exchange. Aggregate/join exchanges with the same
+key are not automatically assigned the sweep role. Both SQLExecutionStart and AQE plan
+updates are read. `sweep_exchange_inputs` marks candidates; check the physical plan, parent stage
+and task metrics in the JSON before choosing a stage. Salted also has a per-SKU prefix over
+**one total row per bucket**, which must be distinguished from the local `bucket_sweep`.
+A consumer may also receive shuffle from a join; the JSON keeps the task's real totals
+and does not attribute all those bytes to the window. `top5_partition_keys` counts open/close endpoints
+and queries from the real feature windows; this is **logical key load**, not an exact
+assignment of keys to tasks. The order/line joins in the build group still have their own metrics.
 
-Test Spark bắt buộc có stage đo được, feature khác 0 và bag equality bằng
-`exceptAll` **hai chiều**. Test in max/median và bytes trước/sau. Chỉ assert ratio
-giảm khi baseline ratio≥2, ít nhất 8 task, cả hai median>0 và logical key max sau
-chia bucket ≤60% trước. Nếu không đủ, in `SKEW_INCONCLUSIVE`, không coi test pass
-là proof đã giảm skew; người vận hành phải tăng scale/chọn số bucket rồi chạy lại.
-Không dùng thời gian một lần chạy để tuyên bố speedup.
-Script còn có fixture dựng tay đối chiếu hai chiều tại biên microsecond/bucket,
-cửa sổ nửa mở, query-only bucket, tự trừ history, nhiều dataset, SKU null và
-line không có created_at; kiểm số đếm cụ thể ngoài phép so với baseline.
+The Spark test requires a measurable stage, nonzero features and bag equality via
+**two-way** `exceptAll`. The test prints max/median and bytes before/after. It only asserts that the ratio
+drops when the baseline ratio≥2, at least 8 tasks, both medians>0, and the max logical key after
+bucketing ≤60% of before. If not met, it prints `SKEW_INCONCLUSIVE`; a passing test is not treated
+as proof that skew was reduced; the operator must increase the scale/choose the bucket count and rerun.
+A single run's time is not used to claim a speedup.
+The script also has hand-built fixtures with two-way comparison at microsecond/bucket boundaries,
+half-open windows, query-only buckets, self-history subtraction, multiple datasets, null SKUs and
+lines without created_at; it checks specific counts beyond the comparison with the baseline.
 
-AQE `skewJoin` xử lý partition lệch của **join**. Window cumulative theo
-(dataset_version, seller_sku) vẫn đòi toàn bộ timeline một SKU có thứ tự và cùng
-partition; bật AQE không tự chia window đó. SKU đầu Zipf có thể chiếm >10% line.
-Bài học v1 “AQE không chữa write skew” cũng có giới hạn operator tương tự, nhưng
-v2 ở đây là **window skew**, không phải write skew hay skewJoin.
+AQE `skewJoin` handles skewed partitions in a **join**. The cumulative Window over
+(dataset_version, seller_sku) still requires a SKU's whole timeline to be ordered and in the same
+partition; enabling AQE does not split that window. The top Zipf SKU can account for >10% of lines.
+The v1 lesson "AQE does not fix write skew" has a similar operator limitation, but
+v2 here is **window skew**, not write skew or skewJoin.
 
-Salting dùng khoảng UTC cố định tính từ epoch, độ rộng `ceil(180/buckets)` ngày:
-18 buckets → khoảng 10 ngày, không phải ngẫu nhiên hash line. Tách delta mở/đóng
-và query theo bucket; tính tổng dc/dp mỗi bucket, prefix tổng của mọi bucket
-**trước đó**, rồi cộng vào cumulative sum cục bộ. Delta tại timestamp trùng query
-đứng trước query, giữ nguyên [a,b), microsecond và bước trừ lịch sử chính line.
-Bucket query-only cũng tham gia prefix; tổng âm đóng cửa sổ truyền đúng qua các
-khoảng thưa. Không cắt đoạn hoặc replicate history vào mọi bucket. Mọi SKU được
-chia, kể cả SKU lạnh: bớt một bước thu danh sách hot SKU nhưng thêm overhead.
+Salting uses fixed UTC ranges counted from the epoch, `ceil(180/buckets)` days wide:
+18 buckets → ranges of about 10 days, not random hashing of lines. Open/close deltas
+and queries are split by bucket; the dc/dp total of each bucket is computed, the prefix total of all
+**preceding** buckets, and then added to the local cumulative sum. A delta at the same timestamp as a query
+comes before the query, preserving [a,b), microseconds and the subtraction of the line's own history.
+Query-only buckets also participate in the prefix; negative totals closing a window propagate correctly across
+sparse ranges. History is not cut into segments or replicated into every bucket. Every SKU is
+split, including cold SKUs: this saves a step collecting the hot SKU list but adds overhead.
 
-Đánh đổi: thêm aggregate, prefix, join và shuffle; nhiều nhóm/partition nhỏ, có thể
-tăng tổng shuffle bytes và chi phí scheduling. Prefix vẫn theo SKU nhưng input
-đã giảm còn số bucket có dữ liệu; nếu timeline rất dài, prefix đó cũng cần đo.
-Nếu SKU nóng tập trung trong một bucket thì phương án không chữa được skew.
-Không suy rằng nhanh hơn ở mọi quy mô và không áp dụng vào module Gold gốc khi
-chưa có bằng chứng Spark. Python oracle ở
-[unit/spark_jobs/lib/test_order_lifecycle_skew.py](../../../tests/unit/spark_jobs/lib/test_order_lifecycle_skew.py) kiểm cơ chế bucket/prefix;
-correctness DataFrame phải qua Spark test.
+Trade-off: extra aggregate, prefix, join and shuffle; many small groups/partitions, which may
+increase total shuffle bytes and scheduling cost. The prefix is still per SKU, but its input
+is reduced to the number of buckets with data; if the timeline is very long, that prefix also needs measuring.
+If a hot SKU is concentrated in one bucket, this approach does not fix the skew.
+Do not infer that it is faster at every scale, and do not apply it to the original Gold module
+without Spark evidence. The Python oracle in
+[unit/spark_jobs/lib/test_order_lifecycle_skew.py](../../../tests/unit/spark_jobs/lib/test_order_lifecycle_skew.py) checks the bucket/prefix mechanism;
+DataFrame correctness must go through the Spark test.
 
-Lệnh người vận hành bắt buộc (mount repo chỉ đọc, dữ liệu tạm trong container):
+Required operator command (repo mounted read-only, temporary data inside the container):
 
 ```bash
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g -e PYSPARK_SUBMIT_ARGS='--driver-memory 4g pyspark-shell' \
@@ -114,10 +114,10 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g -e PYSPARK_SU
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_lifecycle_skew.py
 ```
 
-Để lưu stdout JSON trên host, thêm `> /tmp/codex-15-spark-report.log` vào lệnh.
-Run này không xóa `/tmp` riêng trong test để người vận hành có thể điều tra khi chạy ngoài
-container; `--rm` vẫn dọn container sau khi kết thúc. Muốn giữ cả event log, chạy
-CLI với thư mục bằng chứng host được mount **riêng** cho phép ghi:
+To save the JSON stdout on the host, append `> /tmp/codex-15-spark-report.log` to the command.
+This run does not delete the test's own `/tmp`, so the operator can investigate when running outside
+the container; `--rm` still cleans up the container when it finishes. To keep the event log as well, run the
+CLI with a host evidence directory mounted **separately** with write access:
 
 ```bash
 mkdir -p /tmp/codex-15-evidence
@@ -131,6 +131,6 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g \
   --days 90 --orders-per-day 20 --seed 7 --sku-count 100 --buckets 18 --partitions 16
 ```
 
-Thư mục workdir phải mới cho mỗi run; dữ liệu scale, checkpoint tạm và output
-Parquet tốn đĩa. Với nguồn lớn dùng mount nguồn read-only `--source`, tăng dung
-lượng đĩa tạm do người vận hành quyết định. Không gọi Docker/Cloud trong sandbox Codex.
+The workdir must be new for each run; scale data, temporary checkpoints and Parquet
+output use disk space. For large sources, use a read-only source mount with `--source`; increasing temporary
+disk capacity is up to the operator. Docker/cloud are not invoked from the agent sandbox.

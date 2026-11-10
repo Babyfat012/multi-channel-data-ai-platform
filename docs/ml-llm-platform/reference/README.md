@@ -1,8 +1,8 @@
-# Tài liệu tham khảo kỹ thuật
+# Technical reference
 
-Chi tiết thiết kế, hướng dẫn phát triển và các lần chạy có phạm vi riêng. Kết quả nghiệm thu AWS đọc từ [mục lục coursework](../README.md); ghi nhận local không thay bằng chứng cloud.
+Design details, development guides and runs with their own scope. AWS acceptance results are read from the [ML/LLM Platform index](../README.md); local records do not replace cloud evidence.
 
 - [LLM Platform](llm_platform.md)
-- [Nền tảng Agent (local, kind `platform`)](llm_platform_agents.md)
+- [Agent platform (local, kind `platform`)](llm_platform_agents.md)
 - [ML Platform / LLM Platform — evidence](ml_llm_platform_evidence.md)
 - [ML Platform](ml_platform.md)

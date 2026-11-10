@@ -1,188 +1,188 @@
-# Observability trên AWS
+# Observability on AWS
 
-EDAI-2, dòng 46–51: API, hạ tầng, log, trace, LLM và Agent telemetry.
+This page covers API, infrastructure, log, trace, LLM and Agent telemetry.
 
-Code và cấu hình: các dashboard và metric được dẫn kèm ảnh EKS bên dưới.
+Code and configuration: the dashboards and metrics are linked alongside the EKS screenshots below.
 
-Các kết quả dưới đây là của những lần đã chạy trên AWS. Chúng không có nghĩa là dịch vụ đang bật lúc bạn đọc.
+The results below come from past runs on AWS. They do not mean the service is running when you read this.
 
-## Trên EKS
+## On EKS
 
-Hệ thống quan sát gồm ba loại dữ liệu: metric (số đo, xem trên Grafana qua Prometheus), log (xem trên Grafana qua Loki) và trace (đường đi của một request qua các service, xem trên Jaeger).
+The observability stack covers three kinds of data: metrics (measurements, viewed in Grafana via Prometheus), logs (viewed in Grafana via Loki) and traces (the path of a request through services, viewed in Jaeger).
 
-Grafana mở tại `https://grafana.<ip>.sslip.io`. Đăng nhập hai lớp: basic auth `ops` của NGINX, rồi tài khoản admin Grafana.
-Các ảnh dưới là dashboard "Agents, LLM, MCP" trong khung 3 giờ. Trong khung đó có: benchmark Qwen, một lần chạy [`gateway_smoke`](../evidence/aws/gateway-smoke-20261030.json) (đạt 17/17),
-chat với Coordinator và đợt tải thử KEDA.
+Grafana is available at `https://grafana.<ip>.sslip.io`. Login has two layers: NGINX basic auth `ops`, then the Grafana admin account.
+The screenshots below show the "Agents, LLM, MCP" dashboard over a 3-hour window. That window contains: the Qwen benchmark, one run of [`gateway_smoke`](../evidence/aws/gateway-smoke-20261030.json) (passed 17/17),
+chats with the Coordinator and the KEDA load test.
 
-![LLM qua agentgateway: 151 request, 50,2k token, token/giây, thời gian 1 lượt; llama.cpp token/giây](../evidence/aws/grafana-agents-llm-20261030.png)
+![LLM via agentgateway: 151 requests, 50.2k tokens, tokens/second, time per turn; llama.cpp tokens/second](../evidence/aws/grafana-agents-llm-20261030.png)
 
-![Lượt gọi mỗi Agent (đỉnh tải KEDA ở a2a-data-agent), mỗi MCP tool, request lỗi theo status gồm 429 rate limit](../evidence/aws/grafana-agents-mcp-gateway-20261030.png)
+![Calls per Agent (KEDA load peak on a2a-data-agent), per MCP tool, failed requests by status including 429 rate limit](../evidence/aws/grafana-agents-mcp-gateway-20261030.png)
 
-![Feature API request/giây và p95; KServe dự đoán theo abstain, thời gian tra Feast](../evidence/aws/grafana-feature-api-kserve-20261030.png)
+![Feature API requests/second and p95; KServe predictions by abstain, Feast lookup time](../evidence/aws/grafana-feature-api-kserve-20261030.png)
 
-![TTFT, thời gian mỗi token, guardrail PII theo kết quả gồm Response Mask](../evidence/aws/grafana-llm-ttft-pii-20261030.png)
+![TTFT, time per token, PII guardrail by outcome including Response Mask](../evidence/aws/grafana-llm-ttft-pii-20261030.png)
 
-Panel guardrail có mục "Response Mask". Mục này ghi lại chính lần gateway che nhầm tỉ lệ Return 17 chữ số (`0.16980269175486737`) thành `<PHONE_NUMBER>`
-(cùng guardrail `phoneNumber` sau đó còn che số đếm bảy chữ số trong eval, xem [Agent Evaluation](agent_evaluation.md); chi tiết lần đầu ở [LLM và agent](reference/llm_platform_agents.md#trên-eks)).
+The guardrail panel has a "Response Mask" entry. This entry records the very time the gateway wrongly masked a 17-digit Return rate (`0.16980269175486737`) as `<PHONE_NUMBER>`
+(the same `phoneNumber` guardrail later also masked seven-digit counts in the eval, see [Agent Evaluation](agent_evaluation.md); details of the first occurrence in [LLM and agents](reference/llm_platform_agents.md#on-eks)).
 
-Jaeger nhận trace của agentgateway theo chuẩn OTLP. Ví dụ dưới là một trace của lệnh MCP `tools/list`; trace có một span con (một bước xử lý) đi tới backend `features`:
+Jaeger receives agentgateway traces over OTLP. The example below is a trace of the MCP command `tools/list`; the trace has one child span (one processing step) going to the `features` backend:
 
-![Jaeger: trace agentgateway tools/list, 2 span](../evidence/aws/jaeger-agentgateway-trace-20261030.png)
+![Jaeger: agentgateway tools/list trace, 2 spans](../evidence/aws/jaeger-agentgateway-trace-20261030.png)
 
-**Log.** Fluent Bit chạy dạng DaemonSet (mỗi node một pod). Nó đọc log của các container, gắn nhãn `namespace`, `pod`, `app`, rồi đẩy vào Loki
+**Logs.** Fluent Bit runs as a DaemonSet (one pod per node). It reads container logs, attaches the labels `namespace`, `pod`, `app`, then pushes them to Loki
 ([`fluent-bit-values.yaml`](../../infra/k8s/observability/fluent-bit-values.yaml)).
-Ảnh dưới: trong Grafana mở Explore, chọn Loki, truy vấn `{namespace="feature-store"}`, khung 1 giờ:
+Screenshot below: in Grafana, open Explore, select Loki, query `{namespace="feature-store"}`, 1-hour window:
 
-![Loki: log Feature API trên EKS; cột cao lúc 23:12–23:13 là đợt load test locust, dòng log là access log readyz/metrics](../evidence/aws/grafana-loki-feature-store-20261030.png)
+![Loki: Feature API logs on EKS; the tall bars at 23:12–23:13 are the locust load test, log lines are readyz/metrics access logs](../evidence/aws/grafana-loki-feature-store-20261030.png)
 
-Hai cột cao (khoảng 1,5 nghìn và 1 nghìn dòng log) trùng với đợt [load test trên EKS](web_api_mcp.md#load-test-trên-eks)
-(3.004 request trong 60 giây).
+The two tall bars (about 1.5 thousand and 1 thousand log lines) coincide with the [load test on EKS](web_api_mcp.md#load-test-on-eks)
+(3,004 requests in 60 seconds).
 
-**Số đo tài nguyên của EC2.** node-exporter chạy trên EC2 ở cổng `:9100`; Prometheus trong EKS lấy số đo (scrape) qua IP nội bộ của máy.
-Trong Grafana Explore có 4 truy vấn:
+**EC2 resource metrics.** node-exporter runs on EC2 on port `:9100`; Prometheus in EKS scrapes it through the machine's private IP.
+Grafana Explore has 4 queries:
 
-- CPU %: tính từ thời gian rảnh trong `node_cpu_seconds_total`;
-- RAM %: từ `MemAvailable/MemTotal`;
-- disk % cho `/` và `/mnt/platform-data` (ổ EBS chứa dữ liệu);
-- network: số byte nhận mỗi giây, bỏ qua các card mạng `lo`, veth, docker, bridge.
+- CPU %: computed from idle time in `node_cpu_seconds_total`;
+- RAM %: from `MemAvailable/MemTotal`;
+- disk % for `/` and `/mnt/platform-data` (the EBS volume holding data);
+- network: bytes received per second, ignoring the `lo`, veth, docker and bridge interfaces.
 
-![Grafana Explore EC2: CPU giảm từ ~75% về ~17% sau đợt Flink, RAM ~31%, disk / 12% và /mnt/platform-data 31%, network nhận](../evidence/aws/grafana-ec2-compute-20261031.png)
+![Grafana Explore EC2: CPU drops from ~75% to ~17% after the Flink run, RAM ~31%, disk / 12% and /mnt/platform-data 31%, network received](../evidence/aws/grafana-ec2-compute-20261031.png)
 
-Ảnh trên là khung 15 phút, nhưng đồ thị chỉ có số từ 00:01. Lý do: trước đó Prometheus vẫn lấy số từ IP của EC2 **cũ** (`10.42.0.12`, máy đã bị thay),
-dù ConfigMap đã đổi sang `10.42.0.151`. Sidecar có nhiệm vụ nạp lại config đang bị tắt, và pod Prometheus đã chạy 13 giờ không khởi động lại, nên config mới chưa được nạp.
-Cách sửa: bật `configmapReload` trong [`prometheus-values.yaml`](../../infra/k8s/observability/prometheus-values.yaml); test kiểm tra là
+The screenshot above is a 15-minute window, but the graph only has data from 00:01. Reason: before that, Prometheus was still scraping the IP of the **old** EC2 (`10.42.0.12`, a machine that had been replaced),
+even though the ConfigMap had been changed to `10.42.0.151`. The sidecar responsible for reloading config was disabled, and the Prometheus pod had run for 13 hours without restarting, so the new config had not been loaded.
+Fix: enable `configmapReload` in [`prometheus-values.yaml`](../../infra/k8s/observability/prometheus-values.yaml); the covering test is
 `test_prometheus_reloads_config_when_targets_change`.
 
-### Telemetry LLM và Agent theo từng request
+### Per-request LLM and Agent telemetry
 
-**Token mỗi request.** kagent (ADK) ghi một span OpenTelemetry tên `generate_content` cho mỗi lượt gọi LLM, và gửi về Jaeger qua
-OTLP. Ví dụ: gửi một câu hỏi về chính sách cho coordinator thì Jaeger ghi được một trace 13 span đi qua 3 service, theo thứ tự:
+**Tokens per request.** kagent (ADK) records an OpenTelemetry span named `generate_content` for each LLM call, and sends it to Jaeger over
+OTLP. Example: sending a policy question to the coordinator makes Jaeger record a trace of 13 spans across 3 services, in order:
 
-1. coordinator gọi LLM;
-2. coordinator gọi tool A2A `kagent__NS__model_agent` qua agentgateway;
-3. model_agent gọi LLM rồi trả lời.
+1. the coordinator calls the LLM;
+2. the coordinator calls the A2A tool `kagent__NS__model_agent` through agentgateway;
+3. model_agent calls the LLM and then answers.
 
-![Jaeger: coordinator POST → agentgateway → model_agent, 13 span, 22,16 s; span generate_content của model_agent 15,76 s](../evidence/aws/jaeger-coordinator-model-agent-trace-20261031.png)
+![Jaeger: coordinator POST → agentgateway → model_agent, 13 spans, 22.16 s; model_agent generate_content span 15.76 s](../evidence/aws/jaeger-coordinator-model-agent-trace-20261031.png)
 
-Mở phần tag của span `generate_content` (của model_agent) sẽ thấy:
+Opening the tags of the `generate_content` span (of model_agent) shows:
 
-- `gen_ai.usage.input_tokens` = 1536 (token gửi vào LLM);
-- `gen_ai.usage.output_tokens` = 31 (token LLM sinh ra);
+- `gen_ai.usage.input_tokens` = 1536 (tokens sent to the LLM);
+- `gen_ai.usage.output_tokens` = 31 (tokens generated by the LLM);
 - `gen_ai.request.model` = `qwen2.5-1.5b-instruct`;
-- `finish_reasons` = STOP (LLM tự kết thúc câu trả lời).
+- `finish_reasons` = STOP (the LLM ended the answer by itself).
 
-Tổng token của request này = input + output = 1567.
+Total tokens for this request = input + output = 1567.
 
-![Jaeger tag span generate_content: input_tokens 1536, output_tokens 31, cache_read 0, model qwen2.5-1.5b-instruct](../evidence/aws/jaeger-llm-tokens-per-request-20261031.png)
+![Jaeger generate_content span tags: input_tokens 1536, output_tokens 31, cache_read 0, model qwen2.5-1.5b-instruct](../evidence/aws/jaeger-llm-tokens-per-request-20261031.png)
 
-Để có số trung bình cho mọi request, dùng metric của agentgateway. `agentgateway_gen_ai_client_token_usage` là histogram, ghi một mẫu cho mỗi
-request, nên lấy `_sum / _count` sẽ ra số token trung bình mỗi request. Trong 30 phút: input trung bình **947**, output **43,9**, và phần input đọc từ
-cache là **728**:
+To get an average over all requests, use the agentgateway metric. `agentgateway_gen_ai_client_token_usage` is a histogram that records one sample per
+request, so `_sum / _count` gives the average tokens per request. Over 30 minutes: average input **947**, output **43.9**, and the input portion read from
+cache is **728**:
 
-![Grafana: token trung bình mỗi request theo gen_ai_token_type, bảng input 947, output 43,9, input_cache_read 728](../evidence/aws/grafana-tokens-per-request-20261031.png)
+![Grafana: average tokens per request by gen_ai_token_type, table input 947, output 43.9, input_cache_read 728](../evidence/aws/grafana-tokens-per-request-20261031.png)
 
-**Số lần gọi và số lỗi theo từng MCP tool.** Feature API đếm bằng metric `mcp_tool_calls_total{tool, outcome}`. `outcome` là `error`
-khi tool trả về `isError`, kể cả khi mã HTTP vẫn là 200.
+**Call and error counts per MCP tool.** The Feature API counts with the metric `mcp_tool_calls_total{tool, outcome}`. `outcome` is `error`
+when the tool returns `isError`, even if the HTTP status is still 200.
 
-Để có lỗi thật mà đếm, gọi MCP trực tiếp với 5 input sai: danh sách SKU rỗng, SKU sai định dạng, `top_k=50` (vượt giới hạn 10), channel `ebay`, `chunk_id` sai.
-Kết quả là 5 lỗi kiểm tra đầu vào (validate):
+To get real errors to count, MCP was called directly with 5 invalid inputs: an empty SKU list, a malformed SKU, `top_k=50` (over the limit of 10), Channel `ebay`, an invalid `chunk_id`.
+The result is 5 input validation errors:
 
-![Grafana: sum by (tool, outcome) mcp_tool_calls_total — ok/error cho get_sku_features, search_policy_chunks, predict_return_risk, get_policy_chunks](../evidence/aws/grafana-mcp-tool-outcome-20261031.png)
+![Grafana: sum by (tool, outcome) mcp_tool_calls_total — ok/error for get_sku_features, search_policy_chunks, predict_return_risk, get_policy_chunks](../evidence/aws/grafana-mcp-tool-outcome-20261031.png)
 
-Số lượt gọi mỗi Agent (A2A theo route) và mỗi tool qua gateway: ảnh dashboard ở mục trên.
+Calls per Agent (A2A by route) and per tool through the gateway: see the dashboard screenshot in the section above.
 
-**Thành công / thất bại theo từng Agent.** Dashboard [`platform-agents.json`](../../infra/k8s/observability/dashboards/platform-agents.json)
-có thêm ba panel, tách theo `route` của từng Agent (`a2a-data-agent`, `a2a-model-agent`, `a2a-coordinator`):
+**Success / failure per Agent.** The dashboard [`platform-agents.json`](../../infra/k8s/observability/dashboards/platform-agents.json)
+has three additional panels, split by each Agent's `route` (`a2a-data-agent`, `a2a-model-agent`, `a2a-coordinator`):
 
-- số request thành công (mã 2xx);
-- số request thất bại, tách theo `status`;
-- tỷ lệ thành công.
+- successful requests (2xx);
+- failed requests, split by `status`;
+- success rate.
 
-Lưu ý: đây là mã HTTP đi qua gateway (401 thiếu key, 429, 5xx…), không phải trạng thái task A2A bên trong Agent.
-Tải được sinh bằng `gateway_smoke.py` (mỗi Agent một cặp request có key và không key) và bài tải KEDA.
-Dashboard đã được áp dụng vào ConfigMap `grafana-dashboards-platform` trên EKS. Ảnh dưới chụp khung **Last 6 hours**, theo múi giờ của trình duyệt (UTC+7):
+Note: these are HTTP statuses through the gateway (401 missing key, 429, 5xx…), not the A2A task status inside the Agent.
+Load was generated with `gateway_smoke.py` (one pair of requests with and without a key per Agent) and the KEDA load test.
+The dashboard has been applied to the ConfigMap `grafana-dashboards-platform` on EKS. The screenshot below uses the **Last 6 hours** window, in the browser's time zone (UTC+7):
 
-![Grafana EKS: hàng Agent thành công/thất bại theo từng Agent — 2xx mỗi route, non-2xx theo status (401 trên route -path), tỷ lệ thành công](../evidence/aws/grafana-agent-success-fail.png)
+![Grafana EKS: per-Agent success/failure row — 2xx per route, non-2xx by status (401 on -path routes), success rate](../evidence/aws/grafana-agent-success-fail.png)
 
-- **Thành công (2xx):** đỉnh khoảng 500 request trong cửa sổ 5 phút lúc ~14:30 (bài tải KEDA 3 request/giây, 150 giây) cho `a2a-coordinator`, `a2a-data-agent`, `a2a-model-agent`, mỗi route một đường màu riêng.
-- **Thất bại (non-2xx):** các mã `401` trên `a2a-coordinator-path`, `a2a-data-agent-path`, `a2a-model-agent-path` lúc ~16:00 (đợt `gateway_smoke.py`: request không kèm khóa tới từng Agent), tách theo route và theo status.
-- **Tỷ lệ thành công:** gần 100% cho từng Agent, tụt xuống mức thấp tại đúng thời điểm có 401 của đợt smoke.
+- **Success (2xx):** a peak of about 500 requests in a 5-minute window at ~14:30 (KEDA load test, 3 requests/second, 150 seconds) for `a2a-coordinator`, `a2a-data-agent`, `a2a-model-agent`, each route with its own line color.
+- **Failure (non-2xx):** `401` statuses on `a2a-coordinator-path`, `a2a-data-agent-path`, `a2a-model-agent-path` at ~16:00 (the `gateway_smoke.py` run: requests without a key to each Agent), split by route and by status.
+- **Success rate:** close to 100% for each Agent, dropping low exactly when the smoke run's 401s occurred.
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+The local records keep their original environment and are not a substitute for cloud evidence.
 
-<!-- Mục đích: bộ quan sát (metrics, logs, traces, LLM/agent telemetry) trong kind, -->
+<!-- Purpose: observability stack (metrics, logs, traces, LLM/agent telemetry) in kind, -->
 ## Observability — ML Platform / LLM Platform
 
-Dựng bằng lệnh `bash scripts/setup/deploy_kind_observability.sh` (namespace `observability`). Xem qua HTTPS + basic auth
-(ingress của [`docs/ml-llm-platform/cicd.md`](cicd.md)) tại các host `grafana.`, `traces.`, `metrics.` trên `172-25-0-2.sslip.io:30443`.
+Deployed with `bash scripts/setup/deploy_kind_observability.sh` (namespace `observability`). Viewed over HTTPS + basic auth
+(the ingress from [`docs/ml-llm-platform/cicd.md`](cicd.md)) at the hosts `grafana.`, `traces.`, `metrics.` on `172-25-0-2.sslip.io:30443`.
 
-| Thành phần | Chart / bản | Vai trò | File |
+| Component | Chart / version | Role | File |
 |---|---|---|---|
-| Prometheus | prometheus-community/prometheus 29.36.2 | số đo, giữ 6 giờ; lấy pod có annotation `prometheus.io/scrape` | [`prometheus-values.yaml`](../../infra/k8s/observability/prometheus-values.yaml) |
-| Loki | grafana/loki 7.3.0 (SingleBinary) | log, PVC 1 Gi, giữ 24 giờ | [`loki-values.yaml`](../../infra/k8s/observability/loki-values.yaml) |
-| Fluent Bit | fluent/fluent-bit 0.58.3 | đọc log container trên node, gắn nhãn namespace/pod/app, đẩy Loki | [`fluent-bit-values.yaml`](../../infra/k8s/observability/fluent-bit-values.yaml) |
-| Jaeger | jaegertracing/jaeger 4.16.1, image **2.10.0** | trace (OTLP :4317), lưu RAM | [`jaeger-values.yaml`](../../infra/k8s/observability/jaeger-values.yaml) |
-| Grafana | grafana/grafana 10.5.15 | xem cả ba; dashboard Data & AI Platform | [`grafana-values.yaml`](../../infra/k8s/observability/grafana-values.yaml), [`dashboards/`](../../infra/k8s/observability/dashboards/platform-agents.json) |
+| Prometheus | prometheus-community/prometheus 29.36.2 | metrics, 6-hour retention; scrapes pods with the `prometheus.io/scrape` annotation | [`prometheus-values.yaml`](../../infra/k8s/observability/prometheus-values.yaml) |
+| Loki | grafana/loki 7.3.0 (SingleBinary) | logs, 1 Gi PVC, 24-hour retention | [`loki-values.yaml`](../../infra/k8s/observability/loki-values.yaml) |
+| Fluent Bit | fluent/fluent-bit 0.58.3 | reads container logs on the node, attaches namespace/pod/app labels, pushes to Loki | [`fluent-bit-values.yaml`](../../infra/k8s/observability/fluent-bit-values.yaml) |
+| Jaeger | jaegertracing/jaeger 4.16.1, image **2.10.0** | traces (OTLP :4317), stored in RAM | [`jaeger-values.yaml`](../../infra/k8s/observability/jaeger-values.yaml) |
+| Grafana | grafana/grafana 10.5.15 | views all three; Data & AI Platform dashboard | [`grafana-values.yaml`](../../infra/k8s/observability/grafana-values.yaml), [`dashboards/`](../../infra/k8s/observability/dashboards/platform-agents.json) |
 
-Nguồn dữ liệu:
-- **Web API** (Feature API, từ v7): `/metrics` với `http_requests_total{method,handler,status}` và
-  `http_request_duration_seconds{handler}` (prometheus_client, middleware trong [`serving/app.py`](../../serving/app.py));
-  request MCP gom về `handler="/mcp"`.
+Data sources:
+- **Web API** (Feature API, from v7): `/metrics` with `http_requests_total{method,handler,status}` and
+  `http_request_duration_seconds{handler}` (prometheus_client, middleware in [`serving/app.py`](../../serving/app.py));
+  MCP requests are grouped under `handler="/mcp"`.
 - **agentgateway**: `agentgateway_requests_total{route,status}`, `agentgateway_mcp_requests_total{method,resource}`
-  (số lần gọi từng tool), `agentgateway_gen_ai_client_token_usage{gen_ai_token_type=input|output}` (token mỗi request),
-  `agentgateway_gen_ai_server_request_duration` (thời gian 1 lượt LLM); trace OTLP gửi Jaeger.
-- **TTFT và PII (agentgateway)**: `agentgateway_gen_ai_server_time_to_first_token` (chỉ request streaming),
-  `agentgateway_gen_ai_server_time_per_output_token`; guardrail regex trên cả 2 model chặn request chứa email / thẻ
-  tín dụng / SSN (HTTP 403 `pii_detected`) và che email/điện thoại/thẻ trong câu trả lời, đếm ở
-  `agentgateway_guardrail_checks_total{phase,action}`. Không chặn số điện thoại ở request (số lượng, giá, mã SKU dễ
-  bị nhận nhầm).
-- **Lỗi mỗi MCP tool** (Feature API v8): `mcp_tool_calls_total{tool,outcome=ok|error}` — lỗi MCP trả HTTP 200 kèm
-  `isError` nên không thấy được qua `http_requests_total`.
+  (calls per tool), `agentgateway_gen_ai_client_token_usage{gen_ai_token_type=input|output}` (tokens per request),
+  `agentgateway_gen_ai_server_request_duration` (time per LLM turn); OTLP traces sent to Jaeger.
+- **TTFT and PII (agentgateway)**: `agentgateway_gen_ai_server_time_to_first_token` (streaming requests only),
+  `agentgateway_gen_ai_server_time_per_output_token`; a regex guardrail on both models blocks requests containing email / credit
+  card / SSN (HTTP 403 `pii_detected`) and masks email/phone/card in responses, counted in
+  `agentgateway_guardrail_checks_total{phase,action}`. Phone numbers are not blocked in requests (quantities, prices and SKU codes are easily
+  mistaken for them).
+- **Errors per MCP tool** (Feature API v8): `mcp_tool_calls_total{tool,outcome=ok|error}` — MCP errors return HTTP 200 with
+  `isError`, so they are not visible through `http_requests_total`.
 - **llama.cpp**: `llamacpp:predicted_tokens_seconds`, `llamacpp:requests_processing`.
-- **kagent**: trace controller + Agent (Helm `otel.tracing`).
-- **Log**: log của mọi pod được Fluent Bit chuyển vào Loki; xem ở Grafana Explore (Loki không có UI riêng).
+- **kagent**: controller + Agent traces (Helm `otel.tracing`).
+- **Logs**: logs of every pod are shipped to Loki by Fluent Bit; viewed in Grafana Explore (Loki has no UI of its own).
 
 ## Dashboard "Data & AI Platform — Agents, LLM, MCP"
 
-| Nhóm | Panel |
+| Group | Panels |
 |---|---|
-| LLM | tổng request; token input / output trung bình mỗi request; tổng token; token/giây theo loại; thời gian 1 lượt p50/p95; llama.cpp token/giây |
-| Agent & MCP | số lần gọi mỗi Agent (A2A qua gateway); số lần gọi mỗi MCP tool; tổng lần gọi Agent / tool |
-| LLM: TTFT, PII | TTFT p50/p95; thời gian mỗi token ra; guardrail theo phase/action; tổng request bị chặn PII; tỷ lệ chặn |
-| MCP tool | lượt gọi theo tool + kết quả; tổng lỗi mỗi tool |
-| Gateway / Web API | request/giây theo route; request lỗi theo status; Feature API request/giây + 5xx; độ trễ p95 theo handler |
+| LLM | total requests; average input / output tokens per request; total tokens; tokens/second by type; time per turn p50/p95; llama.cpp tokens/second |
+| Agent & MCP | calls per Agent (A2A through the gateway); calls per MCP tool; total Agent / tool calls |
+| LLM: TTFT, PII | TTFT p50/p95; time per output token; guardrail by phase/action; total requests blocked for PII; block rate |
+| MCP tool | calls by tool + outcome; total errors per tool |
+| Gateway / Web API | requests/second by route; failed requests by status; Feature API requests/second + 5xx; p95 latency by handler |
 
-## Kiểm
+## Verification
 
-- Prometheus: sau 60 request thử, `http_requests_total` của Feature API ghi `/features 200 = 30`, `/features 422 = 30`.
-- Loki: `count_over_time({job="fluent-bit"}[10m])` có log của mọi namespace (agentgateway, feature-store, kagent…).
-- Jaeger: `/api/services` có `agentgateway` sau khi bật tracing.
-- Grafana: datasource Prometheus/Loki/Jaeger đều `OK`. Vào qua ingress theo thứ tự: basic auth `ops`, rồi form đăng nhập Grafana, rồi tới
+- Prometheus: after 60 test requests, the Feature API's `http_requests_total` records `/features 200 = 30`, `/features 422 = 30`.
+- Loki: `count_over_time({job="fluent-bit"}[10m])` has logs from every namespace (agentgateway, feature-store, kagent…).
+- Jaeger: `/api/services` lists `agentgateway` after tracing is enabled.
+- Grafana: the Prometheus/Loki/Jaeger datasources are all `OK`. Access through the ingress goes in order: basic auth `ops`, then the Grafana login form, then the
   dashboard.
 
-Lỗi đã gặp và cách xử lý:
-- Jaeger 2.22 (bản mặc định của chart) chỉ trả API v3 ở `/api/v3/...`, trong khi Grafana gọi `/api/services` nên nhận 404. Cách xử lý: ghim Jaeger ở bản 2.10.0.
-- Ingress có basic auth nên request tới Grafana mang header `Authorization: Basic`. Grafana tưởng đó là tài khoản của chính nó và trả 401.
-  Cách xử lý: đặt `grafana.ini: auth.basic.enabled=false`.
-- Panel "pod data-agent" cần kube-state-metrics (đã tắt cho nhẹ), nên bỏ panel này.
+Errors encountered and how they were resolved:
+- Jaeger 2.22 (the chart's default version) only serves the v3 API at `/api/v3/...`, while Grafana calls `/api/services` and gets 404. Resolution: pin Jaeger to version 2.10.0.
+- The ingress has basic auth, so requests to Grafana carry an `Authorization: Basic` header. Grafana assumes it is one of its own accounts and returns 401.
+  Resolution: set `grafana.ini: auth.basic.enabled=false`.
+- The "pod data-agent" panel needs kube-state-metrics (disabled to save resources), so this panel was dropped.
 
-Kiểm PII và TTFT (thời gian tới token đầu tiên), bằng cách gọi `/v1/chat/completions` qua gateway:
+PII and TTFT (time to first token) check, by calling `/v1/chat/completions` through the gateway:
 
-| Request | Kết quả |
+| Request | Result |
 |---|---|
 | "Email the refund to jane.doe@example.com" | 403 `pii_detected` |
 | "My card is 4111 1111 1111 1111" | 403 |
 | "Return risk of 2 units of sku-00003 for 4500 cents?" | 200 |
-| request có `stream: true` | có `time_to_first_token` |
+| request with `stream: true` | has `time_to_first_token` |
 
-Bộ đếm `guardrail_checks_total` sau đó: Request/Allow 2, Request/Reject 2, Response/Allow 1.
+The `guardrail_checks_total` counter afterwards: Request/Allow 2, Request/Reject 2, Response/Allow 1.
 
-Kiểm lỗi tool: gọi `get_sku_features` qua gateway khi MinIO đang tắt, thì `mcp_tool_calls_total{outcome="error"}`
-tăng đúng bằng số lượt lỗi.
+Tool error check: calling `get_sku_features` through the gateway while MinIO is down increases `mcp_tool_calls_total{outcome="error"}`
+by exactly the number of failed calls.
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

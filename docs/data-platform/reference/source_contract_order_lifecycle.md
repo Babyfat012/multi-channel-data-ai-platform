@@ -1,93 +1,94 @@
-# Contract nguồn v2 — Orders và nguồn vận hành Seller giả lập
+# Source contract v2 — Orders and simulated Seller operational sources
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally, not the deployed pipeline.** The pipeline running on AWS is v1 (DP1 → DP4 + ML); see [Data Platform evidence](../evidence.md). Mentions of GCP below are an older plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-Contract ID **`seller-source-v2`**. Q60/Q61 được người dùng
-chấp thuận bằng “Hiểu, xử lý”: headline sales dùng phần còn lại sau hủy
-trước ship, Refund tiền hàng hiển thị riêng; bổ sung nguồn vận hành Seller
-giả lập qua Bronze/Silver để quan sát nhãn v2. Đây là đặc tả để implement,
-**chưa phải schema/code đã triển khai hoặc proof runtime**. Không yêu cầu
-kết nối API thật, dịch vụ trả phí hoặc quyền Cloud mới.
+Contract ID **`seller-source-v2`**. Q60/Q61 were approved by the user with
+"Understood, proceed": headline sales use the quantity remaining after
+cancellation before shipping, and product Refunds are shown separately; simulated
+Seller operational sources are added through Bronze/Silver so that label v2 can be
+observed. This is a specification to implement,
+**not yet a deployed schema/code or runtime proof**. It requires no
+real API connections, paid services or new Cloud permissions.
 
-Policy nhãn giữ nguyên [return-label-contract](return_label_contract.md);
-topology/queue theo expanded-scope-design.
-Các schema dưới đây là quy định của **nguồn giả lập do dự án sở hữu**, không
-phải lời khẳng định schema API Channel thật. Căn cứ hiện trạng là source
-code renderer/model/RNG, được dẫn tại từng phần; các thay đổi đề nghị không
-được mô tả như hành vi code hiện tại.
+The label policy stays as defined in [return-label-contract](return_label_contract.md);
+topology/queue follow expanded-scope-design.
+The schemas below are rules for a **simulated source owned by the project**, not
+claims about real Channel API schemas. The current state is grounded in the source
+code of the renderer/model/RNG, cited in each section; proposed changes are
+not described as current code behavior.
 
-## 1. Ranh giới native và ma trận capability
+## 1. Native boundary and capability matrix
 
-Core Orders vẫn phải có đủ năm Channel. Không thêm actual delivery,
-approval hoặc outcome vào native Orders nếu renderer không có trường đó.
-Giữ payload gốc, schema/version và transport riêng. Với file Orders, một
-dòng là một Order chứa mảng lines; Walmart vẫn đọc DB nguồn qua JDBC, không
-đổi ranh giới sang file bootstrap. Bronze operational feed có grain riêng,
-không áp “một dòng = một Order” lên movement hoặc Refund.
+Core Orders must still cover all five Channels. Do not add actual delivery,
+approval or outcome to native Orders if the renderer has no such field.
+Keep the original payload, schema/version and transport separate. For Orders files, one
+row is one Order containing an array of lines; Walmart still reads the source DB through JDBC, and the
+boundary does not change to the bootstrap file. Bronze operational feeds have their own grain;
+"one row = one Order" does not apply to movements or Refunds.
 
-| Renderer hiện tại | Order/line identity đọc được | Quantity/amount đã thể hiện | Delivery/nhãn v2 đọc được từ renderer này |
+| Current renderer | Readable Order/line identity | Quantity/amount represented | Delivery/label v2 readable from this renderer |
 |---|---|---|---|
-| Amazon | `AmazonOrderId`/`OrderItems.OrderItemId` hoặc `orderId`/`orderItems.orderItemId` | Ordered quantity, item amount/discount; shipped quantity không có ở cả hai schema | Chưa có actual delivery theo allocation, approval và product Refund success |
-| Walmart | `purchaseOrderId`, `orderLines.orderLine.lineNumber` | `orderLineQuantity`, PRODUCT charge | Có trạng thái Delivered và status time ở trạng thái hiện tại; chưa đủ lịch sử allocation/approval/refund |
-| Shopify | `order.id`, `line_items.id` | `quantity`, `current_quantity`, price, total discount | Không có actual delivery; fulfilled không thay delivered |
-| TikTok Shop Batch | `data.orders.id`, `line_items.id` | quantity giả lập, original/sale price, seller discount | Delivered status/update time không chứng minh mọi allocation; chưa có approval/refund feed ở renderer này |
-| Shopee | `order_sn`, `item_list.order_item_id` | purchased quantity và giá nguyên/giảm | Completed/update time không phải actual delivery theo allocation |
+| Amazon | `AmazonOrderId`/`OrderItems.OrderItemId` or `orderId`/`orderItems.orderItemId` | Ordered quantity, item amount/discount; shipped quantity is absent in both schemas | No actual delivery per allocation, approval or product Refund success yet |
+| Walmart | `purchaseOrderId`, `orderLines.orderLine.lineNumber` | `orderLineQuantity`, PRODUCT charge | Has Delivered status and status time for the current state; not enough allocation/approval/refund history |
+| Shopify | `order.id`, `line_items.id` | `quantity`, `current_quantity`, price, total discount | No actual delivery; fulfilled does not stand in for delivered |
+| TikTok Shop Batch | `data.orders.id`, `line_items.id` | simulated quantity, original/sale price, seller discount | Delivered status/update time does not prove every allocation; no approval/refund feed in this renderer yet |
+| Shopee | `order_sn`, `item_list.order_item_id` | purchased quantity and original/discounted price | Completed/update time is not actual delivery per allocation |
 
-Nguồn primary trong repo: [Amazon](../../../generator/channels/amazon.py),
+Primary sources in the repo: [Amazon](../../../generator/channels/amazon.py),
 [Walmart](../../../generator/channels/walmart.py),
 [Shopify](../../../generator/channels/shopify.py),
 [TikTok Batch](../../../generator/channels/tiktok_batch.py),
-[Shopee](../../../generator/channels/shopee.py). Matrix này chỉ kết luận về code
-đã đọc, **không kết luận các API thật không có những capability khác**.
-Native fields giữ tên/ý nghĩa gốc; `current_quantity` không tự được map
-thành lượng ban đầu, và snapshot mất line không tự phát sinh cancellation.
+[Shopee](../../../generator/channels/shopee.py). This matrix only draws conclusions about the code
+that was read; **it does not conclude that the real APIs lack other capabilities**.
+Native fields keep their original names/meanings; `current_quantity` is not automatically mapped
+to the original quantity, and a snapshot missing a line does not by itself produce a cancellation.
 
-Native export manifest bắt buộc ghi `snapshot_mode` (`full_entity` hoặc
-`delta`), `snapshot_scope` (Order IDs hoặc query/partition scope),
-`snapshot_as_of`, `page_set_complete`, `schema_id`, `file_set_digest` và
-`source_observed_at`. `full_entity` chỉ cho phép đánh dấu native line absent
-trong đúng Order đã complete; không cascade xóa shipment/stock/label. Mâu
-thuẫn với facts khác tạo conflict cần correction có dẫn chiếu nguồn.
+The native export manifest must record `snapshot_mode` (`full_entity` or
+`delta`), `snapshot_scope` (Order IDs or query/partition scope),
+`snapshot_as_of`, `page_set_complete`, `schema_id`, `file_set_digest` and
+`source_observed_at`. `full_entity` only allows marking a native line absent
+within exactly the Order that is complete; it does not cascade-delete shipment/stock/label. A
+contradiction with other facts creates a conflict that needs a correction citing the source.
 
-## 2. Ownership và authority nguồn bổ sung
+## 2. Ownership and authority of additional sources
 
-Producer dùng namespace `sim.seller.*`, hiển thị rõ là dữ liệu giả lập.
-Mỗi authority gắn scope seller/account/pool, capability profile và thời hạn;
-không để hai nguồn cùng là authority một measure trong cùng scope/time.
+Producers use the `sim.seller.*` namespace, which clearly marks the data as simulated.
+Each authority is bound to a seller/account/pool scope, a capability profile and a validity period;
+two sources must never both be the authority for one measure in the same scope/time.
 
-| Feed ID / producer | Grain và authority | Không được suy từ feed |
+| Feed ID / producer | Grain and authority | Must not be inferred from the feed |
 |---|---|---|
-| `seller_oms.line_commitments` / `sim.seller.oms` | Revision trạng thái một line: ordered basis, cancel trước ship, giá/discount và native bridge | Không tự xác nhận physical delivery hoặc đổi current native projection thành cancellation |
-| `seller_oms.fulfillment_allocations` / `sim.seller.oms` | Binding line↔physical units↔shipment allocation↔pool; quantity terminal | Không tự coi đã giao khi chỉ planned/shipped |
-| `carrier.delivery_events` / `sim.seller.carrier` | Actual delivery event của allocation trong scope được nguồn xác nhận | Promised/estimated time không thay actual; không nhận quyền trên pool không quan sát |
-| `seller_postsales.return_events` / `sim.seller.postsales` | Request/approved/rejected/canceled theo return item và allocation | Approved không là receipt/restock; canceled nghiệp vụ không xóa lịch sử approved |
-| `seller_postsales.refund_events` / `sim.seller.postsales` | Transaction/component/status và allocation tiền có chứng cứ | Success không là physical return; shipping/goodwill không tự là tiền hàng |
-| `seller_catalog.listing_versions` / `sim.seller.catalog` | Listing state, SKU mapping, attributes và eligibility theo effective/observed time | Không tạo identity line; mapping change không chuyển stock hoặc reservation cũ |
-| `seller_wms.stock_operations` / `sim.seller.wms` | Opening balance + reserve/release/ship/receive/disposition ở pool/location | Snapshot không phải movement; reservation không tăng/giảm physical on-hand |
-| `seller_wms.inbound_events` / `sim.seller.wms` | Promise/ETA, receipt từng phần và closure của inbound line | Promise chưa nhận không tăng available |
-| `seller_wms.stock_snapshots` / `sim.seller.wms` | Quan sát để đối soát tại `effective_at` | Không ghi đè ledger hoặc thêm adjustment để ép khớp |
-| `source.coverage_envelopes` / producer của từng feed | Phạm vi đã quan sát, complete/partial/unavailable và exceptions | Không thay linkage coverage; không chứng minh complete bằng truth ẩn |
+| `seller_oms.line_commitments` / `sim.seller.oms` | State revision of one line: ordered basis, cancellation before shipping, price/discount and native bridge | Does not confirm physical delivery by itself or turn the current native projection into a cancellation |
+| `seller_oms.fulfillment_allocations` / `sim.seller.oms` | Binding line↔physical units↔shipment allocation↔pool; terminal quantity | Not treated as delivered when only planned/shipped |
+| `carrier.delivery_events` / `sim.seller.carrier` | Actual delivery event of an allocation within the scope confirmed by the source | Promised/estimated time does not replace actual; claims no authority over pools it does not observe |
+| `seller_postsales.return_events` / `sim.seller.postsales` | Request/approved/rejected/canceled per return item and allocation | Approved is not receipt/restock; a business cancellation does not erase the approved history |
+| `seller_postsales.refund_events` / `sim.seller.postsales` | Transaction/component/status and money allocation backed by evidence | Success is not a physical return; shipping/goodwill is not product money by itself |
+| `seller_catalog.listing_versions` / `sim.seller.catalog` | Listing state, SKU mapping, attributes and eligibility by effective/observed time | Does not create line identity; a mapping change does not move stock or old reservations |
+| `seller_wms.stock_operations` / `sim.seller.wms` | Opening balance + reserve/release/ship/receive/disposition at pool/location | A snapshot is not a movement; a reservation does not increase/decrease physical on-hand |
+| `seller_wms.inbound_events` / `sim.seller.wms` | Promise/ETA, partial receipts and closure of an inbound line | An unreceived promise does not increase available |
+| `seller_wms.stock_snapshots` / `sim.seller.wms` | Observation for reconciliation at `effective_at` | Does not overwrite the ledger or add an adjustment to force a match |
+| `source.coverage_envelopes` / producer of each feed | Observed scope, complete/partial/unavailable and exceptions | Does not replace linkage coverage; does not prove complete using hidden truth |
 
-Seller-fulfilled slice đầu có authority đầy đủ cho các feed trên. Pool
-Channel-managed cần profile riêng: có thể có Orders/catalog mà delivery,
-stock hoặc post-sales unavailable. Chỉ cấp capability khi simulator thực
-sự xuất feed quan sát được, có nguồn/clock/coverage. Không tự tạo quyền
-quan sát mọi kho do Channel giữ chỉ vì world engine biết chúng.
+The first Seller-fulfilled slice has full authority for the feeds above. A
+Channel-managed pool needs its own profile: it may have Orders/catalog while delivery,
+stock or post-sales are unavailable. Grant a capability only when the simulator actually
+exports an observable feed with source/clock/coverage. Do not automatically grant the right to
+observe every Channel-held warehouse just because the world engine knows about them.
 
-Nguồn bổ sung xuất JSONL dưới
+Additional sources export JSONL under
 `dataset_version=<id>/producer=<producer>/feed=<feed>/export_date=<UTC-date>/`.
-Mỗi dòng Bronze giữ nguyên payload + `source_file`, `export_date`,
-`ingested_at`, `run_id`; feed/schema/dataset identity được pin bằng source
-manifest, không ghi đè hoặc giả thành fields native Orders. DB nguồn giữ
-source snapshot identity và representation DB trả về, không hứa byte gốc
-trước khi nguồn JSONB chuẩn hóa; xem [ranh giới nguồn](channel_sources.md).
+Each Bronze row keeps the payload unchanged plus `source_file`, `export_date`,
+`ingested_at`, `run_id`; feed/schema/dataset identity is pinned by the source
+manifest, never overwritten or disguised as native Orders fields. The source DB keeps the
+source snapshot identity and the representation the DB returns; it does not promise the original bytes
+before the JSONB source is normalized; see [source boundary](channel_sources.md).
 
-## 3. Envelope, identity và revision bất biến
+## 3. Envelope, identity and immutable revisions
 
-Tất cả operational records có schema envelope sau. ID là UTF-8 string;
-không ép native số dài sang float. Số lượng là integer unit EACH trong lát
-đầu; tiền là integer minor units + currency/scale. Timestamp là UTC RFC3339
-microsecond; native precision thô hơn được khai báo, không chế độ chính xác.
+All operational records share the envelope schema below. IDs are UTF-8 strings;
+long native numbers are never coerced to float. Quantities are integer EACH units in the first
+slice; money is integer minor units + currency/scale. Timestamps are UTC RFC3339 with
+microseconds; coarser native precision is declared, not faked as precise.
 
 ```json
 {
@@ -124,63 +125,63 @@ microsecond; native precision thô hơn được khai báo, không chế độ c
 }
 ```
 
-Rules bắt buộc:
+Mandatory rules:
 
-- Entity key dùng tuple canonical có version: dataset + seller + Channel +
-  account/shop + native Order + đầy đủ native line key. Không ghép chuỗi
-  bằng dấu phân cách không escape; phân biệt null/absent. SKU/mapping không
-  tham gia business line ID. Buyer không được nối xuyên Channel.
-- `source_event_id` là identity một fact/revision nguồn, bất biến khi retry;
-  uniqueness theo dataset + producer + epoch + event ID. Cùng ID/hash là
-  duplicate; cùng ID khác payload/hash là conflict. Retry không tạo revision.
-- `entity_revision` integer tăng trong entity; `source_sequence` thứ tự
-  nguồn trong epoch, không tự là event-time hoặc thứ tự xuyên producer.
-  Timestamp không làm tie-break để đoán revision. Gap được giữ pending.
-- `operation` thuộc `lifecycle_event`, `state_revision`, `correction`,
-  `invalidation`. Correction/invalidation phải trỏ event/revision bị sửa,
-  có reason và revision mới; record cũ không overwrite. Refund reversal
-  nghiệp vụ là event mới, khác invalidation xác nhận success cũ sai.
-- `depends_on_event_ids` và operation refs giữ quan hệ nhân quả. Release
-  đến trước reserve hoặc delivery trước allocation tới được giữ
-  `pending_reference`, không apply bằng timestamp lớn nhất hoặc clamp.
-  Nếu hết horizon vẫn thiếu thì conflict/unknown đúng scope.
-- Nguồn không có revision native dùng source snapshot ID + canonical
-  payload digest + observation identity; đây là identity observation,
-  không được gọi là thứ tự nghiệp vụ nguồn đã cam kết.
+- The entity key uses a versioned canonical tuple: dataset + seller + Channel +
+  account/shop + native Order + the full native line key. Never concatenate strings
+  with an unescaped separator; distinguish null from absent. SKU/mapping is not
+  part of the business line ID. Buyers are never linked across Channels.
+- `source_event_id` is the identity of one source fact/revision and is immutable on retry;
+  uniqueness is per dataset + producer + epoch + event ID. Same ID/hash is a
+  duplicate; same ID with a different payload/hash is a conflict. A retry does not create a revision.
+- `entity_revision` is an integer increasing within the entity; `source_sequence` is the source
+  order within the epoch, not by itself event time or a cross-producer order.
+  Timestamps are not used as a tie-break to guess revisions. Gaps are kept pending.
+- `operation` is one of `lifecycle_event`, `state_revision`, `correction`,
+  `invalidation`. A correction/invalidation must point to the event/revision being corrected,
+  with a reason and a new revision; the old record is not overwritten. A business Refund reversal
+  is a new event, distinct from an invalidation that confirms an earlier success was wrong.
+- `depends_on_event_ids` and operation refs keep causal relations. A release
+  arriving before its reserve, or a delivery before its allocation, is kept
+  `pending_reference`, not applied by the largest timestamp or by clamping.
+  If still missing at the end of the horizon, it becomes a conflict/unknown for exactly that scope.
+- A source without native revisions uses source snapshot ID + canonical
+  payload digest + observation identity; this is an observation identity
+  and must not be called a business order committed by the source.
 
-Current code có deterministic native IDs và RNG theo module/ngày, nhưng
-chưa thực thi envelope này; xem [base](../../../generator/channels/base.py),
+Current code has deterministic native IDs and RNG per module/day, but
+does not enforce this envelope yet; see [base](../../../generator/channels/base.py),
 [RNG](../../../generator/core/rngs.py), [model](../../../generator/core/model.py).
 
-## 4. World identity và bất biến khi thay renderer
+## 4. World identity and invariance when the renderer changes
 
-Manifest khóa seed, config, catalog/buyer population, semantics/schema
-versions, module versions, generator/runtime digests, source profiles và
-horizons **trước ghi**. Dataset version bao gồm cấu hình render/transport;
-`world_id` riêng pin nguyên physical world. Hai dataset chỉ được gọi là
-same-world nếu manifest physical entities/outcomes/quantity/time có digest
-giống nhau; seed bằng nhau không đủ.
+The manifest locks seed, config, catalog/buyer population, semantics/schema
+versions, module versions, generator/runtime digests, source profiles and
+horizons **before writing**. The dataset version includes the render/transport configuration;
+a separate `world_id` pins the entire physical world. Two datasets may only be called
+same-world if the manifest's physical entities/outcomes/quantity/time have identical
+digests; an equal seed is not enough.
 
-Substream v2 theo stable entity ID + module semantic version + purpose,
-ví dụ `(world_id, line_id, returns-v2, intent)` và
-`(world_id, return_item_id, approvals-v1, delay)`. Không dùng danh sách
-allocation record làm số lần Bernoulli. Sinh intent/affected stable units
-một lần ở grain line; sau đó map units vào physical delivery allocations.
-Split/gộp renderer records không được rút lại intent, affected units,
-approval time hoặc money. Thay thời gian giao thật có thể đổi qualification
-và phải có world/scenario khác. Không dùng future allocation count làm
-feature lúc đặt. Cơ chế p theo line có quantity effect phải version và kiểm
-prevalence, không âm thầm áp lại p cho mỗi unit/allocation.
+v2 substreams are keyed by stable entity ID + module semantic version + purpose,
+for example `(world_id, line_id, returns-v2, intent)` and
+`(world_id, return_item_id, approvals-v1, delay)`. Do not use the list of
+allocation records as the number of Bernoulli trials. Generate intent/affected stable units
+once at line grain; then map units onto physical delivery allocations.
+Splitting/merging renderer records must not redraw intent, affected units,
+approval time or money. Changing the actual delivery time can change qualification
+and requires a different world/scenario. Do not use the future allocation count as an
+order-time feature. A per-line p mechanism with a quantity effect must be versioned and its
+prevalence checked; never silently re-apply p per unit/allocation.
 
-[Return engine hiện tại](../../../generator/core/returns.py) chỉ rút outcome cấp
-line và dùng request time; [batch exports](../../../generator/delivery/batch_exports.py)
-chọn snapshot theo status. V2 không tự tương thích byte hoặc target v1.
-So sánh nhãn v1/v2 giữ same-world scope đủ linkage và báo thay eligibility;
-không so metric trên hai world khác nhau rồi kết luận model tốt hơn.
+The [current return engine](../../../generator/core/returns.py) only draws line-level outcomes
+and uses request time; [batch exports](../../../generator/delivery/batch_exports.py)
+pick snapshots by status. v2 is not automatically byte- or target-compatible with v1.
+Comparing v1/v2 labels keeps a same-world scope with full linkage and reports eligibility changes;
+never compare metrics across two different worlds and conclude that a model is better.
 
-## 5. Schema canonical cụ thể của lượng và tiền
+## 5. Concrete canonical schema for quantity and money
 
-OMS line commitment state, trong envelope `state_revision`:
+OMS line commitment state, in a `state_revision` envelope:
 
 ```json
 {
@@ -202,20 +203,20 @@ OMS line commitment state, trong envelope `state_revision`:
 }
 ```
 
-Ví dụ Q60 dùng đơn vị tiền chính: gross330 − discount30 = ordered300;
-hủy1 net100 → headline current non-canceled200. Product refund100 giữ
-measure riêng, không tự hạ headline thành100. Tax/shipping/fee/goodwill giữ
-components riêng; không gọi headline này là cash, net profit hay settlement.
-Nếu quantity cancellation chưa biết thì headline unknown cho phần affected,
-không suy cancel từ status chung hoặc native quantity giảm do Refund.
+The Q60 example in major currency units: gross330 − discount30 = ordered300;
+cancel1 net100 → headline current non-canceled200. Product refund100 stays a
+separate measure and does not lower the headline to100 by itself. Tax/shipping/fee/goodwill stay
+separate components; this headline is never called cash, net profit or settlement.
+If the cancellation quantity is unknown, the headline is unknown for the affected portion;
+never infer a cancellation from a generic status or from a native quantity reduced by a Refund.
 
-`ordered_original_qty`/amount là cam kết ban đầu; `ordered_basis_qty`/amount
-là cơ sở sau source corrections có audit, không trừ Refund nghiệp vụ.
-Analytics giữ original và corrected basis có role rõ; headline restated dùng
-basis revision đã pin. Một correction3→2 khi delivered3 gây conflict trừ khi
-có dependent correction hợp lệ, không sửa delivered cho khớp.
+`ordered_original_qty`/amount is the original commitment; `ordered_basis_qty`/amount
+is the basis after audited source corrections, without subtracting business Refunds.
+Analytics keeps original and corrected basis with clear roles; a restated headline uses
+the pinned basis revision. A correction3→2 when delivered3 causes a conflict unless
+there is a valid dependent correction; delivered is never edited to match.
 
-Conservation tại cutoff, theo đúng basis revision:
+Conservation at the cutoff, against exactly the basis revision:
 
 ```text
 ordered_basis_qty = canceled_unshipped_qty + not_yet_shipped_qty
@@ -225,70 +226,70 @@ headline_product_sales_minor = ordered_product_net_minor
                              - canceled_product_net_minor
 ```
 
-Return received và refund quantity/amount là measures sau giao; không cộng
-chúng như thành phần mới trong phương trình ordered. Chỉ tính delivered
-cumulative từ unit/allocation identities không trùng; mỗi unit xuất một lần
-trong topology không có replacement của lát đầu. Allocation/refund/return
-facts aggregate độc lập về line trước join để chống fan-out.
+Return received and refund quantity/amount are post-delivery measures; do not add
+them as new terms in the ordered equation. Cumulative delivered is computed only
+from distinct unit/allocation identities; each unit ships once
+in the first slice's topology, which has no replacements. Allocation/refund/return
+facts are aggregated independently to the line before joining, to prevent fan-out.
 
-`fulfillment_terminal=true` chỉ được tin khi các allocation/cancellation
-references đã resolve và phương trình quantity chứng minh không còn lượng
-treo. Cờ từ nguồn một mình không vượt reconciliation. Cancellation event
-giữ affected units/qty, amount basis và effective/observed time; lượng hủy
-không được đồng thời thuộc một shipment còn hiệu lực.
+`fulfillment_terminal=true` is only trusted once the allocation/cancellation
+references are resolved and the quantity equation proves nothing is left
+pending. A source flag alone does not override reconciliation. A cancellation event
+keeps affected units/qty, amount basis and effective/observed time; a canceled quantity
+must not at the same time belong to a shipment that is still in effect.
 
-Money rules: integer minor-unit theo currency table được version; không
-float trong source v2. Discount Order-level phân bổ bằng largest remainder
-với tie-break stable line ID, ghi `allocation_rule_version`; allocated +
-unallocated phải bằng tổng nguồn. Product refund allocation là chứng cứ
-nguồn, không dùng cùng công thức chia đều để tạo linkage nhãn. Không cộng
-hai currencies hoặc dùng `price_factor` làm FX. Reconciliation giữ riêng
-amount unmatched và sai số; không sửa amount để vượt check.
+Money rules: integer minor units per a versioned currency table; no
+floats in source v2. Order-level discounts are allocated by largest remainder
+with a stable line ID tie-break, recording `allocation_rule_version`; allocated +
+unallocated must equal the source total. Product refund allocation is source
+evidence; the same even-split formula must not be used to create label linkage. Never add
+two currencies together or use `price_factor` as FX. Reconciliation keeps unmatched
+amounts and discrepancies separate; amounts are never edited to pass a check.
 
-## 6. Fulfillment, post-sales và fields dựng nhãn
+## 6. Fulfillment, post-sales and label-building fields
 
-Payload tối thiểu của từng feed (ngoài envelope/seller/account/Channel):
+Minimum payload of each feed (beyond envelope/seller/account/Channel):
 
-| Feed | Fields bắt buộc khi claim capability | Optional, không tự suy |
+| Feed | Fields required when claiming the capability | Optional, never inferred |
 |---|---|---|
-| Fulfillment allocation | `allocation_id`, native Order/line refs, `physical_unit_ids`, `quantity`, `shipment_id`, `bound_pool_id`, `bound_location_id`, `binding_version`, `allocation_state` (`planned/shipped/delivered/canceled`) | Carrier ref; delivered không lấy từ state planned |
-| Delivery event | `delivery_event_id`, `allocation_id`, `delivered_unit_ids`, `delivered_qty`, `actual_delivered_at`, `event_type=delivered`, authority scope | Signature/attempt data ngoài scope |
-| Return event | `return_id`, `return_item_id`, `event_type` (`requested/approved/rejected/canceled/received/dispositioned`), native refs, affected units/qty, allocation refs hoặc explicit unresolved scope | Reason code; physical receipt không thay approved time |
-| Refund event | `refund_transaction_id`, `transaction_revision`, `status` (`pending/failed/success/reversed`), `component` (`product/shipping/tax/fee/goodwill`), positive `amount_minor`, currency/scale, native refs, allocation money rows hoặc unresolved scope | Return ID; refund-only được hỗ trợ |
-| Invalidation/correction | `corrects_source_event_id`, reason, replacement fields/refs, new revision | Không nhận correction không trỏ fact sai |
+| Fulfillment allocation | `allocation_id`, native Order/line refs, `physical_unit_ids`, `quantity`, `shipment_id`, `bound_pool_id`, `bound_location_id`, `binding_version`, `allocation_state` (`planned/shipped/delivered/canceled`) | Carrier ref; delivered is never taken from the planned state |
+| Delivery event | `delivery_event_id`, `allocation_id`, `delivered_unit_ids`, `delivered_qty`, `actual_delivered_at`, `event_type=delivered`, authority scope | Signature/attempt data out of scope |
+| Return event | `return_id`, `return_item_id`, `event_type` (`requested/approved/rejected/canceled/received/dispositioned`), native refs, affected units/qty, allocation refs or an explicit unresolved scope | Reason code; physical receipt does not replace the approved time |
+| Refund event | `refund_transaction_id`, `transaction_revision`, `status` (`pending/failed/success/reversed`), `component` (`product/shipping/tax/fee/goodwill`), positive `amount_minor`, currency/scale, native refs, allocation money rows or unresolved scope | Return ID; refund-only is supported |
+| Invalidation/correction | `corrects_source_event_id`, reason, replacement fields/refs, new revision | A correction that does not point to the wrong fact is rejected |
 
-Mỗi lần transition có event ID riêng; `effective_at` là lúc transition
-thực sự xảy ra. Ví dụ requestedD29/approvedD31 giữ cả hai, không sửa approved
-thành D29. Refund mixed components xuất component rows dưới cùng transaction;
-status/success time không nhân amount; subtotal components + unmatched bằng
-transaction tổng. Allocation rows gồm `allocation_id`, `amount_minor`,
-`evidence_ref`, không dùng amount tình cờ khớp để suy allocation.
+Each transition has its own event ID; `effective_at` is when the transition
+actually happened. Example: requestedD29/approvedD31 keeps both; approved is never edited
+to D29. A Refund with mixed components exports component rows under the same transaction;
+status/success time does not multiply the amount; component subtotal + unmatched equals the
+transaction total. Allocation rows contain `allocation_id`, `amount_minor`,
+`evidence_ref`; an amount that happens to match is never used to infer an allocation.
 
-Với delivery event, `effective_at=actual_delivered_at`; với approval/success,
-`effective_at` là timestamp qualification tương ứng. Nếu event nguồn chỉ có
-ngày hoặc status-time không chứng minh actual transition, capability ghi
-proxy/precision-limited và không tự nâng thành nguồn đủ nhãn ở boundary.
+For a delivery event, `effective_at=actual_delivered_at`; for approval/success,
+`effective_at` is the corresponding qualification timestamp. If the source event only has a
+date, or a status time that does not prove the actual transition, the capability is recorded as
+proxy/precision-limited and is not automatically promoted to a label-sufficient source at the boundary.
 
-Label transform dùng actual delivery theo allocation, approval event qty>0
-hoặc product refund success amount>0, allocation bridge, terminal quantity,
-coverage envelopes và revision known-time. Không đọc `line.label`,
-`return_probability`, `defect_propensity`, truth-only delivery hoặc future
-unit assignments của engine. Ground truth oracle có namespace/quyền riêng,
-chỉ dùng kiểm chứng simulator/transform, không làm source feature hoặc bằng
-chứng feed complete. Version/policy regime của approval là metadata nguồn
-để diagnostics, không tự là feature order-time trước khi đã quan sát.
+The label transform uses actual delivery per allocation, approval events with qty>0
+or product refund success with amount>0, the allocation bridge, terminal quantity,
+coverage envelopes and known-time revisions. It does not read `line.label`,
+`return_probability`, `defect_propensity`, truth-only delivery or the engine's future
+unit assignments. The ground truth oracle has its own namespace/permissions and is
+used only to verify the simulator/transform, never as a source feature or as evidence
+that a feed is complete. The approval version/policy regime is source metadata
+for diagnostics, not by itself an order-time feature before it has been observed.
 
-## 7. Hai đồng hồ, coverage và uncertainty
+## 7. Two clocks, coverage and uncertainty
 
-`effective_at` và `source_observed_at` thuộc
-`simulation_business_utc:v2`. Effective time có thể lùi so với observation
-khi late/correction. Query as-known C dùng **observed < C**; effective state
-ở T dùng interval `[valid_from, valid_to)`. `recorded_at`, Bronze
-`ingested_at` và actual model artifact creation dùng `execution_utc`; pacing
-có mapping manifest riêng, không dùng execution timestamp thay simulated
-knowledge time. Cùng producer không được tự backdate observed khi replay.
+`effective_at` and `source_observed_at` belong to
+`simulation_business_utc:v2`. Effective time can be earlier than observation
+for late arrivals/corrections. An as-known query at C uses **observed < C**; effective state
+at T uses the interval `[valid_from, valid_to)`. `recorded_at`, Bronze
+`ingested_at` and actual model artifact creation use `execution_utc`; pacing
+has its own manifest mapping, and execution timestamps never replace simulated
+knowledge time. The same producer must not backdate observed time on replay.
 
-Coverage envelope cũng là record nguồn có revision/known-time:
+A coverage envelope is also a source record with a revision/known-time:
 
 ```json
 {
@@ -316,33 +317,33 @@ Coverage envelope cũng là record nguồn có revision/known-time:
 }
 ```
 
-Digest trong ví dụ là placeholder minh họa, phải tính từ emitted set khi
-implement. `complete` nghĩa transport/source đã xuất đủ phạm vi theo source
-contract, không nghĩa mọi record map được. Một feed complete vẫn có
-unresolved refund. Envelope chỉ có hiệu lực sau observed; các corrections
-về sau tạo envelope revision mới và recompute affected generations, không
-ghi đè lời cam kết as-known cũ. Sequence range mà có gap, missing partition,
-unparseable record hoặc producer chưa close interval không được complete.
-Envelope event interval phải bao phủ qua deadline inclusive: `end_exclusive`
-phải **lớn hơn** deadline, không chỉ bằng deadline. Không cấp complete bằng
-việc hôm nay đã qua 30 ngày hoặc thấy feed trống.
+The digest in the example is an illustrative placeholder and must be computed from the emitted set when
+implemented. `complete` means the transport/source has exported the full scope according to the source
+contract, not that every record can be mapped. A complete feed can still have an
+unresolved refund. An envelope only takes effect after it is observed; later corrections
+create a new envelope revision and recompute affected generations, without
+overwriting the old as-known commitment. A sequence range with a gap, a missing partition,
+an unparseable record or a producer that has not closed the interval cannot be complete.
+The envelope event interval must cover past the inclusive deadline: `end_exclusive`
+must be **greater than** the deadline, not merely equal to it. Complete is never granted because
+30 days have passed by today or because the feed appears empty.
 
-Nguồn **scale** phát coverage mỗi tuần nối tiếp, không chồng và không cộng dồn,
-trên mỗi operational feed; tuần cuối kết thúc đúng `lifecycle_followup_end`.
-Observed = max(cuối tuần +1 ngày, max observed dòng trong tuần +1µs), nằm trước
-`source_observation_end`. Interval rỗng sự kiện vẫn cần claim complete của producer
-với count0/digest `[]`, đủ partition; không tự suy complete từ việc không nhận dòng.
+The **scale** source emits coverage for consecutive weeks, non-overlapping and non-cumulative,
+on each operational feed; the last week ends exactly at `lifecycle_followup_end`.
+Observed = max(end of week +1 day, max observed of rows in the week +1µs), and lies before
+`source_observation_end`. An interval with no events still needs the producer's complete claim
+with count0/digest `[]` and all partitions; complete is never inferred from receiving no rows.
 
-Receipt chọn dòng cùng dataset/feed/producer/epoch, effective trong interval và
-observed trước envelope; kiểm digest canonical (sắp source_event_id), count,
-sequence ranges và partition trên **đúng tập này**. Ranges có thể tách nhiều đoạn
-vì sequence cấp producer, không cấp tuần/feed. Silver join bằng bucket ngày UTC
-trước predicate interval để mỗi dòng scale chỉ vào một envelope, tránh N×số tuần.
-Các envelope nối liền có thể hợp lại để phủ cửa sổ nhãn; end cuối phải quá deadline
-inclusive. Khoảng hở hoặc tuần partial không đủ coverage. Fixture giữ envelope và
-bytes cũ; xem ADR-0013.
+The receipt selects rows with the same dataset/feed/producer/epoch, effective within the interval and
+observed before the envelope; it checks the canonical digest (sorted by source_event_id), count,
+sequence ranges and partitions over **exactly this set**. Ranges can be split into several segments
+because sequences are assigned per producer, not per week/feed. Silver joins by UTC day bucket
+before the interval predicate so that each scale row falls into only one envelope, avoiding N×number of weeks.
+Contiguous envelopes can be merged to cover the label window; the final end must be past the inclusive
+deadline. A gap or a partial week is not sufficient coverage. The fixture keeps the old envelopes and
+bytes; see ADR-0013.
 
-Uncertainty record tối thiểu:
+Minimum uncertainty record:
 
 ```json
 {
@@ -358,50 +359,50 @@ Uncertainty record tối thiểu:
 }
 ```
 
-Biết Order nhưng thiếu line thì giữ candidate lines, biết line nhưng thiếu
-allocation thì giữ candidate allocations; thiếu Order thì mở rộng đến scope
-account/feed/time do envelope chứng minh. Chỉ thu hẹp bằng constraints
-nguồn đáng tin hoặc revision giải quyết, không chọn theo SKU/amount gần
-giống. Nếu không giới hạn scope thì đánh unavailable/unknown toàn scope
-producer relevant, không bỏ event để gọi những line khác là negative.
+If the Order is known but the line is missing, keep the candidate lines; if the line is known but the
+allocation is missing, keep the candidate allocations; if the Order is missing, widen to the
+account/feed/time scope proven by the envelope. Narrow only with trustworthy source
+constraints or a resolving revision, never by picking on similar SKU/amount. If the scope
+cannot be bounded, mark the whole relevant producer scope unavailable/unknown;
+never drop the event in order to call other lines negative.
 
-Nhãn official cần feed completeness **và** linkage/uncertainty sạch cho
-scope line liên quan. Báo ba mẫu số riêng: feeds complete, events linkable,
-lines eligible/mature/fully observable. Line có positive rõ nhưng còn
-missing required capability không thành mẫu training chuẩn; đây giữ policy
-bảo thủ đã chốt. Những event chắc chắn outside window/nonproduct có chứng
-cứ có thể được loại khỏi affected label scope, vẫn giữ audit.
+An official label needs feed completeness **and** clean linkage/uncertainty for the
+relevant line scope. Report three separate denominators: feeds complete, events linkable,
+lines eligible/mature/fully observable. A line with a clear positive but still
+missing a required capability does not become a standard training sample; this keeps the
+conservative policy already settled. Events that are certainly outside the window/non-product, with
+evidence, can be excluded from the affected label scope while keeping the audit trail.
 
-## 8. Ba horizon và tail có cấu hình
+## 8. Three horizons and a configurable tail
 
-Manifest có interval exclusive và clock domain cho cả ba mốc:
+The manifest has an exclusive interval and clock domain for all three marks:
 
-1. `order_creation_start/end`: chỉ tạo Order trong khoảng này. History và
-   stream là slices của khoảng tạo Order, không phải ngày dừng lifecycle.
-2. `lifecycle_followup_end`: tiếp tục shipment/delivery/cancel/Return/Refund
-   của Order đã có. Không tạo Order mới chỉ để giữ stream hoạt động.
-3. `source_observation_end`: tiếp tục nhận late observations/corrections và
-   phát envelopes sau business events; phải lớn hơn follow-up nếu có delay.
+1. `order_creation_start/end`: Orders are only created within this range. History and
+   stream are slices of the Order creation range, not the date lifecycles stop.
+2. `lifecycle_followup_end`: shipment/delivery/cancel/Return/Refund continue
+   for existing Orders. No new Orders are created just to keep the stream active.
+3. `source_observation_end`: late observations/corrections continue to be received and
+   envelopes are emitted after business events; must be later than follow-up if there is delay.
 
-Fixture profile đầu: Order creation `[D0,D395)`, lifecycle follow-up
-`[D0,D485)`, source observation `[D0,D500)`, UTC. Các mốc D là relative ngày,
-không là cam kết production SLA. Profile có max fulfillment lag45d,
-event qualification cửa sổ30d, follow-up allowance15d và source delay15d;
-gồm events beyond30 để kiểm negative đúng policy. Generator phải validate
-bounds hoặc ghi overflow/censored, không truncate rồi tự tuyên bố complete.
+First fixture profile: Order creation `[D0,D395)`, lifecycle follow-up
+`[D0,D485)`, source observation `[D0,D500)`, UTC. The D marks are relative days,
+not a production SLA commitment. The profile has max fulfillment lag45d,
+event qualification window30d, follow-up allowance15d and source delay15d;
+it includes events beyond30 to check negatives under the policy. The generator must validate
+bounds or record overflow/censored, never truncate and then declare itself complete.
 
-Stress profile cho lag không có trần phải giữ finite observation cutoff và
-right-censored counts; không thể chứng minh mọi lifecycle chín bằng tail
-hữu hạn. Mọi profile công bố phân bố và trần được dùng, maturity/terminal
-counts theo order-date cohort, reasons unknown/censored và bytes/runtime
-của tail. Ví dụ Order D394 giao D402, approvedD431, observedD434: ở D395
-immature; sau D432 vẫn phải chờ coverage quan sát phù hợp, không đọc truth
-để gán sớm. Stream pacing/execution runtime tính riêng khỏi simulated dates.
+A stress profile with uncapped lag must keep a finite observation cutoff and
+right-censored counts; a finite tail cannot prove that every lifecycle has matured.
+Every profile publishes the distribution and cap used, maturity/terminal
+counts per order-date cohort, unknown/censored reasons and the tail's bytes/runtime.
+Example: an Order on D394 delivered D402, approvedD431, observedD434: at D395 it is
+immature; after D432 it must still wait for matching observed coverage, never reading truth
+to assign early. Stream pacing/execution runtime is computed separately from simulated dates.
 
-## 9. Listing, pool bindings và stock operations
+## 9. Listing, pool bindings and stock operations
 
-Ngay cả fixture “static” vẫn xuất opening listing/pool mapping trước Order
-đầu, có effective/observed time và profile. Không suy “active” chỉ vì có một
+Even a "static" fixture exports the opening listing/pool mapping before the first
+Order, with effective/observed time and profile. Never infer "active" just because there is one
 Order. Listing version payload:
 
 ```json
@@ -416,104 +417,104 @@ Order. Listing version payload:
 }
 ```
 
-Change D5 báo D7 khác correction xác nhận mapping cũ sai: cả hai tạo
-revision observedD7, nhưng `change_kind`/effective range/reference khác.
-Sale line giữ `listing_binding_id` và attribution mapping **as-known lúc
-bán**. Analytics restated có attribution revision riêng; prediction không
-đổi feature SKU A thành B vì correction biết sau đó. Tử/mẫu return rate
-dùng cùng sale-time dimension role, eligibility/cutoff; current-attribute
-view phải đặt tên riêng. Mapping correction không làm line ID/sample mới.
+A change on D5 reported on D7 differs from a correction confirming the old mapping was wrong: both create a
+revision observedD7, but `change_kind`/effective range/reference differ.
+A sale line keeps `listing_binding_id` and the mapping attribution **as known at the time of
+sale**. Restated analytics has its own attribution revision; prediction never
+changes an SKU A feature to B because of a correction learned later. The return rate numerator/denominator
+use the same sale-time dimension role and eligibility/cutoff; a current-attribute
+view must be named separately. A mapping correction does not create a new line ID/sample.
 
-Allocation/reservation binding pin pool/location/SKU/version lúc operation.
-Thay eligibility mapping không migrate reservation hoặc stock đang mở.
-Nếu correction cần reattribute phải có explicit old/new binding revisions,
-dependent reconciliation và audit, không dùng join current. Một pool Seller
-shared dùng cho nhiều Storefront; Channel-managed pools riêng theo owner,
-không cộng availability lặp và không gọi Storefront eligibility là quota/ATP.
+An allocation/reservation binding pins pool/location/SKU/version at operation time.
+Changing the eligibility mapping does not migrate open reservations or stock.
+If a correction needs reattribution, it must have explicit old/new binding revisions,
+dependent reconciliation and an audit trail, never a current join. One shared Seller pool
+serves several Storefronts; Channel-managed pools are separate per owner;
+availability is never double-counted and Storefront eligibility is never called quota/ATP.
 
-Stock operation payload dùng `operation_id`, `operation_revision`,
-`operation_type`, `pool_id`, `location_id`, `internal_sku_id`,
-`reservation_id`/`inbound_line_id`/`allocation_id` liên quan,
-`depends_on_operation_ids`, `binding_version`, `quantity` và state deltas:
+The stock operation payload uses `operation_id`, `operation_revision`,
+`operation_type`, `pool_id`, `location_id`, `internal_sku_id`, the related
+`reservation_id`/`inbound_line_id`/`allocation_id`,
+`depends_on_operation_ids`, `binding_version`, `quantity` and state deltas:
 
-| Operation | Δ on-hand | Δ reserved | Δ non-sellable | Điều kiện |
+| Operation | Δ on-hand | Δ reserved | Δ non-sellable | Condition |
 |---|---|---|---|---|
-| opening balance10 | +10 | 0 | 0 | Một opening source revision cho scope |
-| reserve3 | 0 | +3 | 0 | available≥3 trong ordered operation sequence |
-| ship1 của reservation | −1 | −1 | 0 | Reservation có ít nhất1; allocation binding khớp |
-| release2 | 0 | −2 | 0 | Không phải receipt2 |
-| return receive1 pending inspection | +1 | 0 | +1 | Có receipt ID/unit liên kết |
-| disposition restockable1 | 0 | 0 | −1 | Chuyển trạng thái, không nhận lần nữa |
-| inbound receipt2 | +2 | 0 | 0 | Receipt2 có identity, không dùng promised5 |
+| opening balance10 | +10 | 0 | 0 | One opening source revision for the scope |
+| reserve3 | 0 | +3 | 0 | available≥3 in the ordered operation sequence |
+| ship1 of the reservation | −1 | −1 | 0 | Reservation has at least1; allocation binding matches |
+| release2 | 0 | −2 | 0 | Not receipt2 |
+| return receive1 pending inspection | +1 | 0 | +1 | Has a linked receipt ID/unit |
+| disposition restockable1 | 0 | 0 | −1 | State transition, not received again |
+| inbound receipt2 | +2 | 0 | 0 | Receipt2 has an identity; promised5 is not used |
 
-`available = on_hand - reserved - non_sellable` trong topology đầu; các nhóm
-không giao nhau. Reserve/ship là một operation logic được WMS authority
-phát ra; OMS reference cùng operation, không phát movement thứ hai.
-Correction thay operation delta cũ bằng revision mới khi dựng projection,
-không cộng toàn bộ revisions. Reversal nghiệp vụ dùng operation mới có
-causal ref. Source order/causal refs quyết định apply; mất dependency giữ
-pending. Snapshot khác ledger tạo reconciliation record, không clamp âm
-hoặc tạo adjustment tự động. Oversell/backorder/replacement/transfer network
-vẫn ngoài slice đầu; input ngoài capability được đánh unsupported/conflict.
+`available = on_hand - reserved - non_sellable` in the first topology; the groups
+are disjoint. Reserve/ship is one logical operation emitted by the WMS authority;
+OMS references the same operation and does not emit a second movement.
+A correction replaces the old operation delta with the new revision when building the projection,
+instead of summing all revisions. A business reversal uses a new operation with a
+causal ref. Source order/causal refs decide what is applied; a missing dependency stays
+pending. A snapshot that differs from the ledger creates a reconciliation record, never a negative clamp
+or an automatic adjustment. Oversell/backorder/replacement/transfer network
+remain outside the first slice; input outside the capability is marked unsupported/conflict.
 
-## 10. Profiles required/optional và publication
+## 10. Required/optional profiles and publication
 
-Profile được version/pin **trước build**, gắn danh sách scope và outputs.
-Không giảm required sau khi thấy validation fail. Profiles có khả năng
-coexist theo account/pool, không biến missing capability thành fail mãi cho
-toàn bộ hệ thống, cũng không silently bỏ output khỏi manifest.
+A profile is versioned/pinned **before the build**, bound to a scope list and outputs.
+Required items are never reduced after seeing a validation failure. Profiles can
+coexist per account/pool; a missing capability does not make the whole system fail forever,
+nor is an output silently dropped from the manifest.
 
-| Profile | Required sources / outputs | Optional / unavailable được công bố |
+| Profile | Required sources / outputs | Optional / unavailable, published |
 |---|---|---|
-| `core-orders-five-channel/1` | Năm native Orders, native identity/schema/snapshot manifests; Bronze/Silver, quantity/amount/coverage Orders, sales headline chỉ ở scope đủ Q60 basis | Lifecycle labels/inventory không claim từ profile này; thiếu basis thì headline unavailable riêng, original native measures vẫn có provenance |
-| `seller-operated-label-v2/1` | Core scope được chọn + OMS commitment/allocation, carrier actual delivery, post-sales Return và product Refund, envelopes/bridge/uncertainty; labels official, eligibility/unknown diagnostics | Physical receipt/reason optional cho target; thiếu một trong hai positive paths không chứng minh official0/complete target |
-| `seller-stock-triage/1` | OMS binding, catalog/pool history, opening/movement/reservation/inbound receipts, coverage; pool balances/reconciliation/availability queue | Snapshot đối soát optional khi profile không claim snapshot parity; ETA optional; unsupported Channel pools không nhận stock claim |
-| `channel-orders-limited/1` | Orders/catalog scope và capability declared; coverage/unsupported diagnostics | Nhãn/stock unavailable hoặc provisional đúng capability; không tính vào benchmark toàn năm Channel |
+| `core-orders-five-channel/1` | Five native Orders, native identity/schema/snapshot manifests; Bronze/Silver, Orders quantity/amount/coverage, sales headline only in scopes with full Q60 basis | Lifecycle labels/inventory are not claimed from this profile; without basis the headline is unavailable on its own, original native measures still carry provenance |
+| `seller-operated-label-v2/1` | Selected core scope + OMS commitment/allocation, carrier actual delivery, post-sales Return and product Refund, envelopes/bridge/uncertainty; official labels, eligibility/unknown diagnostics | Physical receipt/reason optional for the target; missing one of the two positive paths does not prove official0/complete target |
+| `seller-stock-triage/1` | OMS binding, catalog/pool history, opening/movement/reservation/inbound receipts, coverage; pool balances/reconciliation/availability queue | Reconciliation snapshot optional when the profile does not claim snapshot parity; ETA optional; unsupported Channel pools receive no stock claim |
+| `channel-orders-limited/1` | Orders/catalog scope and declared capability; coverage/unsupported diagnostics | Labels/stock unavailable or provisional per capability; not counted in the all-five-Channel benchmark |
 
-Feed optional trong một profile có thể required ở profile khác. Một nguồn
-snapshot optional thiếu thì không tự là0; một required feed trễ/failed giữ
-last-good generation cho profile đó, tạo candidate failed có reason. Missing
-capability thiết kế khác thiếu partition trong capability đã claim. Manifest
-output rows có `status=available/unavailable/provisional`, `profile_version`,
+A feed optional in one profile may be required in another. A missing optional
+snapshot source is not automatically0; a late/failed required feed keeps the
+last-good generation for that profile and creates a failed candidate with a reason. A missing
+capability by design differs from a missing partition in a claimed capability. Manifest
+output rows have `status=available/unavailable/provisional`, `profile_version`,
 `capability_refs`, `coverage_refs`, dataset/input snapshots/contract digests;
-không drop field/output để làm validator bỏ kiểm. UI/API/agent echo scope
-và limits. Partial profile publication chỉ được dùng nếu activation contract
-đã định nghĩa bundle phụ thuộc rõ, không tự trộn generation giữa profile.
+fields/outputs are never dropped to make the validator skip checks. UI/API/agent echo scope
+and limits. Partial profile publication may only be used if the activation contract
+has clearly defined the dependent bundle; generations are never mixed across profiles.
 
-## 11. Fixture và điều kiện nghiệm thu
+## 11. Fixtures and acceptance conditions
 
-Đây là checklist implement/test, **tất cả chưa chạy cho source v2**. Expected
-phải tính độc lập từ emitted frozen source set, không dùng transform chính
-hoặc oracle truth như source production.
+This is an implementation/test checklist; **none of it has run for source v2 yet**. Expected values
+must be computed independently from the emitted frozen source set, not using the main transform
+or oracle truth as a production source.
 
-| Fixture | Assertion bắt buộc | IR |
+| Fixture | Required assertion | IR |
 |---|---|---|
-| Order ngày cuối, giao/approve/observe sau creation end; overflow lag | Horizon/tail/envelope đúng; mature/censored phân hoạch; không fill0 | IR04 |
-| Renderer thêm field/module và split delivery records cùng units/time | Same-world outcome digest/quantity/label không đổi; seed-only comparison bị chặn | IR05/08 |
-| Refund chỉ có Order A+B rồi revision map về A | A/B unknown trước resolution, A1/B0 khi mọi điều kiện khác đủ sau đó | IR07/09 |
-| Ship3 refund1, native quantity2; full snapshot mất line | ordered/delivered3 còn; không tự cancel/release/cascade delete | IR11 |
-| Ordered300 canceled100 refund100 | Headline200 và original/canceled/refund riêng; tax/shipping không trộn | IR12/Q60 |
-| Listing/pool mapping thay/correction lúc reservation mở | Line ID/binding ổn định; no stock teleport; PIT A khác restated B | IR13/14 |
-| Hai Storefront cùng pool10 | Seller total10, eligibility không thành20 hoặc ATP hứa độc lập | IR15 |
-| Release-before-reserve, correction đến đảo thứ tự, duplicate/hash conflict | pending/convergent projection hoặc explicit conflict; không clamp/reapply | IR16 |
-| Feed thiếu capability vs feed required thiếu partition | profile limits/unavailable khác candidate fail; không thay requirement | IR20 |
-| Giữ intents, chỉ đổi approveD29→D31 | Nhãn thay đúng v2; diagnostic timing giải thích, không tuyên bố defect giảm | IR24 |
+| Order on the last day, delivered/approved/observed after creation end; overflow lag | Horizon/tail/envelope correct; mature/censored partitioned; no fill0 | IR04 |
+| Renderer adds a field/module and splits delivery records with the same units/time | Same-world outcome digest/quantity/label unchanged; seed-only comparison blocked | IR05/08 |
+| Refund only knows Order A+B, then a revision maps it to A | A/B unknown before resolution, A1/B0 once every other condition is met afterwards | IR07/09 |
+| Ship3 refund1, native quantity2; full snapshot missing the line | ordered/delivered3 remain; no automatic cancel/release/cascade delete | IR11 |
+| Ordered300 canceled100 refund100 | Headline200 with original/canceled/refund separate; tax/shipping not mixed in | IR12/Q60 |
+| Listing/pool mapping change/correction while a reservation is open | Line ID/binding stable; no stock teleport; PIT A differs from restated B | IR13/14 |
+| Two Storefronts sharing pool10 | Seller total10; eligibility does not become20 or an independently promised ATP | IR15 |
+| Release-before-reserve, correction arriving out of order, duplicate/hash conflict | pending/convergent projection or explicit conflict; no clamp/reapply | IR16 |
+| Feed lacking a capability vs required feed missing a partition | profile limits/unavailable differ from candidate fail; requirements not changed | IR20 |
+| Keep intents, only change approveD29→D31 | Label changes exactly per v2; timing diagnostic explains it, no claim that defects decreased | IR24 |
 
-Các mục IR04/05/07/08/09/11/13/14/15/16/20/24 đã có **cách thực thi ở mức
-contract trong tài liệu này**, còn trạng thái runtime mở. Việc xác nhận
-Q60/Q61 đóng lựa chọn nghiệp vụ/nguồn; không đóng các IR bằng implementation.
-Dependencies cụ thể, source profile manifests, physical tables và số đo
-bytes/runtime phải được pin/chứng minh trong G0–G2 trước full-scale.
+Items IR04/05/07/08/09/11/13/14/15/16/20/24 have **contract-level enforcement
+in this document**; their runtime status is still open. Confirming
+Q60/Q61 closes the business/source choice; it does not close the IRs through implementation.
+Concrete dependencies, source profile manifests, physical tables and byte/runtime
+measurements must be pinned/proven in G0–G2 before full scale.
 
-## Căn cứ và giới hạn
+## Basis and limitations
 
-Thiết kế quantity/identity dựa các phản ví dụ có nguồn code trong
-audit cross-domain; clock, uncertainty và
-same-world dựa audit temporal.
-Mapping vấn đề/ưu tiên theo IR register.
-Field policy giữ nguyên [label v2](return_label_contract.md), không đổi
-target thành physical return hoặc return request trước duyệt. Các API thật
-trong [channel-sources](channel_sources.md) là nghiên cứu riêng có mức tin
-cậy/giới hạn; contract này không xác nhận lại chúng hoặc dùng giả định chưa
-kiểm chứng để nâng capability local. Không có dữ liệu/API/Cloud mới được
-thực thi trong công việc viết contract.
+The quantity/identity design is based on counterexamples with source code from the
+cross-domain audit; clock, uncertainty and
+same-world are based on the temporal audit.
+Issue/priority mapping follows the IR register.
+The field policy keeps [label v2](return_label_contract.md) unchanged and does not change the
+target to physical return or to a return request before approval. The real APIs
+in [channel-sources](channel_sources.md) are separate research with their own confidence
+levels/limitations; this contract does not re-verify them or use unverified assumptions
+to upgrade local capabilities. No new data/API/Cloud was
+executed in the work of writing this contract.

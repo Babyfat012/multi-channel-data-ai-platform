@@ -1,125 +1,125 @@
-# Nguồn v2 ở quy mô lớn — gói B+
+# Source v2 at large scale — package B+
 
-> **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
+> **Pipeline v2 (order lifecycle) — designed and tested locally, not the deployed pipeline.** The pipeline running on AWS is v1 (DP1 → DP4 + ML); see [Data Platform evidence](../evidence.md). Mentions of GCP below are an older plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-Mở rộng bộ nguồn v2 để đo Spark baseline/skew, thử tối ưu lakehouse/warehouse,
-stream và bảo trì Iceberg với dữ liệu đa dạng. Đây là nguồn giả lập có seed;
-chưa phải bằng chứng nghiệm thu 100 GB hay kết quả Spark.
+Extends the v2 source set to measure Spark baseline/skew, try lakehouse/warehouse optimizations,
+streaming and Iceberg maintenance on varied data. This is a seeded simulated source;
+it is not yet acceptance evidence for 100 GB or a Spark result.
 
-## Thiết kế
+## Design
 
-API `generate_scaled(output_root, config: ScaleConfig) -> manifest` trong
-[`generate_order_lifecycle.py`](../../../generator/generate_order_lifecycle.py). `ScaleConfig` là frozen
-dataclass; `validate()` kiểm tham số trước khi tạo thư mục, `estimate()` trả số
-bản ghi/byte dự kiến và trần worst case. Chỉ stdlib, RNG riêng `random.Random(seed)`.
+API `generate_scaled(output_root, config: ScaleConfig) -> manifest` in
+[`generate_order_lifecycle.py`](../../../generator/generate_order_lifecycle.py). `ScaleConfig` is a frozen
+dataclass; `validate()` checks parameters before creating directories, `estimate()` returns the expected
+record/byte counts and the worst-case cap. Stdlib only, with a dedicated RNG `random.Random(seed)`.
 
-| Tham số | Mặc định | Miền / ý nghĩa |
+| Parameter | Default | Domain / meaning |
 |---|---|---|
-| `seed` | 7 | Số nguyên, tái lập riêng từng world |
-| `start` | 2026-01-01 00:00 UTC | Timestamp có timezone UTC |
-| `days` | 10 | 1..180 ngày tạo đơn, khoảng exclusive |
-| `orders_per_day` | 200 | 1..20.000, tổng mọi Channel |
-| `sku_count` | 100 | 2..5.000, catalog dùng chung Seller |
-| `sku_zipf_s` | 1,2 | 0 là đều, >0 cho SKU nóng theo rank |
-| `channel_weights` | (1,1,1,1,1) | Amazon, Walmart, Shopify, TikTok Shop, Shopee; trọng số không âm, tổng >0 |
-| `lines_per_order` | (0,55; 0,30; 0,12; 0,03) | Trọng số cho 1, 2, 3, 4 line, cấu hình qua API |
-| `followup_days` | 270 | Mốc từ start, ≥ days + 50 |
-| `observation_days` | 285 | Mốc từ start, ≥ followup_days + 9 |
-| `native_schemas` |  | Tuple `(Channel, version)`; override giống fixture |
+| `seed` | 7 | Integer; reproduces each world independently |
+| `start` | 2026-01-01 00:00 UTC | Timestamp with UTC timezone |
+| `days` | 10 | 1..180 order creation days, exclusive range |
+| `orders_per_day` | 200 | 1..20,000, total across all Channels |
+| `sku_count` | 100 | 2..5,000, catalog shared by the Seller |
+| `sku_zipf_s` | 1.2 | 0 is uniform, >0 gives hot SKUs by rank |
+| `channel_weights` | (1,1,1,1,1) | Amazon, Walmart, Shopify, TikTok Shop, Shopee; non-negative weights, sum >0 |
+| `lines_per_order` | (0.55; 0.30; 0.12; 0.03) | Weights for 1, 2, 3, 4 lines, configurable via the API |
+| `followup_days` | 270 | Mark from start, ≥ days + 50 |
+| `observation_days` | 285 | Mark from start, ≥ followup_days + 9 |
+| `native_schemas` |  | Tuple `(Channel, version)`; override like the fixture |
 
-Ba horizon có cùng ngữ nghĩa với fixture. Mặc định 270/285 thay 90/105 để
-bao phủ cả miền 180 ngày. Thời gian tạo đơn rải tới microsecond trong ngày;
-số lượng đặt mỗi line vẫn 3 và tiền dùng minor integer/chuỗi decimal như fixture.
+The three horizons have the same semantics as in the fixture. The defaults 270/285 replace 90/105 to
+cover the full 180-day domain. Order creation times are spread to the microsecond within the day;
+the ordered quantity per line is still 3 and money uses minor integers/decimal strings as in the fixture.
 
-Trần **20 triệu bản ghi nguồn** được chặn trước bằng bound bảo thủ:
+A cap of **20 million source records** is enforced up front with a conservative bound:
 `days × orders_per_day × (24 × max_lines_supported + 1) + sku_count × 11 + 32 + 9 × ceil(followup_days / 7)`.
-`max_lines_supported` xét trọng số khác 0. Bound có thể từ chối cấu hình mà
-kỳ vọng lấy mẫu dưới 20 triệu. Truth không tính là nguồn.
+`max_lines_supported` considers non-zero weights. The bound can reject configurations whose
+sampled expectation is below 20 million. Truth does not count as source.
 
-## Kịch bản
+## Scenarios
 
-Mỗi line chọn đúng một kịch bản; các dòng lifecycle luôn dùng bộ phát chung
-`_emit_sources`. Cửa sổ dùng UTC chính xác 30 × 24 giờ theo
-[contract nhãn](return_label_contract.md). Không có label trong cây nguồn.
+Each line picks exactly one scenario; lifecycle rows always use the shared emitter
+`_emit_sources`. Windows use exact UTC 30 × 24 hours per the
+[label contract](return_label_contract.md). There are no labels in the source tree.
 
-| Kịch bản | Tỉ lệ | Sự kiện / kết quả vật lý |
+| Scenario | Share | Events / physical outcome |
 |---|---:|---|
-| `delivered` | 30% | Giao đủ 3, không hậu mãi |
-| `partial_cancel` | 10% | Hủy 1 trước ship, giao 2 |
-| `split_delivery` | 12% | Hai allocation 2+1, giao ở created+3 và +4 ngày |
-| `return_with_refund` | 7% | Requested → approved ở delivery+29 ngày → received, **kèm** product refund thành công (ca phổ biến nhất ngoài đời) |
-| `return_only` | 3% | Như trên nhưng **không** refund (đổi hàng / voucher / bị từ chối sau kiểm) |
-| `return_after_window` | 7% | Approved ở delivery+31 ngày; không refund trong cửa sổ |
-| `product_refund` | 8% | Product refund success 10.000 minor ở delivery+29 ngày, gắn allocation; không Return |
-| `refund_retry` | 5% | Product refund failed rồi success cùng transaction, revision 1→2 |
-| `late_observation` | 8% | Giao đủ; quan sát carrier trễ ngẫu nhiên 1 giờ..4 ngày, lan truyền qua dependency |
-| `correction` | 6% | Return approved; refund ban đầu chưa gắn line, correction revision 2 và uncertainty resolved; shipping refund riêng |
-| `right_censored` | 4% | Commitment/reservation/planned allocation còn mở đến hết horizon; không tự suy đã giao |
+| `delivered` | 30% | All 3 delivered, no post-sales |
+| `partial_cancel` | 10% | 1 canceled before shipping, 2 delivered |
+| `split_delivery` | 12% | Two allocations 2+1, delivered at created+3 and +4 days |
+| `return_with_refund` | 7% | Requested → approved at delivery+29 days → received, **with** a successful product refund (the most common real-world case) |
+| `return_only` | 3% | As above but **without** a refund (exchange / voucher / rejected after inspection) |
+| `return_after_window` | 7% | Approved at delivery+31 days; no refund within the window |
+| `product_refund` | 8% | Product refund success of 10,000 minor at delivery+29 days, tied to an allocation; no Return |
+| `refund_retry` | 5% | Product refund failed then succeeded in the same transaction, revision 1→2 |
+| `late_observation` | 8% | Fully delivered; carrier observation delayed randomly by 1 hour..4 days, propagated through dependencies |
+| `correction` | 6% | Return approved; initial refund not tied to a line, correction revision 2 and uncertainty resolved; separate shipping refund |
+| `right_censored` | 4% | Commitment/reservation/planned allocation still open at the end of the horizon; never inferred as delivered |
 
-`failed` là giá trị của trường `status` có sẵn; fixture cũ chỉ phát `success`.
-Không thêm event type hay trường payload. Retry dùng `state_revision`, correction
-thật dùng `operation=correction` và `corrects_source_event_id`.
+`failed` is a value of the existing `status` field; the old fixture only emitted `success`.
+No event types or payload fields are added. Retry uses `state_revision`; a real correction
+uses `operation=correction` and `corrects_source_event_id`.
 
-Manifest ghi trọng số, seed, toàn bộ tham số, số lượng và tỉ lệ thực tế. Tỉ lệ là
-lấy mẫu; test 5.000 line chấp nhận ±3 điểm %. Zipf kiểm top SKU >10% ở s=1,2;
-s=0 kiểm top SKU <2 lần trung bình.
+The manifest records the weights, seed, all parameters, counts and actual shares. Shares are
+sampled; the 5,000-line test accepts ±3 percentage points. Zipf checks the top SKU >10% at s=1.2;
+s=0 checks the top SKU <2 times the mean.
 
-## Ghi nguồn và bộ nhớ
+## Writing sources and memory
 
-Pass đầu hash world từng ngày để chốt identity; pass sau dùng cùng seed, phát một
-ngày rồi ghi vào SQLite tạm trong output root. SQLite là stdlib, cache giới hạn
-8 MiB và temp sort trên đĩa. Sau đó duyệt theo known-time, gán sequence liên tục
-cho từng producer, ghi JSONL theo `export_date=source_observed_at[:10]`. SQLite
-được xóa sau export. Không giữ world hoặc event của mọi ngày trong RAM.
+The first pass hashes the world day by day to lock the identity; the next pass uses the same seed, emits one
+day and writes it to a temporary SQLite in the output root. SQLite is stdlib, with the cache limited to
+8 MiB and temp sorting on disk. It then iterates by known-time, assigns contiguous sequences
+per producer, and writes JSONL by `export_date=source_observed_at[:10]`. SQLite
+is deleted after export. The world or events of all days are never held in RAM.
 
-Opening stock một lần cho mỗi SKU, cùng pool Seller; lượng mở đủ cho worst case.
-Listing phát một lần cho mỗi `(Channel, SKU)`. Inbound và snapshot ở cuối follow-up,
-sau mọi movement đã phát; reserve của line còn mở được giữ trên snapshot.
-Coverage hash JSON array canonical sắp theo event ID qua iterator trên SQLite;
-sequence ranges được nén khi liên tiếp. Bộ nhớ còn phụ thuộc kích thước một ngày,
-catalog, snapshot order IDs và metadata/ranges coverage. Disk tạm cùng filesystem
-với output cần khoảng dung lượng nguồn cộng spool và chỉ mục.
+Opening stock once per SKU, in the same Seller pool; the opening quantity covers the worst case.
+Listings are emitted once per `(Channel, SKU)`. Inbound and snapshot are at the end of follow-up,
+after all emitted movements; reservations of still-open lines are kept on the snapshot.
+The coverage hash is a canonical JSON array sorted by event ID via an iterator over SQLite;
+sequence ranges are compressed when contiguous. Memory still depends on the size of one day,
+the catalog, snapshot order IDs and coverage metadata/ranges. Temporary disk on the same filesystem
+as the output needs roughly the source size plus spool and indexes.
 
-Coverage phát **hàng tuần nối tiếp**, mỗi feed, không cộng dồn. Tuần cuối phủ đến
-hết follow-up; observed sau cuối tuần +1 ngày hoặc sau dòng trễ cuối cùng +1µs,
-lấy mốc muộn hơn. SQLite index `(feed,effective)` chọn tập mỗi tuần rồi hash theo
-ID, nên mỗi dòng chỉ hash một lần. Empty week có count0/digest `[]`, các ranges
-có thể rời nhau vì sequence producer liên tục dùng chung nhiều feed.
+Coverage is emitted **in consecutive weeks** per feed, non-cumulative. The last week covers up to
+the end of follow-up; observed is after end of week +1 day or after the last late row +1µs,
+whichever is later. The SQLite index `(feed,effective)` selects each week's set and then hashes by
+ID, so each row is hashed only once. An empty week has count0/digest `[]`; the ranges
+can be disjoint because the continuous producer sequence is shared by several feeds.
 
-Silver kiểm interval trước digest, join bucket ngày UTC để tránh so mọi dòng với
-mọi tuần. Policy nhãn ghép các tuần liền nhau, gap/partial vẫn unknown. Gold chỉ
-đưa coverage giao cửa sổ delivery+30d vào input line và giữ revision liên quan.
-Đo seed7 `days=60, orders_per_day=4, sku_count=3`: 367 line, **131 target thật**
-có history PIT, tối đa 30 coverage/line; [chi tiết và lệnh Spark](gold_order_lifecycle.md).
-Giá phải trả: nhiều envelope/file hơn, nhãn chờ đóng tuần và độ trễ, thêm phép
-union interval; ADR-0013 ghi lựa chọn.
+Silver checks the interval before the digest and joins by UTC day bucket to avoid comparing every row against
+every week. The label policy concatenates adjacent weeks; gaps/partials remain unknown. Gold only
+brings coverage that intersects the delivery+30d window into the line input and keeps the related revisions.
+Measured with seed7 `days=60, orders_per_day=4, sku_count=3`: 367 lines, **131 real targets**
+with PIT history, at most 30 coverage records/line; [details and Spark command](gold_order_lifecycle.md).
+The cost: more envelopes/files, labels waiting for the week to close plus latency, and an extra
+interval union operation; ADR-0013 records the choice.
 
-Layout và envelope giữ tương thích fixture: 9 operational feeds, coverage,
-uncertainties và 5 native feeds. Feed không có sự kiện vẫn có JSONL rỗng. Native
-snapshot manifest giữ full order scope; Walmart là JSONL bootstrap để nạp DB,
-chưa phải bằng chứng JDBC. Shopee schema 2 vẫn là override phá vỡ như fixture;
-Amazon 2 và TikTok Shop 2 dùng đúng render tương ứng.
+Layout and envelope stay compatible with the fixture: 9 operational feeds, coverage,
+uncertainties and 5 native feeds. A feed with no events still has an empty JSONL. The native
+snapshot manifest keeps the full order scope; Walmart is a JSONL bootstrap for loading into a DB,
+not yet JDBC evidence. Shopee schema 2 is still a breaking override as in the fixture;
+Amazon 2 and TikTok Shop 2 use the matching render.
 
-`_truth/lines.jsonl` nằm ngoài `dataset_version=*/`; manifest ghi
-`truth.not_a_source=true`, số dòng và hash. Mỗi dòng chứa line identity, SKU,
-kịch bản, lượng đặt/hủy/giao/trả, approved/refund-success time. Chỉ test đọc truth.
-Pytest quét job Data Platform để chặn tham chiếu đường dẫn `_truth/`; tên `ground_truth`
-của job v1 hiện có không phải thư mục truth của scale.
+`_truth/lines.jsonl` sits outside `dataset_version=*/`; the manifest records
+`truth.not_a_source=true`, the row count and the hash. Each row contains line identity, SKU,
+scenario, ordered/canceled/delivered/returned quantities and approved/refund-success time. Only tests read truth.
+Pytest scans the Data Platform jobs to block references to the `_truth/` path; the name `ground_truth`
+in the existing v1 job is not the scale truth directory.
 
-## Giữ fixture mặc định không đổi và tái lập
+## Keeping the default fixture unchanged and reproducible
 
-Trước refactor đã lưu fixture `/tmp/x-before`, physical digest, dataset ID và
-SHA-256 mọi file trong manifest. Bộ regression ghim toàn bộ digest tại
+Before the refactor, the fixture `/tmp/x-before`, the physical digest, the dataset ID and the
+SHA-256 of every file in the manifest were saved. The regression suite pins every digest in
 [`tests/unit/generator/order_lifecycle_fixture_digests.json`](../../../tests/unit/generator/order_lifecycle_fixture_digests.json).
-Fixture có execution `recorded_at`; test cố định đồng hồ ở
-2026-10-19T00:00:00Z để so byte có ý nghĩa. Hash fact và dataset fixture mặc định giữ nguyên; `contract_sha256` fixture ghim
-baseline lịch sử, không đổi theo tài liệu mới mô tả coverage tuần của scale.
-Runtime giây và manifest execution timestamp vốn thay đổi theo lần chạy.
+The fixture has an execution `recorded_at`; the test fixes the clock at
+2026-10-19T00:00:00Z so byte comparison is meaningful. The fact hash and the default fixture dataset stay unchanged; the fixture's `contract_sha256` pins the
+historical baseline and does not change with the new documentation describing scale weekly coverage.
+Runtime seconds and the manifest execution timestamp naturally vary between runs.
 
-Nguồn scale đóng băng `recorded_at` tại mốc `source_observation_end` để cùng seed,
-tham số, code và Python tái tạo cùng file SHA-256. Đây là timestamp của export
-mô phỏng; manifest vẫn ghi giờ thực thi thật, chính sách này được ghi riêng.
-Native schema override đổi dataset identity nhưng giữ physical digest.
+The scale source freezes `recorded_at` at the `source_observation_end` mark so that the same seed,
+parameters, code and Python reproduce the same file SHA-256. This is the timestamp of the simulated
+export; the manifest still records the real execution time, and this policy is documented separately.
+A native schema override changes the dataset identity but keeps the physical digest.
 
 ```bash
 .venv/bin/python -m generator.generate_order_lifecycle \
@@ -130,46 +130,46 @@ Native schema override đổi dataset identity nhưng giữ physical digest.
 .venv/bin/pytest -q tests/unit/generator/test_generate_order_lifecycle_fixture.py tests/unit/generator/test_generate_order_lifecycle.py
 ```
 
-Thư mục đích phải mới. CLI in estimate trước khi sinh. Estimate dùng pilot tối đa
-100 đơn qua chính renderer, cộng chi phí inventory và kỳ vọng số Listing; không
-phải cam kết tuyệt đối cho mọi seed cực nhỏ.
+The target directory must be new. The CLI prints the estimate before generating. The estimate uses a pilot of at most
+100 orders through the renderer itself, plus inventory cost and the expected number of Listings; it is not
+an absolute guarantee for every very small seed.
 
-## Kết quả đo
+## Measured results
 
-**Baseline trước coverage tuần** (số byte/file/dataset dưới đây thuộc code cũ;
-chưa đo lại throughput/RSS sau bản sửa coverage theo ADR-0013). Lần chạy `2.000 đơn/ngày × 30 ngày`, seed 7, SKU=100, s=1,2:
+**Baseline before weekly coverage** (the byte/file/dataset figures below belong to the old code;
+throughput/RSS have not been re-measured after the coverage fix per ADR-0013). Run of `2,000 orders/day × 30 days`, seed 7, SKU=100, s=1.2:
 
-| Chỉ số | Đo được |
+| Metric | Measured |
 |---|---:|
-| Order / Order Line | 60.000 / 97.890 |
-| Bản ghi nguồn / file | 1.061.702 / 447 |
-| Byte nguồn | 1.546.066.142 (khoảng 1,55 GB thập phân) |
-| `resource.getrusage(...).ru_maxrss` | 128.536 KiB = 125,52 MiB |
-| Thời gian `generate_scaled` | 421,738301 giây |
-| Right-censored / terminal | 3.905 / 93.985 |
-| Sai lệch estimate số dòng / byte | 2,58% / 4,07% |
+| Order / Order Line | 60,000 / 97,890 |
+| Source records / files | 1,061,702 / 447 |
+| Source bytes | 1,546,066,142 (about 1.55 GB decimal) |
+| `resource.getrusage(...).ru_maxrss` | 128,536 KiB = 125.52 MiB |
+| `generate_scaled` time | 421.738301 seconds |
+| Right-censored / terminal | 3,905 / 93,985 |
+| Estimate error, rows / bytes | 2.58% / 4.07% |
 
-Lệnh: `.venv/bin/python -m generator.generate_order_lifecycle --output
+Command: `.venv/bin/python -m generator.generate_order_lifecycle --output
 out/codex-04-scale-final --orders-per-day 2000 --days 30 --seed 7`.
-Thư mục đầu ra (1,5 GB) đã xoá sau khi đo để giải phóng đĩa; ở phiên bản baseline lệnh trên sinh
-ra dataset `dataset-e16b9a828d69a3f6fb9cf507f2c9087d` (cùng seed ⇒ cùng digest). Hash code đã đối chiếu bản cuối;
-447 file nguồn và truth đã được kiểm lại SHA-256. RSS của riêng tiến trình
-Python, không gồm OS page cache. Máy có các tác vụ cùng chạy và lần đo sơ bộ
-chồng một phần; thời gian này không phải benchmark CPU/IO cô lập.
+The output directory (1.5 GB) was deleted after measuring to free disk space; at the baseline version the command above produced
+dataset `dataset-e16b9a828d69a3f6fb9cf507f2c9087d` (same seed ⇒ same digest). The code hash was checked against the final version;
+the 447 source files and truth were re-verified by SHA-256. RSS is for the Python process
+alone, excluding the OS page cache. The machine had other jobs running concurrently and a preliminary run
+partly overlapped; this time is not an isolated CPU/IO benchmark.
 
-Pytest: **41 passed in 31.68s** cho hai file nguồn, gồm kiểm fixture bit-identical,
-5.000 line, hai phân phối SKU, gate/coverage và biên 180 ngày.
+Pytest: **41 passed in 31.68s** for the two source files, including the bit-identical fixture check,
+5,000 lines, two SKU distributions, gate/coverage and the 180-day boundary.
 
 
-Spark: **chưa chạy trong sandbox**. Bộ unittest tại
-[`tests/spark/check_order_lifecycle_silver_scale.py`](../../../tests/spark/check_order_lifecycle_silver_scale.py) sinh
-200 đơn/ngày × 10 ngày, gọi `build_silver` bằng tham số tên với
-`contracts_dir="/workspace/contracts"`; kiểm mọi reconcile check bằng 0,
-quarantine bằng 0 và tập line Silver bằng truth.
+Spark: **not run in the sandbox**. The unittest suite in
+[`tests/spark/check_order_lifecycle_silver_scale.py`](../../../tests/spark/check_order_lifecycle_silver_scale.py) generates
+200 orders/day × 10 days, calls `build_silver` with keyword arguments including
+`contracts_dir="/workspace/contracts"`; it checks that every reconcile check is 0,
+quarantine is 0 and the Silver line set equals truth.
 
-Kết quả (người vận hành): **`Ran 3 tests in 980.842s — OK`** (`tests/spark/check_order_lifecycle_silver_scale.py`, 200 đơn/ngày ×
-10 ngày, image `platform-airflow:2.10.5-spark3.5.3`, `--network none --read-only`, driver 3 GB): mọi check `reconcile` = 0,
-quarantine = 0, tập line Silver = `_truth`. Thời gian dài vì máy chạy song song job khác; không dùng làm số hiệu năng.
+Result (operator run): **`Ran 3 tests in 980.842s — OK`** (`tests/spark/check_order_lifecycle_silver_scale.py`, 200 orders/day ×
+10 days, image `platform-airflow:2.10.5-spark3.5.3`, `--network none --read-only`, 3 GB driver): every `reconcile` check = 0,
+quarantine = 0, Silver line set = `_truth`. The long time is because the machine was running other jobs in parallel; do not use it as a performance figure.
 
 ```bash
 docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g \
@@ -177,11 +177,11 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_lifecycle_silver_scale.py
 ```
 
-## Giới hạn
+## Limitations
 
-- Không nạp PostgreSQL, chạy Data Platform hay ghi nhãn; benchmark nguồn không suy ra tốc độ Spark.
-- Tồn kho và tiền USD vẫn đơn giản; chưa có price variation, many-seller hay nhiều pool khả dụng.
-- Coverage chứng minh tập nguồn đã phát, không chứng minh mọi line đã terminal;
-  line censored cần được loại/giữ immature bởi label policy.
-- Không resume output dở dang. Khi lỗi, output có thể còn một phần; dùng thư mục mới.
-- Hash code và Python được pin trong identity; đổi môi trường có thể đổi dataset ID.
+- Does not load PostgreSQL, run the Data Platform or write labels; the source benchmark says nothing about Spark speed.
+- Inventory and USD money are still simple; no price variation, many sellers or multiple available pools yet.
+- Coverage proves the emitted source set, not that every line is terminal;
+  censored lines must be excluded/kept immature by the label policy.
+- Partial output is not resumed. On failure, partial output may remain; use a new directory.
+- Code and Python hashes are pinned in the identity; changing the environment can change the dataset ID.

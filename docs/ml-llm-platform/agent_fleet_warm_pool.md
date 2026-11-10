@@ -1,18 +1,18 @@
-# Warm Up và Agent Fleet trên EKS
+# Agent Fleet and Warm Pool on EKS
 
-EDAI-2, dòng 27: Substrate phục vụ nhiều Agent với ít worker.
+Agent Substrate serves many Agents with few workers.
 
-Cấu hình trên AWS:
-- Agent Substrate 0.0.9 chạy cùng kagent 0.10.3.
-- Runtime gVisor (sandbox cô lập cho từng Agent).
-- WorkerPool `kagent-default` (nhóm worker dùng chung cho các Agent).
-- Golden snapshot: ảnh chụp sẵn trạng thái Agent, dùng để khôi phục Agent.
+AWS configuration:
+- Agent Substrate 0.0.9 running with kagent 0.10.3.
+- gVisor runtime (an isolated sandbox per Agent).
+- WorkerPool `kagent-default` (a worker pool shared by the Agents).
+- Golden snapshot: a pre-captured Agent state, used to restore Agents.
 
-Code: [deploy_substrate.sh](../../scripts/setup/deploy_substrate.sh), [manifest Sandbox](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
+Code: [deploy_substrate.sh](../../scripts/setup/deploy_substrate.sh), [Sandbox manifest](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
 
-Ảnh dưới ghi **6 SandboxAgent ở trạng thái Ready trên cùng 1 worker**, với DESIRED/REPLICAS = 1. Đây là bằng chứng về
-mật độ (nhiều Agent trên một worker). Chưa có phép đo thời gian khởi động nguội (cold start) hay mức tiết kiệm chi phí.
+The screenshot below shows **6 SandboxAgents in Ready state on the same single worker**, with DESIRED/REPLICAS = 1. This is evidence of
+density (many Agents on one worker). There is no measurement of cold start time or cost savings yet.
 
-![EKS: sáu Agent trên một worker](../evidence/aws/substrate-warmup-6-agents-1-worker-20261031.png)
+![EKS: six Agents on one worker](../evidence/aws/substrate-warmup-6-agents-1-worker-20261031.png)
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

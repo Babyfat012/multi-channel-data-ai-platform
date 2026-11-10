@@ -1,271 +1,271 @@
-# Streaming Feature trên AWS
+# Streaming Features on AWS
 
-EDAI-2, dòng 12: push streaming feature vào offline và online store.
+This page covers pushing streaming features into the offline and online stores.
 
-Code / cấu hình: [job PyFlink](../../flink_jobs/ml/sku_return_feature.py), [submit 2 job](../../scripts/run/run_stream_feature_jobs.sh),
-[image Flink ML](../../docker/Dockerfile.flink-ml), [CI](../../ci/jenkins/stream-features.Jenkinsfile).
+Code / configuration: [PyFlink job](../../flink_jobs/ml/sku_return_feature.py), [submit 2 jobs](../../scripts/run/run_stream_feature_jobs.sh),
+[Flink ML image](../../docker/Dockerfile.flink-ml), [CI](../../ci/jenkins/stream-features.Jenkinsfile).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+The results below come from AWS runs; they do not confirm that the service is currently running.
 
-## Hai job PyFlink: online và offline (bản hiện tại)
+## Two PyFlink jobs: online and offline (current version)
 
-Bản này thay cho cách cũ dùng Flink SQL + `feast-pusher` (mô tả ở mục bên dưới). Chỉ có một file PyFlink
-DataStream, nhưng file đó được submit thành **hai job** chạy song song. Mỗi job đọc Kafka bằng consumer group riêng
-(nên không giành tin của nhau) và tự ghi vào kho của mình: job online ghi Redis, job offline ghi Parquet trên S3.
+This version replaces the old approach using Flink SQL + `feast-pusher` (described in the section below). There is only one PyFlink
+DataStream file, but it is submitted as **two jobs** running in parallel. Each job reads Kafka with its own consumer group
+(so they do not compete for messages) and writes to its own store: the online job writes Redis, the offline job writes Parquet on S3.
 
-Thuật ngữ dùng trong sơ đồ:
-- **HOP 24h trượt 1h**: cửa sổ thời gian (window) dài 24 giờ, cứ mỗi giờ tạo một cửa sổ mới. Mỗi cửa sổ cho ra
-  số Return đã duyệt của một SKU trong 24 giờ trước mốc kết thúc cửa sổ.
-- **Event time**: tính theo thời điểm sự kiện xảy ra, không theo lúc tin tới Flink.
-- **Watermark**: mốc thời gian Flink tin rằng "mọi tin cũ hơn đã tới". Cửa sổ chỉ đóng và ghi kết quả khi watermark
-  vượt qua nó. Ở đây watermark trễ 1 giờ so với sự kiện mới nhất, để chờ tin tới muộn.
+Terms used in the diagram:
+- **HOP 24h sliding 1h**: a time window 24 hours long, with a new window every hour. Each window yields
+  the number of approved Returns for one SKU in the 24 hours before the window end.
+- **Event time**: computed by when the event happened, not when the message reached Flink.
+- **Watermark**: the point in time at which Flink believes "every older message has arrived". A window only closes and emits its result once the watermark
+  passes it. Here the watermark lags the latest event by 1 hour, to wait for late messages.
 
 ```text
 Kafka order_snapshots.return_events
-  ├─► job ml-sku-return-24h-online : parse → bỏ trùng (KeyedProcessFunction, key record_sha256)
-  │     → HOP 24h trượt 1h theo event time (watermark trễ 1h) → lô 2 s → Feast push ONLINE → Redis EKS
-  └─► job ml-sku-return-24h-offline: cùng phép tính → lô 60 s → một file part Parquet mới
-        → s3://…/feature-store/sku_return_24h/ (Feast FileSource đọc cả thư mục, train dùng PIT join)
+  ├─► job ml-sku-return-24h-online : parse → deduplicate (KeyedProcessFunction, key record_sha256)
+  │     → HOP 24h sliding 1h on event time (watermark lag 1h) → 2 s batch → Feast push ONLINE → Redis EKS
+  └─► job ml-sku-return-24h-offline: same computation → 60 s batch → one new Parquet part file
+        → s3://…/feature-store/sku_return_24h/ (Feast FileSource reads the whole directory, training uses PIT join)
 ```
 
-| Thành phần | Chi tiết |
+| Component | Details |
 |---|---|
-| Job | [`sku_return_feature.py`](../../flink_jobs/ml/sku_return_feature.py), cờ `--sink online\|offline` |
-| Cluster | Flink **2.2.1** riêng (`flink-ml-jobmanager`/`taskmanager`, UI cổng 8086), tách khỏi cluster 1.20 của EDAI-1. Lý do: PyFlink 1.20 cần apache-beam < 2.49, kéo theo numpy < 1.25, trong khi Feast 0.66 cần numpy ≥ 2; hai bộ thư viện không cài chung được |
-| Online | Feast `push(..., PushMode.ONLINE)`: Redis đúng định dạng Feast mà Feature API đọc qua `get_online_features` |
+| Job | [`sku_return_feature.py`](../../flink_jobs/ml/sku_return_feature.py), flag `--sink online\|offline` |
+| Cluster | Separate Flink **2.2.1** (`flink-ml-jobmanager`/`taskmanager`, UI on port 8086), split from the Data Platform's 1.20 cluster. Reason: PyFlink 1.20 needs apache-beam < 2.49, which pulls in numpy < 1.25, while Feast 0.66 needs numpy ≥ 2; the two library sets cannot be installed together |
+| Online | Feast `push(..., PushMode.ONLINE)`: Redis in exactly the Feast format the Feature API reads via `get_online_features` |
 | Offline | Parquet `part-<min>-<max>-<n>.parquet`, schema `seller_sku`, `event_timestamp` (UTC), `approved_returns_24h` |
-| Monitor | Ngoài số đo sẵn của Flink (bản ghi vào/ra, checkpoint, backpressure), mỗi job có metric riêng hiện trên Flink UI: `duplicates_dropped`, `<sink>_rows_written`, `<sink>_batches_written`, `<sink>_last_window_end_ms` |
-| Event time | Timestamp của bản ghi Kafka được đặt bằng `effective_at` (lúc Return có hiệu lực). Watermark tính riêng cho từng partition ngay ở source, trễ tối đa 1 giờ. Topic đặt `retention.ms=-1` (không tự xoá tin) vì bản ghi mang thời gian trong quá khứ, nếu để mặc định Kafka sẽ coi chúng là đã hết hạn |
-| Đảm bảo | Lô đang gom nằm trong state của cửa sổ thời gian xử lý, nên được lưu vào checkpoint (ảnh chụp state định kỳ). Khi khôi phục từ checkpoint, một lô có thể bị ghi lại lần nữa (at-least-once: ít nhất một lần). Dòng bị ghi trùng có cùng giá trị nên PIT join (point-in-time join: lấy giá trị đúng tại thời điểm đặt đơn) không đổi kết quả |
-| Test | [`tests/flink/test_sku_return_feature.py`](../../tests/flink/test_sku_return_feature.py) chạy job trên mini cluster trong image và kiểm ba điều: (1) số của từng cửa sổ khớp với một phép đếm viết riêng, kể cả khi có tin trùng, tin trễ, tin không phải approved; (2) Feast đọc được thư mục file part và PIT join đúng; (3) CLI từ chối cấu hình sai |
+| Monitoring | Besides Flink's built-in metrics (records in/out, checkpoints, backpressure), each job has its own metrics shown in the Flink UI: `duplicates_dropped`, `<sink>_rows_written`, `<sink>_batches_written`, `<sink>_last_window_end_ms` |
+| Event time | The Kafka record timestamp is set to `effective_at` (when the Return took effect). The watermark is computed per partition right at the source, lagging at most 1 hour. The topic sets `retention.ms=-1` (never delete messages) because records carry past timestamps; with the default, Kafka would treat them as expired |
+| Guarantees | The batch being accumulated lives in the processing-time window state, so it is saved in checkpoints (periodic state snapshots). When restoring from a checkpoint, a batch may be written again (at-least-once). Duplicate rows have the same values, so the PIT join (point-in-time join: takes the value as of order time) result does not change |
+| Test | [`tests/flink/test_sku_return_feature.py`](../../tests/flink/test_sku_return_feature.py) runs the job on a mini cluster inside the image and checks three things: (1) each window's count matches an independently written count, including with duplicate, late and non-approved messages; (2) Feast can read the part-file directory and the PIT join is correct; (3) the CLI rejects invalid configuration |
 
-Chạy trên EC2 (overlay AWS đã đặt trong `COMPOSE_FILE`):
+Running on EC2 (the AWS overlay is already set in `COMPOSE_FILE`):
 
 ```bash
-# Laptop: đồng bộ code mới lên /opt/platform (compose đổi ⇒ chạy cả playbook, không chỉ --tags code)
-#   ansible-playbook -i inventory.ini site.yml --ask-vault-pass        (thư mục infra/aws/ansible)
-# Trong phiên EC2, cd /opt/platform:
+# Laptop: sync the new code to /opt/platform (compose changed ⇒ run the whole playbook, not just --tags code)
+#   ansible-playbook -i inventory.ini site.yml --ask-vault-pass        (directory infra/aws/ansible)
+# In the EC2 session, cd /opt/platform:
 sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink-ml
-# Registry trỏ offline sang thư mục part (chỉ task feast_apply, không chạy Spark export):
+# Point the registry's offline source to the part directory (only the feast_apply task, no Spark export):
 docker compose --profile airflow exec airflow airflow tasks test ml_feature_materialize feast_apply "$(date -u +%F)"
 docker compose --profile stream --profile flink-ml up -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
-# Xoá topic cũ: tin của lần chạy 30–31/10 mang timestamp thời điểm phát, làm watermark nhảy sai.
+# Delete the old topic: messages from the Oct 30–31 run carry publish-time timestamps, which make the watermark jump incorrectly.
 docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
   --delete --if-exists --topic order_snapshots.return_events
-scripts/run/run_stream_feature_jobs.sh                       # submit 2 job
-# Mount script mới: script nằm sẵn trong image platform-feast, image cũ phát lại tin KHÔNG có event time.
+scripts/run/run_stream_feature_jobs.sh                       # submit 2 jobs
+# Mount the new script: the script is baked into the platform-feast image, and the old image replays messages WITHOUT event time.
 docker compose --profile stream --profile ml-stream run --rm -T --no-deps \
   -v "$PWD/feature_repo/replay_return_events.py:/opt/feature_repo/replay_return_events.py:ro" feast-pusher \
-  python replay_return_events.py < ~/return_events.jsonl     # phát lại 401.129 Return
-# Kiểm: CreateTime phải là 06/2026 (1782…), không phải thời điểm chạy.
+  python replay_return_events.py < ~/return_events.jsonl     # replays 401,129 Returns
+# Check: CreateTime must be June 2026 (1782…), not the run time.
 docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
   --topic order_snapshots.return_events --from-beginning --max-messages 1 --property print.timestamp=true | cut -c1-40
 ```
 
-**Chạy thử nhỏ ở local (smoke)** trên cluster Flink 2.2.1 + Kafka thật trong Compose, submit bằng `flink run -py`:
-- Job `ml-sku-return-24h-offline` ở trạng thái RUNNING.
-- Gửi vào 5 tin, trong đó có 1 tin trùng. Job ghi ra file part chứa 51 cửa sổ.
-- So với phép đếm viết riêng (không dùng Flink) cho các cửa sổ đã đóng theo watermark: **cả 51/51 cửa sổ khớp**.
-- REST/UI của Flink hiện đủ các metric `duplicates_dropped`, `offline_rows_written`, `offline_batches_written`, `offline_last_window_end_ms`.
-- Lỗi gặp khi chạy thật (đã sửa): trong PyFlink 2.2, hàm tạo cửa sổ và TTL nhận kiểu `Time`, không nhận `Duration`.
+**Small local smoke run** on a Flink 2.2.1 cluster + real Kafka in Compose, submitted with `flink run -py`:
+- Job `ml-sku-return-24h-offline` in state RUNNING.
+- Sent 5 messages, 1 of them a duplicate. The job wrote a part file containing 51 windows.
+- Compared with an independently written count (without Flink) for windows closed by the watermark: **all 51/51 windows match**.
+- Flink's REST/UI shows all the metrics `duplicates_dropped`, `offline_rows_written`, `offline_batches_written`, `offline_last_window_end_ms`.
+- Error found during the real run (fixed): in PyFlink 2.2, the window and TTL constructors take the `Time` type, not `Duration`.
 
-**Diễn tập đúng quy mô** ở local: 401.129 tin, 2.000 SKU, 3 partition, Redis thật, còn S3 API được giả lập bằng moto.
-Bản đầu có lỗi âm thầm: watermark được sinh **sau** khi đã gộp tin từ cả 3 partition. Partition đọc nhanh đẩy watermark
-vượt lên trước partition đọc chậm, nên tin của partition chậm bị coi là tới trễ và **bị bỏ đi, trong khi job vẫn báo
-RUNNING**. Khi mới đóng được một phần cửa sổ, kết quả đã thiếu 1.193 cửa sổ, và 37.284 cửa sổ không khớp phép đếm riêng (cột `sai_hoac_thieu` của [`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py): số đếm sai hoặc cửa sổ bị thiếu).
-Cách sửa: event time lấy từ timestamp của bản ghi Kafka (do [`replay_return_events.py`](../../feature_repo/replay_return_events.py)
-đặt), watermark sinh ngay ở source cho từng partition riêng, và bật idleness (partition không có tin mới không giữ
-watermark đứng yên).
+**Full-scale rehearsal** locally: 401,129 messages, 2,000 SKUs, 3 partitions, real Redis, with the S3 API emulated by moto.
+The first version had a silent bug: the watermark was generated **after** merging messages from all 3 partitions. The fast-reading partition pushed the watermark
+ahead of the slow-reading partitions, so messages from the slow partitions were treated as late and **dropped, while the job still reported
+RUNNING**. With only some windows closed, the result was already missing 1,193 windows, and 37,284 windows did not match the independent count (column `wrong_or_missing` of [`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py): wrong counts or missing windows).
+Fix: event time is taken from the Kafka record timestamp (set by [`replay_return_events.py`](../../feature_repo/replay_return_events.py)),
+the watermark is generated at the source for each partition separately, and idleness is enabled (a partition with no new messages does not hold
+the watermark still).
 
-### Trên AWS
+### On AWS
 
-Pipeline Jenkins `stream-features` lần #7 chạy xanh ([ảnh](../evidence/aws/jenkins-stream-features-7-20261109.png), commit `4cc4502`, `DATA_STORAGE=s3`).
-Pipeline này dựng cluster Flink ML trên EC2, submit 2 job, rồi kiểm đúng 2 job đang RUNNING.
+Jenkins pipeline `stream-features` run #7 went green ([screenshot](../evidence/aws/jenkins-stream-features-7-20261109.png), commit `4cc4502`, `DATA_STORAGE=s3`).
+This pipeline builds the Flink ML cluster on EC2, submits 2 jobs, then checks that exactly 2 jobs are RUNNING.
 
-Sau đó phát lại **401.129** sự kiện Return vào 3 partition (151.254 + 117.583 + 132.292). Bản ghi đầu tiên có
-`CreateTime:1782518400289`, tức event time rơi vào tháng 6/2026 (thời gian của dữ liệu), không phải lúc chạy.
+Then **401,129** Return events were replayed into 3 partitions (151,254 + 117,583 + 132,292). The first record has
+`CreateTime:1782518400289`, i.e. its event time falls in June 2026 (the data's time), not the run time.
 
-![Flink UI EC2: 2 job ml-sku-return-24h-online và -offline RUNNING, Flink 2.2.1](../evidence/aws/flink-ml-two-jobs-running-20261109.png)
+![Flink UI EC2: 2 jobs ml-sku-return-24h-online and -offline RUNNING, Flink 2.2.1](../evidence/aws/flink-ml-two-jobs-running-20261109.png)
 
-![Job online: Source return_events → drop-duplicates → hop-24h-count → feast-online-writer](../evidence/aws/flink-ml-online-job-20261109.png)
+![Online job: Source return_events → drop-duplicates → hop-24h-count → feast-online-writer](../evidence/aws/flink-ml-online-job-20261109.png)
 
-![Job offline: Source return_events → drop-duplicates → hop-24h-count → parquet-offline-writer](../evidence/aws/flink-ml-offline-job-20261109.png)
+![Offline job: Source return_events → drop-duplicates → hop-24h-count → parquet-offline-writer](../evidence/aws/flink-ml-offline-job-20261109.png)
 
-Theo dõi (monitor): mỗi job có metric riêng, xem các ảnh dưới. Metric `duplicates_dropped` chỉ xuất hiện khi gặp tin trùng đầu tiên; lần phát lại này khoá theo Order Line nên không có tin trùng, vì vậy metric đó không có trong ảnh.
+Monitoring: each job has its own metrics, see the screenshots below. The `duplicates_dropped` metric only appears after the first duplicate message; this replay is keyed by Order Line so there were no duplicates, which is why that metric is absent from the screenshots.
 
-![Metric job online: online_rows_written, online_batches_written, online_last_window_end_ms](../evidence/aws/flink-ml-online-metrics-20261109.png)
+![Online job metrics: online_rows_written, online_batches_written, online_last_window_end_ms](../evidence/aws/flink-ml-online-metrics-20261109.png)
 
-![Metric job offline: offline_rows_written](../evidence/aws/flink-ml-offline-metrics-20261109.png)
+![Offline job metrics: offline_rows_written](../evidence/aws/flink-ml-offline-metrics-20261109.png)
 
-![Checkpoint job online: ghi ra file:/opt/flink/output/checkpoints trên EBS](../evidence/aws/flink-ml-online-checkpoints-20261109.png)
+![Online job checkpoints: written to file:/opt/flink/output/checkpoints on EBS](../evidence/aws/flink-ml-online-checkpoints-20261109.png)
 
-![Checkpoint job offline: 65 completed, 0 failed](../evidence/aws/flink-ml-offline-checkpoints-20261109.png)
+![Offline job checkpoints: 65 completed, 0 failed](../evidence/aws/flink-ml-offline-checkpoints-20261109.png)
 
-**Trước khi phát lại**, Feature API trả `approved_returns_24h: null`, `stream_status: not_available` (Redis chưa có feature stream), nên giá trị xuất hiện sau đó là do job online ghi.
+**Before the replay**, the Feature API returned `approved_returns_24h: null`, `stream_status: not_available` (Redis had no stream features yet), so the values that appear afterwards were written by the online job.
 
-![Swagger /features trước khi phát lại: approved_returns_24h null cho BEA-01708, ELE-01084, APP-00042](../evidence/aws/stream-features-before-replay-20261109.png)
+![Swagger /features before the replay: approved_returns_24h null for BEA-01708, ELE-01084, APP-00042](../evidence/aws/stream-features-before-replay-20261109.png)
 
-**Khi replay đang chạy**, cùng lời gọi đó trả số thật và `stream_status: ready`, tức job online đã ghi vào Redis; số tiếp tục thay đổi theo cửa sổ.
+**While the replay was running**, the same call returned real numbers and `stream_status: ready`, i.e. the online job had written to Redis; the numbers keep changing with each window.
 
-![Swagger /features khi replay đang chạy: approved_returns_24h BEA-01708 = 29, ELE-01084 = 34, stream_status ready](../evidence/aws/stream-features-during-replay-20261109.png)
+![Swagger /features while the replay was running: approved_returns_24h BEA-01708 = 29, ELE-01084 = 34, stream_status ready](../evidence/aws/stream-features-during-replay-20261109.png)
 
-**Kiểm tra lại bằng cách đếm tay khi replay còn chạy** ([`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py), không dùng Flink, [output](../evidence/aws/stream-reconcile-midrun-20261109.txt)):
-script tự đếm lại từ dữ liệu gốc rồi so với kết quả Flink, tính đến mốc giờ 06-28 05:00.
-- S3: cả 56.231 dòng kết quả đều đúng, không có dòng thừa.
-- Redis: cả 2.000 SKU đều đúng.
-- BEA-01708 = 29, ELE-01084 = 34, APP-00042 = 26 ở cả hai nơi, khớp với ảnh Swagger ở trên.
+**Re-checked by manual counting while the replay was still running** ([`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py), without Flink, [output](../evidence/aws/stream-reconcile-midrun-20261109.txt)):
+the script recounts from the source data and compares with the Flink results, up to the hour mark 06-28 05:00.
+- S3: all 56,231 result rows are correct, with no extra rows.
+- Redis: all 2,000 SKUs are correct.
+- BEA-01708 = 29, ELE-01084 = 34, APP-00042 = 26 in both places, matching the Swagger screenshot above.
 
-Lần kiểm tra trước đó (đến 06-27 11:00) cũng khớp 20.316/20.316 dòng.
+The earlier check (up to 06-27 11:00) also matched 20,316/20,316 rows.
 
-**Giới hạn:** lần kiểm tra trên dừng ở mốc 06-28 05:00, lúc job mới xử lý khoảng 40–48% số tin. Chưa có số kiểm tra cho cửa sổ cuối cùng. Buổi diễn tập cùng quy mô ở local khớp được 114.638 cửa sổ trước khi dừng.
+**Limitation:** the check above stopped at 06-28 05:00, when the job had processed only about 40–48% of the messages. There is no check for the final window yet. The full-scale local rehearsal matched 114,638 windows before it stopped.
 
-<a id="trên-aws-pipeline-a-2026-10-30"></a>
-## Bản trước: Flink SQL + pusher trên AWS
+<a id="on-aws-pipeline-a-2026-10-30"></a>
+## Previous version: Flink SQL + pusher on AWS
 
-Các stream đơn hàng đã triển khai (thông báo Amazon, webhook TikTok) chỉ báo trạng thái đơn, không có sự kiện Return.
-Vì vậy trên AWS, các Return đã duyệt được lấy từ tầng Gold rồi **phát lại** vào Kafka, theo đúng thứ tự thời điểm
-hệ thống biết về Return đó.
+The deployed order streams (Amazon notifications, TikTok webhooks) only report order status; they have no Return events.
+So on AWS, approved Returns are taken from the Gold layer and **replayed** into Kafka, in the order in which
+the system learned about each Return.
 
-Giới hạn: feature đã tới Redis và Parquet thật, nhưng model `return-risk` v1 được train khi feature này còn rỗng,
-nên model đó chưa dùng feature này.
+Limitation: the feature has actually reached Redis and Parquet, but the `return-risk` v1 model was trained while this feature was still empty,
+so that model does not use this feature yet.
 
-Sơ đồ dưới đi qua 5 bước, đánh số ① đến ⑤ (`⋈` là phép join hai bảng):
+The diagram below goes through 5 steps, numbered ① to ⑤ (`⋈` is a join of two tables):
 
 ```text
-Trino (EC2) ──① Gold: fact_return_labels_dp3 ⋈ fact_order_lines_dp2, label=1, 3 ngày trước 2026-06-30
-   │            sql/ml/return_events_replay.sql → ~/return_events.jsonl (401.129 dòng)
+Trino (EC2) ──① Gold: fact_return_labels_dp3 ⋈ fact_order_lines_dp2, label=1, 3 days before 2026-06-30
+   │            sql/ml/return_events_replay.sql → ~/return_events.jsonl (401,129 rows)
    ▼
-replay_return_events.py ──② Kafka order_snapshots.return_events (3 partition, tổng offset 401.129)
+replay_return_events.py ──② Kafka order_snapshots.return_events (3 partitions, total offset 401,129)
    ▼
-Flink ml-sku-return-24h ──③ bỏ trùng theo Order Line, HOP 24h trượt 1h → Kafka ml.sku_return_24h
+Flink ml-sku-return-24h ──③ deduplicate by Order Line, HOP 24h sliding 1h → Kafka ml.sku_return_24h
    │                       flink_jobs/ml/sku_return_feature_a.sql 
    ▼
 feast-pusher ──④ push ONLINE_AND_OFFLINE: Redis EKS (NodePort) + S3 sku_return_24h.parquet
    ▼
-Feature API EKS ──⑤ /features trả approved_returns_24h
+Feature API EKS ──⑤ /features returns approved_returns_24h
 ```
 
-Ba lỗi khi chạy lần đầu (đã sửa):
+Three errors in the first run (fixed):
 
-1. **Trino đọc nhầm kho local.** Lệnh `docker compose` chạy thiếu file overlay AWS, nên Trino dùng catalog MinIO
-   của môi trường local thay vì S3. Cách sửa: runbook đặt biến
-   `COMPOSE_FILE=docker-compose.yml:docker-compose.aws.yml:docker-compose.aws-stream.yml` một lần cho cả phiên.
-2. **Lệnh phát lại không chạy.** `run feast-pusher` chỉ bật profile `ml-stream`, nên Compose báo
-   "depends on undefined service kafka". Cách sửa: thêm `--profile stream --no-deps`.
-   Lưu ý: job Flink ở trạng thái `RESTARTING` khi topic nguồn chưa có là bình thường. Kafka tự tạo topic khi có tin
-   đầu tiên, và Flink tự thử lại.
-3. **Job `RESTARTING` mãi, checkpoint nào cũng hỏng.**
-   - Nghi ngờ đầu tiên là thiếu RAM, vì log có `OutOfMemoryError: Java heap space`. Đã tăng taskmanager trên AWS lên
-     4 GB ([`docker-compose.aws-stream.yml`](../../docker-compose.aws-stream.yml)) nhưng vẫn hỏng.
-   - Log mới của taskmanager chỉ ra nguyên nhân gốc: `Size of the state is larger than the maximum permitted memory-backed state.
-     Size=72467011, maxSize=5242880`. Job chưa khai nơi lưu checkpoint, nên Flink giữ checkpoint trong bộ nhớ của
-     JobManager (tối đa 5 MB), trong khi state bỏ trùng + cửa sổ HOP nặng khoảng 80 MB.
-   - Cách sửa: trong [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql) thêm
-     `SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints'` (thư mục trên ổ EBS, mount vào cả JobManager
-     lẫn taskmanager). Có test `test_stream_feature_checkpoints_go_to_disk_not_jobmanager_memory`.
-   - Trước khi sửa, feature đã tới được API nhưng chỉ tới cửa sổ 2026-06-27 09:00.
+1. **Trino read the local store by mistake.** The `docker compose` command ran without the AWS overlay file, so Trino used the MinIO catalog
+   of the local environment instead of S3. Fix: the runbook sets
+   `COMPOSE_FILE=docker-compose.yml:docker-compose.aws.yml:docker-compose.aws-stream.yml` once for the whole session.
+2. **The replay command did not run.** `run feast-pusher` only enabled the `ml-stream` profile, so Compose reported
+   "depends on undefined service kafka". Fix: add `--profile stream --no-deps`.
+   Note: the Flink job being in state `RESTARTING` while the source topic does not exist yet is normal. Kafka creates the topic automatically on the first
+   message, and Flink retries automatically.
+3. **Job stuck in `RESTARTING`, every checkpoint failing.**
+   - The first suspicion was a lack of RAM, since the log had `OutOfMemoryError: Java heap space`. The taskmanager on AWS was increased to
+     4 GB ([`docker-compose.aws-stream.yml`](../../docker-compose.aws-stream.yml)) but it still failed.
+   - The new taskmanager log showed the root cause: `Size of the state is larger than the maximum permitted memory-backed state.
+     Size=72467011, maxSize=5242880`. The job had not declared a checkpoint location, so Flink kept checkpoints in the
+     JobManager's memory (at most 5 MB), while the deduplication state + HOP window weighed about 80 MB.
+   - Fix: in [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql) add
+     `SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints'` (a directory on the EBS volume, mounted into both the JobManager
+     and the taskmanager). Covered by test `test_stream_feature_checkpoints_go_to_disk_not_jobmanager_memory`.
+   - Before the fix, the feature reached the API but only up to the 2026-06-27 09:00 window.
 
-Sau khi sửa, job mới chạy hết 3 ngày dữ liệu phát lại: nhận vào 401.129 sự kiện, 76/76 checkpoint thành công (mỗi lần
-khoảng 79 MB, ghi vào `file:/opt/flink/output/checkpoints/…`), không có lỗi.
+After the fix, the new job ran through all 3 days of replayed data: 401,129 events in, 76/76 checkpoints succeeded (each
+about 79 MB, written to `file:/opt/flink/output/checkpoints/…`), no errors.
 
-![Flink ml-sku-return-24h RUNNING: Source return_events → Deduplicate + LocalWindowAggregate → GlobalWindowAggregate → sink ml.sku_return_24h; 401.129 bản ghi vào](../evidence/aws/flink-sku-return-24h-running-20261031.png)
+![Flink ml-sku-return-24h RUNNING: Source return_events → Deduplicate + LocalWindowAggregate → GlobalWindowAggregate → sink ml.sku_return_24h; 401,129 records in](../evidence/aws/flink-sku-return-24h-running-20261031.png)
 
-![Checkpoint: 76 triggered, 76 completed, 0 failed; checkpoint mới nhất 79,1 MB ghi ra file:/opt/flink/output/checkpoints](../evidence/aws/flink-sku-return-24h-checkpoints-20261031.png)
+![Checkpoints: 76 triggered, 76 completed, 0 failed; latest checkpoint 79.1 MB written to file:/opt/flink/output/checkpoints](../evidence/aws/flink-sku-return-24h-checkpoints-20261031.png)
 
-**Kiểm tra lại bằng cách đếm tay (không dùng Flink).** Để chắc Flink tính đúng, một script Python riêng trên EC2
-tự tính lại từ dữ liệu gốc rồi so với những gì Flink đã ghi:
+**Re-checked by manual counting (without Flink).** To be sure Flink computed correctly, a separate Python script on EC2
+recomputed from the source data and compared with what Flink had written:
 
-1. Đọc lại file sự kiện gốc `~/return_events.jsonl`, bỏ các dòng bị gửi trùng (trùng `order_line_key`).
-2. Với mỗi dòng Flink đã ghi vào bảng `ml.sku_return_24h` (mỗi dòng = một SKU tại một mốc giờ `window_end`), đếm
-   số sự kiện Return của SKU đó trong 24 giờ trước mốc ấy (từ `window_end − 24h`, không tính chính `window_end`).
-3. So số vừa đếm với số Flink ghi. Cả các dòng do lần chạy hỏng trước đó để lại cũng được kiểm tra.
+1. Re-read the source event file `~/return_events.jsonl`, dropping rows sent twice (duplicate `order_line_key`).
+2. For each row Flink wrote to the `ml.sku_return_24h` table (each row = one SKU at one hour mark `window_end`), count
+   that SKU's Return events in the 24 hours before that mark (from `window_end − 24h`, excluding `window_end` itself).
+3. Compare that count with Flink's. Rows left behind by the earlier failed run were checked too.
 
-Kết quả: **cả 1.004.354 dòng đều khớp, không dòng nào lệch**, tổng cộng 2.000 SKU. Mốc giờ cuối cùng
-(2026-06-29 22:00) cũng khớp với số mà Feature API đọc ra từ Redis:
+Result: **all 1,004,354 rows match, none differ**, across 2,000 SKUs in total. The final hour mark
+(2026-06-29 22:00) also matches what the Feature API reads from Redis:
 
-| SKU | Flink cửa sổ cuối | Feature API `/features` |
+| SKU | Flink final window | Feature API `/features` |
 |---|---:|---:|
 | BEA-01708 | 39 | 39 |
 | ELE-01084 | 38 | 38 |
 | APP-00042 | 23 | 23 |
 
-![Swagger /features trên EKS: approved_returns_24h BEA-01708 = 39, APP-00042 = 23, cạnh feature batch 90 ngày](../evidence/aws/feature-api-stream-a-features-20261031.png)
+![Swagger /features on EKS: approved_returns_24h BEA-01708 = 39, APP-00042 = 23, next to the 90-day batch features](../evidence/aws/feature-api-stream-a-features-20261031.png)
 
-**Online và offline từ cùng một lần push.** Với mỗi lô, pusher gọi `store.push(..., to=PushMode.ONLINE_AND_OFFLINE)` một lần.
-Feast ghi giá trị mới nhất vào **Redis** (chính là số trong ảnh `/features` ở trên) và nối thêm lịch sử vào
-**Parquet trên S3** (`feature-store/sku_return_24h.parquet`). Ở bản này chỉ có một job Flink SQL, online và offline
-đi chung một lần push; bản hiện tại tách thành hai job PyFlink (mục trên).
+**Online and offline from the same push.** For each batch, the pusher calls `store.push(..., to=PushMode.ONLINE_AND_OFFLINE)` once.
+Feast writes the latest value to **Redis** (the very numbers in the `/features` screenshot above) and appends history to
+**Parquet on S3** (`feature-store/sku_return_24h.parquet`). In this version there is only one Flink SQL job, and online and offline
+share one push; the current version splits into two PyFlink jobs (section above).
 
-Đọc lại file offline trên S3 bằng [`offline_store_proof.sh`](../../scripts/evidence/offline_store_proof.sh) (file 3,0 MiB). Output: [stream-offline-parquet-s3-20261107.txt](../evidence/aws/stream-offline-parquet-s3-20261107.txt).
-- File có **1.142.557 dòng, 2.000 SKU**, từ 06-27 01:00 tới 06-29 22:00 UTC.
-- Giá trị cuối BEA-01708 = 39, ELE-01084 = 38, APP-00042 = 23, **khớp với Redis**.
-- Offline giữ giá trị của từng giờ (ví dụ BEA-01708 lần lượt là 36, 38, 39, 40, 43, 43, 40, 39), để khi train có thể
-  lấy đúng giá trị tại thời điểm đặt đơn (point-in-time join).
-- Số dòng lớn hơn số cửa sổ đã kiểm tra ở trên, vì hai lý do: pusher là at-least-once (có thể ghi một lô hơn một
-  lần), và file còn chứa tin của job hỏng trước đó. Các dòng trùng có cùng giá trị nên PIT join không đổi kết quả.
+The offline file on S3 was read back with [`offline_store_proof.sh`](../../scripts/evidence/offline_store_proof.sh) (file 3.0 MiB). Output: [stream-offline-parquet-s3-20261107.txt](../evidence/aws/stream-offline-parquet-s3-20261107.txt).
+- The file has **1,142,557 rows, 2,000 SKUs**, from 06-27 01:00 to 06-29 22:00 UTC.
+- Final values BEA-01708 = 39, ELE-01084 = 38, APP-00042 = 23, **match Redis**.
+- Offline keeps the value for every hour (for example BEA-01708 goes 36, 38, 39, 40, 43, 43, 40, 39), so training can
+  take exactly the value as of order time (point-in-time join).
+- The row count is larger than the number of windows checked above, for two reasons: the pusher is at-least-once (it may write a batch more than
+  once), and the file still contains messages from the earlier failed job. Duplicate rows have the same values, so the PIT join result does not change.
 
-![Offline store trên S3: sku_return_24h.parquet 1.142.557 dòng, 2.000 SKU; giá trị cuối khớp Redis; lịch sử từng giờ của BEA-01708](../evidence/aws/stream-offline-parquet-s3-20261107.png)
+![Offline store on S3: sku_return_24h.parquet 1,142,557 rows, 2,000 SKUs; final values match Redis; hourly history of BEA-01708](../evidence/aws/stream-offline-parquet-s3-20261107.png)
 
-Cửa sổ cuối dừng ở 06-29 22:00, không tới 06-30 00:00. Lý do: watermark luôn trễ 1 giờ sau sự kiện mới nhất, và
-luồng stream không tự kết thúc, nên các cửa sổ sau đó chưa bao giờ được đóng. Code job: [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql),
-phát lại: [`replay_return_events.py`](../../feature_repo/replay_return_events.py),
+The final window stops at 06-29 22:00, not 06-30 00:00. Reason: the watermark always lags the latest event by 1 hour, and
+the stream never ends by itself, so the later windows were never closed. Job code: [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql),
+replay: [`replay_return_events.py`](../../feature_repo/replay_return_events.py),
 [`return_events_replay.sql`](../../sql/ml/return_events_replay.sql), pusher:
 [`push_stream_features.py`](../../feature_repo/push_stream_features.py).
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+The local records keep their original environment and are not a substitute for cloud evidence.
 
-<!-- Mục đích: job đẩy stream feature vào kho OFFLINE và ONLINE của Feast, -->
-## Stream feature vào Feast — ML Platform bước 3
+<!-- Purpose: jobs that push stream features into Feast's OFFLINE and ONLINE stores, -->
+## Stream features into Feast — ML Platform step 3
 
-Mục tiêu: deploy các job đẩy **streaming feature** (feature tính liên tục từ luồng sự kiện) vào kho OFFLINE và ONLINE.
+Goal: deploy the jobs that push **streaming features** (features computed continuously from an event stream) into the OFFLINE and ONLINE stores.
 
-## Đường đi của dữ liệu
+## Data path
 
 ```
-Kafka order_lifecycle.seller_postsales.return_events     (publisher của Data Platform)
-   │ ① Flink SQL sku_return_feature.sql (chạy liên tục)
-   │    - bỏ bản retry trùng theo record_sha256
-   │    - tra line_id → seller_sku ở PostgreSQL warehouse_lifecycle.fact_order_lines (lookup join, cache)
-   │    - HOP 24h trượt 1h theo event time, đếm Return "approved"
+Kafka order_lifecycle.seller_postsales.return_events     (Data Platform publisher)
+   │ ① Flink SQL sku_return_feature.sql (runs continuously)
+   │    - drop duplicate retries by record_sha256
+   │    - look up line_id → seller_sku in PostgreSQL warehouse_lifecycle.fact_order_lines (lookup join, cached)
+   │    - HOP 24h sliding 1h on event time, count "approved" Returns
    ▼
 Kafka ml.sku_return_24h        {seller_sku, event_timestamp = window_end, approved_returns_24h}
-   │ ② feast-pusher (push_stream_features.py, service Compose)
-   │    store.push(..., to=ONLINE_AND_OFFLINE), commit offset SAU khi push
-   ├──► Redis trong kind (ONLINE)          feature view sku_return_24h
-   └──► s3://platform/feature-store/sku_return_24h.parquet (OFFLINE, train dùng PIT join)
+   │ ② feast-pusher (push_stream_features.py, Compose service)
+   │    store.push(..., to=ONLINE_AND_OFFLINE), commit offset AFTER the push
+   ├──► Redis in kind (ONLINE)             feature view sku_return_24h
+   └──► s3://platform/feature-store/sku_return_24h.parquet (OFFLINE, training uses PIT join)
 ```
 
-| Thành phần | File |
+| Component | File |
 |---|---|
-| Job Flink | [`flink_jobs/ml/sku_return_feature.sql`](../../flink_jobs/ml/sku_return_feature.sql) |
-| Submit job (điền credential từ `.env`) | [`scripts/run/run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh) |
-| Jar JDBC + PostgreSQL cho Flink | [`docker/Dockerfile.flink`](../../docker/Dockerfile.flink) |
+| Flink job | [`flink_jobs/ml/sku_return_feature.sql`](../../flink_jobs/ml/sku_return_feature.sql) |
+| Job submission (fills credentials from `.env`) | [`scripts/run/run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh) |
+| JDBC + PostgreSQL jars for Flink | [`docker/Dockerfile.flink`](../../docker/Dockerfile.flink) |
 | Pusher | [`feature_repo/push_stream_features.py`](../../feature_repo/push_stream_features.py), image [`docker/Dockerfile.feast`](../../docker/Dockerfile.feast), service `feast-pusher` |
-| Feature view | `sku_return_24h` trong [`feature_repo/features.py`](../../feature_repo/features.py) |
+| Feature view | `sku_return_24h` in [`feature_repo/features.py`](../../feature_repo/features.py) |
 
-## Vì sao làm vậy
+## Why it is built this way
 
-- **Sự kiện Return không có SKU**, chỉ có `line_id`. Flink tra SKU từ warehouse PostgreSQL, thay vì phải chở cả
-  thông tin đơn hàng vào Kafka. Kết quả tra được cache 1 giờ, vì một line không bao giờ đổi SKU.
-- **Không cho Flink ghi thẳng vào Redis.** Làm vậy sẽ bỏ qua Feast: kho offline không có dữ liệu, và lúc train
-  không PIT join được.
-- **At-least-once (ít nhất một lần)**: pusher chỉ commit offset Kafka sau khi push xong. Nếu pusher chết giữa chừng,
-  nó đọc lại từ offset cũ và có thể ghi trùng dòng vào offline. Dòng trùng có cùng giá trị nên PIT join không đổi.
+- **Return events have no SKU**, only `line_id`. Flink looks up the SKU from the PostgreSQL warehouse, instead of carrying all
+  the order information into Kafka. Lookup results are cached for 1 hour, since a line never changes its SKU.
+- **Flink is not allowed to write directly to Redis.** That would bypass Feast: the offline store would have no data, and training
+  could not do a PIT join.
+- **At-least-once**: the pusher commits the Kafka offset only after the push finishes. If the pusher dies midway,
+  it rereads from the old offset and may write duplicate rows to offline. Duplicate rows have the same values, so the PIT join does not change.
 
-**Giới hạn (đã đánh dấu `Giới hạn:` trong SQL):**
-- Cửa sổ HOP chỉ được phát ra khi có tin. SKU không còn Return mới thì Redis giữ số cũ cho tới khi có tin mới.
-- Mỗi lần push offline, pusher đọc rồi ghi lại cả file. Cách này chỉ ổn ở quy mô demo.
+**Limitations (marked `Limitation:` in the SQL):**
+- A HOP window is only emitted when there are messages. For a SKU with no new Returns, Redis keeps the old count until a new message arrives.
+- On each offline push, the pusher reads and rewrites the whole file. This only works at demo scale.
 
-## Chạy local
+## Running locally
 
 ```bash
-## 0. Đã có Gold (docs/ml-llm-platform/feature_store.md bước 1) và Redis trong kind (setup_kind_feature_store.sh)
+## 0. Gold already exists (docs/ml-llm-platform/feature_store.md step 1) and Redis is in kind (setup_kind_feature_store.sh)
 
-## 1. Bảng tra line → SKU: publish warehouse từ Gold hiện tại (run_id = generation_id của Gold).
-##    Máy chật RAM thì chạy thẳng job export_order_lifecycle.py bằng Spark local[2] (driver 1g) thay vì DAG.
+## 1. line → SKU lookup table: publish the warehouse from the current Gold (run_id = Gold's generation_id).
+##    On a RAM-constrained machine, run the export_order_lifecycle.py job directly with Spark local[2] (driver 1g) instead of the DAG.
 docker compose --profile airflow --profile spark up -d --wait airflow spark-master spark-worker-1 spark-worker-2
 docker compose --profile airflow exec airflow airflow dags unpause dp_order_lifecycle_warehouse
 docker compose --profile airflow exec airflow airflow dags trigger dp_order_lifecycle_warehouse \
@@ -275,11 +275,11 @@ docker compose --profile airflow --profile spark stop airflow spark-master spark
 ## 2. Kafka + Flink + pusher
 docker compose --profile stream --profile flink --profile ml-stream up -d kafka flink-jobmanager flink-taskmanager feast-pusher
 
-## 3. Phát event vận hành vào Kafka
+## 3. Publish operational events to Kafka
 .venv/bin/python -m generator.publish_order_lifecycle_events --source out/order_lifecycle_live \
   --bootstrap localhost:9094 --epoch 1 --manifest out/stream-ml-1.json
 
-## Lần đầu (làm TRƯỚC bước 3): tạo topic và đăng ký view với Feast
+## First time (do this BEFORE step 3): create the topics and register the view with Feast
 for t in carrier.delivery_events seller_postsales.return_events seller_postsales.refund_events seller_wms.stock_operations; do
   docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
     --create --if-not-exists --topic order_lifecycle.$t --partitions 3 --replication-factor 1
@@ -288,44 +288,44 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server loca
   --create --if-not-exists --topic ml.sku_return_24h --partitions 1 --replication-factor 1
 docker compose --profile ml-stream run --rm --no-deps feast-pusher feast apply
 
-## 4. Submit job Flink (UI: http://localhost:8082)
+## 4. Submit the Flink job (UI: http://localhost:8082)
 scripts/run/run_sku_return_feature.sh
 
-## 5. Kiểm
+## 5. Check
 docker compose --profile ml-stream logs feast-pusher | grep pushed
 kubectl --context kind-platform -n feature-store exec deploy/redis -- redis-cli dbsize
 ```
 
 ## CI/CD
 
-[`ci/jenkins/stream-features.Jenkinsfile`](../../ci/jenkins/stream-features.Jenkinsfile) chạy lần lượt các stage:
+[`ci/jenkins/stream-features.Jenkinsfile`](../../ci/jenkins/stream-features.Jenkinsfile) runs these stages in order:
 
-1. **Test**: ruff, test docstring + renderer stream, test Spark `check_sku_daily_features.py`.
-2. **Build**: build image Flink, Feast, Flink ML; chạy `tests/flink` bên trong image.
-3. **Deploy**, chia hai nhánh theo `DATA_STORAGE`:
-   - `DATA_STORAGE=s3` (AWS): dựng Kafka + cluster Flink ML. Script `run_stream_feature_jobs.sh` huỷ job cùng tên
-     (nếu có) rồi submit 2 job. Stage **Verify** kiểm có đúng 2 job RUNNING.
-   - Local: chạy Flink SQL bản B + pusher như mô tả ở mục này. Stage **Verify** kiểm có đúng 1 job
-     `ml-sku-return-24h` RUNNING và pusher đang chạy.
+1. **Test**: ruff, docstring + stream renderer tests, Spark test `check_sku_daily_features.py`.
+2. **Build**: build the Flink, Feast and Flink ML images; run `tests/flink` inside the image.
+3. **Deploy**, split into two branches by `DATA_STORAGE`:
+   - `DATA_STORAGE=s3` (AWS): bring up Kafka + the Flink ML cluster. The script `run_stream_feature_jobs.sh` cancels jobs with the same name
+     (if any) then submits 2 jobs. The **Verify** stage checks that exactly 2 jobs are RUNNING.
+   - Local: runs the Flink SQL version B + pusher as described in this section. The **Verify** stage checks that exactly 1 job
+     `ml-sku-return-24h` is RUNNING and the pusher is running.
 
-Secret không nằm trong repo. Pipeline lấy Jenkins credential `platform-postgres` và `platform-minio`
-(username/password) qua `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh)
-chỉ đọc `.env` khi chạy tay. Pipeline này đã chạy trên Jenkins EC2 (`stream-features`, bản Flink SQL #2 và bản PyFlink #7 đều xanh), xem [CI/CD](cicd.md#trên-aws).
+Secrets are not in the repo. The pipeline takes the Jenkins credentials `platform-postgres` and `platform-minio`
+(username/password) via `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh)
+only reads `.env` when run by hand. This pipeline has run on Jenkins EC2 (`stream-features`, Flink SQL run #2 and PyFlink run #7 both green), see [CI/CD](cicd.md#on-aws).
 
-## Bằng chứng
+## Evidence
 
-Lần chạy local (fixture 15 đơn / 2 SKU):
+Local run (fixture of 15 orders / 2 SKUs):
 
-- Warehouse: bảng `warehouse_lifecycle.fact_order_lines` có 30 line, mỗi line ánh xạ `line_id` sang `sku-A` hoặc `sku-B`.
-- Flink job `ml-sku-return-24h`: **RUNNING** (job streaming, không tự dừng).
-- Pusher in ra `pushed 72 rows, last 2026-02-05 10:00:00+00:00`. Consumer group `feast-pusher` có lag = 0
-  (lag là số tin Kafka chưa đọc; 0 nghĩa là đã đọc hết).
-- Offline: `sku_return_24h.parquet` có 72 dòng. Online: `sku-A = 5`, `sku-B = None`. Kết quả `None` là đúng, vì
-  sku-B không có Return approved nào.
-- **Kiểm tra lại bằng cách đếm tay**: script tự đếm từ file JSONL gốc (bỏ dòng trùng `source_event_id`, tra SKU
-  từ PostgreSQL, đếm trong 24 giờ trước mỗi mốc giờ) → cả 72 dòng kết quả đều khớp, không lệch.
-- Cửa sổ cuối dừng ở 02-05 10:00 vì watermark chỉ tiến khi có tin mới (luồng không tự kết thúc).
+- Warehouse: table `warehouse_lifecycle.fact_order_lines` has 30 lines, each mapping `line_id` to `sku-A` or `sku-B`.
+- Flink job `ml-sku-return-24h`: **RUNNING** (a streaming job, it does not stop by itself).
+- The pusher prints `pushed 72 rows, last 2026-02-05 10:00:00+00:00`. Consumer group `feast-pusher` has lag = 0
+  (lag is the number of unread Kafka messages; 0 means everything has been read).
+- Offline: `sku_return_24h.parquet` has 72 rows. Online: `sku-A = 5`, `sku-B = None`. The `None` result is correct, because
+  sku-B has no approved Returns.
+- **Re-checked by manual counting**: a script counts from the source JSONL file (dropping duplicate `source_event_id` rows, looking up SKUs
+  from PostgreSQL, counting within the 24 hours before each hour mark) → all 72 result rows match, none differ.
+- The final window stops at 02-05 10:00 because the watermark only advances when new messages arrive (the stream does not end by itself).
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

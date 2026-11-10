@@ -1,17 +1,17 @@
 # ML Platform
 
-ML Platform quản lý feature và vòng đời mô hình dự đoán rủi ro Return hoặc Refund cho Seller.
+The ML Platform manages features and the lifecycle of the model that predicts Return-or-Refund risk for the Seller.
 
-| Phạm vi | Code / cấu hình | Tài liệu |
+| Scope | Code / config | Docs |
 |---|---|---|
-| Feature offline và online | `feature_repo/`, `infra/k8s/feature-store/` | [Feast](../feature_store.md), [stream feature](../stream_features.md) |
-| Training và model registry | `ml/`, `infra/k8s/ml/` | [Training](../training_pipeline.md) |
-| Model serving và drift | `ml/`, `infra/k8s/ml/` | [Serving](../ml_inference_service.md), [drift](../drift_monitoring.md) |
-| API phục vụ feature và dự đoán | `serving/`, `infra/helm/feature-api/` | [Web API](../web_api_mcp.md) |
-| Vận hành dùng chung | `infra/k8s/observability/`, `ci/jenkins/` | [Quan sát](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
+| Offline and online features | `feature_repo/`, `infra/k8s/feature-store/` | [Feast](../feature_store.md), [stream features](../stream_features.md) |
+| Training and model registry | `ml/`, `infra/k8s/ml/` | [Training](../training_pipeline.md) |
+| Model serving and drift | `ml/`, `infra/k8s/ml/` | [Serving](../ml_inference_service.md), [drift](../drift_monitoring.md) |
+| API serving features and predictions | `serving/`, `infra/helm/feature-api/` | [Web API](../web_api_mcp.md) |
+| Shared operations | `infra/k8s/observability/`, `ci/jenkins/` | [Observability](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
 
-[Kiến trúc ML + LLM Platform](../../diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Evidence ML Platform / LLM Platform](ml_llm_platform_evidence.md).
+[ML + LLM Platform architecture](../../diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).
 
-Feature lấy từ [Data Platform](../../data-platform/reference/data_platform.md); dự đoán và feature được cung cấp cho [LLM Platform](llm_platform.md) qua API công cụ. Hạ tầng vận hành phục vụ cả hai platform.
+Features come from the [Data Platform](../../data-platform/reference/data_platform.md); predictions and features are provided to the [LLM Platform](llm_platform.md) through the tool API. The operations infrastructure serves both platforms.
 
-[Mục lục tài liệu](../../README.md) · [Data & AI Platform](../../../README.md)
+[Docs index](../../README.md) · [Data & AI Platform](../../../README.md)

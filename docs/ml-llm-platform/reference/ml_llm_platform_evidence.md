@@ -1,83 +1,83 @@
 # ML Platform / LLM Platform — evidence
 
-> **Trạng thái cuối cùng trên AWS:** [kiểm kê rubric × cloud](../../shared/aws_validation.md). Bảng dưới là bản local (đối chứng); các dòng đã có kết quả AWS ghi **Có trên AWS** kèm link.
+> **Final status on AWS:** [AWS validation status](../../shared/aws_validation.md). The table below is the local version (for comparison); rows that have AWS results are marked **On AWS** with a link.
 
-Các ghi nhận trong bảng dưới thuộc môi trường local (`kind` + Docker Compose). Cột giới hạn phân biệt kết quả chạy, artifact cấu hình và việc chưa kiểm chứng. Bằng chứng AWS mới hơn nằm trong các mục "Trên AWS" / "Trên EKS" của tài liệu thành phần và [kiểm kê rubric × cloud](../../shared/aws_validation.md), gồm [CI/CD](../cicd.md#trên-aws), [agent eval](../agent_evaluation.md#trên-aws) và [drift](../drift_monitoring.md#trên-aws-pipeline-a--2026-10-31).
+The records in the table below come from the local environment (`kind` + Docker Compose). The limitations column distinguishes run results, configuration artifacts and things not yet verified. Newer AWS evidence lives in the "On AWS" / "On EKS" sections of the component docs and in the [AWS validation status](../../shared/aws_validation.md), including [CI/CD](../cicd.md#on-aws), [agent eval](../agent_evaluation.md#on-aws) and [drift](../drift_monitoring.md#on-aws-pipeline-a-2026-10-31).
 
-Receipt, log và ảnh gốc giữ nguyên định danh của môi trường đã chạy. Cấu hình hiện hành dùng tiền tố `platform`; các kết quả lịch sử chưa được chạy lại sau đổi tên.
+Receipts, logs and original screenshots keep the identifiers of the environment they ran in. The current configuration uses the `platform` prefix; historical results have not been rerun since the rename.
 
-| Thành phần | Ghi nhận local | Evidence / artifact | Giới hạn |
+| Component | Local record | Evidence / artifact | Limitations |
 |---|---|---|---|
-| LLM inference platform + benchmark | Một phần | llama.cpp (thay llm-d) — [agents](llm_platform_agents.md) | AWS: llama.cpp Qwen 1,5B CPU trên EKS, bench 6/3/4 luồng — [agents](llm_platform_agents.md). llm-d cần GPU nên không dùng |
-| Custom LLM model | Một phần | Qwen2.5 GGUF tự host — [agents](llm_platform_agents.md) | Dùng GGUF có sẵn; chưa có bằng chứng fine-tuning riêng |
-| agentgateway + security/policy | Đã ghi nhận | API key, rate limit, mcpAuthorization — [agents](llm_platform_agents.md) | Theo phạm vi tài liệu được dẫn |
-| Benchmark + tối ưu model server | Đã ghi nhận | config B: req/s 0,475→0,578, p95 9,56→7,0 s — [evidence](../../evidence/llm-benchmark-20261021.jsonl) | Theo phạm vi tài liệu được dẫn |
-| Global ModelConfig qua gateway | Đã ghi nhận | `default-model-config` → agentgateway `/v1` — [agents](llm_platform_agents.md) | Theo phạm vi tài liệu được dẫn |
-| Agent registry | Đã ghi nhận | agentregistry 0.4.0 + route `registry.` — [gateway](../routing_gateway.md) | ảnh UI |
-| RAG pipeline Airflow → Feast | Đã ghi nhận | DAG `ml_rag_ingest` chạy thật — [rag](../rag_pipeline.md) | ảnh Airflow |
-| Data governance RAG (lineage) | **Có trên AWS** | bước publish DataHub có sẵn trong DAG | AWS [lineage DataHub](../../evidence/aws/datahub-rag-lineage-20261031.png) — [RAG](../rag_pipeline.md) |
-| Materialize offline → online (Airflow) | Đã ghi nhận | DAG `ml_feature_materialize`, tăng dần 2 lần — [feature-store](../feature_store.md) | ảnh Airflow |
-| Stream feature → offline + online | Đã ghi nhận | Flink → Kafka → feast-pusher, 72/72 khớp oracle — [stream-feature](../stream_features.md) | ảnh Flink UI |
-| Training Pipeline Kubeflow gồm các bước | Đã ghi nhận | 5 bước SUCCEEDED — [training](../training_pipeline.md) | ảnh KFP |
-| MLflow version model + data, tag | Đã ghi nhận | v3 `production`, tag `latest`, sha256 data — [training](../training_pipeline.md) | ảnh MLflow |
-| KServe model-inside-image | Đã ghi nhận | `return-risk` READY, predict OK — [serving](../ml_inference_service.md) | ảnh pod + curl |
-| FastAPI + pydantic + healthcheck | Đã ghi nhận | [web-api](../web_api_mcp.md) | Theo phạm vi tài liệu được dẫn |
-| Async concurrent | Đã ghi nhận | `asyncio.gather` theo view — [web-api](../web_api_mcp.md) | Theo phạm vi tài liệu được dẫn |
-| MCP tool helm + rolling + fallback | Đã ghi nhận | helm `--atomic` — [web-api](../web_api_mcp.md) | Theo phạm vi tài liệu được dẫn |
-| Agent multi-replica + KEDA | Đã ghi nhận | data-agent 2→3→2 — [evidence](../../evidence/keda-data-agent-20261021.txt) | Theo phạm vi tài liệu được dẫn |
-| Agent trong Sandbox | **Có trên AWS** | kagent 0.10 chạy Agent trong sandbox qua Agent Substrate (gVisor, valkey ×6, rustfs) — quá nặng cho kind 14 GB; hiện có: Agent không gọi được LLM/tool/Agent khác nếu không qua agentgateway có API key + `mcpAuthorization` — [agents](llm_platform_agents.md) | AWS Agent Substrate trên EKS — [ảnh](../../evidence/aws/substrate-sandbox-agent-ui-20261031.png) |
-| Publish agent lên registry | Đã ghi nhận | `publish_agentregistry.sh` — [agents](llm_platform_agents.md) | Theo phạm vi tài liệu được dẫn |
-| Agent 2: online feature + predict + RAG | Đã ghi nhận | model-agent gọi KServe `return-risk` + RAG — [agents](llm_platform_agents.md), [serving](../ml_inference_service.md) | ảnh chat |
-| MCP gateway + policy | Đã ghi nhận | agentgateway `/mcp` — [agents](llm_platform_agents.md) | Theo phạm vi tài liệu được dẫn |
-| A2A gateway + policy | Đã ghi nhận | route theo `x-kagent-host` — [agents](llm_platform_agents.md) | Theo phạm vi tài liệu được dẫn |
-| Coordinator multi-replica + scale | Đã ghi nhận | KEDA min 2 / max 3 theo request A2A ở gateway: 2→3→2 pod — [evidence](../../evidence/keda-coordinator-20261021.txt), [`coordinator-keda.yaml`](../../../infra/k8s/agents/coordinator-keda.yaml) | ảnh kagent UI chat |
-| Publish coordinator lên registry | Đã ghi nhận | [agents](llm_platform_agents.md) | Theo phạm vi tài liệu được dẫn |
-| Warm Up / Agent Fleet (substrate) | **Có trên AWS** | Agent Substrate (kagent `controller.substrate`, WorkerPool gVisor, snapshot/rehydrate agent rảnh) cần ate-system ~2–3 GB RAM — không chạy được cạnh KFP/LLM trên máy 14 GB; local thay bằng scale-to-0 có kiểm soát (KEDA pause, scale qwen 0) | AWS 6 Agent / 1 worker — [ảnh](../../evidence/aws/substrate-warmup-6-agents-1-worker-20261031.png) |
-| Unit test coverage | Đã ghi nhận | 85 test, `serving/app.py` 98% (fixture + MagicMock/AsyncMock + httpx MockTransport) — [evidence](../../evidence/serving-coverage-20261021.txt), [ảnh: 86 test, `app.py` 98%, tổng 96%](../../evidence/serving-coverage-20261031.png), [`test_app.py`](../../../serving/tests/test_app.py) | Coverage theo snapshot của báo cáo |
-| Equivalence partitioning / BVA | Đã ghi nhận | parametrize biên — `tests/unit/test_serve.py`, `test_agent_eval.py`, [web-api](../web_api_mcp.md) | Theo phạm vi tài liệu được dẫn |
-| Mutation testing | Đã ghi nhận | mutmut — [web-api](../web_api_mcp.md) | Theo phạm vi tài liệu được dẫn |
-| Property-based (hypothesis) | Đã ghi nhận | model: [`tests/unit/test_model_properties.py`](../../../tests/unit/test_model_properties.py) (dự đoán idempotent, train lại cùng seed ra cùng model, split không lọt tương lai; hypothesis tìm ra ca test một-lớp) + Web API: `test_idempotent` (Hypothesis) — gọi lại cùng request và gửi lặp SKU ra cùng kết quả, [`serving/tests/test_app.py`](../../../serving/tests/test_app.py) | Theo phạm vi tài liệu được dẫn |
-| Load test locust (HTML) | Đã ghi nhận | [web-api](../web_api_mcp.md) | Theo phạm vi tài liệu được dẫn |
-| CI/CD RAG pipeline | **Có trên AWS** | `ci/jenkins/rag-pipeline.Jenkinsfile`: test → build → **push registry** → deploy → chạy DAG. Image đi qua **registry local** `localhost:5001` (Jenkins push → k8s pull; đã kiểm pod Feature API kéo `localhost:5001/platform-feature-api:<sha>`) — [cicd](../cicd.md). | AWS Jenkins EC2 xanh — [ảnh](../../evidence/aws/jenkins-rag-pipeline-20261031.png) |
-| CI/CD MCP + agent (+ Langfuse prompt) | **Có trên AWS** | `feature-api-agents.Jenkinsfile`: test → build → **push registry** → helm `--atomic` → **sync prompt từ Langfuse** → deploy Agent → smoke 4 tool → **Eval agent** (dưới ngưỡng 0,95 ⇒ build đỏ). Langfuse v2 giữ 3 prompt (label production); Agent đọc qua `systemMessageFrom` ConfigMap; đổi prompt v2 trên Langfuse ⇒ Agent nhận sau sync (đã kiểm) — [agents](llm_platform_agents.md#system-prompt-từ-langfuse) | AWS Jenkins EC2 xanh, eval 12/12 — [ảnh](../../evidence/aws/jenkins-feature-api-agents-20261031.png) |
-| CI/CD coordinator | Một phần | `coordinator.Jenkinsfile`: validate → sync prompt Langfuse → deploy → smoke A2A qua gateway → **Eval agent** | AWS deploy xanh, eval timeout (LLM CPU) — [CI/CD](../cicd.md) |
-| CI/CD stream feature jobs | **Có trên AWS** | `stream-features.Jenkinsfile`: test → build → **push registry** → deploy feast-pusher theo SHA — [stream-feature](../stream_features.md) | AWS Jenkins EC2 xanh — [ảnh](../../evidence/aws/jenkins-stream-features-20261031.png) |
-| Metric UI sau gateway | Đã ghi nhận | `metrics.` + `grafana.` — [gateway](../routing_gateway.md) | Theo phạm vi tài liệu được dẫn |
-| Log UI sau gateway | Đã ghi nhận | Loki qua Grafana Explore — [observability](../observability.md) | Theo phạm vi tài liệu được dẫn |
-| Trace UI sau gateway | Đã ghi nhận | `traces.` (Jaeger) — [gateway](../routing_gateway.md) | Theo phạm vi tài liệu được dẫn |
-| UI test agent | Đã ghi nhận | `agent.` (kagent UI) | Theo phạm vi tài liệu được dẫn |
-| UI agent registry | Đã ghi nhận | `registry.` | Theo phạm vi tài liệu được dẫn |
-| Basic auth + rate limit | Đã ghi nhận | 401/200/429 — [gateway](../routing_gateway.md) | Theo phạm vi tài liệu được dẫn |
-| Domain + HTTPS Web API | **Có trên AWS** | sslip.io + CA nội bộ; Let's Encrypt DNS-01 qua DuckDNS đã chuẩn bị, mặc định tắt (`scripts/setup/setup_letsencrypt.sh`) — [gateway](../routing_gateway.md) | AWS: `api.*.sslip.io`, cert Let's Encrypt (HTTP-01) — [gateway](../routing_gateway.md) |
-| Terraform cloud services | **Có trên AWS** | [Terraform AWS](../../../infra/aws/terraform/README.md): EC2/VPC/S3/IAM; [IaC](../iac.md) | AWS: EC2/VPC/S3/IAM + EKS, ảnh `terraform plan` — [IaC](../iac.md) |
-| Ansible deploy VM | **Có trên AWS** | [Ansible AWS](../../../infra/aws/ansible/README.md), [IaC](../iac.md) (phần Data Platform) | AWS: ảnh `PLAY RECAP` trên EC2 — [IaC](../iac.md) |
-| Web API metrics | Đã ghi nhận | feature-api `/metrics`; KServe `return_risk_*` — [serving](../ml_inference_service.md) | Theo phạm vi tài liệu được dẫn |
-| CPU/RAM/disk/network | Đã ghi nhận | Prometheus + Grafana — [observability](../observability.md) | Theo phạm vi tài liệu được dẫn |
-| Logs | Đã ghi nhận | Loki + Fluent Bit — [observability](../observability.md) | Theo phạm vi tài liệu được dẫn |
-| Traces | Đã ghi nhận | agentgateway/kagent OTLP → Jaeger | Theo phạm vi tài liệu được dẫn |
-| LLM telemetry (token, TTFT, PII) | Đã ghi nhận | token in/out/tổng mỗi request, thời gian 1 lượt, **TTFT** (`gen_ai_server_time_to_first_token`), **PII**: guardrail agentgateway chặn email/thẻ/SSN (403), `guardrail_checks_total{action}` — dashboard "Data & AI Platform — Agents, LLM, MCP", [observability](../observability.md) | Ảnh AWS: [TTFT/PII](../../evidence/aws/grafana-llm-ttft-pii-20261030.png), [token](../../evidence/aws/grafana-tokens-per-request-20261031.png) |
-| Agent telemetry (call agent/tool, lỗi) | Đã ghi nhận | lượt gọi mỗi Agent (`agentgateway_requests_total{route=a2a-*}`), mỗi tool (`agentgateway_mcp_requests_total`), **lỗi mỗi tool** (`mcp_tool_calls_total{tool,outcome}` trong Feature API) — dashboard "Data & AI Platform — Agents, LLM, MCP" | Ảnh AWS: [Agent/MCP](../../evidence/aws/grafana-agents-mcp-gateway-20261030.png), [tool outcome](../../evidence/aws/grafana-mcp-tool-outcome-20261031.png) |
-| A/B agent khác model config | Đã ghi nhận | data-agent vs data-agent-b — [ab-test](../ab_testing.md) | Theo phạm vi tài liệu được dẫn |
-| A/B hai bản LLM | Đã ghi nhận | `platform-chat` 1:1 — [ab-test](../ab_testing.md) | Theo phạm vi tài liệu được dẫn |
-| Vault | Đã ghi nhận | [vault](../security.md) | Theo phạm vi tài liệu được dẫn |
-| eval harness agent | Đã ghi nhận | A 100% vs B 91,7%; cổng chạy trong Jenkins (stage `Eval agent`, `scripts/run/eval_agent_ci.sh`) — [agent-eval](../agent_evaluation.md) | ảnh Stage View có stage Eval |
-| drift monitoring | Đã ghi nhận | Evidently, Sale event alert — [drift](../drift_monitoring.md) | Theo phạm vi tài liệu được dẫn |
+| LLM inference platform + benchmark | Partial | llama.cpp (instead of llm-d) — [agents](llm_platform_agents.md) | AWS: llama.cpp Qwen 1.5B CPU on EKS, benchmark at 6/3/4 threads — [agents](llm_platform_agents.md). llm-d needs a GPU, so it is not used |
+| Custom LLM model | Partial | Self-hosted Qwen2.5 GGUF — [agents](llm_platform_agents.md) | Uses an off-the-shelf GGUF; no evidence of custom fine-tuning yet |
+| agentgateway + security/policy | Recorded | API key, rate limit, mcpAuthorization — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
+| Benchmark + model server tuning | Recorded | config B: req/s 0.475→0.578, p95 9.56→7.0 s — [evidence](../../evidence/llm-benchmark-20261021.jsonl) | Within the scope of the linked doc |
+| Global ModelConfig through the gateway | Recorded | `default-model-config` → agentgateway `/v1` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
+| Agent registry | Recorded | agentregistry 0.4.0 + route `registry.` — [gateway](../routing_gateway.md) | UI screenshot |
+| RAG pipeline Airflow → Feast | Recorded | DAG `ml_rag_ingest` actually ran — [rag](../rag_pipeline.md) | Airflow screenshot |
+| RAG data governance (lineage) | **On AWS** | DataHub publish step built into the DAG | AWS [DataHub lineage](../../evidence/aws/datahub-rag-lineage-20261031.png) — [RAG](../rag_pipeline.md) |
+| Materialize offline → online (Airflow) | Recorded | DAG `ml_feature_materialize`, incremental twice — [feature-store](../feature_store.md) | Airflow screenshot |
+| Stream features → offline + online | Recorded | Flink → Kafka → feast-pusher, 72/72 match the oracle — [stream-feature](../stream_features.md) | Flink UI screenshot |
+| Kubeflow Training Pipeline with steps | Recorded | 5 steps SUCCEEDED — [training](../training_pipeline.md) | KFP screenshot |
+| MLflow model + data versioning, tags | Recorded | v3 `production`, tag `latest`, data sha256 — [training](../training_pipeline.md) | MLflow screenshot |
+| KServe model-inside-image | Recorded | `return-risk` READY, predict OK — [serving](../ml_inference_service.md) | pod screenshot + curl |
+| FastAPI + pydantic + healthcheck | Recorded | [web-api](../web_api_mcp.md) | Within the scope of the linked doc |
+| Async concurrency | Recorded | `asyncio.gather` per view — [web-api](../web_api_mcp.md) | Within the scope of the linked doc |
+| MCP tool helm + rolling + fallback | Recorded | helm `--atomic` — [web-api](../web_api_mcp.md) | Within the scope of the linked doc |
+| Agent multi-replica + KEDA | Recorded | data-agent 2→3→2 — [evidence](../../evidence/keda-data-agent-20261021.txt) | Within the scope of the linked doc |
+| Agent in a Sandbox | **On AWS** | kagent 0.10 runs Agents in a sandbox through Agent Substrate (gVisor, valkey ×6, rustfs) — too heavy for 14 GB kind; what exists locally: an Agent cannot call the LLM, tools or other Agents except through agentgateway with an API key + `mcpAuthorization` — [agents](llm_platform_agents.md) | AWS Agent Substrate on EKS — [screenshot](../../evidence/aws/substrate-sandbox-agent-ui-20261031.png) |
+| Publish agent to the registry | Recorded | `publish_agentregistry.sh` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
+| Agent 2: online features + predict + RAG | Recorded | model-agent calls KServe `return-risk` + RAG — [agents](llm_platform_agents.md), [serving](../ml_inference_service.md) | chat screenshot |
+| MCP gateway + policy | Recorded | agentgateway `/mcp` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
+| A2A gateway + policy | Recorded | routing by `x-kagent-host` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
+| Coordinator multi-replica + scaling | Recorded | KEDA min 2 / max 3 on A2A requests at the gateway: 2→3→2 pods — [evidence](../../evidence/keda-coordinator-20261021.txt), [`coordinator-keda.yaml`](../../../infra/k8s/agents/coordinator-keda.yaml) | kagent UI chat screenshot |
+| Publish coordinator to the registry | Recorded | [agents](llm_platform_agents.md) | Within the scope of the linked doc |
+| Agent fleet / warm pool (substrate) | **On AWS** | Agent Substrate (kagent `controller.substrate`, gVisor WorkerPool, snapshot/rehydrate of idle agents) needs ate-system ~2–3 GB RAM — cannot run next to KFP/LLM on a 14 GB machine; locally replaced by controlled scale-to-0 (KEDA pause, scale qwen to 0) | AWS 6 Agents / 1 worker — [screenshot](../../evidence/aws/substrate-warmup-6-agents-1-worker-20261031.png) |
+| Unit test coverage | Recorded | 85 tests, `serving/app.py` 98% (fixtures + MagicMock/AsyncMock + httpx MockTransport) — [evidence](../../evidence/serving-coverage-20261021.txt), [screenshot: 86 tests, `app.py` 98%, total 96%](../../evidence/serving-coverage-20261031.png), [`test_app.py`](../../../serving/tests/test_app.py) | Coverage as of the report snapshot |
+| Equivalence partitioning / BVA | Recorded | boundary parametrize — `tests/unit/test_serve.py`, `test_agent_eval.py`, [web-api](../web_api_mcp.md) | Within the scope of the linked doc |
+| Mutation testing | Recorded | mutmut — [web-api](../web_api_mcp.md) | Within the scope of the linked doc |
+| Property-based (hypothesis) | Recorded | model: [`tests/unit/test_model_properties.py`](../../../tests/unit/test_model_properties.py) (idempotent prediction, retraining with the same seed gives the same model, the split leaks no future data; hypothesis found a single-class test case) + Web API: `test_idempotent` (Hypothesis) — repeating the same request and sending duplicate SKUs give the same result, [`serving/tests/test_app.py`](../../../serving/tests/test_app.py) | Within the scope of the linked doc |
+| Locust load test (HTML) | Recorded | [web-api](../web_api_mcp.md) | Within the scope of the linked doc |
+| CI/CD RAG pipeline | **On AWS** | `ci/jenkins/rag-pipeline.Jenkinsfile`: test → build → **push registry** → deploy → run DAG. Images go through the **local registry** `localhost:5001` (Jenkins pushes → k8s pulls; verified that the Feature API pod pulls `localhost:5001/platform-feature-api:<sha>`) — [cicd](../cicd.md). | AWS Jenkins EC2 green — [screenshot](../../evidence/aws/jenkins-rag-pipeline-20261031.png) |
+| CI/CD MCP + agent (+ Langfuse prompt) | **On AWS** | `feature-api-agents.Jenkinsfile`: test → build → **push registry** → helm `--atomic` → **sync prompts from Langfuse** → deploy Agents → smoke 4 tools → **Eval agent** (below the 0.95 threshold ⇒ build red). Langfuse v2 holds 3 prompts (label production); Agents read them through the `systemMessageFrom` ConfigMap; changing a prompt to v2 in Langfuse ⇒ Agents pick it up after the sync (verified) — [agents](llm_platform_agents.md#system-prompts-from-langfuse) | AWS Jenkins EC2 green, eval 12/12 — [screenshot](../../evidence/aws/jenkins-feature-api-agents-20261031.png) |
+| CI/CD coordinator | Partial | `coordinator.Jenkinsfile`: validate → sync Langfuse prompts → deploy → A2A smoke through the gateway → **Eval agent** | AWS deploy green, eval timeout (CPU LLM) — [CI/CD](../cicd.md) |
+| CI/CD stream feature jobs | **On AWS** | `stream-features.Jenkinsfile`: test → build → **push registry** → deploy feast-pusher by SHA — [stream-feature](../stream_features.md) | AWS Jenkins EC2 green — [screenshot](../../evidence/aws/jenkins-stream-features-20261031.png) |
+| Metric UI behind the gateway | Recorded | `metrics.` + `grafana.` — [gateway](../routing_gateway.md) | Within the scope of the linked doc |
+| Log UI behind the gateway | Recorded | Loki through Grafana Explore — [observability](../observability.md) | Within the scope of the linked doc |
+| Trace UI behind the gateway | Recorded | `traces.` (Jaeger) — [gateway](../routing_gateway.md) | Within the scope of the linked doc |
+| Agent test UI | Recorded | `agent.` (kagent UI) | Within the scope of the linked doc |
+| Agent registry UI | Recorded | `registry.` | Within the scope of the linked doc |
+| Basic auth + rate limit | Recorded | 401/200/429 — [gateway](../routing_gateway.md) | Within the scope of the linked doc |
+| Domain + HTTPS Web API | **On AWS** | sslip.io + internal CA; Let's Encrypt DNS-01 via DuckDNS is prepared but off by default (`scripts/setup/setup_letsencrypt.sh`) — [gateway](../routing_gateway.md) | AWS: `api.*.sslip.io`, Let's Encrypt cert (HTTP-01) — [gateway](../routing_gateway.md) |
+| Terraform cloud services | **On AWS** | [Terraform AWS](../../../infra/aws/terraform/README.md): EC2/VPC/S3/IAM; [IaC](../iac.md) | AWS: EC2/VPC/S3/IAM + EKS, `terraform plan` screenshot — [IaC](../iac.md) |
+| Ansible VM deploy | **On AWS** | [Ansible AWS](../../../infra/aws/ansible/README.md), [IaC](../iac.md) (Data Platform part) | AWS: `PLAY RECAP` screenshot on EC2 — [IaC](../iac.md) |
+| Web API metrics | Recorded | feature-api `/metrics`; KServe `return_risk_*` — [serving](../ml_inference_service.md) | Within the scope of the linked doc |
+| CPU/RAM/disk/network | Recorded | Prometheus + Grafana — [observability](../observability.md) | Within the scope of the linked doc |
+| Logs | Recorded | Loki + Fluent Bit — [observability](../observability.md) | Within the scope of the linked doc |
+| Traces | Recorded | agentgateway/kagent OTLP → Jaeger | Within the scope of the linked doc |
+| LLM telemetry (tokens, TTFT, PII) | Recorded | tokens in/out/total per request, per-turn duration, **TTFT** (`gen_ai_server_time_to_first_token`), **PII**: the agentgateway guardrail blocks email/card/SSN (403), `guardrail_checks_total{action}` — dashboard "Data & AI Platform — Agents, LLM, MCP", [observability](../observability.md) | AWS screenshots: [TTFT/PII](../../evidence/aws/grafana-llm-ttft-pii-20261030.png), [tokens](../../evidence/aws/grafana-tokens-per-request-20261031.png) |
+| Agent telemetry (agent/tool calls, errors) | Recorded | calls per Agent (`agentgateway_requests_total{route=a2a-*}`), per tool (`agentgateway_mcp_requests_total`), **errors per tool** (`mcp_tool_calls_total{tool,outcome}` in the Feature API) — dashboard "Data & AI Platform — Agents, LLM, MCP" | AWS screenshots: [Agent/MCP](../../evidence/aws/grafana-agents-mcp-gateway-20261030.png), [tool outcome](../../evidence/aws/grafana-mcp-tool-outcome-20261031.png) |
+| A/B agents with different model configs | Recorded | data-agent vs data-agent-b — [ab-test](../ab_testing.md) | Within the scope of the linked doc |
+| A/B of two LLM variants | Recorded | `platform-chat` 1:1 — [ab-test](../ab_testing.md) | Within the scope of the linked doc |
+| Vault | Recorded | [vault](../security.md) | Within the scope of the linked doc |
+| Agent eval harness | Recorded | A 100% vs B 91.7%; the gate runs in Jenkins (stage `Eval agent`, `scripts/run/eval_agent_ci.sh`) — [agent-eval](../agent_evaluation.md) | Stage View screenshot with the Eval stage |
+| Drift monitoring | Recorded | Evidently, Sale Event alert — [drift](../drift_monitoring.md) | Within the scope of the linked doc |
 
-Các dòng “Đã ghi nhận” trỏ tới báo cáo hoặc receipt tại thời điểm chạy, không xác nhận service đang hoạt động. Tài liệu thành phần có lệnh tái lập và phần thiếu ảnh/log; không dùng trạng thái bảng này thay kết quả chạy mới.
+Rows marked "Recorded" point to a report or receipt at the time of the run; they do not confirm the service is running. The component docs contain reproduction commands and note missing screenshots/logs; do not use the status in this table in place of a fresh run.
 
-## Unit test coverage Web API
+## Web API unit test coverage
 
-`pytest serving/tests --cov=serving`: 86 test pass, `serving/app.py` 98% (4 dòng chưa phủ: `load_store` nạp Feast thật,
-và nhánh lỗi HTTP của tool `get_policy_chunks`), tổng 96% > 90%. `locustfile.py` 0% vì là kịch bản load test, không phải code
-ứng dụng. Test dùng fixture + `MagicMock`/`AsyncMock` thay Feast, `httpx.MockTransport` thay KServe:
+`pytest serving/tests --cov=serving`: 86 tests pass, `serving/app.py` 98% (4 uncovered lines: `load_store` loading the real Feast,
+and the HTTP error branch of the `get_policy_chunks` tool), total 96% > 90%. `locustfile.py` is 0% because it is a load-test script, not application
+code. Tests use fixtures + `MagicMock`/`AsyncMock` in place of Feast, and `httpx.MockTransport` in place of KServe:
 [`serving/tests/test_app.py`](../../../serving/tests/test_app.py).
 
 ![pytest coverage serving: 86 passed, app.py 98%, TOTAL 96%](../../evidence/serving-coverage-20261031.png)
 
-## Tái lập và bổ sung evidence
+## Reproducing and adding evidence
 
-- Chạy lại CI/CD từ revision cần kiểm chứng, lưu Stage View, image digest và kết quả smoke/eval.
-- Sandbox và Warm Up đã có ảnh EKS: [SandboxAgent gọi tool](../../evidence/aws/substrate-sandbox-agent-ui-20261031.png), [6 Agent / 1 worker](../../evidence/aws/substrate-warmup-6-agents-1-worker-20261031.png). LLM đang dùng Qwen 1,5B trên CPU; không suy thành proof GPU.
-- [AWS EC2 + S3](../../shared/aws_deploy.md) phục vụ Data Platform; ML/LLM chạy trên EKS `platform-apps`. Trạng thái AWS hiện tại xem [kiểm kê](../../shared/aws_validation.md); bảng local phía trên giữ nguyên phạm vi lịch sử.
+- Rerun CI/CD from the revision to verify, and save the Stage View, image digest and smoke/eval results.
+- Sandbox and the agent fleet warm pool have EKS screenshots: [SandboxAgent calling a tool](../../evidence/aws/substrate-sandbox-agent-ui-20261031.png), [6 Agents / 1 worker](../../evidence/aws/substrate-warmup-6-agents-1-worker-20261031.png). The LLM is Qwen 1.5B on CPU; do not read this as GPU proof.
+- [AWS EC2 + S3](../../shared/aws_deploy.md) serves the Data Platform; ML/LLM runs on EKS `platform-apps`. For the current AWS status see the [validation status](../../shared/aws_validation.md); the local table above keeps its historical scope.
 
-[Mục lục tài liệu](../../README.md)
+[Docs index](../../README.md)

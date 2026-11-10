@@ -1,10 +1,10 @@
-# Novel Ideas — Agent Evaluation và Drift Monitoring
+# Agent Evaluation and Drift Monitoring
 
-EDAI-2, dòng 56–57: hai ý tưởng mới và bằng chứng chạy trên AWS.
+An automated Agent eval harness and per-Channel drift monitoring, with evidence from runs on AWS.
 
-| Ý tưởng | Kết quả AWS | Tài liệu |
+| Capability | AWS result | Doc |
 |---|---|---|
-| Bộ chấm Agent tự động (agent eval harness) | Chạy trong Jenkins trên EC2, build `feature-api-agents` #8: đúng 12/12 câu, cổng yêu cầu ≥ 0,95. Có giới hạn về PII và SKU (xem tài liệu). | [Agent Evaluation](agent_evaluation.md) |
-| Phát hiện drift theo Channel (kênh bán) | Job Evidently trên EKS. Phép so `stable` không báo động. Phép so `channel_shift` báo drift ở cột `seller_sku`: khoảng cách JS (Jensen-Shannon) 0,2028, vượt ngưỡng 0,2. | [Drift Monitoring](drift_monitoring.md) |
+| Automated Agent eval harness | Runs in Jenkins on EC2, build `feature-api-agents` #8: 12/12 questions correct, gate requires ≥ 0.95. Has limitations around PII and SKUs (see the doc). | [Agent Evaluation](agent_evaluation.md) |
+| Per-Channel drift detection | Evidently Job on EKS. The `stable` comparison raises no alert. The `channel_shift` comparison reports drift on column `seller_sku`: JS (Jensen-Shannon) distance 0.2028, above the 0.2 threshold. | [Drift Monitoring](drift_monitoring.md) |
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)

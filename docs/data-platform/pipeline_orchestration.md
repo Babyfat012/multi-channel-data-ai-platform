@@ -1,173 +1,173 @@
-# Data Pipeline Orchestration trên AWS
+# Data Pipeline Orchestration on AWS
 
-Trang này ứng với EDAI-1, dòng 22–27 của rubric: cách Airflow điều phối các bước ingest (nạp) và validate (kiểm tra) của ba DAG:
-- **DP1**: nguồn sang Bronze.
-- **DP2**: Bronze sang Silver, rồi Gold và SCD2.
-- **DP3**: Gold sang feature offline.
+This page covers how Airflow orchestrates the ingest and validate steps of three DAGs:
+- **DP1**: sources to Bronze.
+- **DP2**: Bronze to Silver, then Gold and SCD2.
+- **DP3**: Gold to offline features.
 
-Code / cấu hình: [DP1](../../dags/dp1_bronze.py), [DP2](../../dags/dp2_silver.py), [DP3](../../dags/dp3_features.py).
+Code / configuration: [DP1](../../dags/dp1_bronze.py), [DP2](../../dags/dp2_silver.py), [DP3](../../dags/dp3_features.py).
 
-Các kết quả dưới đây lấy từ các lần chạy trên AWS. Chúng chứng minh lần chạy đó đã diễn ra, không có nghĩa dịch vụ hiện vẫn đang bật.
+The results below come from runs on AWS. They prove that those runs happened; they do not mean the services are still running.
 
-## Trên AWS
+## On AWS
 
-Airflow và Spark chạy bằng Docker Compose trên một máy EC2 ở vùng Sydney. Dữ liệu nguồn được đọc từ S3 (file raw) và từ PostgreSQL trên EC2.
-Run_id và các số đo được lưu trong hai file: [receipt AWS](../evidence/aws/data-platform-aws-20261027.json) và
-[manifest validation](../evidence/aws/datahub-validation-aws-20261029.json).
+Airflow and Spark run with Docker Compose on a single EC2 instance in the Sydney region. Source data is read from S3 (raw files) and from PostgreSQL on EC2.
+Run_ids and measurements are stored in two files: the [AWS receipt](../evidence/aws/data-platform-aws-20261027.json) and the
+[validation manifest](../evidence/aws/datahub-validation-aws-20261029.json).
 
-### Connection và Variable trên AWS
+### Connections and Variables on AWS
 
-Airflow có hai chỗ giữ cấu hình:
-- **Connection** giữ thông tin kết nối tới một dịch vụ (host, cổng, user, mật khẩu).
-- **Variable** giữ tham số của pipeline, để đổi nguồn, phạm vi ngày hay bảng đích mà không phải sửa code DAG.
+Airflow has two places that hold configuration:
+- A **Connection** holds the connection details for a service (host, port, user, password).
+- A **Variable** holds a pipeline parameter, so the source, date range or target table can change without editing DAG code.
 
-Bảng dưới mô tả cấu hình hiện có trong repo và cách DAG dùng nó. Bảng này không phải ảnh chụp cấu hình
-của các lần chạy AWS bên dưới (ảnh chụp thật nằm ở phần "Bằng chứng trên AWS").
+The table below describes the configuration in the repo and how the DAGs use it. It is not a screenshot of the configuration
+of the AWS runs below (the real screenshots are in the "Evidence on AWS" part).
 
-| Cấu hình | Vai trò trong DP1–DP3 |
+| Configuration | Role in DP1–DP3 |
 |---|---|
-| Connection `spark_default` | Các task submit Spark dùng `conn_id="spark_default"`; [script setup](../../scripts/setup/setup_airflow.sh) đặt master `spark://spark-master:7077`, deploy mode `client` |
-| Connection `platform_postgres` | DP1 lấy host, port, database, user và password cho nguồn Walmart qua JDBC; [operator](../../dags/platform_spark_operator.py) đọc Connection lúc thực thi rồi chuyển thành biến môi trường cho job |
-| Variable `platform_spark_packages` | Chọn các package Spark cần nạp; Compose AWS cấp giá trị qua `AIRFLOW_VAR_PLATFORM_SPARK_PACKAGES` |
-| Variable `platform_dp1_amazon_source`, `platform_dp1_extra_source_root` | Trỏ đến export trên S3; [Compose AWS](../../docker-compose.aws.yml) đặt lần lượt `s3a://${RAW_BUCKET}/order_snapshots/source-exports/channel=amazon/dataset=orders` và `s3a://${RAW_BUCKET}/order_snapshots/source-exports` |
-| Variable `platform_dp1_amazon_window_days`, `platform_dp1_amazon_window_start` | Điều khiển cửa sổ ngày của Amazon; Compose AWS đặt `window_days=0` để đọc toàn bộ phạm vi, thay cho cửa sổ thử 10 ngày của script setup local |
-| Variable tên bảng `platform_dp1_*_table`, `platform_dp2_*_table`, `platform_dp3_gold_source_table`, `platform_dp3_feature_table` | Xác định bảng Bronze, Silver, Gold, SCD2 và feature cho các task ingest/build/validate tương ứng |
-| Variable `platform_warehouse_name`, `platform_lakekeeper_catalog_uri` | Operator đọc lúc thực thi, chuyển thành `WAREHOUSE_NAME` và `LAKEKEEPER_CATALOG_URI` để Spark truy cập catalog Iceberg |
+| Connection `spark_default` | Spark-submitting tasks use `conn_id="spark_default"`; the [setup script](../../scripts/setup/setup_airflow.sh) sets master `spark://spark-master:7077`, deploy mode `client` |
+| Connection `platform_postgres` | DP1 takes host, port, database, user and password for the Walmart source over JDBC; the [operator](../../dags/platform_spark_operator.py) reads the Connection at execution time and passes it to the job as environment variables |
+| Variable `platform_spark_packages` | Selects the Spark packages to load; Compose AWS provides the value through `AIRFLOW_VAR_PLATFORM_SPARK_PACKAGES` |
+| Variables `platform_dp1_amazon_source`, `platform_dp1_extra_source_root` | Point to the exports on S3; [Compose AWS](../../docker-compose.aws.yml) sets `s3a://${RAW_BUCKET}/order_snapshots/source-exports/channel=amazon/dataset=orders` and `s3a://${RAW_BUCKET}/order_snapshots/source-exports` respectively |
+| Variables `platform_dp1_amazon_window_days`, `platform_dp1_amazon_window_start` | Control Amazon's date window; Compose AWS sets `window_days=0` to read the full range, instead of the 10-day trial window of the local setup script |
+| Table-name Variables `platform_dp1_*_table`, `platform_dp2_*_table`, `platform_dp3_gold_source_table`, `platform_dp3_feature_table` | Define the Bronze, Silver, Gold, SCD2 and feature tables for the corresponding ingest/build/validate tasks |
+| Variables `platform_warehouse_name`, `platform_lakekeeper_catalog_uri` | Read by the operator at execution time and passed as `WAREHOUSE_NAME` and `LAKEKEEPER_CATALOG_URI` so Spark can reach the Iceberg catalog |
 
-Trên AWS đặt `PLATFORM_STORAGE=s3`, nên operator bỏ qua Connection `platform_minio` và Variable
-`platform_minio_internal_endpoint` (hai mục này chỉ dùng cho MinIO ở local).
-Spark và Iceberg lấy credential tạm thời từ IAM role của EC2 qua IMDSv2 (dịch vụ metadata của EC2),
-theo [Compose AWS](../../docker-compose.aws.yml). Vì vậy không cần đặt access key MinIO cho đường S3 này.
-Connection `platform_kafka` dùng cho nhóm task Kafka/CDC, không phải nguồn của các DAG batch DP1–DP3 mô tả ở đây.
+On AWS `PLATFORM_STORAGE=s3` is set, so the operator ignores the Connection `platform_minio` and the Variable
+`platform_minio_internal_endpoint` (these two are only used for MinIO locally).
+Spark and Iceberg get temporary credentials from the EC2 IAM role through IMDSv2 (the EC2 metadata service),
+per [Compose AWS](../../docker-compose.aws.yml). So no MinIO access key is needed for this S3 path.
+The Connection `platform_kafka` is used by the Kafka/CDC task group, not as a source for the batch DAGs DP1–DP3 described here.
 
-**Thứ tự ưu tiên khi Airflow đọc Variable.** Airflow đọc biến môi trường `AIRFLOW_VAR_<TÊN_VIẾT_HOA>` trước,
-rồi mới đến giá trị cùng tên lưu trong metadata DB. Hệ quả:
-- `AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS=0` của container AWS có thể ghi đè giá trị `10` mà script setup đã lưu.
-- Variable cấp qua biến môi trường không hiện trong danh sách Admin → Variables.
-- Sửa giá trị trong UI không thay được giá trị từ biến môi trường, vì biến môi trường được ưu tiên.
+**Precedence when Airflow reads a Variable.** Airflow reads the environment variable `AIRFLOW_VAR_<UPPERCASE_NAME>` first,
+and only then the value of the same name stored in the metadata DB. Consequences:
+- `AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS=0` of the AWS container can override the value `10` stored by the setup script.
+- Variables provided through environment variables do not show in the Admin → Variables list.
+- Editing the value in the UI does not replace the value from the environment variable, because the environment variable takes precedence.
 
-Vì vậy, khi kiểm tra cấu hình thực tế, cần xem cả file Compose lẫn giá trị mà Airflow thực sự đọc ra (resolve).
+So when checking the actual configuration, look at both the Compose file and the value Airflow actually resolves.
 
-**Bằng chứng trên AWS (Airflow trên EC2, mở qua tunnel `127.0.0.1:8081`).**
+**Evidence on AWS (Airflow on EC2, opened through the tunnel `127.0.0.1:8081`).**
 
-Admin → Connections có hai kết nối chính, và danh sách không hiện mật khẩu:
-- `spark_default`: loại `spark`, `spark://spark-master`, cổng 7077.
-- `platform_postgres`: loại `postgres`, host `postgres`, cổng 5432.
+Admin → Connections has two main connections, and the list does not show passwords:
+- `spark_default`: type `spark`, `spark://spark-master`, port 7077.
+- `platform_postgres`: type `postgres`, host `postgres`, port 5432.
 
-![Airflow AWS Admin → Connections: spark_default, platform_postgres và các connection khác](../evidence/aws/airflow-admin-connections.png)
+![Airflow AWS Admin → Connections: spark_default, platform_postgres and other connections](../evidence/aws/airflow-admin-connections.png)
 
-Admin → Variables có các biến của DP1–DP3 (`platform_dp1_*_table`, `platform_dp2_*_table`, `platform_dp3_*`, `platform_spark_packages_aws`, `platform_warehouse_name = platform-aws`, `platform_ml_cutoff`...).
+Admin → Variables has the DP1–DP3 variables (`platform_dp1_*_table`, `platform_dp2_*_table`, `platform_dp3_*`, `platform_spark_packages_aws`, `platform_warehouse_name = platform-aws`, `platform_ml_cutoff`...).
 
-![Airflow AWS Admin → Variables (phần 1): platform_dp1_*, platform_dp2_*](../evidence/aws/airflow-admin-variables-1.png)
+![Airflow AWS Admin → Variables (part 1): platform_dp1_*, platform_dp2_*](../evidence/aws/airflow-admin-variables-1.png)
 
-![Airflow AWS Admin → Variables (phần 2): platform_dp3_*, platform_feast_*, platform_ml_cutoff, platform_warehouse_name](../evidence/aws/airflow-admin-variables-2.png)
+![Airflow AWS Admin → Variables (part 2): platform_dp3_*, platform_feast_*, platform_ml_cutoff, platform_warehouse_name](../evidence/aws/airflow-admin-variables-2.png)
 
-Ví dụ thật cho thấy biến môi trường được ưu tiên hơn giá trị lưu trong DB:
-- UI hiện `platform_feast_redis = platform-control-plane:30379`. Đây là giá trị cũ do script setup lưu.
-- Container lại được cấp `AIRFLOW_VAR_PLATFORM_FEAST_REDIS=10.42.0.208:30379` (IP node EKS sau khi bật lại) từ `.env`/Compose.
-- Lệnh `airflow variables get` trả về giá trị thứ hai này, tức giá trị từ biến môi trường:
+A real example showing that the environment variable takes precedence over the value stored in the DB:
+- The UI shows `platform_feast_redis = platform-control-plane:30379`. This is an old value stored by the setup script.
+- The container, however, gets `AIRFLOW_VAR_PLATFORM_FEAST_REDIS=10.42.0.208:30379` (the EKS node IP after restarting) from `.env`/Compose.
+- `airflow variables get` returns this second value, i.e. the value from the environment variable:
 
-![Terminal EC2: airflow variables get platform_feast_redis = 10.42.0.208:30379, các container Airflow/Spark Healthy](../evidence/aws/airflow-variable-feast-redis-resolved.png)
+![EC2 terminal: airflow variables get platform_feast_redis = 10.42.0.208:30379, Airflow/Spark containers Healthy](../evidence/aws/airflow-variable-feast-redis-resolved.png)
 
-Phần kiểm tra việc tra cứu (lookup) Connection/Variable trong mục tham khảo bên dưới là chạy ở **local**.
+The Connection/Variable lookup check in the reference section below was run **locally**.
 
-### DP1: nguồn → Bronze
+### DP1: sources → Bronze
 
-**Kết quả:** run `manual__2026-10-27T14:58:12+00:00` thành công cả 10/10 task. Với Amazon, số dòng ở nguồn và ở Bronze đều là 108.248.563, không có dòng lỗi.
+**Result:** run `manual__2026-10-27T14:58:12+00:00` succeeded with all 10/10 tasks. For Amazon, the row counts at the source and in Bronze are both 108,248,563, with no invalid rows.
 
-Các task trong [DAG dp1_bronze](../../dags/dp1_bronze.py):
-- `ingest_amazon` đọc file JSONL trên S3.
-- `ingest_walmart` đọc từ PostgreSQL qua JDBC.
-- `ingest_tiktok_shop`, `ingest_shopify`, `ingest_shopee` đọc file export trên S3 của từng kênh.
-- Mỗi `validate_<channel>` chạy ngay sau task ingest của kênh đó. Nó so số dòng giữa nguồn và Bronze, rồi kiểm payload và các cột provenance (nguồn gốc dữ liệu).
+Tasks in the [dp1_bronze DAG](../../dags/dp1_bronze.py):
+- `ingest_amazon` reads JSONL files on S3.
+- `ingest_walmart` reads from PostgreSQL over JDBC.
+- `ingest_tiktok_shop`, `ingest_shopify`, `ingest_shopee` read each Channel's export files on S3.
+- Each `validate_<channel>` runs right after that Channel's ingest task. It compares row counts between the source and Bronze, then checks the payload and the provenance (data origin) columns.
 
-Các task Spark chạy lần lượt, không song song, để giới hạn lượng RAM dùng cùng lúc.
+The Spark tasks run one after another, not in parallel, to limit how much RAM is used at once.
 
-![Airflow DP1: danh sách 10 task màu xanh và cạnh ingest nối validate trong Graph](../evidence/aws/dp1-bronze-graph-20261027.png)
+![Airflow DP1: list of 10 green tasks and the ingest-to-validate edges in Graph](../evidence/aws/dp1-bronze-graph-20261027.png)
 
-![Gantt DP1: các cặp ingest và validate năm Channel chạy lần lượt, trạng thái xanh](../evidence/aws/dp1-bronze-gantt-20261027.png)
+![DP1 Gantt: ingest and validate pairs for the five Channels run one after another, in green](../evidence/aws/dp1-bronze-gantt-20261027.png)
 
-![Log validate_amazon: nguồn và Bronze đều 108.248.563, lỗi 0, DP1 Validate đạt](../evidence/aws/dp1-validate-amazon-log-20261027.png)
+![validate_amazon log: source and Bronze both 108,248,563, errors 0, DP1 Validate passed](../evidence/aws/dp1-validate-amazon-log-20261027.png)
 
-### DP2: Bronze → Silver → Gold và SCD2
+### DP2: Bronze → Silver → Gold and SCD2
 
-**Kết quả:** run `manual__2026-10-27T16:05:58+00:00` thành công cả 14/14 task, sau khi chạy lại validator của Walmart một lần.
-Gold có đúng số Order Line như Silver, và các bước kiểm tra không tìm thấy lỗi nào.
+**Result:** run `manual__2026-10-27T16:05:58+00:00` succeeded with all 14/14 tasks, after rerunning the Walmart validator once.
+Gold has exactly as many Order Lines as Silver, and the checks found no errors.
 
-[DAG dp2_silver](../../dags/dp2_silver.py) có các component sau:
+The [dp2_silver DAG](../../dags/dp2_silver.py) has the following components:
 
-| Component | Vai trò |
+| Component | Role |
 |---|---|
-| `ingest_amazon_silver` | [Parse schema Amazon cũ/mới, explode Order Line và giữ revision mới nhất](../../spark_jobs/silver/build_amazon_order_snapshots.py) |
-| `ingest_walmart_silver` | [Chuẩn hóa dòng JDBC Walmart, dedup theo khóa nguồn](../../spark_jobs/silver/build_walmart_order_snapshots.py) |
-| `ingest_tiktok_shop_silver`, `ingest_shopify_silver`, `ingest_shopee_silver` | [Chuẩn hóa và dedup export của từng Channel](../../spark_jobs/silver/build_file_order_snapshots.py) |
-| `validate_amazon_silver`, `validate_walmart_silver` | [Kiểm số Order Line so nguồn, cột bắt buộc, khóa và run_id](../../spark_jobs/silver/validate_order_snapshots.py) |
-| `validate_tiktok_shop_silver`, `validate_shopify_silver`, `validate_shopee_silver` | [Kiểm Silver của từng kênh nhỏ](../../spark_jobs/silver/validate_file_order_snapshots.py) |
-| `build_gold_order_lines` | [Hợp năm Silver thành fact chung](../../spark_jobs/gold/build_order_snapshot_lines.py) |
-| `build_amazon_order_dim` | [Tạo các phiên bản SCD2 từ snapshot Amazon Bronze](../../spark_jobs/gold/build_amazon_order_status_scd2.py) |
-| `validate_amazon_order_dim` | [Kiểm mỗi Order chỉ có một bản hiện hành, khoảng hiệu lực hợp lệ và khóa từ fact trỏ đúng sang dim](../../spark_jobs/gold/validate_amazon_order_status_scd2.py) |
-| `validate_gold_order_lines` | [So Gold với Silver từng kênh, kiểm lỗi và khóa trùng](../../spark_jobs/gold/validate_order_snapshot_lines.py) |
+| `ingest_amazon_silver` | [Parses the old/new Amazon schema, explodes Order Lines and keeps the latest revision](../../spark_jobs/silver/build_amazon_order_snapshots.py) |
+| `ingest_walmart_silver` | [Normalizes Walmart JDBC rows, dedups on the source key](../../spark_jobs/silver/build_walmart_order_snapshots.py) |
+| `ingest_tiktok_shop_silver`, `ingest_shopify_silver`, `ingest_shopee_silver` | [Normalize and dedup each Channel's export](../../spark_jobs/silver/build_file_order_snapshots.py) |
+| `validate_amazon_silver`, `validate_walmart_silver` | [Check Order Line counts against the source, required columns, keys and run_id](../../spark_jobs/silver/validate_order_snapshots.py) |
+| `validate_tiktok_shop_silver`, `validate_shopify_silver`, `validate_shopee_silver` | [Check Silver for each small Channel](../../spark_jobs/silver/validate_file_order_snapshots.py) |
+| `build_gold_order_lines` | [Merges the five Silver tables into a shared fact](../../spark_jobs/gold/build_order_snapshot_lines.py) |
+| `build_amazon_order_dim` | [Builds SCD2 versions from the Amazon Bronze snapshots](../../spark_jobs/gold/build_amazon_order_status_scd2.py) |
+| `validate_amazon_order_dim` | [Checks that each Order has only one current version, valid validity intervals, and that keys from the fact point correctly to the dim](../../spark_jobs/gold/validate_amazon_order_status_scd2.py) |
+| `validate_gold_order_lines` | [Compares Gold with Silver per Channel, checks errors and duplicate keys](../../spark_jobs/gold/validate_order_snapshot_lines.py) |
 
-Số liệu của lần chạy:
-- Gold và Silver cùng có 227.200.303 Order Line. Không có dòng lỗi, không có khóa trùng.
-- Amazon SCD2 có 106.109.637 bản hiện hành và 1.062.966 bản lịch sử. Mọi kiểm tra đều không có lỗi.
+Numbers from the run:
+- Gold and Silver both have 227,200,303 Order Lines. No invalid rows, no duplicate keys.
+- Amazon SCD2 has 106,109,637 current versions and 1,062,966 historical versions. All checks found no errors.
 
-Gantt vẫn còn một vạch đỏ của `validate_walmart_silver`. Theo receipt, lần đó ổ gốc của máy bị đầy;
-sau khi dọn ổ, task được Clear và chạy lại thì PASS.
-`01:58:43` là duration hiện trên trang Summary. Không nên dùng số này làm thời gian chạy từ đầu đến cuối
-(từ lúc tạo run_id đến lúc validate cuối xong), vì giữa chừng có các lần Clear.
+The Gantt still shows one red bar for `validate_walmart_silver`. According to the receipt, the machine's root disk was full at that time;
+after cleaning up the disk, the task was Cleared and rerun, and it PASSED.
+`01:58:43` is the duration shown on the Summary page. Do not use this number as the end-to-end run time
+(from the creation of the run_id until the last validate finished), because there were Clears along the way.
 
-![Summary DP2: Total success 1, Total Tasks 14 và danh sách task Silver, Gold, SCD2 màu xanh](../evidence/aws/dp2-silver-summary-20261028.png)
+![DP2 Summary: Total success 1, Total Tasks 14 and the list of green Silver, Gold and SCD2 tasks](../evidence/aws/dp2-silver-summary-20261028.png)
 
-![Gantt DP2: validate_walmart_silver có lần đỏ trước lần xanh; các task Gold và SCD2 hoàn tất](../evidence/aws/dp2-silver-gantt-20261028.png)
+![DP2 Gantt: validate_walmart_silver has a red attempt before the green one; Gold and SCD2 tasks completed](../evidence/aws/dp2-silver-gantt-20261028.png)
 
-![Session Manager EC2: log DP2 ghi Silver validate PASS, Gold khớp từng Channel và Amazon SCD2 không lỗi](../evidence/aws/dp2-validate-logs-20261028.png)
+![Session Manager EC2: DP2 log showing Silver validate PASS, Gold matching per Channel and Amazon SCD2 with no errors](../evidence/aws/dp2-validate-logs-20261028.png)
 
-### DP3: Gold → feature offline
+### DP3: Gold → offline features
 
-**Kết quả:** run `manual__2026-10-28T00:05:21.167441+00:00` thành công cả 2/2 task. Bảng feature có đúng 227.200.303 dòng như Gold, và mọi bộ đếm lỗi đều bằng 0.
+**Result:** run `manual__2026-10-28T00:05:21.167441+00:00` succeeded with all 2/2 tasks. The feature table has exactly 227,200,303 rows, the same as Gold, and every error counter is 0.
 
-Hai task trong [DAG dp3_features](../../dags/dp3_features.py):
-- `build_return_features` gọi [job build](../../spark_jobs/gold/build_order_snapshot_return_features.py). Job chỉ lấy những thuộc tính đã biết tại lúc đặt Order.
-- `validate_return_features` gọi [validator](../../spark_jobs/gold/validate_order_snapshot_return_features.py). Validator so tập khóa với Gold, kiểm có dòng nào bị thiếu hay thừa, có khóa trùng không, và kiểm `event_timestamp = created_at`.
+The two tasks in the [dp3_features DAG](../../dags/dp3_features.py):
+- `build_return_features` calls the [build job](../../spark_jobs/gold/build_order_snapshot_return_features.py). The job only takes attributes known at the time the Order was placed.
+- `validate_return_features` calls the [validator](../../spark_jobs/gold/validate_order_snapshot_return_features.py). The validator compares the key set with Gold, checks for missing or extra rows and duplicate keys, and checks `event_timestamp = created_at`.
 
-Gantt cho thấy bước validate mất 01:03:55, lâu hơn bước build, vì nó so từng dòng một.
-Kiểm tra này chưa phải là chứng minh đầy đủ cho PIT join (point-in-time join: ghép feature đúng theo mốc thời gian).
+The Gantt shows the validate step took 01:03:55, longer than the build step, because it compares row by row.
+This check is not yet a full proof of the PIT join (point-in-time join: joining features exactly as of a timestamp).
 
-![Summary DP3: build_return_features và validate_return_features màu xanh, Total success 1](../evidence/aws/dp3-features-summary-20261028.png)
+![DP3 Summary: build_return_features and validate_return_features in green, Total success 1](../evidence/aws/dp3-features-summary-20261028.png)
 
-![Gantt DP3: validate_return_features chạy 01:03:55, lâu hơn build_return_features](../evidence/aws/dp3-features-gantt-20261028.png)
+![DP3 Gantt: validate_return_features ran for 01:03:55, longer than build_return_features](../evidence/aws/dp3-features-gantt-20261028.png)
 
-![Session Manager EC2: fact_rows và feature_rows đều 227.200.303, missing, extra và wrong_event_time bằng 0](../evidence/aws/dp3-validate-log-20261028.png)
+![Session Manager EC2: fact_rows and feature_rows both 227,200,303, missing, extra and wrong_event_time all 0](../evidence/aws/dp3-validate-log-20261028.png)
 
 <details>
-<summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
+<summary>Reference: design, development guide and records from before the AWS deployment</summary>
 
-Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
+Local records keep their original environment and do not replace cloud evidence.
 
-## Xác minh Connection/Variable và Spark runtime
+## Verifying Connections/Variables and the Spark runtime
 
-DAG `platform_runtime_config_check`, run `de_runtime_20261015`, hoàn tất **2/2
-task success** từ 14:41:51 đến 14:42:02 UTC sau khi nạp lại cấu hình bằng
+The DAG `platform_runtime_config_check`, run `de_runtime_20261015`, completed **2/2
+tasks success** from 14:41:51 to 14:42:02 UTC after reloading the configuration with
 `scripts/setup/setup_airflow.sh`. `airflow dags list-import-errors --output json`
-trả `[]`. [Manifest runtime](../evidence/airflow-runtime-20261015.json) lưu trạng
-thái, thời gian từng task và hai dòng log xác nhận; không chứa credential.
+returned `[]`. The [runtime manifest](../evidence/airflow-runtime-20261015.json) stores the state,
+the timing of each task and two confirming log lines; it contains no credentials.
 
-| Task | Kết quả kiểm chứng |
+| Task | Verification result |
 |---|---|
-| `verify_connections_and_variables` | Lookup ba Connection `platform_minio`, `platform_postgres`, `platform_kafka` và bốn Variable; resolve đủ 12 biến môi trường. Mật khẩu MinIO/PostgreSQL được mã hóa trong metadata DB; Kafka demo không có mật khẩu. |
-| `verify_spark_runtime` | `PlatformSparkSubmitOperator` lấy cấu hình ở runtime rồi submit tới `spark://spark-master:7077`; Spark thực thi `range(3)` và trả tổng bằng 3. `table_writes=0`. |
+| `verify_connections_and_variables` | Looks up three Connections `platform_minio`, `platform_postgres`, `platform_kafka` and four Variables; resolves all 12 environment variables. The MinIO/PostgreSQL passwords are encrypted in the metadata DB; the Kafka demo has no password. |
+| `verify_spark_runtime` | `PlatformSparkSubmitOperator` gets the configuration at runtime and submits to `spark://spark-master:7077`; Spark executes `range(3)` and returns a sum of 3. `table_writes=0`. |
 
-![Graph kiểm cấu hình và submit Spark, hai task success](../images/airflow/platform_runtime_config_check-graph-20261015.png)
+![Graph checking configuration and Spark submit, two tasks success](../images/airflow/platform_runtime_config_check-graph-20261015.png)
 
-![Grid runtime, run de_runtime_20261015 thành công](../images/airflow/platform_runtime_config_check-grid-20261015.png)
+![Runtime Grid, run de_runtime_20261015 succeeded](../images/airflow/platform_runtime_config_check-grid-20261015.png)
 
-Kiểm tra này xác nhận đường lookup và thực thi operator mới; không chạy lại
-DP1/DP2/DP3 hay kiểm kết nối dữ liệu thực tế tới MinIO/Kafka. Spark dùng một
-worker, không có Python UDF và không đọc/ghi bảng.
+This check confirms the lookup path and the new operator's execution; it does not rerun
+DP1/DP2/DP3 or check real data connections to MinIO/Kafka. Spark uses one
+worker, with no Python UDF and no table reads/writes.
 
-Để tái tạo, bật đúng PostgreSQL/Airflow/Spark master và một worker, nạp cấu
-hình rồi trigger DAG; không cần generator hay DataHub:
+To reproduce, start exactly PostgreSQL/Airflow/Spark master and one worker, load the
+configuration, then trigger the DAG; neither the generator nor DataHub is needed:
 
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile airflow up -d postgres airflow
@@ -177,14 +177,14 @@ env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflo
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflow dags trigger platform_runtime_config_check
 ```
 
-`scripts/evidence/capture_airflow_runtime_evidence.py` xuất proof của run cố định
-`de_runtime_20261015`; script dừng nếu run chưa thành công đủ hai task.
+`scripts/evidence/capture_airflow_runtime_evidence.py` exports the proof of the fixed run
+`de_runtime_20261015`; the script stops if the run has not succeeded on both tasks.
 
-## Mục đích
+## Purpose
 
-DP1 gồm **Ingest** và **Validate**. DAG
-`dags/dp1_bronze.py` có mười task, chạy tuần tự để không dồn hai Spark driver lên
-laptop cùng lúc:
+DP1 consists of **Ingest** and **Validate**. The DAG
+`dags/dp1_bronze.py` has ten tasks, run sequentially so two Spark drivers do not pile onto the
+laptop at once:
 
 ```text
 ingest_amazon → validate_amazon → ingest_walmart → validate_walmart
@@ -192,39 +192,39 @@ ingest_amazon → validate_amazon → ingest_walmart → validate_walmart
 → ingest_shopee → validate_shopee
 ```
 
-Các task Ingest gọi job Bronze bằng `SparkSubmitOperator`. Spark standalone
-không hỗ trợ `cluster` deploy mode cho ứng dụng Python, nên driver chạy trong
-container Airflow (`client` mode), executor chạy trên hai Spark worker. Airflow
-dùng PySpark **3.5.3** cùng phiên bản với cụm Spark và Java **17** cho jar Iceberg.
-Airflow 2.10.5 và Spark provider 5.0.1 được ghim trong `docker/Dockerfile.airflow`.
-Đây là cấu hình dev trên Compose; ML Platform / LLM Platform sau này mới chuyển sang Kubernetes.
+The Ingest tasks call the Bronze job with `SparkSubmitOperator`. Spark standalone
+does not support `cluster` deploy mode for Python applications, so the driver runs in the
+Airflow container (`client` mode) and the executors run on two Spark workers. Airflow
+uses PySpark **3.5.3**, the same version as the Spark cluster, and Java **17** for the Iceberg jar.
+Airflow 2.10.5 and Spark provider 5.0.1 are pinned in `docker/Dockerfile.airflow`.
+This is a dev configuration on Compose; the ML Platform / LLM Platform only moved to Kubernetes later.
 
-## Validate kiểm gì
+## What Validate checks
 
-`spark_jobs/bronze/validate_order_snapshots.py` kiểm riêng từng nguồn:
+`spark_jobs/bronze/validate_order_snapshots.py` checks each source separately:
 
-| Điều kiện | Amazon | Walmart |
+| Condition | Amazon | Walmart |
 |---|---|---|
-| Bảng và cột Bronze tồn tại | `payload`, `source_file`, `export_date`, `ingested_at`, `run_id` | `purchase_order_id`, `raw_payload`, `source_table`, `fetched_at`, `ingested_at`, `run_id` |
-| Số dòng | bằng JSONL của đúng cửa sổ ngày đã nạp | bằng `walmart.orders` ở PostgreSQL |
-| Payload | JSON có `AmazonOrderId` **hoặc** `orderId` | JSON có `purchaseOrderId` khớp cột nguồn |
-| Provenance | file, ngày, thời điểm nạp và `run_id` hợp lệ | bảng nguồn, thời điểm kéo/nạp và `run_id` hợp lệ |
+| Bronze table and columns exist | `payload`, `source_file`, `export_date`, `ingested_at`, `run_id` | `purchase_order_id`, `raw_payload`, `source_table`, `fetched_at`, `ingested_at`, `run_id` |
+| Row count | equals the JSONL of exactly the loaded date window | equals `walmart.orders` in PostgreSQL |
+| Payload | JSON has `AmazonOrderId` **or** `orderId` | JSON has `purchaseOrderId` matching the source column |
+| Provenance | valid file, date, load time and `run_id` | valid source table, fetch/load time and `run_id` |
 
-TikTok Shop, Shopify và Shopee dùng `spark_jobs/bronze/validate_file_order_snapshots.py` để
-so số response JSONL của đúng Channel với Bronze, kiểm ID nguồn, file, ngày và
-`run_id`. Lần chạy nhỏ có lần lượt **1.810**, **910** và **354** response; cả ba
-Validate đều thành công.
+TikTok Shop, Shopify and Shopee use `spark_jobs/bronze/validate_file_order_snapshots.py` to
+compare the number of JSONL responses of exactly that Channel with Bronze, and check source IDs, files, dates and
+`run_id`. The small run has **1,810**, **910** and **354** responses respectively; all three
+Validates succeeded.
 
-Một điều kiện sai làm task Validate thất bại. Bronze **giữ nguyên** bản trùng và hai
-dạng schema Amazon; hai đặc tính đó không bị coi là lỗi. `run_id` nối các dòng Bronze
-với lần chạy Airflow. Job Amazon đọc lại file nguồn khi Validate để so số dòng; với
-toàn bộ 180 ngày, đó là một lượt đọc thêm khoảng 80 GiB, nên chi phí cần được đo khi
-chuyển từ bảng thử sang bảng thật.
+Any failed condition makes the Validate task fail. Bronze **keeps** duplicates and both
+Amazon schema forms; those two characteristics are not treated as errors. `run_id` links Bronze rows
+to the Airflow run. The Amazon job rereads the source files during Validate to compare row counts; for
+all 180 days, that is an extra read of about 80 GiB, so the cost needs to be measured when
+moving from trial tables to real tables.
 
-## Khởi động và chạy
+## Startup and running
 
-Chỉ bật service cần dùng; `docker compose --profile airflow up -d` không nêu tên
-service sẽ kéo cả generator Batch trong Compose và có thể sinh lại dữ liệu 100 GB.
+Only start the services you need; `docker compose --profile airflow up -d` without service names
+also pulls in the Batch generator in Compose and may regenerate the 100 GB of data.
 
 ```bash
 env -u POSTGRES_PASSWORD docker compose up -d minio minio-init postgres
@@ -237,232 +237,232 @@ env -u POSTGRES_PASSWORD docker compose --profile airflow exec airflow airflow d
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec airflow airflow dags trigger dp1_bronze
 ```
 
-`POSTGRES_PASSWORD` có thể đã được khai báo trong shell (ví dụ trong môi trường làm việc
-khác); `env -u` bảo đảm Compose lấy credential thống nhất từ file `.env` của Data & AI Platform.
+`POSTGRES_PASSWORD` may already be declared in the shell (for example from another working
+environment); `env -u` ensures Compose takes consistent credentials from the Data & AI Platform `.env` file.
 
-Airflow UI: `http://localhost:8081` (cổng cấu hình bằng `AIRFLOW_WEB_PORT`).
-`airflow standalone` ghi mật khẩu admin lần đầu vào
-`/opt/airflow/standalone_admin_password.txt` trong volume `airflow-data`; xem bằng:
+Airflow UI: `http://localhost:8081` (port configured with `AIRFLOW_WEB_PORT`).
+`airflow standalone` writes the initial admin password to
+`/opt/airflow/standalone_admin_password.txt` in the `airflow-data` volume; view it with:
 
 ```bash
 docker compose --profile airflow exec airflow \
   sh -c 'cat /opt/airflow/standalone_admin_password.txt'
 ```
 
-Không đưa mật khẩu vào ảnh hoặc tài liệu. Chụp Graph/Grid của DAG khi cả mười task
-đều xanh, kèm log các task Validate có số dòng nguồn = Bronze và số dòng lỗi = 0.
-Đặt ảnh vào `docs/images/airflow/` và giải thích số đo ngay dưới ảnh.
+Do not put passwords in screenshots or docs. Capture the DAG's Graph/Grid when all ten tasks
+are green, together with the logs of the Validate tasks showing source rows = Bronze rows and invalid rows = 0.
+Put the screenshots in `docs/images/airflow/` and explain the measurements right below each screenshot.
 
-### Bằng chứng DP1
+### DP1 evidence
 
-![Airflow Graph của DP1, bốn task success](../images/airflow/dp1_bronze-graph.png)
+![Airflow Graph of DP1, four tasks success](../images/airflow/dp1_bronze-graph.png)
 
-Graph của lần chạy `manual__2026-10-13T10:03:29+00:00`: Spark nạp Amazon vào Bronze,
-Validate Amazon, nạp Walmart vào Bronze, rồi Validate Walmart. Cả bốn task đều
-`success`. Log Validate ghi số dòng ở nguồn bằng số dòng ở đích: Amazon **5.827.514 = 5.827.514**,
-Walmart **1.293.525 = 1.293.525**, và kênh nào cũng **0 lỗi**.
+Graph of run `manual__2026-10-13T10:03:29+00:00`: Spark loads Amazon into Bronze,
+Validates Amazon, loads Walmart into Bronze, then Validates Walmart. All four tasks are
+`success`. The Validate logs record source row counts equal to target row counts: Amazon **5,827,514 = 5,827,514**,
+Walmart **1,293,525 = 1,293,525**, and **0 errors** for every Channel.
 
-![Airflow Grid của DP1, một lần chạy thành công](../images/airflow/dp1_bronze-grid.png)
+![Airflow Grid of DP1, one successful run](../images/airflow/dp1_bronze-grid.png)
 
-Grid cho thấy cùng một lần chạy có đủ bốn task xanh; Duration xấp xỉ 2 phút 45 giây.
+The Grid shows the same run with all four tasks green; Duration about 2 minutes 45 seconds.
 
-## Bảng thử và bước mở rộng
+## Trial tables and next steps
 
-`scripts/setup/setup_airflow.sh` tạo Connection `spark_default`, các Connection dùng
-chung `platform_postgres`/`platform_minio`/`platform_kafka`, và các Variable `platform_*`.
-`PlatformSparkSubmitOperator` đọc các nhóm cần thiết từ metadata DB tại runtime;
-credential không được render vào template fields hay đưa vào application args.
-MinIO credential đi qua biến môi trường AWS của driver/worker, không nằm trong
-SparkConf; worker Compose nhận cùng cặp key từ `.env` để executor truy cập S3.
-Mặc định Amazon nạp 10 ngày liền nhau từ 2026-04-05, Walmart đọc bảng PostgreSQL
-hiện có. Hai bảng đích là `raw_amazon_orders_dp1` và
-`raw_walmart_orders_dp1`, nên DAG không thay hai bảng Bronze đang làm bằng chứng.
-Chạy lại setup sẽ đặt lại Connection và các Variable này về giá trị thử nghiệm.
-Sau khi thử thành công, đổi Variables trong Airflow để chạy phạm vi thật. Đổi
-`platform_dp1_amazon_window_days` thành `0` để chọn cả 180 ngày; chỉ đổi tên bảng đích
-sang tên thật khi chủ dự án quyết định thay bảng đó.
+`scripts/setup/setup_airflow.sh` creates the Connection `spark_default`, the shared Connections
+`platform_postgres`/`platform_minio`/`platform_kafka`, and the `platform_*` Variables.
+`PlatformSparkSubmitOperator` reads the needed groups from the metadata DB at runtime;
+credentials are not rendered into template fields or passed in application args.
+MinIO credentials go through the AWS environment variables of the driver/worker, not through
+SparkConf; the Compose workers get the same key pair from `.env` so the executors can access S3.
+By default Amazon loads 10 consecutive days from 2026-04-05, and Walmart reads the existing PostgreSQL
+table. The two target tables are `raw_amazon_orders_dp1` and
+`raw_walmart_orders_dp1`, so the DAG does not replace the two Bronze tables used as evidence.
+Rerunning setup resets the Connections and these Variables to trial values.
+After a successful trial, change the Variables in Airflow to run the real range. Change
+`platform_dp1_amazon_window_days` to `0` to select all 180 days; only switch the target table names
+to the real names when the project owner decides to replace those tables.
 
-Ba Channel mới đọc nguồn nhỏ từ `out/channels-small/source-exports`, được mount vào
-Airflow và các Spark container. Tạo nguồn bằng lệnh trong
-`docs/data-platform/reference/silver_five_channels.md`, rồi tạo lại bốn container sau khi thêm mount:
+The three new Channels read small sources from `out/channels-small/source-exports`, mounted into
+Airflow and the Spark containers. Create the sources with the command in
+`docs/data-platform/reference/silver_five_channels.md`, then recreate the four containers after adding the mount:
 
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile spark --profile airflow up -d --no-deps airflow spark-master spark-worker-1 spark-worker-2
 ```
 
-Bộ nguồn này dùng để chứng minh đường đi dữ liệu;
-Amazon/Walmart tiếp tục dùng nguồn lớn cũ. DP2 chỉ hoàn chỉnh khi có Gold; DP3
-cần bảng feature offline.
+This source set is used to prove the data path;
+Amazon/Walmart keep using the old large sources. DP2 is only complete once Gold exists; DP3
+needs the offline feature table.
 
-## Chặng Silver của DP2
+## The Silver stage of DP2
 
-`dags/dp2_silver.py` dùng hai bảng Bronze `_dp1` làm nguồn, chạy tuần tự:
+`dags/dp2_silver.py` uses the two Bronze `_dp1` tables as sources and runs sequentially:
 
 ```text
 ingest_amazon_silver → validate_amazon_silver → ingest_walmart_silver → validate_walmart_silver
 ```
 
-Hai job Ingest parse Order thành Order Line, quy schema và trạng thái, rồi dedup. Job
-`spark_jobs/silver/validate_order_snapshots.py` kiểm bảng/cột, số Order Line không ít hơn số Order
-nguồn, các khoá không trùng, cột thiết yếu không null và `run_id` đúng lần chạy.
-Hai bảng đích thử là `lakehouse.silver.stg_amazon_order_lines_dp2` và
-`lakehouse.silver.stg_walmart_order_lines_dp2`; chúng không thay bảng Silver khác.
+The two Ingest jobs parse Orders into Order Lines, normalize schema and status, then dedup. The job
+`spark_jobs/silver/validate_order_snapshots.py` checks tables/columns, that the Order Line count is not lower than the source Order
+count, that keys are not duplicated, that essential columns are not null, and that `run_id` matches the run.
+The two trial target tables are `lakehouse.silver.stg_amazon_order_lines_dp2` and
+`lakehouse.silver.stg_walmart_order_lines_dp2`; they do not replace other Silver tables.
 
-Sau khi DP1 thành công, nạp Variables riêng và chạy DAG:
+After DP1 succeeds, load the separate Variables and run the DAG:
 
 ```bash
 env -u POSTGRES_PASSWORD bash scripts/setup/setup_dp2_silver.sh
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec airflow airflow dags trigger dp2_silver
 ```
 
-Ghi chú lịch sử: đoạn run bên dưới là **chặng Silver** của lần chạy;
-DP2 hiện đã có Gold, SCD2 và Validate trong lần chạy được ghi ở phần sau.
-Điều kiện `Order Line ≥ Order` chỉ hợp lệ với dữ liệu generator hiện tại,
-nơi mỗi Order có ít nhất một dòng hàng; nó không chứng minh phép chuyển đổi từng dòng đúng.
+Historical note: the run below is the **Silver stage** of the run;
+DP2 now has Gold, SCD2 and Validate in the run recorded in a later section.
+The condition `Order Line ≥ Order` only holds for the current generator data,
+where each Order has at least one product line; it does not prove each row's transformation is correct.
 
-Lần chạy `manual__2026-10-13T14:49:53+00:00` đã có cả bốn task `success`:
+Run `manual__2026-10-13T14:49:53+00:00` had all four tasks `success`:
 
-| Kênh | Order Bronze | Order Line Silver | Dòng không hợp lệ | Khoá trùng |
+| Channel | Bronze Orders | Silver Order Lines | Invalid rows | Duplicate keys |
 |---|---:|---:|---:|---:|
-| Amazon | 5.827.514 | 8.314.312 | 0 | 0 |
-| Walmart | 1.293.525 | 1.875.607 | 0 | 0 |
+| Amazon | 5,827,514 | 8,314,312 | 0 | 0 |
+| Walmart | 1,293,525 | 1,875,607 | 0 | 0 |
 
-Các số lấy từ log của hai task Validate. Đây là lần chạy trên cửa sổ Amazon 10 ngày
-và bảng Walmart hiện có, chưa phải toàn bộ Amazon 180 ngày.
+The numbers come from the logs of the two Validate tasks. This run is on the 10-day Amazon window
+and the existing Walmart table, not yet the full 180 days of Amazon.
 
-![Airflow Graph của chặng Silver DP2, bốn task success](../images/airflow/dp2_silver-graph.png)
+![Airflow Graph of the DP2 Silver stage, four tasks success](../images/airflow/dp2_silver-graph.png)
 
-Graph của lần chạy `manual__2026-10-13T14:49:53+00:00`: hai job Silver ghi theo
-thứ tự, mỗi job có Validate ngay sau. Amazon tạo 8.314.312 Order Line từ 5.827.514
-Order; Walmart tạo 1.875.607 từ 1.293.525. Cả hai Validate ghi **0 dòng lỗi**
-và **không có khoá trùng**.
+Graph of run `manual__2026-10-13T14:49:53+00:00`: two Silver jobs write in
+order, each followed immediately by Validate. Amazon produces 8,314,312 Order Lines from 5,827,514
+Orders; Walmart produces 1,875,607 from 1,293,525. Both Validates record **0 invalid rows**
+and **no duplicate keys**.
 
-![Airflow Grid của chặng Silver DP2, một lần chạy thành công](../images/airflow/dp2_silver-grid.png)
+![Airflow Grid of the DP2 Silver stage, one successful run](../images/airflow/dp2_silver-grid.png)
 
-Grid xác nhận bốn task của cùng một lần chạy đều xanh; Duration xấp xỉ 5 phút 35 giây.
+The Grid confirms the four tasks of the same run are all green; Duration about 5 minutes 35 seconds.
 
-Ảnh được chụp từ UI đang chạy bằng `python scripts/evidence/capture_airflow_evidence.py`.
-Script dùng Chrome headless và tài khoản standalone trong volume Airflow; mật khẩu
-không xuất hiện trong lệnh hoặc ảnh.
+The screenshots were captured from the running UI with `python scripts/evidence/capture_airflow_evidence.py`.
+The script uses headless Chrome and the standalone account in the Airflow volume; the password
+does not appear in the command or screenshots.
 
-## Lần chạy đủ năm Channel
+## Run with all five Channels
 
-DP1 `manual__2026-10-13T15:30:09+00:00` hoàn tất **10/10 task** lúc 15:35:57
-UTC, thời lượng 5 phút 47 giây. Ba nguồn mới có số response bằng số dòng Bronze:
+DP1 `manual__2026-10-13T15:30:09+00:00` completed **10/10 tasks** at 15:35:57
+UTC, duration 5 minutes 47 seconds. The three new sources have response counts equal to the Bronze row counts:
 
-| Channel | JSONL nguồn | Bronze | Validate |
+| Channel | Source JSONL | Bronze | Validate |
 |---|---:|---:|---|
-| TikTok Shop | 1.810 | 1.810 | PASS |
+| TikTok Shop | 1,810 | 1,810 | PASS |
 | Shopify | 910 | 910 | PASS |
 | Shopee | 354 | 354 | PASS |
 
-![Airflow Graph DP1 của năm Channel, cả mười task thành công](../images/airflow/dp1_bronze-graph-five-channels.png)
+![Airflow Graph of DP1 for five Channels, all ten tasks succeeded](../images/airflow/dp1_bronze-graph-five-channels.png)
 
-![Airflow Grid DP1 của năm Channel](../images/airflow/dp1_bronze-grid-five-channels.png)
+![Airflow Grid of DP1 for five Channels](../images/airflow/dp1_bronze-grid-five-channels.png)
 
-DP2 `manual__2026-10-13T15:36:21+00:00` hoàn tất **10/10 task** lúc 15:45:32
-UTC, thời lượng 9 phút 10 giây. Amazon/Walmart giữ số Order Line cũ là
-8.314.312 và 1.875.607. Log mới của ba Channel còn lại:
+DP2 `manual__2026-10-13T15:36:21+00:00` completed **10/10 tasks** at 15:45:32
+UTC, duration 9 minutes 10 seconds. Amazon/Walmart keep their earlier Order Line counts of
+8,314,312 and 1,875,607. New logs for the other three Channels:
 
-| Channel | Order duy nhất | Line trước dedup | Line sau dedup | Bản trùng bỏ | Dòng lỗi / khóa trùng |
+| Channel | Unique Orders | Lines before dedup | Lines after dedup | Duplicates dropped | Invalid rows / duplicate keys |
 |---|---:|---:|---:|---:|---:|
-| TikTok Shop | 1.780 | 2.654 | 2.609 | 45 | 0 / 0 |
-| Shopify | 891 | 1.350 | 1.316 | 34 | 0 / 0 |
+| TikTok Shop | 1,780 | 2,654 | 2,609 | 45 | 0 / 0 |
+| Shopify | 891 | 1,350 | 1,316 | 34 | 0 / 0 |
 | Shopee | 347 | 524 | 514 | 10 | 0 / 0 |
 
-Mỗi Validate đối chiếu số Order riêng biệt giữa Bronze và Silver, kiểm tiền,
-trường bắt buộc, `run_id` và khóa Order Line. Cả ba ghi `Silver validate: PASS`.
+Each Validate reconciles distinct Order counts between Bronze and Silver and checks amounts,
+required fields, `run_id` and the Order Line key. All three record `Silver validate: PASS`.
 
-![Airflow Graph DP2 Silver của năm Channel, cả mười task thành công](../images/airflow/dp2_silver-graph-five-channels.png)
+![Airflow Graph of DP2 Silver for five Channels, all ten tasks succeeded](../images/airflow/dp2_silver-graph-five-channels.png)
 
-![Airflow Grid DP2 Silver của năm Channel](../images/airflow/dp2_silver-grid-five-channels.png)
+![Airflow Grid of DP2 Silver for five Channels](../images/airflow/dp2_silver-grid-five-channels.png)
 
-Ảnh mới được chụp bằng
+The new screenshots were captured with
 `.venv/bin/python scripts/evidence/capture_airflow_evidence.py --suffix=-five-channels`;
-ảnh của lần chạy bốn task trước vẫn được giữ riêng để so tiến độ. DP2 mới chứng
-minh chặng Silver tại thời điểm đó; phần Gold của run sau được ghi bên dưới.
+the screenshots of the earlier four-task run are kept separately to compare progress. DP2 then only
+proved the Silver stage; the Gold part of the later run is recorded below.
 
-## DP2 hoàn chỉnh đến Gold
+## DP2 complete through Gold
 
-Run `manual__2026-10-14T03:53:52+00:00` hoàn tất **12/12 task** lúc 04:10:23
-UTC. Mười task Silver/Validate của năm Channel đều `success`, sau đó
-`build_gold_order_lines` và `validate_gold_order_lines` cũng `success`. Gold có
-**10.194.358** Order Line, đúng tổng năm bảng Silver; Validate ghi **0 dòng
-không hợp lệ và 0 khóa trùng**. Số dòng theo Channel và schema xem
+Run `manual__2026-10-14T03:53:52+00:00` completed **12/12 tasks** at 04:10:23
+UTC. The ten Silver/Validate tasks of the five Channels were all `success`, followed by
+`build_gold_order_lines` and `validate_gold_order_lines`, also `success`. Gold has
+**10,194,358** Order Lines, exactly the total of the five Silver tables; Validate records **0
+invalid rows and 0 duplicate keys**. For row counts per Channel and the schema see
 [`gold.md`](reference/gold.md).
 
-Lần đầu Walmart lỗi `Java heap space` khi executor mặc định chỉ có 1 GiB.
-Worker đã có 2 GiB nhưng không tự tăng heap của executor. Task Walmart được
-chạy lại **trong cùng run**, với heap 1.536 MiB, 1 core và adaptive partition
-64 MiB. Log xác nhận executor nhận 1.536 MiB và Walmart ghi xong 1.875.607
-Order Line trong 86,6 giây. Hai task Amazon thành công từ trước được giữ nguyên.
+The first time, Walmart failed with `Java heap space` because the default executor only had 1 GiB.
+The worker had 2 GiB but does not raise the executor heap on its own. The Walmart task was
+rerun **within the same run** with a 1,536 MiB heap, 1 core and a 64 MiB adaptive partition
+size. The log confirms the executor got 1,536 MiB and Walmart finished writing 1,875,607
+Order Lines in 86.6 seconds. The two Amazon tasks that had already succeeded were kept as they were.
 
-![Airflow Graph DP2 đủ 12 task Silver và Gold](../images/airflow/dp2_silver-graph-gold-five-channels.png)
+![Airflow Graph of DP2 with all 12 Silver and Gold tasks](../images/airflow/dp2_silver-graph-gold-five-channels.png)
 
-![Airflow Grid DP2 đủ 12 task](../images/airflow/dp2_silver-grid-gold-five-channels.png)
+![Airflow Grid of DP2 with all 12 tasks](../images/airflow/dp2_silver-grid-gold-five-channels.png)
 
-## DP2 sau khi thêm SCD2 Amazon
+## DP2 after adding Amazon SCD2
 
-Cùng run `manual__2026-10-14T03:53:52+00:00` được chạy tiếp sau khi thêm
-`build_amazon_order_dim → validate_amazon_order_dim` giữa Gold Build và Gold
-Validate. Kết quả cuối là **14/14 task success** lúc 04:50:03 UTC. Dimension
-chứa 5.779.561 phiên bản; Validate ghi `invalid=0`, `duplicate=0`,
-`multiple_current=0`, `bad_fact=0`, `missing_version=0`. Fact Amazon có khóa
-phiên bản tương ứng; Gold Validate vẫn `invalid=0`, khóa trùng `0`.
+The same run `manual__2026-10-14T03:53:52+00:00` was continued after adding
+`build_amazon_order_dim → validate_amazon_order_dim` between Gold Build and Gold
+Validate. The final result is **14/14 tasks success** at 04:50:03 UTC. The dimension
+holds 5,779,561 versions; Validate records `invalid=0`, `duplicate=0`,
+`multiple_current=0`, `bad_fact=0`, `missing_version=0`. The Amazon fact has the corresponding
+version keys; Gold Validate is still `invalid=0`, duplicate keys `0`.
 
-Lần SCD2 đầu dừng khi phát hiện cùng trạng thái Amazon có chữ nguồn khác nhau
-giữa schema v0 và 2026. Job hiện so trạng thái chuẩn khi kiểm xung đột và giữ
-chữ nguồn của export mới nhất. Task SCD2 được chạy lại trong cùng run; các task
-Silver đã thành công không bị nạp lại.
+The first SCD2 attempt stopped when it found the same Amazon status with different source text
+between schema v0 and 2026. The job now compares the normalized status when checking for conflicts and keeps
+the source text of the latest export. The SCD2 task was rerun within the same run; the
+Silver tasks that had already succeeded were not reloaded.
 
-![Airflow Graph DP2 14 task với SCD2](../images/airflow/dp2_silver-graph-scd2-five-channels.png)
+![Airflow Graph of DP2 with 14 tasks including SCD2](../images/airflow/dp2_silver-graph-scd2-five-channels.png)
 
-![Airflow Grid DP2 14 task với SCD2](../images/airflow/dp2_silver-grid-scd2-five-channels.png)
+![Airflow Grid of DP2 with 14 tasks including SCD2](../images/airflow/dp2_silver-grid-scd2-five-channels.png)
 
-## DP3 feature offline
+## DP3 offline features
 
-Run `manual__2026-10-14T04:11:15+00:00` hoàn tất **2/2 task** lúc 04:13:31
-UTC. `build_return_features` tạo 10.194.358 dòng từ Gold;
-`validate_return_features` xác nhận bằng số dòng Gold, 0 dòng không hợp lệ,
-0 khóa trùng và `PASS`. Feature chỉ dùng thông tin biết lúc đặt Order, với
-`event_timestamp` là thời điểm Order được tạo.
+Run `manual__2026-10-14T04:11:15+00:00` completed **2/2 tasks** at 04:13:31
+UTC. `build_return_features` produces 10,194,358 rows from Gold;
+`validate_return_features` confirms the count equals Gold, 0 invalid rows,
+0 duplicate keys and `PASS`. The features only use information known when the Order was placed, with
+`event_timestamp` being the time the Order was created.
 
-![Airflow Graph DP3 feature](../images/airflow/dp3_features-graph-five-channels.png)
+![Airflow Graph of DP3 features](../images/airflow/dp3_features-graph-five-channels.png)
 
-![Airflow Grid DP3 feature](../images/airflow/dp3_features-grid-five-channels.png)
+![Airflow Grid of DP3 features](../images/airflow/dp3_features-grid-five-channels.png)
 
-Sau khi Gold có khóa phiên bản Amazon, cùng run được chạy lại và hoàn tất
-**2/2 task** lúc 05:02:40 UTC. Validate lần hai vẫn ghi `feature invalid=0`,
-`duplicate_order_line_key=0`; khóa phiên bản và trạng thái không đi vào
-feature của thời điểm đặt Order.
+After Gold got the Amazon version keys, the same run was rerun and completed
+**2/2 tasks** at 05:02:40 UTC. The second Validate still records `feature invalid=0`,
+`duplicate_order_line_key=0`; version keys and status do not enter the
+features at Order time.
 
-![Airflow Graph DP3 sau SCD2](../images/airflow/dp3_features-graph-scd2-five-channels.png)
+![Airflow Graph of DP3 after SCD2](../images/airflow/dp3_features-graph-scd2-five-channels.png)
 
-![Airflow Grid DP3 sau SCD2](../images/airflow/dp3_features-grid-scd2-five-channels.png)
+![Airflow Grid of DP3 after SCD2](../images/airflow/dp3_features-grid-scd2-five-channels.png)
 
-## DP3 bridge nhãn Walmart
+## DP3 Walmart label bridge
 
-Run `manual__2026-10-14T04:15:18+00:00` của `dp3_walmart_labels` hoàn tất
-task Build/Validate lúc 04:24:21 UTC. Bảng nhãn riêng có **1.319.345** dòng,
-**0 khóa trùng và 0 dòng không hợp lệ**. Lần đầu task lỗi vì Python UDF chạy
-giữa driver 3.11 và worker 3.10; sau khi chuẩn bị khóa bằng Python host thành
-Parquet, task được chạy lại trong cùng run và `success`. Quy tắc khóa và độ
-phủ xem [`gold.md`](reference/gold.md).
+Run `manual__2026-10-14T04:15:18+00:00` of `dp3_walmart_labels` completed
+the Build/Validate task at 04:24:21 UTC. The separate label table has **1,319,345** rows,
+**0 duplicate keys and 0 invalid rows**. The first time the task failed because a Python UDF ran
+between a 3.11 driver and a 3.10 worker; after preparing the keys with host Python as
+Parquet, the task was rerun within the same run and reached `success`. For the key rules and
+coverage see [`gold.md`](reference/gold.md).
 
-![Airflow Graph bridge nhãn Walmart](../images/airflow/dp3_walmart_labels-graph-five-channels.png)
+![Airflow Graph of the Walmart label bridge](../images/airflow/dp3_walmart_labels-graph-five-channels.png)
 
-![Airflow Grid bridge nhãn Walmart](../images/airflow/dp3_walmart_labels-grid-five-channels.png)
+![Airflow Grid of the Walmart label bridge](../images/airflow/dp3_walmart_labels-grid-five-channels.png)
 
-## Nguồn bổ sung CDC của DP1
+## Additional CDC source for DP1
 
-`dp1_cdc` là DAG riêng, nạp các thay đổi (CDC) của bảng nguồn Walmart. Task
-`ingest_walmart_cdc` đọc Kafka theo offset rồi ghi vào bảng Iceberg Bronze, sau đó
-`validate_walmart_cdc` kiểm tra. DAG này không thay thế đường nạp Batch của năm Channel.
-Hai lần chạy thành công đã đưa sáu sự kiện vào `lakehouse.bronze.raw_walmart_cdc`. Log Validate ghi
-**Kafka 6 = Bronze 6, offset duy nhất 6, thiếu 0, lỗi 0**: sáu sự kiện trong Kafka đều có mặt ở Bronze,
-mỗi sự kiện một offset riêng, không thiếu và không lỗi. Ảnh Graph/Grid và số
-đo chặng từ lúc commit ở nguồn đến lúc vào Bronze nằm ở [`cdc.md`](reference/cdc.md).
+`dp1_cdc` is a separate DAG that loads the changes (CDC) of the Walmart source table. The task
+`ingest_walmart_cdc` reads Kafka by offset and writes into an Iceberg Bronze table, then
+`validate_walmart_cdc` checks it. This DAG does not replace the Batch load path of the five Channels.
+Two successful runs put six events into `lakehouse.bronze.raw_walmart_cdc`. The Validate log records
+**Kafka 6 = Bronze 6, unique offsets 6, missing 0, errors 0**: all six events in Kafka are present in Bronze,
+each with its own offset, none missing and no errors. The Graph/Grid screenshots and the
+stage measurements from commit at the source to arrival in Bronze are in [`cdc.md`](reference/cdc.md).
 
 </details>
 
-[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
+[Section index](README.md) · [Main index](../README.md)
