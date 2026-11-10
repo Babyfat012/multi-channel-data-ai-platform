@@ -17,7 +17,7 @@ nguồn, thời điểm nạp). Nó **không** sửa tên cột, **không** gộ
 trùng. Bronze có **một bảng mỗi KÊNH**, không phải một bảng mỗi dạng schema: hai dạng schema của
 Amazon (v0 và 2026-01-01) nằm chung một bảng vì Bronze **giữ nguyên chuỗi JSON**, không parse —
 không parse thì không phải chọn bộ tên cột nào. Việc quy tên khoá về một dạng thuộc **Silver**
-(xem `docs/edai-1/reference/silver.md`). Bảng tầng này mang tiền tố `raw_`.
+(xem `docs/data-platform/reference/silver.md`). Bảng tầng này mang tiền tố `raw_`.
 
 **Job này làm gì:** `spark_jobs/bronze/ingest_amazon_order_snapshots.py` đọc các file JSONL export của
 Amazon nằm ở `/data/raw` (mount read-only vào container Spark), rồi ghi thành bảng Iceberg
@@ -72,7 +72,7 @@ nằm ở `/data/raw/pg-load/walmart.orders/export_date=*/` (JSONL chờ nạp v
 trường `purchase_order_id`, `raw_payload`, `fetched_at`; `fetched_at` = `...T23:59:59Z` cho cả
 ngày nên có 180 giá trị phân biệt.
 
-Vì sao nguồn của Walmart là PostgreSQL (không phải file JSONL), và vì sao cột `raw_payload` khai `JSONB` nên thứ tự key bị xếp lại mà vẫn không phải lỗi: xem `docs/edai-1/reference/channel_sources.md`, mục **Ranh giới tin cậy: nguồn của Walmart là PostgreSQL, không phải file JSONL**.
+Vì sao nguồn của Walmart là PostgreSQL (không phải file JSONL), và vì sao cột `raw_payload` khai `JSONB` nên thứ tự key bị xếp lại mà vẫn không phải lỗi: xem `docs/data-platform/reference/channel_sources.md`, mục **Ranh giới tin cậy: nguồn của Walmart là PostgreSQL, không phải file JSONL**.
 
 **Skew là có thật, không phải giả định.** Dung lượng mỗi ngày Amazon:
 - nhỏ nhất 2026-01-01 = **7,3 MB**

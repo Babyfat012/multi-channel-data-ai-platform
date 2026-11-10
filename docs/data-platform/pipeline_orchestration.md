@@ -158,9 +158,9 @@ thái, thời gian từng task và hai dòng log xác nhận; không chứa cred
 | `verify_connections_and_variables` | Lookup ba Connection `platform_minio`, `platform_postgres`, `platform_kafka` và bốn Variable; resolve đủ 12 biến môi trường. Mật khẩu MinIO/PostgreSQL được mã hóa trong metadata DB; Kafka demo không có mật khẩu. |
 | `verify_spark_runtime` | `PlatformSparkSubmitOperator` lấy cấu hình ở runtime rồi submit tới `spark://spark-master:7077`; Spark thực thi `range(3)` và trả tổng bằng 3. `table_writes=0`. |
 
-![Graph kiểm cấu hình và submit Spark, hai task success](../images/airflow/fsds_runtime_config_check-graph-20261015.png)
+![Graph kiểm cấu hình và submit Spark, hai task success](../images/airflow/platform_runtime_config_check-graph-20261015.png)
 
-![Grid runtime, run de_runtime_20261015 thành công](../images/airflow/fsds_runtime_config_check-grid-20261015.png)
+![Grid runtime, run de_runtime_20261015 thành công](../images/airflow/platform_runtime_config_check-grid-20261015.png)
 
 Kiểm tra này xác nhận đường lookup và thực thi operator mới; không chạy lại
 DP1/DP2/DP3 hay kiểm kết nối dữ liệu thực tế tới MinIO/Kafka. Spark dùng một
@@ -284,7 +284,7 @@ sang tên thật khi chủ dự án quyết định thay bảng đó.
 
 Ba Channel mới đọc nguồn nhỏ từ `out/channels-small/source-exports`, được mount vào
 Airflow và các Spark container. Tạo nguồn bằng lệnh trong
-`docs/edai-1/reference/silver_five_channels.md`, rồi tạo lại bốn container sau khi thêm mount:
+`docs/data-platform/reference/silver_five_channels.md`, rồi tạo lại bốn container sau khi thêm mount:
 
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile spark --profile airflow up -d --no-deps airflow spark-master spark-worker-1 spark-worker-2

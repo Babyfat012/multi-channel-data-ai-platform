@@ -20,7 +20,7 @@ Gold fact, Amazon SCD2, feature và bridge nhãn đã được kiểm chứng tr
   từng kênh (`generator/generate_order_snapshots.py`). Đáp án chỉ có sau thời hạn 30 ngày.
 - Mã `purchase_order_id` của Walmart từng trùng giữa hai đơn khác nhau. Muốn
   xác định duy nhất một dòng sản phẩm phải dùng đồng thời
-  `purchase_order_id`, `customer_order_id`, `line_number` (`docs/edai-1/reference/silver.md` mục 3.1).
+  `purchase_order_id`, `customer_order_id`, `line_number` (`docs/data-platform/reference/silver.md` mục 3.1).
 
 ## ✅ Q1 — Bảng Gold đầu tiên chi tiết đến mức nào? (đã chốt)
 

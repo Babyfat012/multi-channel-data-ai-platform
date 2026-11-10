@@ -20,7 +20,7 @@ Nguồn đọc:
     - Trên MinIO: thông tin đăng nhập lấy từ biến môi trường `AWS_ACCESS_KEY_ID`,
       `AWS_SECRET_ACCESS_KEY` và `FSSPEC_S3_ENDPOINT_URL` (cùng biến mà s3fs dùng).
 
-Dedup theo quy tắc ở docs/edai-1/reference/generator_design.md mục 5: cùng khóa thì giữ bản có thời
+Dedup theo quy tắc ở docs/data-platform/reference/generator_design.md mục 5: cùng khóa thì giữ bản có thời
 điểm cập nhật mới nhất (Amazon `LastUpdateDate`/`lastUpdatedTime`, Walmart `fetched_at`).
 """
 

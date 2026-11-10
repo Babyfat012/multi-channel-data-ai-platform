@@ -2,7 +2,7 @@
 
 Đích triển khai là AWS cho cả Data Platform, ML Platform và LLM Platform. Người vận hành trực tiếp chạy các lệnh AWS, Terraform plan/apply và Ansible. Những kiểm tra offline của repo không xác nhận đã có tài nguyên hoặc workload chạy trên AWS.
 
-Cấu hình demo và ngân sách ghi các preset tài nguyên và lịch bật/tắt. Cấu hình đã ghi nhận: EC2 Data Platform và hai EKS worker `r6i.xlarge`, tổng 12 vCPU; xem [kiểm kê AWS](rubric_cloud_audit.md).
+Cấu hình demo và ngân sách ghi các preset tài nguyên và lịch bật/tắt. Cấu hình đã ghi nhận: EC2 Data Platform và hai EKS worker `r6i.xlarge`, tổng 12 vCPU; xem [kiểm kê AWS](aws_validation.md).
 
 ## 1. Kiểm tài khoản trước khi tạo tài nguyên
 
@@ -117,7 +117,7 @@ Chart AWS dùng ClusterIP và ServiceAccount `feature-api` tại namespace `feat
 - ECR push và node pull đúng digest; node Ready; Pod Identity/EBS CSI hoạt động; PVC smoke có kiểm đọc/ghi.
 - Đường kết nối EC2 ↔ EKS được kiểm thực tế. Terraform chỉ mở các cổng EC2 đã cho phép từ SG cluster; Compose Data Platform hiện bind loopback. Cần cấu hình listener private và endpoint của các service trước tích hợp, không mở UI/database ra Internet.
 - MLflow/KFP/KServe, Redis/pgvector, LLM/agent, Vault, ingress và observability trên cloud vẫn cần deploy workload sau khi nền hạ tầng đạt. Các script training hiện còn nhánh credential MinIO; chưa coi là cloud-ready chỉ vì đã nhận `KCTX`.
-- Thu receipt thực tế vào `out/`; chỉ đưa bản đã kiểm vào [evidence](../edai-1/evidence.md). Không cập nhật trạng thái “đã chạy cloud” từ kiểm schema hoặc render Helm.
+- Thu receipt thực tế vào `out/`; chỉ đưa bản đã kiểm vào [evidence](../data-platform/evidence.md). Không cập nhật trạng thái “đã chạy cloud” từ kiểm schema hoặc render Helm.
 
 Nguồn đối chiếu: [EKS networking](https://docs.aws.amazon.com/eks/latest/best-practices/subnets.html), [node IAM role](https://docs.aws.amazon.com/eks/latest/userguide/create-node-role.html), [Pod Identity trust](https://docs.aws.amazon.com/eks/latest/userguide/pod-id-role.html), [EBS CSI](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html).
 

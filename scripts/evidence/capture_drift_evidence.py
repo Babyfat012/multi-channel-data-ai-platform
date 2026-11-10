@@ -3,7 +3,7 @@
 Chạy (dữ liệu mô phỏng local, chỉ để kiểm quy trình chạy được trước khi lên EKS):
   uv run --no-project --with evidently==0.7.23 --with pandas==2.3.3 --with pyarrow --with aiohttp \
     env PYTHONPATH=. python -m scripts.evidence.capture_drift_evidence --out docs/evidence --tag local-20261104
-Trên EKS: lấy HTML từ pod Job (xem docs/edai-2/drift_monitoring.md) rồi chạy với --html-dir <thư mục HTML> --summary <summary.json>
+Trên EKS: lấy HTML từ pod Job (xem docs/ml-llm-platform/drift_monitoring.md) rồi chạy với --html-dir <thư mục HTML> --summary <summary.json>
 Ảnh bước 1 (hai cửa sổ dữ liệu): thêm --data-only [--input <training_lines.parquet>]; có --input thì dùng đúng dữ liệu đầu vào của Job,
 không có thì dùng dữ liệu mô phỏng.
 """

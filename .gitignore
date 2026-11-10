@@ -2,9 +2,6 @@
 CONTEXT.md
 docs/domain-overview.md
 
-# Workbook và ghi chú nội bộ, không thuộc mã nguồn dự án
-Coursework Tracking (Public).xlsx
-
 # Dữ liệu sinh ra khi chạy generator
 out/
 .venv/
@@ -20,7 +17,6 @@ HANDOFF.*.md
 
 # Ghi chú cá nhân và cấu hình công cụ local
 docs/plan.md
-edai-k11-cw/
 .vibe-wise/
 .claude/
 .pytest_cache/
@@ -28,8 +24,6 @@ MISSION.md
 NOTES.md
 RESOURCES.md
 assets/
-lessons/
-learning-records/
 /reference/
 
 # mutmut / hypothesis / coverage
@@ -51,12 +45,11 @@ infra/aws/ansible/inventory.ini
 infra/aws/ansible/group_vars/all.yml
 *.plan
 
-# Ẩn khỏi bản nộp: ADR và cấu hình ngân sách cloud (chỉ lưu local)
-docs/adr/
-docs/shared/cloud_capacity.md
-
 # Bản nháp và các phần riêng của sơ đồ ML + LLM ở thư mục gốc: bản cuối nằm ở docs/diagrams/
 /ml-llm-platform*.excalidraw
 
 # Tập train 32 MB của notebook 05, tải từ S3 (xem notebooks/README.md)
 notebooks/data/train_set.parquet
+
+# Upstream llm-d-benchmark clone used for benchmarking (not vendored)
+llm-d-benchmark/

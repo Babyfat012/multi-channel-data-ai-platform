@@ -28,7 +28,7 @@ Cột "Dòng rubric" là số dòng trong bảng tiêu chí. Cột cuối tóm t
 | 19–22 | [Data Agent / Model Agent / Sandbox](agents.md) | Data Agent và Model Agent có đủ cùng một bộ: chạy nhiều replica, KEDA scale 2→3→2, gọi tool trong Sandbox gVisor, đăng ký vào registry, gọi MCP qua gateway (smoke 24/24). KServe predict scale 2→3→2. Eval: Data 12/12, predict 12/12, **policy 3/5 (dưới ngưỡng nên build đỏ)**. |
 | 23–24 | [MCP / A2A Gateway](agent_gateways.md) | Smoke test 24/24, kèm bảng cho phép/từ chối và ảnh ConfigMap cấu hình. Chưa có rate limit riêng cho MCP. |
 | 25–26 | [Coordinator](coordinator.md) | Có chat và publish, scale 2 → 3 → 2 trên EKS. Cổng eval trong CI đạt 12/12 (build #9), nhưng chỉ chấm việc định tuyến câu hỏi. |
-| 27 | [Warm Up](warm_up.md) | 6 Agent trên 1 worker; chưa đo thời gian khởi động nguội (cold start). |
+| 27 | [Warm Up](agent_fleet_warm_pool.md) | 6 Agent trên 1 worker; chưa đo thời gian khởi động nguội (cold start). |
 | 28–32 | [Validation & Verification](validation_verification.md) | Test của PR chạy trên máy phát triển. Load test Locust gọi vào EKS: 3.004 request, không lỗi. |
 | 33–36 | [CI/CD](cicd.md) | `stream-features` build #7 xanh, triển khai 2 job PyFlink trên AWS. `feature-api-agents` build #13 deploy xanh nhưng **đỏ ở bước eval RAG (3/5)**. Coordinator eval 12/12 (chỉ chấm định tuyến). |
 | 37–43 | [External Routing / Gateway](routing_gateway.md) | Có HTTPS và xác thực; giới hạn về gia hạn chứng chỉ xem trong tài liệu. |
@@ -36,13 +36,13 @@ Cột "Dòng rubric" là số dòng trong bảng tiêu chí. Cột cuối tóm t
 | 46–51 | [Observability](observability.md) | Có dashboard metric/log/trace và telemetry từ EKS. |
 | 52–53 | [A/B Testing](ab_testing.md) | Có chia traffic, dashboard và kết quả eval trên AWS. |
 | 54 | [Security](security.md) | Có Vault trên EC2; sau mỗi lần restart phải unseal (mở khoá) bằng tay. |
-| 56–57 | [Novel Ideas](novel_ideas.md) | Có bộ chấm Agent và Job đo drift trên AWS; chưa tự động train lại model. |
+| 56–57 | [Novel Ideas](agent_eval_and_drift.md) | Có bộ chấm Agent và Job đo drift trên AWS; chưa tự động train lại model. |
 
-Mỗi trang có code/cấu hình, kết quả và ảnh kèm giải thích. Trạng thái từng dòng và những phần còn thiếu bằng chứng AWS: xem [kiểm kê rubric](../shared/rubric_cloud_audit.md).
+Mỗi trang có code/cấu hình, kết quả và ảnh kèm giải thích. Trạng thái từng dòng và những phần còn thiếu bằng chứng AWS: xem [kiểm kê rubric](../shared/aws_validation.md).
 
 ## Triển khai và kiểm chứng
 
-[Cloud setup](../shared/cloud_setup.md) · [AWS runbook](../shared/aws_deploy.md) · [IaC](../edai-2/iac.md).
+[Cloud setup](../shared/cloud_setup.md) · [AWS runbook](../shared/aws_deploy.md) · [IaC](../ml-llm-platform/iac.md).
 
 Repository Design (dòng 55): [README dự án](../../README.md), [quy ước code](../shared/code_style.md), mục lục và bảng đối chiếu rubric ở chính trang này.
 

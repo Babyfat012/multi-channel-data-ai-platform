@@ -1,8 +1,8 @@
 # ML Platform / LLM Platform — evidence
 
-> **Trạng thái cuối cùng trên AWS:** [kiểm kê rubric × cloud](../../shared/rubric_cloud_audit.md). Bảng dưới là bản local (đối chứng); các dòng đã có kết quả AWS ghi **Có trên AWS** kèm link.
+> **Trạng thái cuối cùng trên AWS:** [kiểm kê rubric × cloud](../../shared/aws_validation.md). Bảng dưới là bản local (đối chứng); các dòng đã có kết quả AWS ghi **Có trên AWS** kèm link.
 
-Các ghi nhận trong bảng dưới thuộc môi trường local (`kind` + Docker Compose). Cột giới hạn phân biệt kết quả chạy, artifact cấu hình và việc chưa kiểm chứng. Bằng chứng AWS mới hơn nằm trong các mục "Trên AWS" / "Trên EKS" của tài liệu thành phần và [kiểm kê rubric × cloud](../../shared/rubric_cloud_audit.md), gồm [CI/CD](../cicd.md#trên-aws), [agent eval](../agent_evaluation.md#trên-aws) và [drift](../drift_monitoring.md#trên-aws-pipeline-a--2026-10-31).
+Các ghi nhận trong bảng dưới thuộc môi trường local (`kind` + Docker Compose). Cột giới hạn phân biệt kết quả chạy, artifact cấu hình và việc chưa kiểm chứng. Bằng chứng AWS mới hơn nằm trong các mục "Trên AWS" / "Trên EKS" của tài liệu thành phần và [kiểm kê rubric × cloud](../../shared/aws_validation.md), gồm [CI/CD](../cicd.md#trên-aws), [agent eval](../agent_evaluation.md#trên-aws) và [drift](../drift_monitoring.md#trên-aws-pipeline-a--2026-10-31).
 
 Receipt, log và ảnh gốc giữ nguyên định danh của môi trường đã chạy. Cấu hình hiện hành dùng tiền tố `platform`; các kết quả lịch sử chưa được chạy lại sau đổi tên.
 
@@ -78,6 +78,6 @@ và nhánh lỗi HTTP của tool `get_policy_chunks`), tổng 96% > 90%. `locust
 
 - Chạy lại CI/CD từ revision cần kiểm chứng, lưu Stage View, image digest và kết quả smoke/eval.
 - Sandbox và Warm Up đã có ảnh EKS: [SandboxAgent gọi tool](../../evidence/aws/substrate-sandbox-agent-ui-20261031.png), [6 Agent / 1 worker](../../evidence/aws/substrate-warmup-6-agents-1-worker-20261031.png). LLM đang dùng Qwen 1,5B trên CPU; không suy thành proof GPU.
-- [AWS EC2 + S3](../../shared/aws_deploy.md) phục vụ Data Platform; ML/LLM chạy trên EKS `platform-apps`. Trạng thái AWS hiện tại xem [kiểm kê](../../shared/rubric_cloud_audit.md); bảng local phía trên giữ nguyên phạm vi lịch sử.
+- [AWS EC2 + S3](../../shared/aws_deploy.md) phục vụ Data Platform; ML/LLM chạy trên EKS `platform-apps`. Trạng thái AWS hiện tại xem [kiểm kê](../../shared/aws_validation.md); bảng local phía trên giữ nguyên phạm vi lịch sử.
 
 [Mục lục tài liệu](../../README.md)

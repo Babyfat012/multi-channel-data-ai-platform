@@ -5,7 +5,7 @@ Mỗi dòng gồm ba cột, mô phỏng một hệ thống khác đã kéo dữ 
 - `raw_payload`: JSON đơn hàng đúng như API "Get all orders" trả về (cột JSONB).
 - `fetched_at`: lúc hệ thống đó kéo bản ghi, cũng là cột dùng để chọn bản mới nhất khi dedup.
 
-Nguồn field: docs/edai-1/reference/channel_sources.md, mục 4 (mức Cao). Giả định của dự án:
+Nguồn field: docs/data-platform/reference/channel_sources.md, mục 4 (mức Cao). Giả định của dự án:
 `shippingInfo.estimatedDeliveryDate`, `trackingInfo` bên trong `orderLineStatus`,
 và giá trong `charges` là giá đã trừ giảm giá (Walmart không tách dòng giảm giá).
 

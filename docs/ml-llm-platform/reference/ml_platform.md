@@ -12,6 +12,6 @@ ML Platform quản lý feature và vòng đời mô hình dự đoán rủi ro R
 
 [Kiến trúc ML + LLM Platform](../../diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Evidence ML Platform / LLM Platform](ml_llm_platform_evidence.md).
 
-Feature lấy từ [Data Platform](../../edai-1/reference/data_platform.md); dự đoán và feature được cung cấp cho [LLM Platform](llm_platform.md) qua API công cụ. Hạ tầng vận hành phục vụ cả hai platform.
+Feature lấy từ [Data Platform](../../data-platform/reference/data_platform.md); dự đoán và feature được cung cấp cho [LLM Platform](llm_platform.md) qua API công cụ. Hạ tầng vận hành phục vụ cả hai platform.
 
 [Mục lục tài liệu](../../README.md) · [Data & AI Platform](../../../README.md)

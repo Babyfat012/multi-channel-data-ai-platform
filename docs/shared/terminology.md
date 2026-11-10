@@ -5,7 +5,7 @@ Nền tảng dữ liệu phía seller, gom dữ liệu bán hàng từ nhiều n
 Q52–Q55 mở rộng nguồn partial lifecycle, Listing history,
 inventory nhỏ và hàng đợi kiểm tra. Thuật ngữ inventory bổ sung ở
 [GLOSSARY.md](../../GLOSSARY.md). Q56–Q59 đã chốt label v2, pool topology và
-queue ba nhóm. Định nghĩa hiện hành theo [contract nhãn](../edai-1/reference/return_label_contract.md)
+queue ba nhóm. Định nghĩa hiện hành theo [contract nhãn](../data-platform/reference/return_label_contract.md)
 và thiết kế mở rộng; code/proof cũ còn theo
 contract ban đầu tới khi được migrate có version.
 

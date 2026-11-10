@@ -1,7 +1,7 @@
 <!-- Mục đích: runbook người vận hành triển khai Data Platform batch EC2 + S3, thu proof và dọn tài nguyên. -->
 # Triển khai AWS — Data Platform
 
-Môi trường đã triển khai: Sydney `ap-southeast-2`, EC2 Data Platform/S3 và EKS `platform-apps` cho ML/LLM. Các lần chạy được đối chiếu tại [Data Platform evidence](../edai-1/evidence.md), [kiểm kê AWS](rubric_cloud_audit.md) và [IaC](../edai-2/iac.md).
+Môi trường đã triển khai: Sydney `ap-southeast-2`, EC2 Data Platform/S3 và EKS `platform-apps` cho ML/LLM. Các lần chạy được đối chiếu tại [Data Platform evidence](../data-platform/evidence.md), [kiểm kê AWS](aws_validation.md) và [IaC](../ml-llm-platform/iac.md).
 
 Runbook dưới đây tập trung EC2/S3 và thu bằng chứng pipeline. Dựng EKS và phát hành image theo [Cloud setup](cloud_setup.md). Dùng cấu hình máy, region và IP thực của lần chạy; preset cũ trong ví dụ không mô tả toàn bộ môi trường.
 
@@ -179,7 +179,7 @@ docker compose --env-file "$HOME/.datahub/quickstart/.local-secrets.env" \
 ```
 
 Bằng chứng trên EC2: `out/receipts-v2-run/<run_id>/` (năm receipt + `datahub-mcps.json`) và
-`out/receipts-v2-run/latest-run-id`. Cơ chế và giới hạn: [DataHub v2](../edai-1/reference/datahub_order_lifecycle.md#chạy-thật).
+`out/receipts-v2-run/latest-run-id`. Cơ chế và giới hạn: [DataHub v2](../data-platform/reference/datahub_order_lifecycle.md#chạy-thật).
 
 Mong đợi: DAG success, receipt đúng generation,
 Lineage/Quality được publish và capture từ laptop qua tunnel. Lỗi hay gặp:
@@ -240,7 +240,7 @@ Mỗi ảnh ghi ngày, run_id, dataset, cỡ input, instance và đường dẫn
 
 | Thành phần | Ảnh / artifact cần giữ |
 |---|---|
-| Hạ tầng AWS | `terraform apply`, Console EC2/VPC/IAM + S3, region và security group; xem [IaC](../edai-2/iac.md) |
+| Hạ tầng AWS | `terraform apply`, Console EC2/VPC/IAM + S3, region và security group; xem [IaC](../ml-llm-platform/iac.md) |
 | Provisioning Ansible | PLAY RECAP `failed=0`, runtime EC2 healthy |
 | Spark baseline / skew | Spark UI stage/task baseline và salted, JSON thời gian/skew/bag equality cùng input |
 | Pipeline Airflow | Airflow Graph/Grid và log Validate, receipt Bronze/Silver/Gold/feature cùng run |

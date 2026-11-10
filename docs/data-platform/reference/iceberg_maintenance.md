@@ -127,7 +127,7 @@ các vòng bổ sung có đỏ do thiếu config/hàm probe và một lỗi so t
 sau đó đều xanh.
 
 **Spark local: đã chạy (người vận hành) — `Ran 3 tests in 39.176s OK`.**
-Receipt đầy đủ: [`docs/evidence/de-n2-maintenance-local-20261018.json`](../../evidence/de-n2-maintenance-local-20261018.json)
+Receipt đầy đủ: [`docs/evidence/iceberg-maintenance-local-20261018.json`](../../evidence/iceberg-maintenance-local-20261018.json)
 (sha256 hai file code trong receipt khớp file trong repo lúc lưu).
 
 | Đo trên bảng `maintenance_normal` (8.192 dòng, 2 partition) | Trước | Sau |

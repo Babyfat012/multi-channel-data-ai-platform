@@ -8,7 +8,7 @@ kagent UI ─► Data Agent (kagent) ──/v1 (API key)──► agentgateway �
 ```
 
 Dựng tất cả: `bash scripts/setup/deploy_kind_agents.sh` (cần cụm và Feature API đã chạy:
-[`docs/edai-2/web_api_mcp.md`](../web_api_mcp.md)).
+[`docs/ml-llm-platform/web_api_mcp.md`](../web_api_mcp.md)).
 
 | Phần | File | Namespace |
 |---|---|---|
@@ -211,7 +211,7 @@ Kiểm `arctl get mcpservers` / `arctl get agents` liệt kê đủ 1 + 3. Lỗi
 cả `source` lẫn `remote`; `protocol` phải viết hoa `A2A`; `modelProvider/modelName` đã lỗi thời (chỉ cảnh báo) nên
 bỏ, ghi model vào mô tả. Registry không có đăng nhập riêng ⇒ chỉ mở qua ingress có basic auth.
 
-Theo dõi Agent/LLM: [`docs/edai-2/observability.md`](../observability.md).
+Theo dõi Agent/LLM: [`docs/ml-llm-platform/observability.md`](../observability.md).
 
 ## System prompt từ Langfuse
 

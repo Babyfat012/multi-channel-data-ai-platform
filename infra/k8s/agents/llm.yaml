@@ -35,7 +35,7 @@ spec:
       containers:
         - name: llama
           image: ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312  # build b11749
-          # Cấu hình B sau benchmark (docs/edai-2/reference/llm_platform_agents.md): 3 luồng (node EKS 4 vCPU, đo 30/10), 4 slot, flash-attention,
+          # Cấu hình B sau benchmark (docs/ml-llm-platform/reference/llm_platform_agents.md): 3 luồng (node EKS 4 vCPU, đo 30/10), 4 slot, flash-attention,
           # KV cache q8_0 (đỡ RAM ⇒ đủ chỗ cho ctx 16384 = 4 slot × 4096 token).
           args:
             - "-hf"

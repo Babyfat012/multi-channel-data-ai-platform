@@ -262,7 +262,7 @@ Kafka ml.sku_return_24h        {seller_sku, event_timestamp = window_end, approv
 ## Chạy local
 
 ```bash
-## 0. Đã có Gold (docs/edai-2/feature_store.md bước 1) và Redis trong kind (setup_kind_feature_store.sh)
+## 0. Đã có Gold (docs/ml-llm-platform/feature_store.md bước 1) và Redis trong kind (setup_kind_feature_store.sh)
 
 ## 1. Bảng tra line → SKU: publish warehouse từ Gold hiện tại (run_id = generation_id của Gold).
 ##    Máy chật RAM thì chạy thẳng job export_order_lifecycle.py bằng Spark local[2] (driver 1g) thay vì DAG.

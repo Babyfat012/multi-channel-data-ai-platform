@@ -19,7 +19,7 @@ Ba lỗ hổng được ghi trong lượt rà soát:
 3. Schema chỉ tồn tại trong code Spark, chưa có dữ liệu độc lập để máy so hai
    phiên bản. Registry mới ở `contracts/registry.json`, thuật toán so ở
    `spark_jobs/lib/data_contracts/compat.py:1`. Rủi ro này từng hiện hữu ở dữ liệu v1:
-   mô tả đợt thay dạng Amazon kéo dài 81 ngày nằm ở `docs/edai-1/reference/silver.md:463`.
+   mô tả đợt thay dạng Amazon kéo dài 81 ngày nằm ở `docs/data-platform/reference/silver.md:463`.
 
 Các dẫn chiếu code trên mô tả vị trí hiện tại sau sửa; ba lỗ hổng là trạng thái
 trước gói G. Mục tiêu là giữ nguyên mọi dòng nguồn ở Bronze, đưa dòng không đạt
@@ -125,7 +125,7 @@ liệt kê hai field removed (`order_sn`, `model_sku`) và hai field added requi
 (`order_number`, `sku`) tại các đường dẫn order/item tương ứng.
 
 Lệnh, stdout/stderr nguyên văn, mã exit, git HEAD và SHA-256 của code/registry
-nằm trong [evidence Data contracts](../../evidence/de-n1-contracts-20261018.json). Script hiện hành tạo receipt có timestamp tại `out/data-contracts-evidence/`; giữ nguyên file evidence lịch sử khi chạy lại.
+nằm trong [evidence Data contracts](../../evidence/contracts-validation-20261018.json). Script hiện hành tạo receipt có timestamp tại `out/data-contracts-evidence/`; giữ nguyên file evidence lịch sử khi chạy lại.
 
 Pytest riêng `tests/unit/spark_jobs/lib/test_data_contracts.py tests/unit/generator/test_generate_order_lifecycle_fixture.py`: **23 passed**.
 Toàn repo tại lúc chạy: **214 passed, 2 failed**; cả hai lỗi thuộc

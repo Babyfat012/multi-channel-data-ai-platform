@@ -45,4 +45,4 @@ Shopee giữ số tiền VND ở đơn vị nguyên, không tự chia cho 100.
 
 `spark_jobs/silver/validate_file_order_snapshots.py` kiểm số Order riêng biệt giữa Bronze và
 Silver, khóa Order Line không trùng, trường bắt buộc và phép tính tiền. Lần chạy
-DP2 năm Channel đã thành công; số đo và ảnh UI ghi ở `docs/edai-1/pipeline_orchestration.md`.
+DP2 năm Channel đã thành công; số đo và ảnh UI ghi ở `docs/data-platform/pipeline_orchestration.md`.

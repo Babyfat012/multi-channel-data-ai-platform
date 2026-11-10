@@ -4,7 +4,7 @@
 > **Pipeline v2 (order lifecycle) — thiết kế và thử ở local, không phải pipeline đã nộp.** Pipeline chạy trên AWS là v1 (DP1 → DP4 + ML), xem [Data Platform evidence](../evidence.md). Các chỗ nhắc GCP dưới đây là kế hoạch cũ, chưa chạy; đích cloud hiện hành là [AWS](../../shared/aws_deploy.md).
 
 Nhánh này dành cho `walmart_lifecycle.orders`, tách hoàn toàn CDC v1 `walmart.orders`.
-Tên “v2” trong `docs/edai-1/reference/cdc.md` trước đây chỉ phiên bản boundary/epoch của nhánh v1;
+Tên “v2” trong `docs/data-platform/reference/cdc.md` trước đây chỉ phiên bản boundary/epoch của nhánh v1;
 không phải CDC nguồn `sim-native-v2` trong tài liệu này.
 
 | Thành phần | Giá trị |

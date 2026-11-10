@@ -5,10 +5,9 @@
 - [Chuẩn bị và triển khai cloud](cloud_setup.md)
 - [Quy ước viết code](code_style.md)
 - [Tổng quan business domain](domain.md)
-- [Rubric × cloud — kiểm kê](rubric_cloud_audit.md)
+- [Rubric × cloud — kiểm kê](aws_validation.md)
 - [Data & AI Platform Multi-channel Seller Data Platform](terminology.md)
 
-- [Đối chiếu rubric](rubric_guide.md)
 - [Sơ đồ kiến trúc](../diagrams/README.md)
 
 [Mục lục tài liệu](../README.md)

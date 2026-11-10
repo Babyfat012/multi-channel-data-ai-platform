@@ -5,7 +5,7 @@ giữ hình dạng API nhưng vẫn cho lớp export ghi một bản ghi trên m
 Webhook Stream giữ renderer riêng trong `tiktok.py`; hai renderer dùng cùng mã
 Order nên một Order ở Batch và Stream nối được với nhau.
 
-Field Order/Line Item và trạng thái dựa trên `docs/edai-1/reference/channel_sources.md` mục 5.
+Field Order/Line Item và trạng thái dựa trên `docs/data-platform/reference/channel_sources.md` mục 5.
 Hai khoản giản lược của dữ liệu giả lập: `seller_discount` chứa toàn bộ giảm giá
 (không tách platform discount), và một Order có một loại fulfillment cho mọi dòng.
 """

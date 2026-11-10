@@ -23,7 +23,7 @@ mã Order thứ hai nếu có và mã Order Line gốc. Walmart luôn có
 Các cột tiền giữ đơn vị của nguồn. Truy vấn tổng doanh thu phải nhóm theo
 `currency`; không cộng USD và VND khi chưa có tỷ giá. Bảng không có nhãn trả
 hàng hoặc thời điểm giao thật. Quyết định và nguồn dữ kiện xem
-`docs/edai-1/reference/gold_design.md`.
+`docs/data-platform/reference/gold_design.md`.
 
 ## Bảng `lakehouse.gold.dim_amazon_order_dp2`
 

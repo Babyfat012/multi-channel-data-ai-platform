@@ -504,7 +504,7 @@ def _scale_identity(config, parameters):
         "contract_sha256": hashlib.sha256(
             (
                 Path(__file__).parents[1]
-                / "docs/edai-1/reference/source_contract_order_lifecycle.md"
+                / "docs/data-platform/reference/source_contract_order_lifecycle.md"
             ).read_bytes()
         ).hexdigest(),
         "source_profiles": PROFILES,

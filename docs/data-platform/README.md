@@ -21,13 +21,13 @@ Mỗi kết quả ghi rõ chạy ở môi trường nào và còn giới hạn g
 | 22–27 | [Pipeline Orchestration](pipeline_orchestration.md) | Có ảnh graph của DAG, log của các bước ingest/validate và run ID trên AWS. |
 | 28–33 | [Data Governance](data_governance.md) | Có lineage (dòng chảy dữ liệu giữa các bảng) và assertion (luật kiểm dữ liệu) trên AWS; lineage được publish từ metadata của pipeline. |
 | 34–38 | [Schema Design](schema_design.md) | Có các zone, kết quả DESCRIBE và ERD (sơ đồ quan hệ) giữa bảng dim và fact: một bản vẽ bằng dbdiagram và một ảnh DBeaver có đường nối, chụp trên Trino AWS. |
-| 39–40 | [Novel Ideas](novel_ideas.md) | Có truy vấn federation (một câu SQL đọc nhiều nguồn) và thử CDC với cả ba loại thay đổi tạo/sửa/xóa (c/u/d). Chưa đo CDC khi có tải. |
+| 39–40 | [Novel Ideas](trino_federation_and_cdc.md) | Có truy vấn federation (một câu SQL đọc nhiều nguồn) và thử CDC với cả ba loại thay đổi tạo/sửa/xóa (c/u/d). Chưa đo CDC khi có tải. |
 
-Mỗi trang có code/config, kết quả và ảnh kèm giải thích. Trạng thái từng dòng rubric và những phần còn thiếu bằng chứng AWS nằm ở [kiểm kê rubric](../shared/rubric_cloud_audit.md).
+Mỗi trang có code/config, kết quả và ảnh kèm giải thích. Trạng thái từng dòng rubric và những phần còn thiếu bằng chứng AWS nằm ở [kiểm kê rubric](../shared/aws_validation.md).
 
 ## Triển khai và kiểm chứng
 
-[Cloud setup](../shared/cloud_setup.md) · [AWS runbook](../shared/aws_deploy.md) · [IaC](../edai-2/iac.md).
+[Cloud setup](../shared/cloud_setup.md) · [AWS runbook](../shared/aws_deploy.md) · [IaC](../ml-llm-platform/iac.md).
 
 [Ma trận bằng chứng AWS](evidence.md).
 

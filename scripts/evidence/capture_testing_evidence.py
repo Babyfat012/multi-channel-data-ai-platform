@@ -3,7 +3,7 @@
 Mỗi mục là một lệnh thật; ảnh là output của chính lần chạy đó (không dựng tay). Chạy từ thư mục gốc repo:
   uv run python -m scripts.evidence.capture_testing_evidence --out docs/evidence --tag 20261104 [--only coverage,epbva,hypothesis]
 Mutation theo Git diff: thêm --mutation-dir out/<thư mục kết quả> (chụp từ lần chạy đã có, không chạy lại).
-Locust cần cụm EKS nên không nằm ở đây (xem docs/edai-2/validation_verification.md).
+Locust cần cụm EKS nên không nằm ở đây (xem docs/ml-llm-platform/validation_verification.md).
 """
 
 from __future__ import annotations

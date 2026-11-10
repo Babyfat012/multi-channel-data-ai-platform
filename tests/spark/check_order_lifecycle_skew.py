@@ -1,6 +1,6 @@
 """Planner: kiểm tương đương và tải sweep trên nguồn scale nóng; không đọc truth.
 
-Chạy bằng Docker được ghi ở docs/edai-1/reference/spark_order_lifecycle.md. JSON và event log ở /tmp;
+Chạy bằng Docker được ghi ở docs/data-platform/reference/spark_order_lifecycle.md. JSON và event log ở /tmp;
 stdout in đầy đủ JSON để redirect ra file trên host.
 """
 

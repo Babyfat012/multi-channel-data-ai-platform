@@ -19,7 +19,7 @@ Mục tiêu: người mới mở file là đọc được, không phải đọc 
 Không viết vào code:
 
 - Số dòng của file khác (`walmart.py:103`) hay số mục tài liệu: sửa file kia là sai ngay.
-  Trỏ tới tên tài liệu là đủ, ví dụ `docs/edai-1/reference/silver.md`.
+  Trỏ tới tên tài liệu là đủ, ví dụ `docs/data-platform/reference/silver.md`.
 - Lịch sử quyết định ("chốt ngày ...", "Q3"): để trong `docs/` hoặc ADR.
 - Số đo của một lần chạy (GB, số dòng, giây): để trong tài liệu bằng chứng.
 - Chữ IN HOA để nhấn mạnh.
@@ -33,7 +33,7 @@ Trước:
 def dedup(df):
     """Bỏ bản trùng theo khoá `(order_id, order_item_id)`, giữ bản mới nhất.
 
-    Thứ tự tie-break, chốt ở `docs/edai-1/reference/silver.md` mục 3.1:
+    Thứ tự tie-break, chốt ở `docs/data-platform/reference/silver.md` mục 3.1:
       1. `last_updated_time` lớn nhất — "luôn lấy cái mới nhất";
       2. hoà thì `export_date` lớn nhất.
 

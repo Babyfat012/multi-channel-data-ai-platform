@@ -198,7 +198,7 @@ SKU trùng trong request chỉ tra một lần, kết quả giữ thứ tự l�
 
 `POST /chunks` `{"query": "...", "top_k": 3}` (query 3–500 ký tự, top_k 1–10) tìm đoạn chính sách trả hàng
 trong Feast RAG (pgvector). Endpoint này chỉ bật khi pod có biến `FEAST_RAG_REGISTRY`; nếu không có thì trả 503. Pipeline nạp chunk:
-[`docs/edai-2/rag_pipeline.md`](rag_pipeline.md).
+[`docs/ml-llm-platform/rag_pipeline.md`](rag_pipeline.md).
 
 Code: [`serving/app.py`](../../serving/app.py). Test: [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
 
@@ -343,7 +343,7 @@ Image v3 có thêm `feast[postgres]`, `fastembed` và model `BAAI/bge-small-en-v
 | `POST /chunks` "How long does a Walmart buyer have to return?" | `walmart-returns / Return window` đứng đầu, distance 0,127 |
 | MCP qua agentgateway `tools/call search_policy_chunks` "Can a TikTok buyer get a refund without returning the item?" | `tiktok-shop-returns / Refund only` |
 
-Agent dùng tool: [`docs/edai-2/reference/llm_platform_agents.md`](reference/llm_platform_agents.md).
+Agent dùng tool: [`docs/ml-llm-platform/reference/llm_platform_agents.md`](reference/llm_platform_agents.md).
 
 </details>
 

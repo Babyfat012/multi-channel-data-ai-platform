@@ -4,18 +4,18 @@ Tài liệu chia theo hai phần rubric, tập trung hệ thống đã triển k
 
 | Phần | Phạm vi | Điểm bắt đầu |
 |---|---|---|
-| EDAI-1 | Generator, Spark/Flink, lakehouse/warehouse, Airflow, DataHub và schema | [EDAI-1](edai-1/README.md) |
-| EDAI-2 | LLM/Agent, RAG, feature store, training/serving, CI/CD và vận hành | [EDAI-2](edai-2/README.md) |
+| EDAI-1 | Generator, Spark/Flink, lakehouse/warehouse, Airflow, DataHub và schema | [EDAI-1](data-platform/README.md) |
+| EDAI-2 | LLM/Agent, RAG, feature store, training/serving, CI/CD và vận hành | [EDAI-2](ml-llm-platform/README.md) |
 
 Data Platform chạy Compose trên EC2, raw/lakehouse ở S3. ML/LLM chạy EKS `platform-apps`; MLflow, Jenkins và Vault chạy EC2.
 
 ## Domain và triển khai
 
-[Business domain](shared/domain.md) · [Thuật ngữ](shared/terminology.md) · [Cloud setup](shared/cloud_setup.md) · [AWS runbook](shared/aws_deploy.md) · [IaC](edai-2/iac.md).
+[Business domain](shared/domain.md) · [Thuật ngữ](shared/terminology.md) · [Cloud setup](shared/cloud_setup.md) · [AWS runbook](shared/aws_deploy.md) · [IaC](ml-llm-platform/iac.md).
 
 ## Rubric và bằng chứng
 
-[Đối chiếu rubric](shared/rubric_guide.md) · [Kiểm kê AWS và phần còn thiếu](shared/rubric_cloud_audit.md) · [Data Platform evidence](edai-1/evidence.md).
+[Kiểm kê AWS và phần còn thiếu](shared/aws_validation.md) · [Data Platform evidence](data-platform/evidence.md).
 
 Ảnh nhúng trong trang thành phần và giải thích mục đích. `evidence/` giữ receipt/log/metric; `images/` giữ ảnh gốc. Giữ nguyên định danh và số liệu từng lần chạy. Hướng dẫn local và ghi nhận trước triển khai ở phần tham khảo, ghi môi trường riêng.
 

@@ -158,7 +158,7 @@ Flink 1.20.3 và Kafka chạy bằng Compose trên EC2. Lần chạy bounded (c�
 2. Mỗi job SQL là một consumer group riêng trên Flink 1.20.3 (JobManager + TaskManager, Compose EC2). Mỗi job tự giữ watermark và state của mình.
 3. Đầu ra là file CSV trên EBS `/mnt/platform-data/flink`, được so với [manifest](../evidence/aws/stream-manifest-20261028.json).
 
-Pipeline stream phục vụ feature store (Kafka, qua Flink cửa sổ HOP 24 giờ, tới Redis/S3) là một job riêng; xem [Streaming Feature](../edai-2/stream_features.md).
+Pipeline stream phục vụ feature store (Kafka, qua Flink cửa sổ HOP 24 giờ, tới Redis/S3) là một job riêng; xem [Streaming Feature](../ml-llm-platform/stream_features.md).
 
 ### Late arrival: tin muộn được xử lý thế nào
 
@@ -225,7 +225,7 @@ Số dòng đầu ra trong các thư mục `*-live` của lần chạy liên t�
 | `tiktok-hop-5m-1m-live` | 37.863 | 37.870 | thiếu 7 cửa sổ cuối, cùng lý do |
 | `late-amazon-live` | 6.674 | 10.166 | không tất định: số này phụ thuộc vào thời điểm mỗi partition phát watermark |
 
-Job ML `ml-sku-return-24h` chưa được submit lại trong buổi này (ảnh lúc nó Running đã có ở [Streaming Feature](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30)).
+Job ML `ml-sku-return-24h` chưa được submit lại trong buổi này (ảnh lúc nó Running đã có ở [Streaming Feature](../ml-llm-platform/stream_features.md#trên-aws-pipeline-a-2026-10-30)).
 
 Bảng dưới tóm tắt từng job của bản bounded, kèm số liệu lấy từ manifest:
 
@@ -246,6 +246,6 @@ Ghi chú khi đọc các ảnh trên:
 - Ảnh Completed Jobs chỉ xác nhận job late đã FINISHED. Lần chạy liên tục bổ sung ảnh terminal AWS lấy ba tin muộn và kiểm điều kiện `event_time <= watermark` đúng cho 6.674/6.674 dòng ([ảnh](../evidence/aws/flink-late-arrival-live.png)).
 - Vẫn chưa có ảnh UI Flink trên AWS mở operator watermark. Ảnh **local** của cùng job late: [watermark và tin muộn](reference/flink.md#bắt-tin-đến-muộn-bằng-watermark) (UI Flink local).
 - Con số 10.166 không tất định: watermark được phát theo chu kỳ, nên số này khác với số tin sai thứ tự 19.729 mà generator đếm trên toàn bộ dữ liệu.
-- Cửa sổ dài hạn trên AWS (24 giờ, trượt 1 giờ) có [ảnh operator/checkpoint riêng](../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30).
+- Cửa sổ dài hạn trên AWS (24 giờ, trượt 1 giờ) có [ảnh operator/checkpoint riêng](../ml-llm-platform/stream_features.md#trên-aws-pipeline-a-2026-10-30).
 
 [Mục lục phần này](README.md) · [Mục lục chung](../README.md)

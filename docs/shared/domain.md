@@ -97,7 +97,7 @@ Bên seller **không có clickstream** (lượt xem, giỏ hàng), vì đó là 
 | **Data drift** | (1) Covariate: đợt sale kiểu Prime Day làm mức giảm giá và phân phối SKU đổi đột ngột trên các Storefront Amazon. (2) Concept: livestream TikTok làm tỷ lệ trả quần áo tăng gần gấp đôi nhưng feature trông vẫn bình thường |
 | **Duplicate, burst, late (stream)** | Tùy đặc tính từng Channel như mục 6 |
 
-Mọi con số đều là config của generator, có thể tăng khi chạy trên cloud. Thiết kế chi tiết xem [generator-design.md](../edai-1/reference/generator_design.md).
+Mọi con số đều là config của generator, có thể tăng khi chạy trên cloud. Thiết kế chi tiết xem [generator-design.md](../data-platform/reference/generator_design.md).
 
 ## 9. Phần mở rộng riêng của Amazon
 
@@ -110,6 +110,6 @@ Phí, settlement, quảng cáo, tồn kho FBA chưa làm ở giai đoạn này, 
 
 ## 10. Giả định và giới hạn
 
-- **Mức xác minh của dạng dữ liệu từng Channel**: đơn hàng và trả hàng của cả 5 Channel đã đối chiếu với tài liệu chính thức. Một số chi tiết vẫn là *giả định* (ví dụ ngày giao thực tế của Amazon và Shopee, notification của Amazon). Danh sách đầy đủ, kèm nguồn và mức tin cậy, xem [channel-sources.md](../edai-1/reference/channel_sources.md).
+- **Mức xác minh của dạng dữ liệu từng Channel**: đơn hàng và trả hàng của cả 5 Channel đã đối chiếu với tài liệu chính thức. Một số chi tiết vẫn là *giả định* (ví dụ ngày giao thực tế của Amazon và Shopee, notification của Amazon). Danh sách đầy đủ, kèm nguồn và mức tin cậy, xem [channel-sources.md](../data-platform/reference/channel_sources.md).
 - **Dữ liệu hoàn toàn giả lập**: phân phối (tỷ trọng Storefront, tỷ lệ trả hàng theo danh mục) là tham số của generator, không phải số liệu thật.
 - **Không có clickstream**: dữ liệu lượt xem, giỏ hàng là dữ liệu nội bộ của sàn, nằm ngoài phạm vi góc nhìn Seller.

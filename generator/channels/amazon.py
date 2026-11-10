@@ -12,7 +12,7 @@ Năm kiểu thay đổi generator mô phỏng:
 | Field bỏ đi | `NumberOfItemsShipped`, `NumberOfItemsUnshipped`, `IsBusinessOrder`, `IsReplacementOrder`, `OrderItems[].QuantityShipped` | không có (đã bỏ) → partition 2026-01-01 bị null ở 5 khoá này |
 | Đổi kiểu | `IsPrime` (bool) | `programs` (mảng) → không mất thông tin (cả hai dạng đều cho biết đơn có Prime hay không), nhưng khi gộp schema thì **cả hai cột đều null**: cột `is_prime` null ở 81 ngày 2026, cột `programs` null ở 99 ngày v0 |
 
-Nguồn field: xem docs/edai-1/reference/channel_sources.md, mục 2. Tên field cấp đơn ở trên là mức Cao.
+Nguồn field: xem docs/data-platform/reference/channel_sources.md, mục 2. Tên field cấp đơn ở trên là mức Cao.
 Tên các field con do dự án tự đặt (giả định) gồm: `fulfillment.fulfilledBy`,
 `salesChannel.marketplaceId`, `proceeds.grandTotal`, `orderItems[].price`.
 Ngoài ra, v0 thật tách Order Item sang lời gọi `getOrderItems`, còn ở đây
@@ -256,7 +256,7 @@ class AmazonOrderNotificationRenderer:
     """Vẽ một lần đổi trạng thái của Order Amazon thành notification `ORDER_CHANGE`.
 
     Dùng cho Stream. Dạng message theo SP-API Notifications, nhưng **chưa đối
-    chiếu** với tài liệu chính thức (docs/edai-1/reference/channel_sources.md ghi notification
+    chiếu** với tài liệu chính thức (docs/data-platform/reference/channel_sources.md ghi notification
     Amazon là mục còn thiếu), nên toàn bộ tên field là giả định, mức Thấp.
 
     `EventTime` là lúc đổi trạng thái thật. `NotificationMetadata.PublishTime`

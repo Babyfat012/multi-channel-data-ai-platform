@@ -350,7 +350,7 @@ Mỗi con số đo được đặt cạnh con số trong `run_manifest.json`.
 - Chia theo ngày để ít tốn RAM. Hơn 1 triệu Order Line chạy được trong một process, chưa cần Spark.
 - Unit test local chỉ chạy cấu hình rất nhỏ (ví dụ 20 SKU, 3 ngày).
 - Mỗi file có đoạn mô tả ở đầu file, mỗi hàm và class có docstring, theo yêu cầu chung của bộ dữ liệu.
-- **Docker**: có Docker Compose (MinIO, PostgreSQL, Kafka) cho môi trường thử. Để có số liệu "giảm từ bao nhiêu xuống bao nhiêu", build trước một image đơn giản (một stage, base image đầy đủ) và ghi dung lượng, sau đó build bản tối ưu (multi-stage, base image slim, không giữ cache cài đặt) và ghi dung lượng. Kết quả ghi vào `docs/edai-1/docker.md`.
+- **Docker**: có Docker Compose (MinIO, PostgreSQL, Kafka) cho môi trường thử. Để có số liệu "giảm từ bao nhiêu xuống bao nhiêu", build trước một image đơn giản (một stage, base image đầy đủ) và ghi dung lượng, sau đó build bản tối ưu (multi-stage, base image slim, không giữ cache cài đặt) và ghi dung lượng. Kết quả ghi vào `docs/data-platform/docker.md`.
 - Hạ tầng nặng chạy trên cloud, dựng bằng Terraform và `destroy` khi nghỉ.
 
 ## 13. Giả định và việc còn mở
@@ -376,7 +376,7 @@ Mỗi con số đo được đặt cạnh con số trong `run_manifest.json`.
 
 | Chủ đề | Thiết kế | Evidence / cách kiểm chứng |
 |---|---|---|
-| Docker & Docker Compose | Mục 12 | `docs/edai-1/docker.md` |
+| Docker & Docker Compose | Mục 12 | `docs/data-platform/docker.md` |
 | Optimize Dockerfile | Mục 12 | Dung lượng image trước và sau tối ưu |
 | Simulate skew | Mục 5, offline | Ảnh chụp báo cáo, mục 11 |
 | Simulate high cardinality | Mục 5, offline | Ảnh chụp `approx_count_distinct` |

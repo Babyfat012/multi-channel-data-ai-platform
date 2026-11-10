@@ -17,7 +17,7 @@ Chỗ nào chưa đo thì không suy đoán.
 - Tài liệu tả *quyết định, lý do, và giá* — không phải hướng dẫn chạy.
 - Mục 8 ghi **ba khoản cuối đã chốt**. Mục 9 ghi quyết định Gold đã triển khai sau hệ quả đó.
 - Mục 10 ghi **số đo lần chạy thật** và **hai khoản mới mở ra khi chạy**.
-- Đọc kèm: [thuật ngữ và tầng dữ liệu](../../shared/terminology.md) (định nghĩa Bronze/Silver/Gold), `docs/edai-1/reference/spark.md` (Bronze đã xong).
+- Đọc kèm: [thuật ngữ và tầng dữ liệu](../../shared/terminology.md) (định nghĩa Bronze/Silver/Gold), `docs/data-platform/reference/spark.md` (Bronze đã xong).
 
 ---
 
@@ -42,7 +42,7 @@ thuộc Silver.
 **Giá:** tách không làm mất việc gộp, chỉ đẩy nó xuống Gold, nơi hai kênh đã cùng snake_case
 và đã sạch.
 
-**Đồng bộ định nghĩa Bronze:** định nghĩa Bronze ở `docs/edai-1/reference/spark.md:17` và [thuật ngữ và tầng dữ liệu](../../shared/terminology.md) đã được
+**Đồng bộ định nghĩa Bronze:** định nghĩa Bronze ở `docs/data-platform/reference/spark.md:17` và [thuật ngữ và tầng dữ liệu](../../shared/terminology.md) đã được
 sửa cho khớp thiết kế thật — Bronze có **một bảng mỗi KÊNH**, hai dạng schema của Amazon nằm
 chung vì Bronze không parse JSON.
 
@@ -443,7 +443,7 @@ mở **cả 180 partition** rồi tự lọc, thay vì mở đúng ~30 partition
 
 ### 10.5 Giới hạn đã biết
 `DROP TABLE ... PURGE` in lỗi Lakekeeper `BadRequestException: Malformed request` **sau khi**
-xoá, giống hệt điều đã gặp 7 lần ở tầng Bronze (`docs/edai-1/reference/spark.md` mục 5f). Bảng vẫn mất thật:
+xoá, giống hệt điều đã gặp 7 lần ở tầng Bronze (`docs/data-platform/reference/spark.md` mục 5f). Bảng vẫn mất thật:
 `SHOW TABLES IN lakehouse.silver` trả về rỗng. Purge chạy **nền**, nên đĩa trả chậm vài chục
 giây. Chưa rõ nguyên nhân, chưa điều tra.
 
@@ -451,7 +451,7 @@ giây. Chưa rõ nguyên nhân, chưa điều tra.
 
 ## 10.6 ĐÃ CHỨNG MINH: dedup trên 10 ngày liền nhau
 
-Cửa sổ chọn **2026-04-05 .. 2026-04-14**, không chọn bừa: `docs/edai-1/reference/silver.md` mục 3.2 đã đo
+Cửa sổ chọn **2026-04-05 .. 2026-04-14**, không chọn bừa: `docs/data-platform/reference/silver.md` mục 3.2 đã đo
 rằng hai dạng schema chồng nhau ở `export_date` **2026-04-07..04-12**. Lấy cửa sổ trùm lên
 đó thì một lần chạy chứng minh được **cả hai** việc của job Silver.
 

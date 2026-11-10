@@ -12,6 +12,6 @@ Data Platform chuẩn hóa dữ liệu bán hàng đa kênh, cung cấp dữ li�
 
 [Kiến trúc Data Platform và ML Platform](../../diagrams/data-platform-system-architecture-excalidraw.png) · [Evidence](../evidence.md) · [Tiến độ](data_platform_order_lifecycle_status.md).
 
-Dữ liệu Gold và các bảng feature offline là đầu vào cho [ML Platform](../../edai-2/reference/ml_platform.md). [LLM Platform](../../edai-2/reference/llm_platform.md) sử dụng dữ liệu qua API công cụ và nguồn tài liệu đã kiểm tra.
+Dữ liệu Gold và các bảng feature offline là đầu vào cho [ML Platform](../../ml-llm-platform/reference/ml_platform.md). [LLM Platform](../../ml-llm-platform/reference/llm_platform.md) sử dụng dữ liệu qua API công cụ và nguồn tài liệu đã kiểm tra.
 
 [Mục lục tài liệu](../../README.md) · [Data & AI Platform](../../../README.md)

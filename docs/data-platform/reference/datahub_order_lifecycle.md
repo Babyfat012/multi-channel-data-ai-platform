@@ -195,7 +195,7 @@ Chưa có run_id, thời gian, ảnh Lineage/Quality thực; các đường dẫ
 là đầu ra dự kiến. Không tạo ảnh giả khi chưa chạy UI thật.
 
 Nếu lỗi, trap in lệnh dọn và giữ receipt/volume. Dùng Compose pha A `stop`
-hoặc lệnh quickstart trong docs/edai-1/data_governance.md thay `up -d` bằng `stop` để giải
+hoặc lệnh quickstart trong docs/data-platform/data_governance.md thay `up -d` bằng `stop` để giải
 phóng RAM. Không dùng `down -v`. Pha B để DataHub chạy cho người vận hành kiểm UI;
 sau capture người vận hành dừng quickstart bằng lệnh `stop` đó. Run đã append Gold
 cần run_id mới khi chạy lại, tránh clear/retry cùng generation. Timeout DAG

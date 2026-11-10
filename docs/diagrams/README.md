@@ -7,21 +7,21 @@ Hai sơ đồ chính của dự án:
 
 Mỗi khối trắng là một đơn vị triển khai (Compose container, Deployment / Pod, Job hoặc managed service); khung màu là nhóm chức năng. Mũi tên đi theo chiều dữ liệu, có mô tả, đánh số và tô màu riêng cho từng luồng; nét đứt chỉ dùng cho luồng phụ (điều phối, CI/CD, observability, provisioning). Chú giải luồng nằm cuối mỗi hình.
 
-Nguồn đối chiếu rubric là [rubric guide](../shared/rubric_guide.md) và [rubric × cloud audit](../shared/rubric_cloud_audit.md). Các hình mô tả kiến trúc cấu hình trong repo; trạng thái triển khai và bằng chứng nằm trong tài liệu audit.
+Nguồn đối chiếu rubric là [rubric × cloud audit](../shared/aws_validation.md). Các hình mô tả kiến trúc cấu hình trong repo; trạng thái triển khai và bằng chứng nằm trong tài liệu audit.
 
 ## Data Platform
 
 | Nhóm trong hình | Rubric / chức năng | Nguồn cấu hình / tài liệu |
 |---|---|---|
-| Batch ingestion | Generator offline; skew, evolution, duplicate; lưu nguồn | `generator/`, [generator](../edai-1/data_generator.md) |
-| Spark | Baseline, skew, schema evolution, dedup; pipeline integration | `spark_jobs/`, [Spark](../edai-1/processing_jobs.md) |
-| Kafka / Flink | Online generator, late arrival, duplicate, window | `flink_jobs/`, [Flink](../edai-1/processing_jobs.md) |
-| Lakekeeper / S3 / Iceberg | Catalog, zones, SCD2, label, feature, compaction / partition | [Storage](../edai-1/data_storage.md), [Schema](../edai-1/schema_design.md) |
-| PostgreSQL | Warehouse dim–fact / indexing | [Warehouse](../edai-1/reference/warehouse_order_lifecycle.md) |
-| Airflow DP1–DP4 | Ingest, validate, task dependency, publish | `dags/`, [Airflow](../edai-1/pipeline_orchestration.md) |
-| DataHub | Dataset / DataJob lineage, validation assertions | [DataHub](../edai-1/data_governance.md) |
-| Trino | Novel DE-1: federation | [Trino](../edai-1/novel_ideas.md) |
-| Debezium | Novel DE-2: WAL CDC → Kafka | [CDC](../edai-1/novel_ideas.md) |
+| Batch ingestion | Generator offline; skew, evolution, duplicate; lưu nguồn | `generator/`, [generator](../data-platform/data_generator.md) |
+| Spark | Baseline, skew, schema evolution, dedup; pipeline integration | `spark_jobs/`, [Spark](../data-platform/processing_jobs.md) |
+| Kafka / Flink | Online generator, late arrival, duplicate, window | `flink_jobs/`, [Flink](../data-platform/processing_jobs.md) |
+| Lakekeeper / S3 / Iceberg | Catalog, zones, SCD2, label, feature, compaction / partition | [Storage](../data-platform/data_storage.md), [Schema](../data-platform/schema_design.md) |
+| PostgreSQL | Warehouse dim–fact / indexing | [Warehouse](../data-platform/reference/warehouse_order_lifecycle.md) |
+| Airflow DP1–DP4 | Ingest, validate, task dependency, publish | `dags/`, [Airflow](../data-platform/pipeline_orchestration.md) |
+| DataHub | Dataset / DataJob lineage, validation assertions | [DataHub](../data-platform/data_governance.md) |
+| Trino | Novel DE-1: federation | [Trino](../data-platform/trino_federation_and_cdc.md) |
+| Debezium | Novel DE-2: WAL CDC → Kafka | [CDC](../data-platform/trino_federation_and_cdc.md) |
 | Hạ tầng | Docker / Compose, Dockerfile optimization, Terraform / Ansible | `docker-compose.yml`, `docker-compose.aws.yml`, `infra/aws/` |
 
 ## ML + LLM Platform

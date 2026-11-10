@@ -15,7 +15,7 @@ thật; execution **2** chỉ là lệnh ghi bảng bao ngoài.
 | `13-silver-amazon-schema-details.png` | Details của plan với parse schema nguồn |
 | `silver-amazon-execution-3.json` | REST execution hoàn tất, physical plan và metrics của đúng run |
 
-Ảnh được nhúng và diễn giải trong [Spark mục 10](../../edai-1/reference/spark.md). Script
+Ảnh được nhúng và diễn giải trong [Spark mục 10](../../data-platform/reference/spark.md). Script
 `scripts/capture_spark_silver_evidence.py` chụp History UI thật và lưu REST
 response, không chạy lại job.
 
@@ -68,4 +68,4 @@ Hai app còn lại trong History Server **không phải bằng chứng**, đừn
    là `write.distribution-mode=hash` dồn mỗi `export_date` về một task — AQE không chia
    việc ghi một partition cho nhiều task được.
 4. Ảnh `06`: ở quy mô 180 ngày, skew vẫn còn (median 33s, max 1,1 phút = gấp 2) nhưng
-   không chặn được việc. Quyết định 2026-10-11: **giữ `hash`** (lý do và phép đo tiếp theo ở [Spark mục 5](../../edai-1/reference/spark.md)).
+   không chặn được việc. Quyết định 2026-10-11: **giữ `hash`** (lý do và phép đo tiếp theo ở [Spark mục 5](../../data-platform/reference/spark.md)).

@@ -12,6 +12,6 @@ LLM Platform cung cấp hội thoại cho Seller bằng LLM, RAG và agent sử 
 
 [Kiến trúc ML + LLM Platform](../../diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Evidence ML Platform / LLM Platform](ml_llm_platform_evidence.md).
 
-Agent truy vấn số liệu từ [Data Platform](../../edai-1/reference/data_platform.md), feature và dự đoán từ [ML Platform](ml_platform.md). API và hạ tầng vận hành dùng chung được dẫn chiếu từ cả hai platform.
+Agent truy vấn số liệu từ [Data Platform](../../data-platform/reference/data_platform.md), feature và dự đoán từ [ML Platform](ml_platform.md). API và hạ tầng vận hành dùng chung được dẫn chiếu từ cả hai platform.
 
 [Mục lục tài liệu](../../README.md) · [Data & AI Platform](../../../README.md)

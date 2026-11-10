@@ -157,4 +157,4 @@ UI dedup thấy HASH → Deduplicate và 93.554 record nhận, chứng minh keye
 Số 92.157 dòng đầu ra lấy từ manifest, không đọc nhầm cột Records Sent của file sink bằng 0 thành mất dữ liệu.
 Ảnh Completed Jobs chỉ xác nhận job late FINISHED; chưa có UI AWS mở operator/watermark và ví dụ event muộn.
 10.166 không phải số tất định: watermark phát theo chu kỳ, khác phép đếm out-of-order toàn cục 19.729 của generator.
-Window AWS dài hạn 24h trượt 1h có [ảnh operator/checkpoint riêng](../../edai-2/stream_features.md#trên-aws-pipeline-a-2026-10-30).
+Window AWS dài hạn 24h trượt 1h có [ảnh operator/checkpoint riêng](../../ml-llm-platform/stream_features.md#trên-aws-pipeline-a-2026-10-30).

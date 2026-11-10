@@ -1,6 +1,6 @@
 """Kiểm agentgateway (LLM / MCP / A2A) + telemetry trên Prometheus, ghi một receipt JSON.
 
-Thay bảng `curl` gõ tay ở docs/edai-2/reference/llm_platform_agents.md. Chạy trên laptop qua port-forward:
+Thay bảng `curl` gõ tay ở docs/ml-llm-platform/reference/llm_platform_agents.md. Chạy trên laptop qua port-forward:
 
 kubectl -n agentgateway port-forward svc/agentgateway 18300:3000 &
 kubectl -n observability port-forward svc/prometheus-server 19090:80 &

@@ -117,7 +117,7 @@ Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng ch�
 ## Observability — ML Platform / LLM Platform
 
 Dựng bằng lệnh `bash scripts/setup/deploy_kind_observability.sh` (namespace `observability`). Xem qua HTTPS + basic auth
-(ingress của [`docs/edai-2/cicd.md`](cicd.md)) tại các host `grafana.`, `traces.`, `metrics.` trên `172-25-0-2.sslip.io:30443`.
+(ingress của [`docs/ml-llm-platform/cicd.md`](cicd.md)) tại các host `grafana.`, `traces.`, `metrics.` trên `172-25-0-2.sslip.io:30443`.
 
 | Thành phần | Chart / bản | Vai trò | File |
 |---|---|---|---|
