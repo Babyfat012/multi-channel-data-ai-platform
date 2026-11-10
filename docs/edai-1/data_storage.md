@@ -1,20 +1,30 @@
 # Data Storage trên AWS
 
-EDAI-1, dòng 20–21: tối ưu lakehouse và warehouse.
+Trang này ứng với EDAI-1, dòng 20–21 của rubric: tối ưu lưu trữ ở lakehouse (Iceberg trên S3) và warehouse
+(PostgreSQL).
 
 Code / cấu hình: [Partition rewrite](../../spark_jobs/maintenance/repartition_small_channel.py), [export warehouse](../../spark_jobs/warehouse/export_order_snapshot_lines.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây là của các lần chạy AWS đã ghi lại; trang này không khẳng định dịch vụ hiện vẫn đang bật.
 
 ## Lakehouse trên AWS: gộp file nhỏ bằng partition evolution
 
-`maintenance_iceberg` trên `bronze.raw_shopee_orders_dp1` ra **no-op**: bảng chia theo ngày, mỗi ngày đúng
-1 file ~2,4 MB, nên `rewrite_data_files` (gộp trong từng partition) không có gì để gộp. Nguyên nhân là
-skew kích thước kênh: shopee nhỏ nhất nhưng vẫn chia theo ngày như amazon (gap #16).
+**Kết luận:** đổi cách chia partition của bảng Shopee từ theo ngày sang theo tháng giúp số file giảm từ 180 xuống 6
+và truy vấn nhanh hơn rõ rệt, trong khi dữ liệu giữ nguyên.
 
-[`repartition_small_channel.py`](../../spark_jobs/maintenance/repartition_small_channel.py) đổi spec tại chỗ
-(`ALTER TABLE … REPLACE PARTITION FIELD export_date WITH months(export_date)`) rồi
-`rewrite_data_files(options => map('rewrite-all','true'))`, đo trước/sau, chặn nếu fingerprint đổi:
+**Vấn đề.** DAG `maintenance_iceberg` chạy trên `bronze.raw_shopee_orders_dp1` ra **no-op** (không có gì để làm).
+Bảng chia partition theo ngày và mỗi ngày chỉ có đúng 1 file khoảng 2,4 MB. Lệnh `rewrite_data_files` chỉ gộp file
+bên trong từng partition, nên không có gì để gộp. Nguyên nhân gốc là các kênh có kích thước rất khác nhau: Shopee nhỏ
+nhất nhưng vẫn bị chia theo ngày giống Amazon (gap #16).
+
+**Cách sửa.** Job [`repartition_small_channel.py`](../../spark_jobs/maintenance/repartition_small_channel.py) làm bốn
+việc:
+
+1. Đổi partition spec ngay trên bảng hiện có (partition evolution):
+   `ALTER TABLE … REPLACE PARTITION FIELD export_date WITH months(export_date)`.
+2. Viết lại toàn bộ file theo spec mới: `rewrite_data_files(options => map('rewrite-all','true'))`.
+3. Đo các chỉ số trước và sau.
+4. Dừng lại nếu fingerprint (mã băm nội dung bảng) thay đổi, tức dữ liệu bị đổi.
 
 | | Trước (ngày) | Sau (tháng) |
 |---|---|---|
@@ -25,22 +35,30 @@ skew kích thước kênh: shopee nhỏ nhất nhưng vẫn chia theo ngày như
 | Lọc 30 ngày cuối (trung vị 3 lần) | 7,943 s | **0,968 s** (8,2×) |
 | Dòng / fingerprint | 4.689.957 / -2551885948954549477803 | **giống hệt** |
 
-Lọc 30 ngày nhanh 8× vì trước phải mở ~30 file nhỏ (mỗi file một lần đọc footer + request S3), sau chỉ
-1–2 file tháng. Đổi lại, lọc đúng một ngày nay phải đọc cả file tháng chứa ngày đó.
-Giới hạn: job Bronze `dp1` ghi `createOrReplace … partitionedBy("export_date")`, chạy lại dp1 sẽ trả bảng
-về chia theo ngày; đóng hẳn gap #16 cần cho ingest chọn spec theo kênh. Lùi về spec cũ:
-`CALL lakehouse.system.rollback_to_snapshot(...)` với `snapshot_before` trong biên lai.
+Vì sao lọc 30 ngày nhanh gấp 8 lần: trước đây phải mở khoảng 30 file nhỏ, mỗi file tốn một lần đọc footer và một
+request S3; nay chỉ cần mở 1–2 file theo tháng. Đổi lại, khi lọc đúng một ngày thì nay phải đọc cả file tháng chứa
+ngày đó.
+
+Giới hạn: job Bronze `dp1` ghi bằng `createOrReplace … partitionedBy("export_date")`, nên chạy lại dp1 sẽ đưa bảng
+về chia theo ngày. Muốn đóng hẳn gap #16, bước ingest cần chọn spec theo từng kênh. Muốn quay về spec cũ: chạy
+`CALL lakehouse.system.rollback_to_snapshot(...)` với `snapshot_before` ghi trong biên lai.
 
 ## Warehouse trên AWS: 30 ngày, năm Channel
 
-DAG [`dp4_warehouse`](../../dags/dp4_warehouse.py) chép 30 ngày trước cutoff (2026-05-31 → 2026-06-30) của
-`lakehouse.gold.fact_order_lines_dp2` sang `warehouse.fact_order_lines_30d_dp2` trên PostgreSQL EC2
-([job](../../spark_jobs/warehouse/export_order_snapshot_lines.py)): **37.045.741 dòng**, bảng **5.513 MB**,
-index `(seller_sku)` **250 MB**. Job đối soát số dòng theo Channel với Gold trước khi tạo index.
+**Kết luận:** index trên `seller_sku` làm truy vấn SKU hiếm nhanh gấp 28 lần; với SKU phổ biến, PostgreSQL vẫn
+quét cả bảng, và đó là hành vi đúng.
 
-SKU bị skew mạnh: nhiều nhất `ELE-01103` 2.011.389 dòng (5,4%), ít nhất `APP-00482` 4.517 dòng (0,012%).
-Đo bằng `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*), sum(line_net_amount) … WHERE seller_sku = …`,
-`DROP INDEX` rồi `CREATE INDEX` + `ANALYZE` trên cùng bảng:
+DAG [`dp4_warehouse`](../../dags/dp4_warehouse.py) chép 30 ngày trước cutoff (từ 2026-05-31 đến 2026-06-30) của
+`lakehouse.gold.fact_order_lines_dp2` sang `warehouse.fact_order_lines_30d_dp2` trên PostgreSQL của EC2
+([job](../../spark_jobs/warehouse/export_order_snapshot_lines.py)). Bảng có **37.045.741 dòng**, nặng **5.513 MB**;
+index `(seller_sku)` nặng **250 MB**. Trước khi tạo index, job đối soát số dòng theo từng Channel với Gold.
+
+Số dòng theo SKU lệch rất mạnh: nhiều nhất là `ELE-01103` với 2.011.389 dòng (5,4%), ít nhất là `APP-00482` với
+4.517 dòng (0,012%).
+
+Cách đo: chạy `EXPLAIN (ANALYZE, BUFFERS) SELECT count(*), sum(line_net_amount) … WHERE seller_sku = …` trên cùng một
+bảng, lần đầu sau khi `DROP INDEX`, lần sau khi đã `CREATE INDEX` và `ANALYZE`. "Buffer đọc" là số trang dữ liệu
+PostgreSQL phải đọc.
 
 | SKU | Index | Kế hoạch | Buffer đọc | `Execution Time` |
 |---|---|---|---|---|
@@ -49,28 +67,32 @@ SKU bị skew mạnh: nhiều nhất `ELE-01103` 2.011.389 dòng (5,4%), ít nh�
 | `ELE-01103` (5,4%) | không | `Parallel Seq Scan` | 690.558 | 41.745 ms |
 | `ELE-01103` | có | **vẫn `Parallel Seq Scan`** — planner bỏ index | 690.502 | 41.304 ms |
 
-- Index chỉ có lợi khi điều kiện **chọn lọc**: SKU hiếm đọc ít hơn ~150 lần trang đĩa.
-- SKU phổ biến (5,4%) rải trên gần mọi trang ⇒ đi qua index vẫn phải mở hầu hết trang theo thứ tự
-  ngẫu nhiên, nên planner chọn quét tuần tự: đúng hành vi mong đợi, không phải lỗi.
-- Sau index `APP-00482` vẫn 1,5 s vì 4.517 dòng nằm trên 4.467 trang (bảng không xếp theo SKU, cache
-  lạnh trên EBS). Muốn nhanh hơn: `CLUSTER … USING` index, hoặc index bao (`INCLUDE (line_net_amount)`)
-  để chỉ đọc index.
+- Index chỉ có lợi khi điều kiện lọc **chọn lọc** (chỉ khớp ít dòng): với SKU hiếm, số trang đĩa phải đọc giảm
+  khoảng 150 lần.
+- Dòng của SKU phổ biến (5,4%) rải trên gần mọi trang. Đi qua index thì vẫn phải mở hầu hết các trang, lại theo thứ
+  tự ngẫu nhiên. Vì vậy planner chọn quét tuần tự. Đây là hành vi mong đợi, không phải lỗi.
+- Có index rồi mà `APP-00482` vẫn mất 1,5 s, vì 4.517 dòng của nó nằm rải trên 4.467 trang (bảng không xếp theo
+  SKU, và cache trên EBS còn lạnh). Muốn nhanh hơn có hai cách: sắp lại bảng theo index bằng `CLUSTER … USING`,
+  hoặc dùng index bao (`INCLUDE (line_net_amount)`) để truy vấn chỉ cần đọc index.
 
 Ảnh EXPLAIN và log được nhúng ở [mục AWS](#trên-aws).
 
 ## Trên AWS
 
-Spark/Iceberg và PostgreSQL chạy Compose trên EC2, dữ liệu lakehouse ở S3.
-[Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) có `lakehouse_repartition_shopee` và `airflow_dp4_warehouse`;
-chi tiết phép đo ở [Lakehouse](#lakehouse-trên-aws-gộp-file-nhỏ-bằng-partition-evolution)
-và [Warehouse](#warehouse-trên-aws-30-ngày-năm-channel).
+Mục này gom ảnh và log cho hai phép đo ở trên. Spark/Iceberg và PostgreSQL chạy bằng Compose trên EC2; dữ liệu
+lakehouse nằm ở S3. [Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) có hai mục
+`lakehouse_repartition_shopee` và `airflow_dp4_warehouse`. Phân tích chi tiết xem ở
+[Lakehouse](#lakehouse-trên-aws-gộp-file-nhỏ-bằng-partition-evolution) và
+[Warehouse](#warehouse-trên-aws-30-ngày-năm-channel).
 
-Với Shopee, [job partition evolution](../../spark_jobs/maintenance/repartition_small_channel.py) đổi ngày → tháng,
-rewrite-all: 180 → 6 file; 4.689.957 dòng và fingerprint `-2551885948954549477803` giữ nguyên.
-Trung vị ba lần `count(*)` 1,040 → 0,286 s; lọc 30 ngày 7,943 → 0,968 s. Đây là số trong receipt;
-ảnh AWS chụp riêng trước/sau compaction nằm ngay dưới. Maintenance trước đó no-op vì mỗi partition ngày chỉ một file.
+**Lakehouse (Shopee).** [Job partition evolution](../../spark_jobs/maintenance/repartition_small_channel.py) đổi
+partition từ ngày sang tháng rồi viết lại toàn bộ (rewrite-all). Số file giảm từ 180 xuống 6; bảng vẫn 4.689.957
+dòng và fingerprint `-2551885948954549477803` giữ nguyên. Trung vị ba lần chạy `count(*)` giảm từ 1,040 s xuống
+0,286 s; lọc 30 ngày giảm từ 7,943 s xuống 0,968 s. Các số này lấy từ receipt; ảnh AWS chụp riêng trước/sau
+compaction nằm ngay bên dưới. Lần maintenance trước đó ra no-op vì mỗi partition ngày chỉ có một file.
 
-Để chụp trước/sau mà không chạy lại job, đọc cùng bảng ở hai snapshot qua Trino (chỉ đọc; đã chạy trên EC2, kết quả ở dưới):
+Để có ảnh trước/sau mà không phải chạy lại job, đọc cùng một bảng ở hai snapshot (phiên bản bảng) qua Trino. Các
+câu này chỉ đọc; đã chạy trên EC2 và kết quả ở bên dưới:
 
 ```sql
 -- 1. snapshot trước khi viết lại: snapshot cuối cùng có operation = append/overwrite trước lần replace
@@ -84,8 +106,12 @@ SELECT count(DISTINCT "$path") AS files, count(*) AS rows
 FROM lakehouse.bronze.raw_shopee_orders_dp1;
 ```
 
-**Kết quả trên AWS (Trino 483 trên EC2).** Bảng `bronze.raw_shopee_orders_dp1` có đúng hai snapshot: `564699590744609361` (`append`) và
-`2727359824964749759` (`replace`, lần viết lại của job `repartition_small_channel`). Snapshot cũ chưa bị `expire_snapshots` xóa nên đọc lại được:
+**Kết quả trên AWS (Trino 483 trên EC2).** Bảng `bronze.raw_shopee_orders_dp1` có đúng hai snapshot:
+
+- `564699590744609361` (`append`): lần ghi ban đầu.
+- `2727359824964749759` (`replace`): lần viết lại của job `repartition_small_channel`.
+
+Snapshot cũ chưa bị `expire_snapshots` xóa nên vẫn đọc lại được:
 
 | Trạng thái | Số file dữ liệu | Số dòng |
 |---|---:|---:|
@@ -96,13 +122,14 @@ Số dòng bằng nhau ở hai phía (dữ liệu không đổi) và khớp rece
 
 ![Trino CLI trên EC2: $snapshots có append và replace; trước 180 file, 4.689.957 dòng; sau 6 file, 4.689.957 dòng](../evidence/aws/lakehouse-before-after-trino.png)
 
-Nếu snapshot cũ bị `expire_snapshots` xóa thì không đọc lại được; khi đó chụp bước 3 cùng receipt trên EC2
-(`/mnt/platform-data/airflow/logs/iceberg-maintenance/repartition-shopee.json`, có sẵn before/after).
+Nếu sau này snapshot cũ bị `expire_snapshots` xóa thì không đọc lại được nữa. Khi đó chỉ chụp kết quả bước 3, kèm
+receipt trên EC2 (`/mnt/platform-data/airflow/logs/iceberg-maintenance/repartition-shopee.json`, có sẵn số
+before/after).
 
-DAG [dp4_warehouse](../../dags/dp4_warehouse.py), run `manual__2026-10-29T08:34:06.602356+00:00`,
-gọi [export và index](../../spark_jobs/warehouse/export_order_snapshot_lines.py). Job chép 30 ngày năm Channel,
-so count từng Channel với Gold rồi tạo B-tree `(seller_sku)` và `ANALYZE`.
-Ảnh dưới cho thấy vấn đề của baseline: lọc SKU hiếm vẫn phải quét cả bảng.
+**Warehouse.** DAG [dp4_warehouse](../../dags/dp4_warehouse.py), run `manual__2026-10-29T08:34:06.602356+00:00`,
+gọi job [export và index](../../spark_jobs/warehouse/export_order_snapshot_lines.py). Job chép 30 ngày của năm
+Channel, so số dòng từng Channel với Gold, rồi tạo index B-tree `(seller_sku)` và chạy `ANALYZE`.
+Các ảnh dưới cho thấy vấn đề khi chưa có index: lọc một SKU hiếm vẫn phải quét cả bảng.
 
 ![Airflow dp4_warehouse attempt 3 màu xanh: log đối soát Gold và warehouse, đã ghi index seller_sku, rows 37.045.741](../evidence/aws/dp4-warehouse-log-20261029.png)
 
@@ -112,10 +139,12 @@ so count từng Channel với Gold rồi tạo B-tree `(seller_sku)` và `ANALYZ
 
 ![EXPLAIN sau CREATE INDEX và ANALYZE: APP-00482 dùng Bitmap Index Scan; ELE-01103 vẫn Parallel Seq Scan](../evidence/aws/warehouse-explain-after-20261029.png)
 
-`APP-00482` có 4.517/37.045.741 dòng: trước index Parallel Seq Scan 42.567,429 ms, đọc 690.595 buffer;
-sau index Bitmap Index Scan → Bitmap Heap Scan 1.497,187 ms, đọc 4.475 buffer.
-Với SKU phổ biến `ELE-01103` (2.011.389 dòng), planner vẫn chọn Seq Scan: index không có lợi khi phải đọc
-phần lớn trang. Đây là các lượt EXPLAIN quan sát trên EBS, chưa tách ảnh hưởng cache thành benchmark ổn định.
+`APP-00482` có 4.517 trên tổng 37.045.741 dòng. Trước khi có index, PostgreSQL dùng Parallel Seq Scan, mất
+42.567,429 ms và đọc 690.595 buffer. Sau khi có index, nó dùng Bitmap Index Scan rồi Bitmap Heap Scan, mất
+1.497,187 ms và đọc 4.475 buffer.
+Với SKU phổ biến `ELE-01103` (2.011.389 dòng), planner vẫn chọn Seq Scan, vì index không có lợi khi phải đọc phần
+lớn các trang. Đây là các lượt EXPLAIN quan sát trên EBS; chưa tách riêng ảnh hưởng của cache để thành một benchmark
+ổn định.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
@@ -229,4 +258,4 @@ câu hỏi giữa Iceberg và warehouse bằng Trino được ghi riêng tại
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
