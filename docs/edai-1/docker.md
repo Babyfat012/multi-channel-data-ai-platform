@@ -1,18 +1,18 @@
 # Docker và Docker Compose trên EC2
 
-EDAI-1, dòng 3–4: Docker/Compose và tối ưu Dockerfile.
+Trang này ứng với EDAI-1, dòng 3–4 của rubric: dùng Docker/Compose và tối ưu Dockerfile.
 
 Code / cấu hình: [Dockerfile](../../Dockerfile), [Compose AWS](../../docker-compose.aws.yml).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây là của các lần chạy AWS đã ghi lại; trang này không khẳng định dịch vụ hiện vẫn đang bật.
 
 ## Trên AWS
 
-[Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) ghi workload Compose trên EC2 Sydney;
-[Airflow AWS](pipeline_orchestration.md#trên-aws) nhúng Graph/Gantt của các pipeline đã chạy.
-Cấu hình triển khai: [Compose AWS](../../docker-compose.aws.yml).
+Các dịch vụ chạy bằng Docker Compose trên EC2 ở Sydney; [receipt AWS](../evidence/aws/data-platform-aws-20261027.json)
+ghi lại các workload đó. Trang [Airflow AWS](pipeline_orchestration.md#trên-aws) nhúng ảnh Graph/Gantt của các
+pipeline đã chạy. Cấu hình triển khai: [Compose AWS](../../docker-compose.aws.yml).
 
-Các kỹ thuật tối ưu trong [`Dockerfile`](../../Dockerfile), đối chiếu với bản
+Bảng dưới liệt kê các kỹ thuật tối ưu dùng trong [`Dockerfile`](../../Dockerfile), so với bản chưa tối ưu
 [`Dockerfile.naive`](../../docker/Dockerfile.naive):
 
 | Kỹ thuật | Cách áp dụng và tác dụng |
@@ -23,17 +23,22 @@ Các kỹ thuật tối ưu trong [`Dockerfile`](../../Dockerfile), đối chi�
 | Tách lớp thư viện và code | Copy `pyproject.toml` và `uv.lock`, cài thư viện trước khi copy generator; sửa code vẫn tận dụng cache lớp thư viện |
 | Giảm build context | [`.dockerignore`](../../.dockerignore) loại dữ liệu sinh, môi trường ảo, Git và tài liệu; áp dụng cho cả hai image |
 
-Đo lại trên chính EC2 bằng [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh):
-build [`docker/Dockerfile.naive`](../../docker/Dockerfile.naive) và [`Dockerfile`](../../Dockerfile) từ cùng code, liệt kê
-thư viện trong từng image bằng `importlib.metadata` rồi `diff` ⇒ **cùng 27 package** (cùng `requirements.lock`), nên phần
-giảm là nhờ cách build, không phải bỏ bớt thư viện.
+**Đo lại trên chính EC2.** Script [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh)
+làm ba bước:
 
-| Image | Disk usage | Content size (nén, đẩy registry) | `docker image inspect` Size |
+1. Build [`docker/Dockerfile.naive`](../../docker/Dockerfile.naive) và [`Dockerfile`](../../Dockerfile) từ cùng một bản code.
+2. Liệt kê thư viện cài trong từng image bằng `importlib.metadata`.
+3. So hai danh sách bằng `diff`.
+
+Kết quả: hai image có **cùng 27 package** (cùng cài từ `requirements.lock`). Vì vậy phần dung lượng giảm là nhờ cách
+build, không phải do bỏ bớt thư viện.
+
+| Image | Disk usage (sau giải nén, trên đĩa) | Content size (nén, đẩy registry) | `docker image inspect` Size |
 |---|---:|---:|---:|
 | `platform-generator:naive` | 2,4 GB | 670 MB | 2.395.921.890 B |
 | `platform-generator:opt` | 698 MB | 172 MB | 698.142.846 B |
 
-Giảm **70,9%** dung lượng trên đĩa và **74,3%** dung lượng đẩy registry.
+Bản tối ưu giảm **70,9%** dung lượng trên đĩa và **74,3%** dung lượng phải đẩy lên registry.
 
 ![EC2: compare_docker_dependencies.sh in digest + byte hai image, Cùng bộ thư viện: 27 package; docker image ls naive 2.4GB/670MB, opt 698MB/172MB](../evidence/aws/docker-naive-vs-opt-ec2-20261031.png)
 
@@ -162,8 +167,8 @@ build cả hai từ cùng working tree, liệt kê package bằng `importlib.met
 | `platform-generator:naive` | `sha256:d9af23a28aed…` | 2,39 GB |
 | `platform-generator:opt` | `sha256:00360a65a6a0…` | 698 MB |
 
-Cùng **27 package** (bỏ pip/setuptools/wheel của base và chính project) ⇒ giảm **70,8 %** chỉ nhờ cách build (base slim,
-multi-stage, không giữ cache). Receipt: [`evidence/docker-compare-20261019.json`](../evidence/docker-compare-20261019.json)
+Hai image có cùng **27 package** (không tính pip/setuptools/wheel của base image và chính project). Vì vậy mức giảm
+**70,8 %** đến hoàn toàn từ cách build (base slim, multi-stage, không giữ cache). Receipt: [`evidence/docker-compare-20261019.json`](../evidence/docker-compare-20261019.json)
 (kèm sha256 của Dockerfile, lock file, `.dockerignore`). `.dockerignore` loại thêm `.briefs/`, `.vibe-wise/`, `.claude/`
 (ghi chú làm việc, không phải mã nguồn).
 
@@ -181,4 +186,4 @@ Nếu nâng cấp từ checkout có tên tài nguyên khác, named volume, bucke
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
