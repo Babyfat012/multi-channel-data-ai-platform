@@ -1,50 +1,63 @@
 # RAG Pipeline trên AWS
 
-EDAI-2, dòng 9–10: pipeline text/chunk/embedding và governance.
+EDAI-2, dòng 9–10: pipeline xử lý văn bản thành chunk (đoạn nhỏ) và embedding (vector số), cùng phần governance (quản trị dữ liệu).
+
+RAG (Retrieval-Augmented Generation) là cách cho LLM trả lời dựa trên tài liệu: trước khi trả lời, hệ thống tìm các đoạn tài liệu gần nghĩa nhất với câu hỏi rồi đưa cho LLM đọc.
 
 Code / cấu hình: [DAG](../../dags/ml_rag_ingest.py), [pipeline](../../rag/pipeline.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây là của những lần chạy trên AWS; tài liệu không khẳng định dịch vụ hiện vẫn đang bật.
 
 ## Kết quả hoàn tất trên AWS
 
-[DAG ml_rag_ingest](../../dags/ml_rag_ingest.py) chạy **6/6 task thành công**, gồm `publish`. Luồng: text → chunk → embedding → pgvector → validate → publish DataHub; raw/chunk/embedding ở S3, pgvector trên EKS, Airflow và DataHub trên EC2.
+**Kết luận:** [DAG ml_rag_ingest](../../dags/ml_rag_ingest.py) chạy **thành công cả 6/6 task**, kể cả bước cuối `publish`.
+
+Các bước theo thứ tự: lấy văn bản gốc, cắt thành chunk, tính embedding, nạp vào pgvector (Postgres có hỗ trợ tìm theo vector), kiểm tra (validate), rồi publish kết quả lên DataHub.
+Văn bản gốc, chunk và embedding lưu trên S3; pgvector chạy trên EKS; Airflow và DataHub chạy trên EC2.
 
 ![Airflow AWS: ml_rag_ingest thành công, gồm publish](../evidence/aws/airflow-ml-rag-ingest-publish-20261031.png)
 
 ![DataHub AWS: lineage corpus → S3 raw → chunks → embedding → pgvector → validate](../evidence/aws/datahub-rag-lineage-20261031.png)
 
-Hai ảnh chứng minh pipeline và lineage RAG đã chạy trên AWS. Bước publish đã sửa escape ASCII của value aspect và union `DataJobInfo.type`. Code xử lý và governance: [rag/pipeline.py](../../rag/pipeline.py); feature store: [Feast RAG](../../rag/feature_repo/feature_store.yaml).
+Hai ảnh trên chứng minh pipeline đã chạy trên AWS và lineage (sơ đồ dữ liệu đi từ đâu tới đâu) đã lên DataHub.
+Để bước publish chạy được, đã sửa hai lỗi: cách escape ký tự ASCII trong value của aspect, và kiểu union của `DataJobInfo.type`.
+Code xử lý và governance: [rag/pipeline.py](../../rag/pipeline.py); feature store: [Feast RAG](../../rag/feature_repo/feature_store.yaml).
 
 ## Trên AWS
 
-DAG `ml_rag_ingest` chạy trên Airflow EC2, chunk + embedding ghi S3, online store là pgvector trên EKS (NodePort
-30432). Lần đầu `load` hỏng: `type "vector" does not exist`. PVC `pgdata` vừa tạo lại nên database mới chưa bật
-extension; image pgvector chỉ cài sẵn, không tự bật. Sửa: [`pgvector.yaml`](../../infra/k8s/rag/pgvector.yaml) thêm
-ConfigMap initdb `CREATE EXTENSION IF NOT EXISTS vector` (chạy khi PVC mới), DB đang chạy thì bật tay một lần; test
-`test_fresh_pgvector_volume_enables_vector_extension`.
+DAG `ml_rag_ingest` chạy trên Airflow ở EC2. Chunk và embedding được ghi ra S3; online store (nơi tra cứu lúc phục vụ) là pgvector trên EKS (NodePort 30432).
+
+Lần chạy đầu, task `load` lỗi `type "vector" does not exist`. Nguyên nhân: PVC `pgdata` vừa được tạo lại nên database còn mới, chưa bật
+extension `vector`. Image pgvector chỉ cài sẵn extension, không tự bật.
+
+Cách sửa:
+
+- [`pgvector.yaml`](../../infra/k8s/rag/pgvector.yaml) thêm ConfigMap initdb chạy `CREATE EXTENSION IF NOT EXISTS vector`. Lệnh này chỉ tự chạy khi PVC mới được tạo.
+- Với database đang chạy, bật extension bằng tay một lần.
+- Test `test_fresh_pgvector_volume_enables_vector_extension` giữ cho lỗi này không quay lại.
 
 ![ml_rag_ingest trên AWS: upload, chunk, embed, load, validate xanh; publish skipped vì DataHub không chạy](../evidence/aws/airflow-ml-rag-ingest-20261030.png)
 
-Tại lần chạy, `publish` bỏ qua vì chưa đặt Variable `platform_datahub_gms_url`; lần chạy phía trên đã hoàn tất publish.
+Ở lần chạy trong ảnh này, `publish` bị bỏ qua vì chưa đặt Variable `platform_datahub_gms_url`. Lần chạy ở mục trên đã hoàn tất cả bước publish.
 
 ### Feature API phục vụ RAG trên EKS
 
-`deploy_feature_api.sh` với `FEAST_RAG_REGISTRY=s3://…/feature-store/rag-registry.db` bật `/chunks` và MCP tool
-`search_policy_chunks`. Câu hỏi "What is Amazon's return window for apparel?" qua ingress HTTPS trả 200, chunk gần
-nhất là mục "Return window" của `amazon-returns` (30 ngày).
+Chạy `deploy_feature_api.sh` với `FEAST_RAG_REGISTRY=s3://…/feature-store/rag-registry.db` sẽ bật endpoint `/chunks` và MCP tool
+`search_policy_chunks`. Gửi câu hỏi "What is Amazon's return window for apparel?" qua ingress HTTPS thì nhận HTTP 200; chunk gần nghĩa
+nhất là mục "Return window" của tài liệu `amazon-returns` (30 ngày).
 
 ![Swagger POST /chunks trên EKS: 200, top 2 chunk của amazon-returns](../evidence/aws/rag-chunks-swagger-20261030.png)
 
 Hai lỗi gặp khi bật:
 
-1. **Pod không nhận biến mới.** Script chỉ đổi Secret `feature-api-env`; pod template không đổi nên Kubernetes
-   không thay pod, `/chunks` vẫn 503. Mở khoá bằng `kubectl rollout restart deployment/feature-api`.
-2. **model-agent không gọi tool.** Qwen 1,5B trả "I'm sorry…" hoặc viết chữ "Call search_policy_chunks…".
-   Đo thẳng llama.cpp trên EKS (temperature 0,1, 3 câu chính sách, cùng system prompt): mô tả tool tiếng Việt
-   0/3 lần gọi tool, tiếng Anh 3/3. Docstring MCP tool chính là mô tả LLM đọc ⇒ đổi 4 docstring trong
-   [`serving/app.py`](../../serving/app.py) sang tiếng Anh; `test_mcp_lists_tool` chặn mô tả không phải ASCII.
-   Image `f97cba1-mcpen`, rồi restart `model-agent` + `data-agent` để nạp lại danh sách tool.
+1. **Pod không nhận biến mới.** Script chỉ sửa Secret `feature-api-env`. Pod template không đổi nên Kubernetes
+   không tạo pod mới, và `/chunks` vẫn trả 503. Cách gỡ: chạy `kubectl rollout restart deployment/feature-api` để tạo lại pod.
+2. **model-agent không gọi tool.** Qwen 1,5B trả "I'm sorry…" hoặc chỉ viết ra chữ "Call search_policy_chunks…" thay vì gọi tool thật.
+   Đã thử gọi thẳng llama.cpp trên EKS (temperature 0,1, 3 câu hỏi về chính sách, cùng system prompt):
+   khi mô tả tool viết tiếng Việt, model gọi tool 0/3 lần; viết tiếng Anh thì 3/3 lần.
+   Docstring của MCP tool chính là phần mô tả mà LLM đọc, nên đã đổi 4 docstring trong
+   [`serving/app.py`](../../serving/app.py) sang tiếng Anh. Test `test_mcp_lists_tool` báo lỗi nếu mô tả có ký tự ngoài ASCII.
+   Build image `f97cba1-mcpen`, rồi restart `model-agent` và `data-agent` để chúng nạp lại danh sách tool.
 
 ![Trước khi sửa: model-agent trả lời "không có thông tin", không gọi tool](../evidence/aws/rag-model-agent-no-tool-20261030.png)
 
@@ -52,7 +65,7 @@ Hai lỗi gặp khi bật:
 
 ![Kết quả tool (3 chunk) và câu trả lời: Amazon 30 ngày tính từ ngày giao dự kiến](../evidence/aws/rag-model-agent-answer-20261030.png)
 
-Câu trả lời thêm ý Shopee 15 ngày (chunk thứ 3) dù không được hỏi: model nhỏ tóm tắt cả chunk lạc đề.
+Câu trả lời có thêm ý "Shopee 15 ngày" (lấy từ chunk thứ 3) dù câu hỏi không nhắc tới: model nhỏ tóm tắt luôn cả chunk lạc đề.
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
@@ -62,8 +75,8 @@ Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng ch�
 <!-- Mục đích: pipeline RAG text → chunk → embedding → Feast (pgvector), -->
 ## RAG pipeline — LLM Platform
 
-Pipeline kéo dữ liệu text → chia chunk → lưu embedding của chunk **vào feature store qua Feast**;
-Governance pipeline RAG (lineage + validation trên DataHub).
+Pipeline lấy dữ liệu văn bản, chia thành chunk, rồi lưu embedding của từng chunk **vào feature store qua Feast**.
+Phần governance của pipeline gồm lineage và kết quả kiểm tra (validation) trên DataHub.
 
 ```
 rag/corpus/*.md (chính sách trả hàng 5 Channel + playbook Seller, giả lập)
@@ -93,16 +106,17 @@ s3://platform/rag/raw/*.md ──chunk──► s3://platform/rag/chunks_text.pa
 
 ## Vì sao Feast thứ hai
 
-Feast của feature SKU dùng Redis làm online store; Redis không tìm theo vector. Feast hỗ trợ tìm vector với
-online store Postgres + pgvector (`vector_enabled: true`, field `Array(Float32)` có `vector_index=True`,
-`vector_search_metric="cosine"`). Tách project `platform_rag` (registry `s3://platform/feature-store/rag-registry.db`)
-để không đụng Feast SKU đang chạy.
+Feast của feature SKU dùng Redis làm online store, mà Redis không tìm theo vector được. Feast có hỗ trợ tìm vector khi
+online store là Postgres có pgvector (`vector_enabled: true`, field `Array(Float32)` có `vector_index=True`,
+`vector_search_metric="cosine"`). Vì vậy tạo một project Feast riêng là `platform_rag` (registry `s3://platform/feature-store/rag-registry.db`)
+để không ảnh hưởng tới Feast SKU đang chạy.
 
 ## Chunk
 
-Mỗi mục `## ` của tài liệu là một chunk, đầu chunk ghi "Tiêu đề tài liệu — Tiêu đề mục:" để chunk tự đủ nghĩa
-khi đứng một mình. Mục dài hơn 700 ký tự cắt theo câu, gối 100 ký tự. `chunk_id` = băm nội dung ⇒ chạy lại
-ghi đè đúng dòng cũ, không nhân bản (kiểm: chạy `load` 2 lần, online vẫn 29 dòng).
+Mỗi mục `## ` của tài liệu là một chunk. Đầu chunk ghi "Tiêu đề tài liệu — Tiêu đề mục:" để chunk vẫn đủ nghĩa
+khi đứng một mình. Mục dài hơn 700 ký tự được cắt theo câu, hai đoạn liền nhau gối lên nhau 100 ký tự.
+`chunk_id` là mã băm của nội dung, nên khi chạy lại thì ghi đè đúng dòng cũ chứ không tạo bản trùng.
+Đã kiểm: chạy `load` 2 lần, bảng online vẫn chỉ có 29 dòng.
 
 ## Validate (mỗi check = số vi phạm, 0 là đạt)
 
@@ -115,28 +129,28 @@ ghi đè đúng dòng cũ, không nhân bản (kiểm: chạy `load` 2 lần, on
 | `not_unit_norm` | vector chưa chuẩn hoá (cosine sai) |
 | `probe_wrong_top_doc` | 3 câu hỏi mẫu không ra đúng tài liệu ở vị trí đầu |
 
-Receipt ghi vào `out/receipts/rag/<run_id>/validate.json`; bước `publish` biến mỗi check thành assertion
-DataHub, kèm dataset (S3 raw, Parquet, bảng pgvector), job theo task DAG và cạnh lineage.
+Kết quả kiểm tra (receipt) được ghi vào `out/receipts/rag/<run_id>/validate.json`. Bước `publish` biến mỗi check thành một assertion
+trên DataHub, đồng thời đăng các dataset (S3 raw, Parquet, bảng pgvector), các job tương ứng với từng task DAG, và các cạnh lineage nối chúng.
 
 ## Kết quả local
 
-Chạy từng bước trong container Python 3.10 (cùng phiên bản với Airflow) nối MinIO + pgvector thật:
-29 chunk từ 6 tài liệu, **6/6 check = 0**, 3 câu hỏi mẫu ra đúng tài liệu
+Chạy từng bước trong container Python 3.10 (cùng phiên bản với Airflow), nối với MinIO và pgvector thật.
+Kết quả: 29 chunk từ 6 tài liệu, **cả 6 check đều bằng 0 (không vi phạm)**, 3 câu hỏi mẫu đều ra đúng tài liệu
 ([receipt](../evidence/rag-validate-local-20261021.json)).
 
-Tìm thử "Shopee buyer says the parcel was damaged, what can I do?" → 3 chunk của `shopee-returns`
-(Common reasons 0,242 · Dispute flow 0,298 · Return window 0,311).
+Tìm thử câu "Shopee buyer says the parcel was damaged, what can I do?" trả về 3 chunk, đều của `shopee-returns`.
+Số kèm theo là khoảng cách cosine, càng nhỏ càng gần: Common reasons 0,242 · Dispute flow 0,298 · Return window 0,311.
 
 Lỗi đã gặp và sửa:
 - Feast 0.66 không nhận khoá `vector_len` trong `feature_store.yaml` (độ dài khai ở Field).
-- Feast mặc định `sslmode=require`; pgvector local không bật TLS ⇒ `sslmode: disable` (Cloud đổi lại).
-- `retrieve_online_documents_v2` của Postgres chọn đúng top_k nhưng trả về không theo thứ tự ⇒
-  `search()` tự sắp theo `distance`.
+- Feast mặc định dùng `sslmode=require`, nhưng pgvector local không bật TLS. Vì vậy đặt `sslmode: disable` (trên Cloud thì đổi lại).
+- `retrieve_online_documents_v2` của Postgres chọn đúng top_k kết quả nhưng trả về không theo thứ tự. Vì vậy
+  `search()` tự sắp xếp lại theo `distance`.
 
 ## Chạy qua Airflow
 
-Image Airflow build lại: feast-venv thêm `feast[postgres]` + `fastembed==0.8.1` (cài bằng uv; pip mất >10 phút giải phụ
-thuộc), Python giữ 3.10 cho Spark. `scripts/setup/setup_airflow.sh` nạp Connection `platform_rag_pg` và Variable `platform_rag_root`.
+Image Airflow được build lại: feast-venv thêm `feast[postgres]` và `fastembed==0.8.1` (cài bằng uv, vì pip mất hơn 10 phút chỉ để giải phụ
+thuộc). Python giữ bản 3.10 để tương thích Spark. `scripts/setup/setup_airflow.sh` nạp Connection `platform_rag_pg` và Variable `platform_rag_root`.
 Run `rag_local_202610211739`:
 
 | Task | Trạng thái | Thời gian |
@@ -153,4 +167,4 @@ Receipt: [`evidence/rag-validate-airflow-20261021.json`](../evidence/rag-validat
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
