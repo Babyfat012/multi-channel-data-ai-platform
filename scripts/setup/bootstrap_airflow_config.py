@@ -29,7 +29,7 @@ def main() -> None:
             port=9000,
         ),
         Connection(conn_id="platform_kafka", conn_type="generic", host="kafka", port=9092),
-        # pgvector của Feast RAG trong kind (NodePort); dùng chung tài khoản Postgres trong .env.
+        # Feast RAG's pgvector in kind (NodePort); shares the Postgres account in .env.
         Connection(
             conn_id="platform_rag_pg",
             conn_type="postgres",

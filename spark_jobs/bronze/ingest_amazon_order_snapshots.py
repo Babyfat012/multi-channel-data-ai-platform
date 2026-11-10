@@ -1,17 +1,17 @@
-"""Bronze: file JSONL của Amazon -> Iceberg `bronze.raw_amazon_orders`.
+"""Bronze: Amazon JSONL files -> Iceberg `bronze.raw_amazon_orders`.
 
-Không parse, không làm sạch: mỗi dòng file thành một dòng bảng, JSON giữ nguyên ở `payload`,
-thêm cột provenance (`source_file`, `export_date`, `ingested_at`, `run_id`). Tên khoá Amazon
-đổi giữa kỳ, nên parse để Silver lo. Partition theo `export_date`, khớp thư mục nguồn.
+No parsing, no cleaning: each file line becomes one table row, JSON kept as is in `payload`,
+plus provenance columns (`source_file`, `export_date`, `ingested_at`, `run_id`). Amazon key names
+change mid-period, so parsing is left to Silver. Partitioned by `export_date`, matching the source directories.
 
-Cờ `--aqe off` để chạy bản baseline có skew (cho ảnh Spark UI "trước"), rồi chạy lại với AQE.
+The `--aqe off` flag runs the skewed baseline (for the "before" Spark UI screenshot), then rerun with AQE.
 
-Chạy:
+Run:
     spark-submit ... bronze/ingest_amazon_order_snapshots.py --sample-days 20 --aqe off \
         --table raw_amazon_orders_sample   # baseline
     spark-submit ... bronze/ingest_amazon_order_snapshots.py --sample-days 20 --aqe on \
-        --table raw_amazon_orders_sample   # cùng 20 ngày, đã sửa
-    spark-submit ... bronze/ingest_amazon_order_snapshots.py --aqe on   # cả kỳ
+        --table raw_amazon_orders_sample   # same 20 days, fixed
+    spark-submit ... bronze/ingest_amazon_order_snapshots.py --aqe on   # full period
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from pyspark.sql import functions as F
 from spark_jobs.lib.day_selection import pick_sample_days, pick_window_days
 from spark_jobs.lib.iceberg_session import catalog_conf
 
-# Mount read-only; dưới nó là export_date=YYYY-MM-DD/part-*.jsonl.
+# Read-only mount; below it is export_date=YYYY-MM-DD/part-*.jsonl.
 AMAZON_ROOT = "/data/raw/source-exports/channel=amazon/dataset=orders"
 
 CATALOG = "lakehouse"
@@ -36,70 +36,70 @@ NAMESPACE = "bronze"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc tham số dòng lệnh."""
+    """Parse command-line arguments."""
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument(
         "--run-id",
         default=None,
-        help="Mã của lần chạy này, ghi vào mọi dòng. Mặc định sinh uuid4. "
-        "Giai đoạn Airflow sẽ truyền run_id thật của DAG vào đây để dò ngược được log.",
+        help="Id of this run, written to every row. Defaults to a generated uuid4. "
+        "The Airflow stage passes the DAG's real run_id here so logs can be traced back.",
     )
     p.add_argument(
         "--sample-days",
         type=int,
         default=0,
-        help="Chỉ nạp N ngày RẢI ĐỀU trên toàn dải thay vì cả 180 ngày. Rải đều (không "
-        "phải N ngày cuối) vì các ngày cuối to gần bằng nhau, lấy liền nhau sẽ KHÔNG "
-        "thấy skew. 0 = nạp hết.",
+        help="Load only N days spread EVENLY over the whole range instead of all 180 days. Evenly "
+        "(not the last N days) because the last days are nearly equal in size, so consecutive days would NOT "
+        "show skew. 0 = load all.",
     )
     p.add_argument(
         "--window-days",
         type=int,
         default=0,
-        help="Chỉ nạp N ngày LIỀN NHAU thay vì rải đều. Dùng khi cần chứng minh BẢN TRÙNG: "
-        "generator xuất lại một Order trong khoảng overlap_days=3, nên ngày rải đều "
-        "(cách nhau 9-10 ngày) không bao giờ chứa cùng một Order và dedup bắt được 0 bản. "
-        "Đặt >= 7 để phủ cửa sổ ±3. Loại trừ với --sample-days. 0 = không dùng.",
+        help="Load only N CONSECUTIVE days instead of evenly spaced. Use when you need to prove DUPLICATES: "
+        "the generator re-exports an Order within overlap_days=3, so evenly spaced days "
+        "(9-10 days apart) never contain the same Order and dedup catches 0 rows. "
+        "Set >= 7 to cover the ±3 window. Mutually exclusive with --sample-days. 0 = unused.",
     )
     p.add_argument(
         "--window-start",
         default=None,
-        help="Ngày bắt đầu cửa sổ liền nhau (YYYY-MM-DD). Để trống thì lấy cửa sổ ở GIỮA "
-        "dải. Chỉ có nghĩa khi đi cùng --window-days.",
+        help="Start day of the consecutive window (YYYY-MM-DD). Empty takes the window in the MIDDLE "
+        "of the range. Only meaningful together with --window-days.",
     )
     p.add_argument(
         "--aqe",
         choices=("on", "off"),
         default="on",
-        help="Adaptive Query Execution. `off` giữ lại skew để chụp ảnh làm bằng chứng.",
+        help="Adaptive Query Execution. `off` keeps the skew so it can be captured as evidence.",
     )
     p.add_argument(
         "--shuffle-partitions",
         type=int,
         default=200,
-        help="spark.sql.shuffle.partitions. Giữ 200 (mặc định của Spark) ở baseline.",
+        help="spark.sql.shuffle.partitions. Keep 200 (the Spark default) for the baseline.",
     )
     p.add_argument(
         "--table",
         default="raw_amazon_orders",
-        help="Tên bảng trong namespace bronze. Lần chạy thử nên dùng tên khác "
-        "(ví dụ raw_amazon_orders_sample) để không đè bảng thật.",
+        help="Table name in the bronze namespace. Trial runs should use a different name "
+        "(e.g. raw_amazon_orders_sample) so the real table is not overwritten.",
     )
     p.add_argument(
         "--source",
         default=AMAZON_ROOT,
-        help="Thư mục gốc chứa export_date=*/ của Amazon.",
+        help="Root directory containing Amazon export_date=*/.",
     )
     return p.parse_args(argv)
 
 
-# Giới hạn: trùng phần lớn `lib/iceberg_session.build_spark`, giữ riêng vì cần cờ AQE và event log
-# (phải đặt trước khi tạo session) và vì số đo trong docs/data-platform/reference/spark.md gắn với cấu hình này.
-# Gộp khi đo lại Bronze v1.
+# Limitation: largely duplicates `lib/iceberg_session.build_spark`, kept separate because it needs the AQE flag and event log
+# (set before the session is created) and because the measurements in docs/data-platform/reference/spark.md are tied to this config.
+# Merge when Bronze v1 is re-measured.
 def build_spark(aqe: str, shuffle_partitions: int, app_name: str) -> SparkSession:
-    """SparkSession nối catalog Iceberg trên Lakekeeper, dữ liệu nằm trên MinIO hoặc S3 thật."""
+    """SparkSession wired to the Iceberg catalog on Lakekeeper, data on MinIO or real S3."""
     if os.environ.get("PLATFORM_STORAGE") == "s3":
-        # AWS: dùng chung cấu hình catalog S3 (IAM role của EC2), chỉ thêm cờ AQE/shuffle của job này.
+        # AWS: reuse the shared S3 catalog config (EC2 IAM role), only adding this job's AQE/shuffle flags.
         builder = SparkSession.builder.appName(app_name)
         for key, value in catalog_conf(os.environ).items():
             builder = builder.config(key, value)
@@ -129,9 +129,9 @@ def build_spark(aqe: str, shuffle_partitions: int, app_name: str) -> SparkSessio
         .config(f"spark.sql.catalog.{CATALOG}.s3.endpoint", minio_endpoint)
         .config(f"spark.sql.catalog.{CATALOG}.s3.path-style-access", "true")
         .config(f"spark.sql.catalog.{CATALOG}.s3.region", "local-01")
-        # JSON lặp tên khoá rất nhiều nên zstd nén tốt hơn snappy.
+        # JSON repeats key names a lot, so zstd compresses better than snappy.
         .config("spark.sql.iceberg.compression-codec", "zstd")
-        # Event log để xem lại trên History Server sau khi job xong.
+        # Event log for review on the History Server after the job finishes.
         .config("spark.eventLog.enabled", "true")
         .config("spark.eventLog.dir", "file:///spark-events")
         .config("spark.sql.adaptive.enabled", "true" if aqe == "on" else "false")
@@ -141,7 +141,7 @@ def build_spark(aqe: str, shuffle_partitions: int, app_name: str) -> SparkSessio
 
 
 def list_export_days(spark: SparkSession, source: str) -> list[str]:
-    """Liệt kê các `export_date` có thật dưới `source` (chạy được cả local lẫn s3a://)."""
+    """List the `export_date` values that actually exist under `source` (works both locally and on s3a://)."""
     jvm = spark.sparkContext._jvm
     hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
     path = jvm.org.apache.hadoop.fs.Path(source)
@@ -155,13 +155,13 @@ def list_export_days(spark: SparkSession, source: str) -> list[str]:
 
 
 def read_raw(spark: SparkSession, source: str, days: list[str] | None) -> DataFrame:
-    """Đọc JSONL thành một cột chuỗi `value`, kèm đường dẫn file nguồn."""
+    """Read JSONL into a single string column `value`, with the source file path."""
     reader = spark.read.option("basePath", source)
     if days is None:
         df = reader.text(source)
     else:
-        # Đọc thẳng các thư mục ngày cần; `basePath` giữ `export_date` là cột.
-        # Phải truyền một list: `text(p1, p2)` hiểu p2 là tham số `wholetext`.
+        # Read only the needed day directories; `basePath` keeps `export_date` as a column.
+        # Must pass a list: `text(p1, p2)` treats p2 as the `wholetext` parameter.
         df = reader.text([f"{source}/export_date={d}" for d in days])
     return df.select(
         F.col("value").alias("payload"),
@@ -171,14 +171,14 @@ def read_raw(spark: SparkSession, source: str, days: list[str] | None) -> DataFr
 
 
 def add_provenance(df: DataFrame, run_id: str) -> DataFrame:
-    """Thêm giờ ghi (lúc bắt đầu query, không phải lúc commit) và mã lần chạy."""
+    """Add the write time (query start, not commit time) and the run id."""
     return df.withColumn("ingested_at", F.current_timestamp()).withColumn("run_id", F.lit(run_id))
 
 
 def write_bronze(spark: SparkSession, df: DataFrame, table: str) -> None:
-    """Ghi đè bảng Iceberg trong một commit, partition theo `export_date`.
+    """Overwrite the Iceberg table in one commit, partitioned by `export_date`.
 
-    Nếu mất ACK lúc commit, kiểm trạng thái bảng trước khi chạy lại.
+    If the ACK is lost at commit, check the table state before rerunning.
     """
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.{NAMESPACE}")
     full_name = f"{CATALOG}.{NAMESPACE}.{table}"
@@ -186,7 +186,7 @@ def write_bronze(spark: SparkSession, df: DataFrame, table: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Chạy job và in số dòng để đối chiếu với `run_manifest.json` của generator."""
+    """Run the job and print the row count to compare with the generator's `run_manifest.json`."""
     args = parse_args(argv)
     run_id = args.run_id or str(uuid.uuid4())
     app_name = f"bronze-amazon-aqe-{args.aqe}-{args.table}"
@@ -195,12 +195,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         all_days = list_export_days(spark, args.source)
         if not all_days:
-            print(f"KHÔNG tìm thấy export_date=* nào dưới {args.source}", file=sys.stderr)
+            print(f"NO export_date=* found under {args.source}", file=sys.stderr)
             return 1
         if args.sample_days > 0 and args.window_days > 0:
             print(
-                "--sample-days và --window-days loại trừ nhau: một cái rải đều để thấy "
-                "skew, một cái liền nhau để thấy bản trùng. Chọn MỘT.",
+                "--sample-days and --window-days are mutually exclusive: one spreads evenly to see "
+                "skew, the other is consecutive to see duplicates. Pick ONE.",
                 file=sys.stderr,
             )
             return 2
@@ -212,13 +212,13 @@ def main(argv: list[str] | None = None) -> int:
             days = None
 
         print(f"run_id          = {run_id}")
-        print(f"bảng đích       = {CATALOG}.{NAMESPACE}.{args.table}")
+        print(f"target table    = {CATALOG}.{NAMESPACE}.{args.table}")
         print(f"AQE             = {args.aqe}")
-        print(f"ngày có trên đĩa= {len(all_days)}")
-        print(f"ngày sẽ nạp     = {len(days) if days else len(all_days)}")
+        print(f"days on disk    = {len(all_days)}")
+        print(f"days to load    = {len(days) if days else len(all_days)}")
         if days:
-            cach = "liền nhau" if args.window_days > 0 else "rải đều"
-            print(f"  -> {days[0]} ... {days[-1]} ({cach})")
+            spacing = "consecutive" if args.window_days > 0 else "evenly spaced"
+            print(f"  -> {days[0]} ... {days[-1]} ({spacing})")
 
         started = time.monotonic()
         df = add_provenance(read_raw(spark, args.source, days), run_id)
@@ -226,8 +226,8 @@ def main(argv: list[str] | None = None) -> int:
         elapsed = time.monotonic() - started
 
         rows = spark.table(f"{CATALOG}.{NAMESPACE}.{args.table}").count()
-        print(f"XONG sau {elapsed:.1f}s — {rows:,} dòng đã ghi")
-        print("Spark UI của lần chạy này đã kết thúc; xem history ở cổng 8080 nếu bật.")
+        print(f"DONE in {elapsed:.1f}s — {rows:,} rows written")
+        print("The Spark UI for this run has ended; see history on port 8080 if enabled.")
         return 0
     finally:
         spark.stop()

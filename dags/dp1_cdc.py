@@ -30,7 +30,7 @@ SPARK_CONF = {
 
 with DAG(
     dag_id="dp1_cdc",
-    description="Nguồn Walmart CDC qua Kafka → Bronze và kiểm đủ offset",
+    description="Walmart CDC source via Kafka → Bronze and check offset completeness",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,

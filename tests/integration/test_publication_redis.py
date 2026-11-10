@@ -1,4 +1,4 @@
-"""Kiểm publication với Redis 7.4 local riêng; opt-in bằng FSDS_TEST_REDIS_URL."""
+"""Check publication against a dedicated local Redis 7.4; opt in with FSDS_TEST_REDIS_URL."""
 
 import os
 import uuid
@@ -26,7 +26,7 @@ from feature_repo.publish_batch import latest_expected, reconcile
 
 @pytest.fixture
 def redis_client():
-    """Chỉ kết nối endpoint test được chỉ định; không dùng biến Redis của platform."""
+    """Connect only to the specified test endpoint; never use the platform's Redis variables."""
     url = os.environ.get("FSDS_TEST_REDIS_URL")
     if not url:
         pytest.skip("set FSDS_TEST_REDIS_URL to a disposable Redis 7.4")
@@ -39,7 +39,7 @@ def redis_client():
 
 
 def test_lua_lease_prevents_reuse_and_fences_cached_old_release(redis_client):
-    """Thử Lua thật: reader đang chạy chặn staging, reader hết hạn không được trả dữ liệu."""
+    """Exercise real Lua: an active reader blocks staging, an expired reader gets no data."""
     prefix = "test:publication:" + uuid.uuid4().hex
     leases = RedisLeases(redis_client, prefix=prefix)
     a = Release("a", 1, "registry-a", "offline-a", "2026-06-30", frozenset({"sku"}))
@@ -70,7 +70,7 @@ def test_lua_lease_prevents_reuse_and_fences_cached_old_release(redis_client):
 
 @pytest.mark.parametrize(("end", "count_a"), [("2026-06-01", 10), ("2026-06-30", 20)])
 def test_feast_materialize_and_reconcile_in_isolated_database(redis_client, tmp_path, end, count_a):
-    """Feast 0.66 thật ghi DB1, nguồn local Parquet, registry riêng; DB0 không bị ghi feature."""
+    """Real Feast 0.66 writes DB1 from a local Parquet source with its own registry; DB0 gets no features."""
     from feast import Entity, FeatureView, Field, FileSource, ValueType
     from feast.types import Float64, Int64, String
 
@@ -97,7 +97,7 @@ def test_feast_materialize_and_reconcile_in_isolated_database(redis_client, tmp_
     store = make_store(tmp_path, connection)
     target = feast_redis_client(store, 1)
     try:
-        target.flushdb()  # Chỉ DB của Redis test local được opt-in ở fixture.
+        target.flushdb()  # Only the opted-in local test Redis DB from the fixture.
     finally:
         target.close()
     sku = Entity(name="sku", join_keys=["seller_sku"], value_type=ValueType.STRING)
@@ -146,7 +146,7 @@ def test_feast_materialize_and_reconcile_in_isolated_database(redis_client, tmp_
 
 
 def test_s3_sdk_supports_publication_conditions():
-    """SDK đã pin phải nhận điều kiện ETag được publisher dùng, không gọi S3 thật."""
+    """The pinned SDK must accept the ETag condition the publisher uses, without calling real S3."""
     import boto3
 
     client = boto3.client(

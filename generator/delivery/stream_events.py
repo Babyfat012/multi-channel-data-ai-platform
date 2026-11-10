@@ -1,26 +1,26 @@
-"""Lớp giao hàng Stream: biến các lần đổi trạng thái sau `cutoff` thành message.
+"""Stream delivery layer: turns status changes after `cutoff` into messages.
 
-Mỗi lần một Order Amazon hoặc TikTok Shop đổi Order Status trong khoảng
-`[cutoff, stream_end)` sinh ra một message. Lớp này quyết định message **đến lúc
-nào** (`arrive_at`) và có bị gửi trùng không. Burst không nằm ở đây: nó đến từ
-lõi mô phỏng (livestream làm tăng số Order), lớp này chỉ giao lại.
+Each time an Amazon or TikTok Shop Order changes Order Status within
+`[cutoff, stream_end)`, one message is generated. This layer decides **when** the message
+arrives (`arrive_at`) and whether it is sent twice. Bursts do not live here: they come from
+the simulation core (the livestream raises the Order count); this layer only delivers them.
 
-| Vấn đề | Channel | Cách chèn |
+| Problem | Channel | How it is injected |
 |---|---|---|
-| Late | Amazon | `share_over_1h` message trễ 1 đến 6 giờ, còn lại trễ theo phân phối log-normal có trung vị `median_minutes`, luôn dưới 1 giờ |
-| Duplicate | TikTok Shop | Với xác suất `p = r / (1 - r)`, message được gửi lại sau 2 hoặc 30 phút (lịch thử lại của TikTok), giữ nguyên `tts_notification_id` |
+| Late | Amazon | `share_over_1h` of messages are 1 to 6 hours late, the rest are delayed by a log-normal distribution with median `median_minutes`, always under 1 hour |
+| Duplicate | TikTok Shop | With probability `p = r / (1 - r)`, the message is resent after 2 or 30 minutes (TikTok's retry schedule), keeping the same `tts_notification_id` |
 
-Công thức `p`: nếu n message gốc, mỗi cái có thêm một bản với xác suất p, thì
-tổng là n(1 + p) và tỷ lệ trùng `1 - n / (n(1 + p)) = p / (1 + p)`. Đặt bằng r
-rồi giải ra `p = r / (1 - r)`.
+Formula for `p`: with n original messages, each getting one extra copy with probability p,
+the total is n(1 + p) and the duplicate rate is `1 - n / (n(1 + p)) = p / (1 + p)`. Set it equal to r
+and solve for `p = r / (1 - r)`.
 
-Message được trả ra theo thứ tự `arrive_at`, tức thứ tự Kafka nhận được. Message
-Amazon trễ vì thế đứng sau những message có `event_time` muộn hơn: đến lệch thứ tự.
+Messages are yielded in `arrive_at` order, i.e. the order Kafka receives them. Late Amazon
+messages therefore land after messages with a later `event_time`: they arrive out of order.
 
-Cách giữ RAM thấp: lõi sinh Order theo ngày tạo. Order tạo ngày d chỉ có lần đổi
-trạng thái từ ngày d trở đi, và message luôn đến sau lần đổi trạng thái. Nên khi
-đã sinh xong ngày d, mọi message đến trước 00:00 ngày d + 1 đã biết đủ và phát ra
-được. Hai hàng đợi ưu tiên (heap) chỉ giữ phần chưa tới lượt.
+Keeping RAM low: the core generates Orders by creation day. An Order created on day d only has
+status changes from day d on, and a message always arrives after its status change. So once
+day d is generated, every message arriving before 00:00 of day d + 1 is fully known and can be
+emitted. Two priority queues (heaps) hold only what is not due yet.
 """
 
 from __future__ import annotations
@@ -44,28 +44,28 @@ from generator.core.storefronts import STOREFRONTS
 
 TOPICS = {"amazon": "amazon.order-notifications", "tiktok_shop": "tiktok_shop.order-webhooks"}
 
-# Order sống lâu nhất khoảng 17 ngày (thanh toán, tối đa 3 ngày chuẩn bị, 6 ngày
-# vận chuyển, 7 ngày tới hoàn tất). Sinh lại từng ấy ngày trước cutoff là đủ để
-# bắt mọi Order còn đổi trạng thái sau cutoff.
+# The longest Order lifetime is about 17 days (payment, up to 3 days of preparation, 6 days
+# in transit, 7 days to completion). Regenerating that many days before the Cutoff is enough to
+# catch every Order that still changes status after the Cutoff.
 LOOKBACK_DAYS = 20
-LATE_SIGMA = 0.8  # độ trải của phần trễ ít (log-normal)
+LATE_SIGMA = 0.8  # spread of the slightly late part (log-normal)
 LATE_OVER_1H_MINUTES = (60, 360)
-TIKTOK_DELAY_SECONDS = 5  # độ trễ trung bình của webhook bình thường
-TIKTOK_RETRY_MINUTES = (2, 30)  # hai lần thử lại đầu tiên của TikTok Shop
+TIKTOK_DELAY_SECONDS = 5  # mean delay of a normal webhook
+TIKTOK_RETRY_MINUTES = (2, 30)  # TikTok Shop's first two retries
 TIKTOK_RETRY_WEIGHTS = (0.8, 0.2)
 
 
 @dataclass(frozen=True)
 class StreamMessage:
-    """Một message sẽ gửi vào Kafka.
+    """A message to send to Kafka.
 
-    Thuộc tính:
+    Attributes:
         topic: topic Kafka, theo Channel.
-        key: khóa Kafka, là mã đơn gốc, để message của một Order vào cùng partition.
-        dedup_key: mã thông báo, khóa để Flink bỏ bản trùng.
-        value: nội dung JSON đúng dạng gốc của Channel.
-        storefront_id, event_time, arrive_at: dùng để đo, không gửi đi.
-        is_duplicate: True nếu là bản gửi lại.
+        key: the Kafka key, the native order id, so an Order's messages go to the same partition.
+        dedup_key: the notification id, the key Flink uses to drop duplicates.
+        value: JSON content in the Channel's native shape.
+        storefront_id, event_time, arrive_at: used for measurement, not sent.
+        is_duplicate: True if it is a resend.
     """
 
     topic: str
@@ -79,14 +79,14 @@ class StreamMessage:
 
 
 def stream_messages(config: GeneratorConfig) -> Iterator[StreamMessage]:
-    """Sinh mọi message của Stream, theo thứ tự thời điểm đến."""
+    """Generate every Stream message, in arrival order."""
     sim = Simulator(config)
     renderers = {
         "amazon": AmazonOrderNotificationRenderer(config),
         "tiktok_shop": TikTokOrderWebhookRenderer(config),
     }
     rng = rng_for(config.seed, "stream_delivery")
-    seq = itertools.count()  # phá hòa trong heap, giữ thứ tự tái lập được
+    seq = itertools.count()  # heap tie-breaker that keeps the order reproducible
 
     events: list[tuple[datetime, int, Order, StatusChange]] = []
     messages: list[tuple[datetime, int, StreamMessage]] = []
@@ -120,7 +120,7 @@ def _deliver(
     order: Order,
     change: StatusChange,
 ) -> list[StreamMessage]:
-    """Vẽ một lần đổi trạng thái rồi quyết định lúc đến và bản trùng."""
+    """Render one status change, then decide its arrival time and duplicate."""
     channel = STOREFRONTS[order.storefront_id].channel
     rendered = renderers[channel].render_event(order, change)
     if channel == "amazon":
@@ -156,7 +156,7 @@ def _deliver(
 
 
 def _amazon_delay(config: GeneratorConfig, rng: np.random.Generator) -> timedelta:
-    """Độ trễ của một notification Amazon."""
+    """Delay of one Amazon notification."""
     late = config.streaming_problems.amazon_late
     if rng.random() < late.share_over_1h:
         return timedelta(minutes=float(rng.uniform(*LATE_OVER_1H_MINUTES)))
@@ -165,10 +165,10 @@ def _amazon_delay(config: GeneratorConfig, rng: np.random.Generator) -> timedelt
 
 
 def wall_offset(config: GeneratorConfig, t: datetime) -> float:
-    """Số giây thật tính từ lúc bắt đầu phát tới khi phát message đến lúc `t`.
+    """Real seconds from the start of emitting until emitting the message arriving at `t`.
 
-    Mỗi ngày mô phỏng chiếm `seconds_per_day(day)` giây thật, nên ngày có
-    livestream phát chậm hơn và burst kéo dài đủ lâu để thấy trên Flink UI.
+    Each simulated day takes `seconds_per_day(day)` real seconds, so the livestream
+    day emits more slowly and the burst lasts long enough to see in the Flink UI.
     """
     pacing = config.streaming_problems.pacing
     elapsed = (t - config.cutoff).total_seconds() / 86_400

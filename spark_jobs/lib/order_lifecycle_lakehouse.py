@@ -1,18 +1,18 @@
-"""Logic Bronze/Silver cho nguồn v2 (gói C): DataFrame vào, DataFrame ra, không I/O catalog.
+"""Bronze/Silver logic for the v2 source (package C): DataFrames in, DataFrames out, no catalog I/O.
 
-Hai job `bronze/ingest_order_lifecycle.py` và `silver/build_order_lifecycle.py` gọi các hàm ở đây để
-ghi Iceberg; test `tests/spark/check_order_lifecycle_silver.py` gọi thẳng trên fixture nhỏ.
+The jobs `bronze/ingest_order_lifecycle.py` and `silver/build_order_lifecycle.py` call these functions to
+write Iceberg; the test `tests/spark/check_order_lifecycle_silver.py` calls them directly on a small fixture.
 
-Thiết kế (xem `docs/data-platform/reference/source_contract_order_lifecycle.md`):
-  * Bronze là MỘT bảng chung cho mọi feed: mỗi dòng JSONL thành một dòng, giữ nguyên
-    `raw_json`. Thêm feed hay đổi schema không phải sửa bảng.
-  * Silver tách theo thực thể. Định danh sự kiện là
-    (dataset_version, producer, source_epoch, source_event_id): bản lặp cùng nội dung
-    bị bỏ, cùng id mà khác nội dung là xung đột và bị loại khỏi Silver.
-  * Revision lớn nhất của một entity thay thế các revision trước (correction thay thế,
-    không cộng thêm). Lịch sử giữ ở bảng listing/return/inbound.
-  * `as_of` lọc theo thời điểm nguồn quan sát được (`source_observed_at`), để dựng lại
-    đúng những gì đã biết tại một thời điểm.
+Design (see `docs/data-platform/reference/source_contract_order_lifecycle.md`):
+  * Bronze is ONE shared table for all feeds: each JSONL line becomes one row, keeping
+    `raw_json` as is. Adding a feed or changing a schema needs no table change.
+  * Silver is split by entity. An event's identity is
+    (dataset_version, producer, source_epoch, source_event_id): repeats with the same content
+    are dropped; the same id with different content is a conflict and is excluded from Silver.
+  * The highest revision of an entity replaces earlier revisions (a correction replaces,
+    it does not add). History is kept in the listing/return/inbound tables.
+  * `as_of` filters on the time the source observed the record (`source_observed_at`), to rebuild
+    exactly what was known at a point in time.
 """
 
 from __future__ import annotations
@@ -47,32 +47,32 @@ ALLOCATION_MONEY = "array<struct<allocation_id:string,amount_minor:bigint,eviden
 
 
 def ts(column: str):
-    """Chuỗi UTC dạng contract (micro giây, hậu tố Z) -> timestamp."""
+    """Contract-format UTC string (microseconds, Z suffix) -> timestamp."""
     return F.to_timestamp(F.col(column), TS_FORMAT)
 
 
 def fact_sha256_col(column: str = "raw_json"):
-    """Hash nội dung nghiệp vụ: bỏ `recorded_at` (giờ chạy máy, không phải sự thật nguồn).
+    """Hash of the business content: drops `recorded_at` (machine run time, not source truth).
 
-    JSON nguồn là canonical (khóa sắp xếp, không khoảng trắng), nên `recorded_at` không bao
-    giờ là khóa cuối của envelope và regex bỏ được cả dấu phẩy theo sau.
+    Source JSON is canonical (sorted keys, no whitespace), so `recorded_at` is never
+    the last key of the envelope and the regex also removes the trailing comma.
     """
     return F.sha2(F.regexp_replace(F.col(column), r'"recorded_at":"[^"]*",?', ""), 256)
 
 
 def read_source_manifest(spark: SparkSession, root: str) -> dict:
-    """Đọc manifest URI bằng Spark driver; đường dẫn cục bộ giữ cách đọc pathlib."""
+    """Read the manifest URI with the Spark driver; local paths keep the pathlib read."""
     root = str(root)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", root):
         rows = spark.read.text(f"{root.rstrip('/')}/manifest.json", wholetext=True).collect()
         if len(rows) != 1:
-            raise ValueError("Cần đúng một manifest.json")
+            raise ValueError("Expected exactly one manifest.json")
         return json.loads(rows[0]["value"])
     return json.loads((Path(root) / "manifest.json").read_text())
 
 
 def bronze_from_root(spark: SparkSession, root: str, run_id: str) -> DataFrame:
-    """Đọc mọi file nguồn v2 dưới `root` thành một DataFrame Bronze, mỗi dòng JSONL một dòng."""
+    """Read every v2 source file under `root` into one Bronze DataFrame, one row per JSONL line."""
     text = spark.read.text(
         f"{root.rstrip('/')}/dataset_version=*/producer=*/feed=*/export_date=*/*.jsonl"
     )
@@ -105,10 +105,10 @@ def bronze_from_jdbc(
     snapshot_date: str,
     contract_schema_id: str = "sim-native-v2/walmart/1",
 ) -> DataFrame:
-    """Dòng Walmart đọc qua JDBC -> cùng dạng Bronze; `rows` có dataset_version, purchase_order_id, raw_json.
+    """Walmart rows read via JDBC -> the same Bronze shape; `rows` has dataset_version, purchase_order_id, raw_json.
 
-    `raw_json` là chuỗi JSON PostgreSQL trả về (giữ nguyên, kể cả khoảng trắng). `source_label`
-    là URL JDBC + bảng, không chứa mật khẩu. `export_date` là ngày snapshot manifest khai báo.
+    `raw_json` is the JSON string PostgreSQL returns (kept as is, whitespace included). `source_label`
+    is the JDBC URL + table, with no password. `export_date` is the snapshot date the manifest declares.
     """
     df = rows.select(
         "raw_json",
@@ -128,7 +128,7 @@ def bronze_from_jdbc(
 
 
 def snapshot_scope_diff(received: list[str], declared: list[str]) -> dict:
-    """So mã đơn nhận qua JDBC với `snapshot_scope.order_ids` của manifest."""
+    """Compare Order ids received via JDBC with the manifest's `snapshot_scope.order_ids`."""
     seen, duplicate = set(), set()
     for order_id in received:
         (duplicate if order_id in seen else seen).add(order_id)
@@ -140,7 +140,7 @@ def snapshot_scope_diff(received: list[str], declared: list[str]) -> dict:
 
 
 def with_envelope(df: DataFrame) -> DataFrame:
-    """(Tính lại) các cột envelope và hash từ `raw_json`; cột đường dẫn giữ nguyên."""
+    """(Re)compute the envelope and hash columns from `raw_json`; path columns are kept."""
     envelope = lambda key: F.get_json_object("raw_json", f"$.{key}")  # noqa: E731
     return (
         df.withColumn("source_event_id", envelope("source_event_id"))
@@ -159,21 +159,21 @@ def with_envelope(df: DataFrame) -> DataFrame:
 
 
 def _minor(amount, scale: int = 2):
-    """Chuỗi tiền thập phân ("330.00") -> số nguyên đơn vị nhỏ nhất (33000); null giữ null."""
+    """Decimal money string ("330.00") -> integer in minor units (33000); null stays null."""
     return (amount.cast("decimal(20,4)") * (10**scale)).cast("bigint")
 
 
 def _items(path: str, ddl: str):
-    """Mảng item lồng trong JSON gốc của Channel, nổ thành từng dòng."""
+    """Item array nested in the Channel's original JSON, exploded into one row each."""
     return F.explode_outer(F.from_json(F.get_json_object("raw_json", path), ddl)).alias("item")
 
 
 def native_order_lines(known: DataFrame, include_record_hash: bool = False) -> DataFrame:
-    """Đơn native 5 Channel (ảnh chụp lúc tạo đơn) -> một dòng mỗi line, cột chung.
+    """Native Orders for 5 Channels (snapshot at Order creation) -> one row per line, shared columns.
 
-    Mỗi Channel có dạng riêng (Amazon có hai schema). `net_minor` là giá trị hàng sau giảm
-    giá của cả line; `gross_minor` null khi Channel không gửi giá gốc (Walmart). Đơn không
-    parse được vẫn ra một dòng với `native_order_id` null để đối soát đếm được.
+    Each Channel has its own shape (Amazon has two schemas). `net_minor` is the line's goods value after
+    discounts; `gross_minor` is null when the Channel sends no list price (Walmart). Orders that fail to
+    parse still yield a row with a null `native_order_id` so reconciliation can count them.
     """
     feed = lambda parser: known.filter(F.col("contract_parser") == parser)  # noqa: E731
     money = "struct<CurrencyCode:string,Amount:string>"
@@ -367,10 +367,10 @@ def native_order_lines(known: DataFrame, include_record_hash: bool = False) -> D
 
 
 def _coverage_interval_matches(cov: DataFrame, rows: DataFrame, keys: list[str]) -> DataFrame:
-    """Join theo ngày UTC trước khi kiểm interval, tránh thử mọi (tuần, dòng feed).
+    """Join on the UTC day before checking the interval, avoiding trying every (week, feed row).
 
-    Tuần nối tiếp chỉ có một envelope/ngày/feed; mỗi dòng join một envelope.
-    Fixture interval dài vẫn tương thích nhờ explode ngày, không nhân lại toàn feed.
+    Back-to-back weeks have only one envelope/day/feed; each row joins one envelope.
+    Fixtures with long intervals stay compatible by exploding days, without multiplying the whole feed.
     """
     days = F.when(
         F.col("interval_end") > F.col("interval_start"),
@@ -389,12 +389,12 @@ def _coverage_interval_matches(cov: DataFrame, rows: DataFrame, keys: list[str])
 
 
 def coverage_receipts(known: DataFrame) -> DataFrame:
-    """Áp coverage của producer lên đúng tập dòng nguồn đã nhận (giống `coverage_receipt` ở generator).
+    """Apply producer coverage to exactly the set of received source rows (like `coverage_receipt` in the generator).
 
-    Với mỗi envelope `complete` (revision mới nhất): dòng của feed đó, cùng dataset/producer/
-    epoch, effective trong interval và quan sát TRƯỚC envelope phải khớp tập số thứ tự khai báo, số dòng, nằm trong khoảng
-    sự kiện, và hash cả tập dòng (JSON canonical sắp theo id) phải bằng `record_set_sha256`.
-    Envelope `unavailable` (scope không có quyền nguồn) không bị kiểm, chỉ được đếm.
+    For each `complete` envelope (latest revision): the rows of that feed, with the same dataset/producer/
+    epoch, effective within the interval and observed BEFORE the envelope must match the declared sequence set, row count, fall within the event
+    range, and the hash of the whole row set (canonical JSON sorted by id) must equal `record_set_sha256`.
+    `unavailable` envelopes (scope without source authority) are not checked, only counted.
     """
     env = lambda key: F.get_json_object("raw_json", f"$.{key}")  # noqa: E731
     window = Window.partitionBy("coverage_id").orderBy(F.col("coverage_revision").desc())
@@ -554,7 +554,7 @@ def coverage_receipts(known: DataFrame) -> DataFrame:
     return checked.unionByName(unavailable)
 
 
-# Feed mà chính sách nhãn v2 đọc (khớp `return_label.FEED_KINDS`) — coverage chỉ phủ các feed này.
+# Feeds the v2 label policy reads (matches `return_label.FEED_KINDS`); coverage only spans these feeds.
 LABEL_EVIDENCE_FEEDS = (
     "seller_oms.line_commitments",
     "seller_oms.fulfillment_allocations",
@@ -565,16 +565,16 @@ LABEL_EVIDENCE_FEEDS = (
 
 
 def observed_evidence(known: DataFrame) -> DataFrame:
-    """Lịch sử quan sát cho nhãn v2: MỌI revision, chỉ bỏ retry trùng y hệt (cùng `record_sha256`).
+    """Observation history for v2 labels: EVERY revision, dropping only identical retries (same `record_sha256`).
 
-    Khác `events` (đã bỏ xung đột, chỉ giữ revision mới cho bảng nghiệp vụ): chính sách nhãn cần
-    thấy cả xung đột và correction để trả `unknown` / áp correction đúng thời điểm biết. Cột khóa
-    `ev_*` chỉ để Gold gom bằng chứng theo line mà không phải nhân cả dataset cho từng line:
-    - `ev_line_id` / `ev_line_ids`: scope có line;
-    - `ev_order_id` / `ev_order_ids`: scope chỉ tới Order (ví dụ refund chưa rõ line);
-    - không khóa nào (coverage, scope cấp kênh/tài khoản): phát cho mọi line cùng dataset;
-    - `corrects_source_event_id`: correction được gửi thêm cho line có bản bị sửa.
-    Lọc chính xác vẫn do `return_label.visible_events` làm; các khóa này chỉ là tập ứng viên rộng hơn.
+    Unlike `events` (conflicts dropped, only the latest revision kept for business tables): the label policy must
+    see both conflicts and corrections to return `unknown` / apply a correction at the time it became known. The key
+    columns `ev_*` only let Gold group evidence per line without replicating the whole dataset for each line:
+    - `ev_line_id` / `ev_line_ids`: scope includes a line;
+    - `ev_order_id` / `ev_order_ids`: scope only reaches the Order (e.g. a Refund with no known line);
+    - no key (coverage, Channel/account-level scope): sent to every line in the same dataset;
+    - `corrects_source_event_id`: the correction is also sent to the line holding the corrected record.
+    Exact filtering is still done by `return_label.visible_events`; these keys are only a wider candidate set.
     """
     rows = known.filter(
         F.col("feed").isin(
@@ -585,16 +585,16 @@ def observed_evidence(known: DataFrame) -> DataFrame:
     raw = lambda path: F.get_json_object("raw_json", path)  # noqa: E731
     is_uncertainty = F.col("feed") == "source.uncertainties"
     is_coverage = F.col("feed") == "source.coverage_envelopes"
-    # Uncertainty dùng scope ở envelope; feed vận hành dựng scope từ payload, rỗng thì rơi về affected_scope.
+    # Uncertainty uses the envelope scope; operational feeds build scope from the payload, falling back to affected_scope when empty.
     top_scope = F.coalesce(raw("$.scope"), raw("$.affected_scope"))
     in_scope = lambda key: F.get_json_object(top_scope, f"$.{key}")  # noqa: E731
 
     def in_affected(key):
-        """Lấy thuộc tính phạm vi bị ảnh hưởng từ envelope hoặc payload."""
+        """Get an affected-scope attribute from the envelope or the payload."""
         return F.coalesce(raw(f"$.affected_scope.{key}"), raw(f"$.payload.affected_scope.{key}"))
 
     def pick(key):
-        """Chọn thuộc tính phạm vi theo loại bản ghi uncertainty, coverage hoặc sự kiện."""
+        """Pick a scope attribute by record type: uncertainty, coverage or event."""
         return (
             F.when(is_uncertainty, in_scope(key))
             .when(is_coverage, F.lit(None))
@@ -602,7 +602,7 @@ def observed_evidence(known: DataFrame) -> DataFrame:
         )
 
     def plural(key):
-        """Đọc thuộc tính phạm vi dạng mảng chuỗi theo loại bản ghi."""
+        """Read a string-array scope attribute by record type."""
         return (
             F.when(is_uncertainty, F.from_json(in_scope(key), "array<string>"))
             .when(is_coverage, F.lit(None).cast("array<string>"))
@@ -634,12 +634,12 @@ def observed_evidence(known: DataFrame) -> DataFrame:
 
 
 def coverage_validity(evidence: DataFrame) -> DataFrame:
-    """Kiểm MỘT lần mỗi revision coverage (đúng luật `return_label.source_line`), thay vì lặp ở từng line.
+    """Check each coverage revision ONCE (same rule as `return_label.source_line`), instead of repeating per line.
 
-    Envelope `complete` hợp lệ khi tập dòng của đúng feed/producer/epoch/dataset, quan sát TRƯỚC
-    envelope và effective trong interval, khớp số dòng, tập (partition, sequence) khai báo, hash canonical cả tập (sắp theo
-    `source_event_id`), mọi `effective_at` nằm trong khoảng sự kiện; đủ partition; có capability,
-    profile và hai đầu khoảng. Kết quả: `complete` / `partial` theo `evidence_event_id`.
+    A `complete` envelope is valid when the row set of exactly that feed/producer/epoch/dataset, observed BEFORE
+    the envelope and effective within the interval, matches the row count, the declared (partition, sequence) set, the canonical hash of the whole set (sorted by
+    `source_event_id`), every `effective_at` falls within the event range; all partitions present; capability,
+    profile and both range ends present. Result: `complete` / `partial` per `evidence_event_id`.
     """
     env = lambda key: F.get_json_object("raw_json", f"$.{key}")  # noqa: E731
     cov = evidence.filter(F.col("feed") == "source.coverage_envelopes").select(
@@ -722,8 +722,8 @@ def coverage_validity(evidence: DataFrame) -> DataFrame:
         (F.col("coverage_status") == "complete")
         & (F.coalesce("received_sha256", F.sha2(F.lit("[]"), 256)) == F.col("declared_sha256"))
         & (F.coalesce("received_rows", F.lit(0)) == F.col("declared_rows"))
-        # collect_set loại trùng bằng hash lúc gom; array_distinct trên mảng struct là bậc hai
-        # (1.816 s / 87% Silver ở e2e medium, xem docs/data-platform/reference/silver_order_lifecycle_performance.md).
+        # collect_set dedups by hash while aggregating; array_distinct on a struct array is quadratic
+        # (1.816 s / 87% of Silver at e2e medium, see docs/data-platform/reference/silver_order_lifecycle_performance.md).
         & (F.coalesce("declared_seq", empty_seq) == F.coalesce("actual_seq", empty_seq))
         & (F.array_sort("expected_partitions") == F.array_sort("completed_partitions"))
         & (F.coalesce(F.length("capability"), F.lit(0)) > 0)
@@ -742,18 +742,18 @@ def coverage_validity(evidence: DataFrame) -> DataFrame:
 
 
 def _known(df: DataFrame, as_of: str | None) -> DataFrame:
-    """Chỉ giữ dòng nguồn đã quan sát được TRƯỚC `as_of` (exclusive)."""
+    """Keep only source rows observed BEFORE `as_of` (exclusive)."""
     if as_of is None:
         return df
-    # Snapshot Order native (JSONL kênh, JDBC Walmart) không có `source_observed_at` trong envelope:
-    # coi là biết được ở CUỐI ngày export (export_date + 1 ngày) — bảo thủ, không bao giờ sớm hơn
-    # thực tế. Trước đây null bị lọc mất ⇒ dựng Silver có as_of làm rơi toàn bộ dòng native.
+    # Native Order snapshots (Channel JSONL, Walmart JDBC) have no `source_observed_at` in the envelope:
+    # treat them as known at the END of the export day (export_date + 1 day): conservative, never earlier than
+    # reality. Previously nulls were filtered out ⇒ building Silver with as_of dropped every native row.
     known_at = F.coalesce(ts("source_observed_at"), F.to_timestamp(F.date_add("export_date", 1)))
     return df.filter(known_at < F.to_timestamp(F.lit(as_of), TS_FORMAT))
 
 
 def _dedup(ops: DataFrame) -> tuple[DataFrame, dict]:
-    """Bỏ bản lặp cùng nội dung; tách xung đột (cùng id khác nội dung, hoặc trùng revision)."""
+    """Drop same-content repeats; split out conflicts (same id with different content, or duplicate revision)."""
     by_event = Window.partitionBy(*EVENT_KEY)
     ranked = ops.withColumn(
         "facts", F.size(F.collect_set("fact_sha256").over(by_event))
@@ -778,19 +778,19 @@ def _dedup(ops: DataFrame) -> tuple[DataFrame, dict]:
 
 
 def _latest(df: DataFrame) -> DataFrame:
-    """Revision lớn nhất của mỗi entity; correction thay thế bản bị sửa."""
+    """Highest revision of each entity; a correction replaces the corrected record."""
     window = Window.partitionBy(*ENTITY_KEY).orderBy(F.col("entity_revision").desc())
     return df.withColumn("rn", F.row_number().over(window)).filter(F.col("rn") == 1).drop("rn")
 
 
 def _p(name: str, kind: str = "string"):
-    """Một trường trong payload của envelope."""
+    """One field in the envelope payload."""
     value = F.get_json_object("raw_json", f"$.payload.{name}")
     return (value.cast(kind) if kind != "string" else value).alias(name)
 
 
 def _envelope_cols():
-    """Cột envelope chung cho các bảng Silver nghiệp vụ."""
+    """Shared envelope columns for the business Silver tables."""
     return [
         "dataset_version",
         "source_event_id",
@@ -802,10 +802,10 @@ def _envelope_cols():
 
 
 def contract_gate(bronze: DataFrame, registry: Registry) -> tuple:
-    """Cách ly trước parse bằng biểu thức Spark, không UDF và không làm fail vì cách ly.
+    """Quarantine before parsing with Spark expressions, no UDF, and never fail because of quarantine.
 
-    Với mảng chỉ kiểm item đầu; mảng rỗng hợp lệ theo JSON Schema được bỏ kiểm item.
-    Trường nullable được phép null. Cổng Spark kiểm required, Python kiểm cả kiểu.
+    For arrays only the first item is checked; empty arrays valid under JSON Schema skip the item check.
+    Nullable fields may be null. The Spark gate checks required; Python also checks types.
     """
     parser = F.lit(None).cast("string")
     registered = F.lit(False)
@@ -817,7 +817,7 @@ def contract_gate(bronze: DataFrame, registry: Registry) -> tuple:
         paths = []
         for path in required_json_paths(entry["schema"]):
             absent = F.get_json_object("raw_json", path).isNull()
-            # JSON Schema items không bắt mảng có phần tử; bỏ kiểm dưới các mảng rỗng.
+            # JSON Schema items does not require non-empty arrays; skip checks under empty arrays.
             for match in re.finditer(r"\[0\]", path):
                 prefix = path[: match.start()]
                 absent = absent & ~F.coalesce(
@@ -845,10 +845,10 @@ def contract_gate(bronze: DataFrame, registry: Registry) -> tuple:
 
 
 def _native_order_identity(frame: DataFrame, registry: Registry) -> DataFrame:
-    """Lấy mã đơn theo metadata của đúng schema đã đăng ký, không đoán payload.
+    """Get the Order id from the metadata of exactly the registered schema, without guessing the payload.
 
-    Schema lạ hoặc thiếu identity_path cho mã đơn null; đối soát loại cả scope kênh
-    và báo số bản ghi chưa biết mã đơn, không gọi đó là số đơn.
+    An unknown schema or missing identity_path gives a null Order id; reconciliation excludes the whole Channel scope
+    and reports the number of records with unknown Order id, without calling it an Order count.
     """
     identity = F.lit(None).cast("string")
     for sid, entry in registry.entries.items():
@@ -865,23 +865,23 @@ def _native_order_identity(frame: DataFrame, registry: Registry) -> DataFrame:
 
 
 def _feed(df: DataFrame, name: str) -> DataFrame:
-    """Dòng của đúng một feed."""
+    """Rows of exactly one feed."""
     return df.filter(F.col("feed") == name)
 
 
 def _json(field: str):
-    """Một trường ở gốc `raw_json` (bản ghi phụ như coverage/uncertainty không có `payload`)."""
+    """A field at the root of `raw_json` (auxiliary records such as coverage/uncertainty have no `payload`)."""
     return F.get_json_object("raw_json", f"$.{field}")
 
 
 def _newest_revision(df: DataFrame, key: str) -> DataFrame:
-    """Revision lớn nhất theo một khoá đơn (bản ghi phụ không có ENTITY_KEY như feed nghiệp vụ)."""
+    """Highest revision per single key (auxiliary records lack the ENTITY_KEY of business feeds)."""
     window = Window.partitionBy(key).orderBy(F.col("revision").desc())
     return df.withColumn("rn", F.row_number().over(window)).filter(F.col("rn") == 1).drop("rn")
 
 
 def _line_commitments(events: DataFrame) -> DataFrame:
-    """Cam kết bán của OMS theo line; thêm `headline_product_net_minor` = net đặt − net huỷ."""
+    """OMS sales commitments per line; adds `headline_product_net_minor` = ordered net − cancelled net."""
     return (
         _latest(_feed(events, "seller_oms.line_commitments"))
         .select(
@@ -914,7 +914,7 @@ def _line_commitments(events: DataFrame) -> DataFrame:
 
 
 def _allocations(events: DataFrame) -> DataFrame:
-    """Phân bổ hàng cho line (revision mới nhất), kèm danh sách unit vật lý."""
+    """Goods allocation for a line (latest revision), with the list of physical units."""
     return _latest(_feed(events, "seller_oms.fulfillment_allocations")).select(
         _p("allocation_id"),
         _p("line_id"),
@@ -930,7 +930,7 @@ def _allocations(events: DataFrame) -> DataFrame:
 
 
 def _deliveries(events: DataFrame) -> DataFrame:
-    """Sự kiện giao của hãng vận chuyển (revision mới nhất): giờ giao thật và unit đã giao."""
+    """Carrier delivery events (latest revision): actual delivery time and delivered units."""
     return _latest(_feed(events, "carrier.delivery_events")).select(
         _p("delivery_event_id"),
         _p("allocation_id"),
@@ -947,7 +947,7 @@ def _deliveries(events: DataFrame) -> DataFrame:
 
 
 def _return_events(events: DataFrame) -> DataFrame:
-    """MỌI sự kiện Return (không lấy mới nhất): đây là lịch sử, nhãn cần cả chuỗi."""
+    """EVERY Return event (not just the latest): this is history, and the label needs the whole chain."""
     return _feed(events, "seller_postsales.return_events").select(
         _p("return_id"),
         _p("event_type"),
@@ -961,7 +961,7 @@ def _return_events(events: DataFrame) -> DataFrame:
 
 
 def _refunds(events: DataFrame) -> DataFrame:
-    """Refund (revision mới nhất); cộng tiền đã phân bổ xuống allocation thành một số."""
+    """Refund (latest revision); sums the amounts allocated down to allocations into one number."""
     allocated = F.aggregate(
         F.from_json(_json("payload.allocation_money_rows"), ALLOCATION_MONEY),
         F.lit(0).cast("bigint"),
@@ -989,7 +989,7 @@ def _refunds(events: DataFrame) -> DataFrame:
 
 
 def _listing_versions(events: DataFrame) -> DataFrame:
-    """MỌI phiên bản listing, đánh dấu `is_latest` thay vì bỏ bản cũ (cần tra theo thời điểm)."""
+    """EVERY listing version, flagging `is_latest` instead of dropping old ones (needed for point-in-time lookups)."""
     latest = Window.partitionBy(*ENTITY_KEY).orderBy(F.col("entity_revision").desc())
     return (
         _feed(events, "seller_catalog.listing_versions")
@@ -1016,7 +1016,7 @@ def _listing_versions(events: DataFrame) -> DataFrame:
 
 
 def _stock_operations(events: DataFrame) -> DataFrame:
-    """Thao tác kho (revision mới nhất) và độ lệch tồn mà mỗi thao tác gây ra."""
+    """Warehouse operations (latest revision) and the stock delta each operation causes."""
     return _latest(_feed(events, "seller_wms.stock_operations")).select(
         _p("operation_id"),
         _p("operation_type"),
@@ -1034,7 +1034,7 @@ def _stock_operations(events: DataFrame) -> DataFrame:
 
 
 def _stock_snapshots(events: DataFrame) -> DataFrame:
-    """Ảnh chụp tồn kho theo pool/location/SKU (revision mới nhất)."""
+    """Inventory snapshots per pool/location/SKU (latest revision)."""
     return _latest(_feed(events, "seller_wms.stock_snapshots")).select(
         F.col("entity_id").alias("snapshot_id"),
         _p("pool_id"),
@@ -1048,7 +1048,7 @@ def _stock_snapshots(events: DataFrame) -> DataFrame:
 
 
 def _inbound_events(events: DataFrame) -> DataFrame:
-    """MỌI sự kiện nhập kho (lịch sử, không lấy mới nhất)."""
+    """EVERY inbound warehouse event (history, not just the latest)."""
     return _feed(events, "seller_wms.inbound_events").select(
         _p("inbound_line_id"),
         _p("event_type"),
@@ -1061,7 +1061,7 @@ def _inbound_events(events: DataFrame) -> DataFrame:
 
 
 def _uncertainties(known: DataFrame) -> DataFrame:
-    """Điểm nguồn tự khai là chưa chắc (revision mới nhất mỗi `uncertainty_id`)."""
+    """Points the source itself declares uncertain (latest revision per `uncertainty_id`)."""
     return _newest_revision(
         _feed(known, "source.uncertainties").select(
             _json("uncertainty_id").alias("uncertainty_id"),
@@ -1078,7 +1078,7 @@ def _uncertainties(known: DataFrame) -> DataFrame:
 
 
 def _coverage(known: DataFrame) -> DataFrame:
-    """Coverage producer tự khai cho từng feed (revision mới nhất mỗi `coverage_id`)."""
+    """Producer-declared coverage per feed (latest revision per `coverage_id`)."""
     return _newest_revision(
         _feed(known, "source.coverage_envelopes").select(
             _json("coverage_id").alias("coverage_id"),
@@ -1100,10 +1100,10 @@ def _coverage(known: DataFrame) -> DataFrame:
 def build_silver(
     bronze: DataFrame, as_of: str | None = None, contracts_dir=None, registry=None
 ) -> dict:
-    """Dựng Silver tại `as_of`; số cách ly chỉ báo receipt, không làm fail job.
+    """Build Silver at `as_of`; quarantine counts only go to the receipt and never fail the job.
 
-    Thứ tự: lọc theo `as_of` → cổng hợp đồng (cách ly) → bỏ lặp/xung đột feed nghiệp vụ →
-    mỗi bảng Silver một hàm `_<bảng>` ở trên → các bảng suy ra (coverage, line_lifecycle).
+    Order: filter by `as_of` → contract gate (quarantine) → drop repeats/conflicts in business feeds →
+    one `_<table>` function above per Silver table → derived tables (coverage, line_lifecycle).
     """
     registry = registry or Registry(contracts_dir)
     original = _known(bronze, as_of)
@@ -1160,7 +1160,7 @@ def build_silver(
 
 
 def line_lifecycle(silver: dict) -> DataFrame:
-    """Một dòng mỗi Order Line: gộp từng fact về grain line TRƯỚC khi join để không fan-out."""
+    """One row per Order Line: aggregate each fact to line grain BEFORE joining to avoid fan-out."""
     allocations = (
         silver["allocations"]
         .groupBy("line_id")
@@ -1224,16 +1224,16 @@ def line_lifecycle(silver: dict) -> DataFrame:
 
 
 def _count(df: DataFrame) -> int:
-    """Đếm dòng cho receipt đối soát."""
+    """Count rows for the reconciliation receipt."""
     return int(df.count())
 
 
 def _native_checks(
     native: DataFrame, lines: DataFrame, eligible_lines: DataFrame | None = None
 ) -> dict:
-    """Đơn native (Channel nói) phải khớp line OMS (Seller ghi): có mặt hai bên, cùng số lượng/tiền.
+    """Native Orders (what the Channel says) must match OMS lines (what the Seller records): present on both sides, same quantity/amount.
 
-    Native là ảnh chụp lúc tạo đơn nên so với số lượng/tiền ĐẶT BAN ĐẦU, không với số sau hủy.
+    Native is a snapshot at Order creation, so compare with the ORIGINAL ordered quantity/amount, not post-cancellation values.
     """
     key = ["channel", "native_order_id", "native_line_id"]
     parsed = native.filter(
@@ -1264,7 +1264,7 @@ def _native_checks(
 
 
 def reconcile(silver: dict) -> dict:
-    """Đối soát bất biến; mọi giá trị trong `checks` phải bằng 0. `info` chỉ để đọc."""
+    """Invariant reconciliation; every value in `checks` must be 0. `info` is informational only."""
     events = silver["events"]
     lines = silver["line_commitments"]
     allocations = silver["allocations"]

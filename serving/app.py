@@ -1,8 +1,8 @@
-"""Web API kéo feature SKU (Feast/Redis) và chunk chính sách (Feast RAG/pgvector).
+"""Web API that fetches SKU features (Feast/Redis) and policy chunks (Feast RAG/pgvector).
 
-Chạy: `uvicorn serving.app:app` từ gốc repo, cần `FEAST_REPO_PATH` trỏ tới `feature_repo/`
-cùng biến môi trường mà `feature_store.yaml` đọc (FEAST_REGISTRY, FEAST_REDIS). Tìm chunk chỉ bật khi
-có `FEAST_RAG_REGISTRY` (+ RAG_PG_*, xem `rag/feature_repo/feature_store.yaml`).
+Run: `uvicorn serving.app:app` from the repo root; needs `FEAST_REPO_PATH` pointing at `feature_repo/`
+plus the environment variables `feature_store.yaml` reads (FEAST_REGISTRY, FEAST_REDIS). Chunk search is
+enabled only when `FEAST_RAG_REGISTRY` is set (+ RAG_PG_*, see `rag/feature_repo/feature_store.yaml`).
 """
 
 import asyncio
@@ -22,27 +22,28 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints, Valida
 
 from feature_repo.publication import load_published_store
 
-# Tra từng view riêng: một view lỗi/chưa đăng ký thì feature của nó là None, không hỏng cả request.
+# Look up each view separately: if one view fails or is not registered, its features are None
+# instead of failing the whole request.
 VIEWS = {
     "sku_return_daily": ["labeled_count_90d", "positive_count_90d", "return_or_refund_rate_90d"],
     "sku_return_24h": ["approved_returns_24h"],
 }
 MAX_SKUS = 100
 
-# Số đo Web API: Prometheus lấy ở /metrics; `handler` là mẫu đường dẫn để không nổ nhãn.
-REQUESTS = Counter("http_requests_total", "Số request", ["method", "handler", "status"])
-LATENCY = Histogram("http_request_duration_seconds", "Thời gian xử lý", ["handler"])
-# Agent telemetry: mỗi lượt gọi MCP tool, tách thành công / lỗi. Lỗi MCP vẫn là HTTP 200
-# (isError trong JSON-RPC) nên không đếm được bằng http_requests_total.
-TOOL_CALLS = Counter("mcp_tool_calls_total", "Số lượt gọi MCP tool", ["tool", "outcome"])
+# Web API metrics: Prometheus scrapes /metrics; `handler` is the path template to avoid label explosion.
+REQUESTS = Counter("http_requests_total", "Number of requests", ["method", "handler", "status"])
+LATENCY = Histogram("http_request_duration_seconds", "Processing time", ["handler"])
+# Agent telemetry: every MCP tool call, split into success / error. MCP errors are still HTTP 200
+# (isError in JSON-RPC), so http_requests_total cannot count them.
+TOOL_CALLS = Counter("mcp_tool_calls_total", "Number of MCP tool calls", ["tool", "outcome"])
 
 
 def counted(tool):
-    """Bọc MCP tool để đếm vào TOOL_CALLS; giữ nguyên chữ ký (MCP sinh schema từ đó)."""
+    """Wrap an MCP tool to count into TOOL_CALLS; keeps the signature (MCP builds the schema from it)."""
 
     @functools.wraps(tool)
     async def wrapper(*args, **kwargs):
-        """Đếm lượt gọi MCP tool thành công hoặc lỗi rồi trả kết quả của tool."""
+        """Count the MCP tool call as success or error, then return the tool's result."""
         try:
             result = await tool(*args, **kwargs)
         except Exception:
@@ -54,21 +55,21 @@ def counted(tool):
     return wrapper
 
 
-# Dạng thật là `sku-00001`; cho rộng hơn để Channel khác vẫn qua, nhưng chặn ký tự lạ.
+# The real form is `sku-00001`; allow a wider pattern so other Channels still pass, but block odd characters.
 SellerSku = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,64}$")]
-# Số thập phân dài (0.16980269175486737) bị guardrail phoneNumber của agentgateway che thành <PHONE_NUMBER>
-# trong câu trả lời Agent ⇒ làm tròn 4 số, vẫn đủ để xếp hạng SKU.
+# Long decimals (0.16980269175486737) get masked as <PHONE_NUMBER> by the agentgateway phoneNumber guardrail
+# in the Agent's answer ⇒ round to 4 digits, still enough to rank SKUs.
 Rounded = Annotated[float, AfterValidator(lambda v: round(v, 4))]
 
 
 class FeatureRequest(BaseModel):
-    """Danh sách SKU hợp lệ cần tra feature, giới hạn số SKU mỗi request."""
+    """List of valid SKUs to look up features for, with a cap on SKUs per request."""
 
     seller_skus: list[SellerSku] = Field(min_length=1, max_length=MAX_SKUS)
 
 
 class SkuFeatures(BaseModel):
-    """Một SKU; feature là None khi Redis chưa có hoặc đã hết TTL."""
+    """One SKU; a feature is None when Redis does not have it yet or its TTL has expired."""
 
     seller_sku: str
     labeled_count_90d: int | None
@@ -82,31 +83,31 @@ class SkuFeatures(BaseModel):
 
 
 class FeatureResponse(BaseModel):
-    """Kết quả tra feature cho danh sách SKU được yêu cầu."""
+    """Feature lookup result for the requested SKU list."""
 
     features: list[SkuFeatures]
 
 
 class ChunkRequest(BaseModel):
-    """Câu hỏi và số chunk chính sách cần tìm theo độ tương đồng."""
+    """Question and number of policy chunks to retrieve by similarity."""
 
     query: str = Field(min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=10)
 
 
 class PredictRequest(BaseModel):
-    """Một Order Line mới; model tự đọc feature SKU từ Feast online, không cần gửi kèm."""
+    """One new Order Line; the model reads SKU features from Feast online itself, no need to send them."""
 
     seller_sku: SellerSku
     channel: Literal["amazon", "walmart", "shopify", "tiktok_shop", "shopee"]
-    # Nước giao hàng (ISO-2): có trong file gốc của cả năm Channel; bắt buộc, không tự điền.
+    # Ship-to country (ISO-2): present in the source files of all five Channels; required, never imputed.
     country: str = Field(pattern=r"^[A-Z]{2}$")
     ordered_basis_qty: int = Field(ge=1, le=1000)
     ordered_product_net_minor: int = Field(ge=0, le=1_000_000_000)
 
 
 class Prediction(BaseModel):
-    """score là tín hiệu xếp hạng rủi ro Return trong [0, 1], không phải xác suất đã hiệu chỉnh."""
+    """score is a Return risk ranking signal in [0, 1], not a calibrated probability."""
 
     seller_sku: str
     score: Rounded | None
@@ -121,13 +122,13 @@ ChunkId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
 
 
 class ChunkIdRequest(BaseModel):
-    """Danh sách mã chunk hợp lệ cần tra trực tiếp trong online store."""
+    """List of valid chunk ids to look up directly in the online store."""
 
     chunk_ids: list[ChunkId] = Field(min_length=1, max_length=20)
 
 
 class PolicyChunk(BaseModel):
-    """Một đoạn chính sách trả hàng; distance cosine, càng nhỏ càng gần câu hỏi (None khi tra theo id)."""
+    """One return policy chunk; cosine distance, smaller is closer to the question (None for id lookups)."""
 
     chunk_id: str
     doc_id: str | None
@@ -137,13 +138,13 @@ class PolicyChunk(BaseModel):
 
 
 class ChunkResponse(BaseModel):
-    """Danh sách các đoạn chính sách trả về từ truy vấn RAG."""
+    """List of policy chunks returned by a RAG query."""
 
     chunks: list[PolicyChunk]
 
 
 def load_store():
-    """Nạp Feast chỉ khi chạy thật, để test không cần cài feast."""
+    """Load Feast only in a real run, so tests do not need feast installed."""
     from feast import FeatureStore
 
     repo = os.environ.get("FEAST_REPO_PATH", "feature_repo")
@@ -153,7 +154,7 @@ def load_store():
 
 
 def load_rag():
-    """Trả object có .search(query, top_k) và .get(chunk_ids) trên Feast RAG; None nếu chưa cấu hình."""
+    """Return an object with .search(query, top_k) and .get(chunk_ids) over Feast RAG; None if not configured."""
     if not os.environ.get("FEAST_RAG_REGISTRY"):
         return None
     from types import SimpleNamespace
@@ -169,7 +170,7 @@ def load_rag():
 
 
 async def fetch_chunks(rag, method, *args):
-    """Feast/embedding là code đồng bộ ⇒ chạy trong thread để không chặn event loop."""
+    """Feast/embedding code is synchronous ⇒ run it in a thread so it does not block the event loop."""
     if rag is None:
         raise HTTPException(503, "rag not configured")
     try:
@@ -180,7 +181,7 @@ async def fetch_chunks(rag, method, *args):
 
 
 async def predict(http, url, body):
-    """Gọi KServe (protocol v1) cho 1 Order Line."""
+    """Call KServe (protocol v1) for 1 Order Line."""
     if not url:
         raise HTTPException(503, "model not configured")
     instance = body.model_dump()
@@ -193,8 +194,8 @@ async def predict(http, url, body):
 
 
 async def fetch_features(store, requested_skus):
-    """Tra feature cho danh sách SKU; nằm ngoài `create_app` để mutmut đột biến được."""
-    # Bỏ SKU trùng nhưng giữ thứ tự: gửi lặp không đổi kết quả.
+    """Look up features for a SKU list; lives outside `create_app` so mutmut can mutate it."""
+    # Drop duplicate SKUs but keep order: repeated SKUs do not change the result.
     skus = list(dict.fromkeys(requested_skus))
     entity_rows = [{"seller_sku": s} for s in skus]
     results = await asyncio.gather(
@@ -217,7 +218,7 @@ async def fetch_features(store, requested_skus):
     for i, sku in enumerate(skus):
         daily, stream = results
         release = None if isinstance(daily, Exception) else getattr(daily, "release", None)
-        # Legacy/mock OnlineResponse không có release metadata thực.
+        # Legacy/mock OnlineResponse has no real release metadata.
         release_id = getattr(release, "release_id", None)
         release = release if isinstance(release_id, str) else None
         count, positive, rate = (columns[name][i] for name in VIEWS["sku_return_daily"])
@@ -255,21 +256,21 @@ async def fetch_features(store, requested_skus):
 def create_app(
     store_factory=load_store, rag_factory=load_rag, http_factory=httpx.AsyncClient, surface=None
 ):
-    """`store_factory`, `rag_factory`, `http_factory` để test thay bằng bản giả.
+    """`store_factory`, `rag_factory`, `http_factory` let tests swap in fakes.
 
-    `surface` (mặc định env `API_SURFACE`): `rest` = pod Feature API, `mcp` = pod MCP server,
-    `all` = cả hai trong một process (chạy local/test). Hai pod dùng chung image và code.
+    `surface` (default env `API_SURFACE`): `rest` = Feature API pod, `mcp` = MCP server pod,
+    `all` = both in one process (local/test runs). Both pods share the same image and code.
     """
     surface = surface or os.environ.get("API_SURFACE", "all")
     if surface not in {"all", "rest", "mcp"}:
         raise ValueError(f"API_SURFACE must be all|rest|mcp, got {surface!r}")
-    # Cùng hàm tra feature, phơi ra thêm dạng MCP tool cho Agent.
-    # stateless: request MCP nào cũng tới được replica nào, không cần sticky session.
+    # Same feature lookup functions, also exposed as MCP tools for the Agent.
+    # stateless: any MCP request can reach any replica, no sticky session needed.
     mcp = MCPServer(
         "platform-features",
         instructions=(
-            "Tra feature tỷ lệ trả hàng theo SKU, chấm điểm rủi ro Return cho đơn mới"
-            " và tìm đoạn chính sách trả hàng."
+            "Look up return rate features by SKU, score Return risk for new orders"
+            " and search return policy chunks."
         ),
     )
     mcp_app = mcp.streamable_http_app(
@@ -279,13 +280,13 @@ def create_app(
     @mcp.tool()
     @counted
     async def get_sku_features(seller_skus: list[str]) -> FeatureResponse:
-        # Docstring = mô tả tool LLM thấy ⇒ tiếng Anh: mô tả tiếng Việt làm Qwen 1,5B không gọi tool (0/3 so với 3/3).
+        # Docstring = the tool description the LLM sees ⇒ English: a Vietnamese description made Qwen 1.5B not call the tool (0/3 vs 3/3).
         """Return features and per-group availability for 1-100 SKUs (e.g. APP-00042).
 
         Use only ready data. Missing values are null, never assumed zero; unavailable groups
         must be reported as unavailable. insufficient_history means confirmed zero labeled samples.
         """
-        # ToolError giữ nguyên lời nhắn cho LLM; lỗi khác MCP chỉ báo chung chung.
+        # ToolError passes its message to the LLM unchanged; MCP reports other errors only generically.
         try:
             body = FeatureRequest(seller_skus=seller_skus)
             return await fetch_features(app.state.store, body.seller_skus)
@@ -350,7 +351,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app):
-        """Nạp các store và quản lý vòng đời HTTP client cùng phiên MCP."""
+        """Load the stores and manage the lifecycle of the HTTP client and the MCP session."""
         app.state.store = store_factory()
         app.state.rag = rag_factory()
         app.state.http = http_factory()
@@ -363,7 +364,7 @@ def create_app(
 
     @app.middleware("http")
     async def metrics(request: Request, call_next):
-        """Ghi số request, trạng thái và độ trễ theo đường dẫn xử lý."""
+        """Record request count, status and latency per handler path."""
         start = time.perf_counter()
         status = 500
         try:
@@ -371,7 +372,7 @@ def create_app(
             status = response.status_code
             return response
         finally:
-            # App MCP được mount ⇒ route bên trong là "/"; gom về "/mcp" cho dễ đọc.
+            # The MCP app is mounted ⇒ its inner route is "/"; group under "/mcp" for readability.
             route = request.scope.get("route")
             if request.url.path.startswith("/mcp"):
                 handler = "/mcp"
@@ -382,17 +383,17 @@ def create_app(
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics_endpoint():
-        """Xuất các metric theo định dạng Prometheus."""
+        """Expose metrics in Prometheus format."""
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/healthz")
     async def healthz():
-        """Liveness cho k8s: process còn sống."""
+        """Liveness for k8s: the process is alive."""
         return {"status": "ok"}
 
     @app.get("/readyz")
     async def readyz(request: Request):
-        """Readiness cho k8s: đã nạp được Feast registry."""
+        """Readiness for k8s: the Feast registry has been loaded."""
         if getattr(request.app.state, "store", None) is None:
             raise HTTPException(503, "feature store not loaded")
         return {"status": "ready"}
@@ -402,22 +403,22 @@ def create_app(
 
     @app.post("/features", response_model=FeatureResponse)
     async def features(body: FeatureRequest, request: Request):
-        """Tra feature online cho các SKU trong request REST."""
+        """Look up online features for the SKUs in a REST request."""
         return await fetch_features(request.app.state.store, body.seller_skus)
 
     @app.post("/chunks", response_model=ChunkResponse)
     async def chunks(body: ChunkRequest, request: Request):
-        """Tìm các chunk chính sách gần câu hỏi trong request REST."""
+        """Find the policy chunks closest to the question in a REST request."""
         return await fetch_chunks(request.app.state.rag, "search", body.query, body.top_k)
 
     @app.post("/predict", response_model=Prediction)
     async def predict_endpoint(body: PredictRequest, request: Request):
-        """Gửi thuộc tính đơn hàng tới KServe và trả dự đoán rủi ro."""
+        """Send the order attributes to KServe and return the risk prediction."""
         return await predict(request.app.state.http, os.environ.get("KSERVE_URL"), body)
 
     @app.post("/chunks/by-id", response_model=ChunkResponse)
     async def chunks_by_id(body: ChunkIdRequest, request: Request):
-        """Tra các chunk chính sách theo mã trong request REST."""
+        """Look up policy chunks by id in a REST request."""
         return await fetch_chunks(request.app.state.rag, "get", body.chunk_ids)
 
     return app

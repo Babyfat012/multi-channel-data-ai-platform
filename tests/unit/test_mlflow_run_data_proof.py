@@ -1,4 +1,4 @@
-"""Kiểm tra logic so khớp SHA-256 của script bằng chứng MLflow (server giả)."""
+"""Check the SHA-256 matching logic of the MLflow evidence script (fake server)."""
 
 import hashlib
 import json
@@ -9,7 +9,7 @@ TRAIN, TEST = b"train-bytes", b"test-bytes"
 
 
 def fake_server(tag_test):
-    """Dựng hàm request giả: một run có tag hash và hai artifact."""
+    """Build a fake request function: one run with hash tags and two artifacts."""
     sha = lambda b: hashlib.sha256(b).hexdigest()  # noqa: E731
     tags = [
         {"key": "data.train_sha256", "value": sha(TRAIN)},
@@ -47,7 +47,7 @@ def fake_server(tag_test):
 
 
 def test_hash_tags_match_artifacts(monkeypatch, capsys):
-    """Tag khớp artifact ⇒ mã 0 và sha256_match true cho cả hai tập."""
+    """Tags match the artifacts ⇒ exit code 0 and sha256_match true for both sets."""
     monkeypatch.setattr(proof, "request", fake_server(hashlib.sha256(TEST).hexdigest()))
     assert proof.main(["--run-name", "r1"]) == 0
     out = json.loads(capsys.readouterr().out)
@@ -56,14 +56,14 @@ def test_hash_tags_match_artifacts(monkeypatch, capsys):
 
 
 def test_hash_mismatch_fails(monkeypatch, capsys):
-    """Tag test lệch artifact ⇒ mã 1."""
+    """Test tag differs from the artifact ⇒ exit code 1."""
     monkeypatch.setattr(proof, "request", fake_server("0" * 64))
     assert proof.main(["--run-name", "r1"]) == 1
     assert json.loads(capsys.readouterr().out)["test"]["sha256_match"] is False
 
 
 def test_model_version_traces_back_to_run_and_data(monkeypatch, capsys):
-    """--model/--version đi từ registry tới run train ra nó: có tham số, metric, hash dữ liệu khớp."""
+    """--model/--version goes from the registry to the training run that produced it: params, metrics, matching data hashes."""
     monkeypatch.setattr(proof, "request", fake_server(hashlib.sha256(TEST).hexdigest()))
     assert proof.main(["--model", "return-risk", "--version", "1"]) == 0
     out = json.loads(capsys.readouterr().out)

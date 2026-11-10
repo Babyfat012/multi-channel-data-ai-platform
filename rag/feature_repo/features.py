@@ -1,7 +1,7 @@
-"""Feature view RAG: mỗi chunk tài liệu chính sách trả hàng là một entity, kèm embedding 384 chiều.
+"""RAG feature view: each return policy document chunk is one entity, with a 384-dim embedding.
 
-Pipeline `dags/ml_rag_ingest.py` ghi Parquet offline rồi đẩy vào online store bằng
-`write_to_online_store`; Agent tìm bằng `retrieve_online_documents_v2` (cosine).
+The `dags/ml_rag_ingest.py` pipeline writes offline Parquet, then pushes it to the online store with
+`write_to_online_store`; the Agent searches with `retrieve_online_documents_v2` (cosine).
 """
 
 import os
@@ -14,13 +14,13 @@ chunk = Entity(
     name="chunk",
     join_keys=["chunk_id"],
     value_type=ValueType.STRING,
-    description="Một đoạn tài liệu",
+    description="One document chunk",
 )
 
 policy_chunks = FeatureView(
     name="policy_chunks",
     entities=[chunk],
-    ttl=timedelta(0),  # tài liệu không hết hạn; bản mới ghi đè theo chunk_id
+    ttl=timedelta(0),  # documents do not expire; a new version overwrites by chunk_id
     schema=[
         Field(
             name="embedding",

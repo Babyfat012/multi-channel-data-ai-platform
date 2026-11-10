@@ -1,7 +1,7 @@
-"""Liệt kê image/service/profile thật sự nộp (local và overlay GCP) từ `docker compose config`.
+"""List the images/services/profiles actually shipped (local and the GCP overlay) from `docker compose config`.
 
-Mỗi service: image, Dockerfile build, profile, port (kèm host_ip), giới hạn RAM/CPU; image có sẵn
-trên máy thì thêm digest, dung lượng, ngày build qua `docker image inspect`. Không pull, không mạng.
+Per service: image, build Dockerfile, profiles, ports (with host_ip), RAM/CPU limits; for images present
+on the machine, also digest, size and build date via `docker image inspect`. No pull, no network.
 
     .venv/bin/python scripts/evidence/inspect_docker_images.py --output docs/evidence/docker-inventory-local.json
     RAW_BUCKET=x LAKEHOUSE_BUCKET=y PLATFORM_SPARK_PACKAGES_GCP=z .venv/bin/python scripts/evidence/inspect_docker_images.py \\
@@ -18,7 +18,7 @@ from pathlib import Path
 
 
 def services(config: dict) -> list[dict]:
-    """Rút gọn JSON của `docker compose config` thành một hàng mỗi service, sắp theo tên."""
+    """Reduce the `docker compose config` JSON to one row per service, sorted by name."""
     rows = []
     for name, service in sorted(config.get("services", {}).items()):
         build = service.get("build") or {}
@@ -44,7 +44,7 @@ def services(config: dict) -> list[dict]:
 
 
 def inspect_image(image: str | None) -> dict:
-    """Digest/dung lượng của image đã có trên máy; không có thì ghi present=false thay vì lỗi."""
+    """Digest/size of an image already on the machine; if absent, record present=false instead of failing."""
     if not image:
         return {"present": False}
     result = subprocess.run(
@@ -64,12 +64,12 @@ def inspect_image(image: str | None) -> dict:
 
 
 def main() -> int:
-    """Gọi compose config với file/profile cho trước, ghi inventory JSON."""
+    """Call compose config with the given files/profiles and write the inventory JSON."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "-f", "--file", action="append", default=[], help="File compose (lặp lại được)"
+        "-f", "--file", action="append", default=[], help="Compose file (repeatable)"
     )
     parser.add_argument("--profile", action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)

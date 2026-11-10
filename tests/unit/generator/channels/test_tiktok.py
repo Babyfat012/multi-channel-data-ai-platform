@@ -1,4 +1,4 @@
-"""Test renderer webhook TikTok Shop type 1: đúng envelope, mã cố định, giữ `CANCEL`."""
+"""Tests for the TikTok Shop type 1 webhook renderer: correct envelope, fixed ids, keeps `CANCEL`."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def _tiktok_orders(config, days=range(1, 6)):
 
 
 def test_webhook_envelope_matches_docs(tiny_config):
-    """Chứng minh envelope webhook type 1 đúng tài liệu: đủ khoá cấp ngoài, đủ khoá `data`, và `timestamp` bằng `update_time`."""
+    """Prove the type 1 webhook envelope matches the docs: all top-level keys, all `data` keys, and `timestamp` equals `update_time`."""
     renderer = TikTokOrderWebhookRenderer(tiny_config)
     order = _tiktok_orders(tiny_config)[0]
     msg = renderer.render_event(order, order.timeline[-1]).record
@@ -27,11 +27,11 @@ def test_webhook_envelope_matches_docs(tiny_config):
 
 
 def test_one_notification_id_per_status_change(tiny_config):
-    """Chứng minh mỗi lần đổi trạng thái có mã riêng, và vẽ lại cho ra đúng mã cũ (để dedup được)."""
+    """Prove each status change has its own id, and re-rendering gives the same id (so dedup works)."""
     renderer = TikTokOrderWebhookRenderer(tiny_config)
     order = _tiktok_orders(tiny_config)[0]
     ids = [renderer.render_event(order, c).key for c in order.timeline]
-    # Mỗi lần đổi trạng thái có mã riêng, vẽ lại thì ra đúng mã cũ (để dedup được).
+    # Each status change has its own id; re-rendering gives the same id (so dedup works).
     assert len(set(ids)) == len(ids)
     assert ids == [
         TikTokOrderWebhookRenderer(tiny_config).render_event(order, c).key for c in order.timeline
@@ -39,7 +39,7 @@ def test_one_notification_id_per_status_change(tiny_config):
 
 
 def test_cancel_uses_webhook_spelling(tiny_config):
-    """Chứng minh trạng thái hủy dùng đúng cách viết của webhook (`CANCEL`, không phải `CANCELLED` như API)."""
+    """Prove the cancelled status uses the webhook spelling (`CANCEL`, not `CANCELLED` as in the API)."""
     renderer = TikTokOrderWebhookRenderer(tiny_config)
     statuses = {
         renderer.render_event(o, c).record["data"]["order_status"]

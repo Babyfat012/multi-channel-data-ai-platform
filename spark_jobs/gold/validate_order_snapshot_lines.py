@@ -1,4 +1,4 @@
-"""Kiểm số dòng, khóa, tiền và ranh giới nhãn của Gold fact."""
+"""Validate row counts, keys, money and label boundaries of the Gold fact."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def parse_args(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     for value in [args.table, *[getattr(args, f"{c}_source") for c in SOURCES]]:
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
     return args
 
 
@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         fact = spark.table(table)
         forbidden = {"label", "delivered_at", "label_available_at"}
         if forbidden.intersection(fact.columns):
-            raise ValueError("Gold fact chứa cột đáp án hoặc thời gian giao thật")
+            raise ValueError("Gold fact contains answer columns or the real delivery time")
 
         expected = {
             channel: metadata_rows(spark, f"{CATALOG}.silver.{getattr(args, f'{channel}_source')}")
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(f"Silver rows: {expected}; Gold rows: {observed}")
         if observed != expected or metadata_rows(spark, table) != sum(expected.values()):
-            raise ValueError("Số dòng Gold không khớp năm bảng Silver")
+            raise ValueError("Gold row count does not match the five Silver tables")
 
         bad = (
             fact.filter(
@@ -99,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Gold invalid={bad}, duplicate_order_line_key={duplicates}")
         if bad or duplicates:
-            raise ValueError("Validate Gold fact thất bại")
+            raise ValueError("Validate Gold fact failed")
         print("Validate Gold fact: PASS")
         return 0
     finally:

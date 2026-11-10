@@ -1,10 +1,10 @@
-"""Kiểm `spark_jobs/lib/order_snapshot_ml.py` bằng dữ liệu dựng tay, local[1], không catalog.
+"""Check `spark_jobs/lib/order_snapshot_ml.py` with hand-built data, local[1], no catalog.
 
-Phải đúng: (1) ảnh chụp SKU khớp phép đếm Python thuần — nhãn chỉ đếm khi
-`label_available_at <= ảnh chụp` và trong 90 ngày; (2) tập train bỏ nhãn có sau cutoff, đổi
-tiền sang đơn vị nhỏ nhất theo tiền tệ, lấy mẫu theo hash ổn định.
+Must hold: (1) SKU snapshots match a pure-Python count: labels only count when
+`label_available_at <= snapshot` and within 90 days; (2) the training set drops labels known after the cutoff, converts
+money to the currency's minor units, and samples by a stable hash.
 
-Chạy trên EC2 (/opt/platform) hoặc local có image:
+Run on EC2 (/opt/platform) or locally with the image:
 docker run --rm --network none --read-only --tmpfs /tmp:rw,exec,size=1g \
   --mount type=bind,src=$PWD,dst=/workspace,readonly --entrypoint python \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_snapshot_ml.py
@@ -29,7 +29,7 @@ CUTOFF = "2026-04-15T00:00:00Z"
 
 
 def ts(month, day, hour=0):
-    """Mốc UTC năm 2026."""
+    """UTC timestamp in 2026."""
     return datetime(2026, month, day, hour, tzinfo=timezone.utc)
 
 
@@ -43,16 +43,16 @@ FACT = [
 ]
 # (order_line_key, label, label_available_at, run_id)
 LABELS = [
-    ("k1", 1, ts(2, 1, 12), "r1"),  # có từ ảnh chụp 2/2
-    ("k2", 0, ts(2, 3), "r1"),  # đúng 00:00 → có ngay ảnh chụp 3/2
-    ("k3", 1, ts(4, 20), "r1"),  # sau cutoff → không vào train, không vào ảnh chụp
+    ("k1", 1, ts(2, 1, 12), "r1"),  # known from the 2/2 snapshot
+    ("k2", 0, ts(2, 3), "r1"),  # exactly 00:00 → in the 3/2 snapshot right away
+    ("k3", 1, ts(4, 20), "r1"),  # after the cutoff → not in training, not in snapshots
     ("k4", 0, ts(2, 1, 1), "r1"),
     ("k5", 1, ts(4, 1, 6), "r1"),
 ]
 
 
 def expected_daily(sku, day):
-    """Đếm Python thuần: nhãn của SKU có label_available_at trong (day-90d, day]."""
+    """Pure-Python count: the SKU's labels with label_available_at in (day-90d, day]."""
     snap = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
     keys = {f[0] for f in FACT if f[1] == sku}
     hits = [
@@ -64,7 +64,7 @@ def expected_daily(sku, day):
 
 
 def main():
-    """Chạy hai kiểm tra; sai thì AssertionError."""
+    """Run both checks; failures raise AssertionError."""
     spark = (
         SparkSession.builder.master("local[1]")
         .appName("order-snapshot-ml-check")
@@ -79,7 +79,9 @@ def main():
             FACT,
             "order_line_key string, seller_sku string, created_at timestamp, channel string, "
             "country string, currency string, quantity int, line_net_amount decimal(14,2)",
-        ).withColumn("run_id", F.lit("fact-run"))  # Gold thật có run_id riêng: bắt join mơ hồ
+        ).withColumn(
+            "run_id", F.lit("fact-run")
+        )  # the real Gold has its own run_id: catches an ambiguous join
         labels = spark.createDataFrame(
             LABELS, "order_line_key string, label int, label_available_at timestamp, run_id string"
         )
@@ -98,20 +100,22 @@ def main():
                 rate = row["return_or_refund_rate_90d"]
                 assert (rate is None) if n == 0 else abs(rate - p / n) < 1e-12, (sku, day)
                 day += timedelta(days=1)
-        assert not daily, f"thừa ảnh chụp ngoài lưới: {sorted(daily)[:3]}"
+        assert not daily, f"extra snapshots outside the grid: {sorted(daily)[:3]}"
         a = {d: expected_daily("A", d) for d in (date(2026, 2, 1), date(2026, 2, 2))}
         assert a == {date(2026, 2, 1): (0, 0), date(2026, 2, 2): (1, 1)}, a
 
         rows = {r["line_id"]: r for r in training_rows(fact, labels, CUTOFF, 1000).collect()}
-        assert set(rows) == {"k1", "k2", "k4", "k5"}, sorted(rows)  # k3 có nhãn sau cutoff
+        assert set(rows) == {"k1", "k2", "k4", "k5"}, sorted(
+            rows
+        )  # k3 has a label after the cutoff
         assert rows["k1"]["ordered_product_net_minor"] == 1050
-        assert rows["k2"]["ordered_product_net_minor"] == 250000  # VND không có xu
+        assert rows["k2"]["ordered_product_net_minor"] == 250000  # VND has no minor unit
         assert rows["k1"]["event_timestamp"] == rows["k1"]["created_at"]
         assert rows["k1"]["generation_id"] == "r1" and rows["k5"]["country"] == "GB"
         half = [r["line_id"] for r in training_rows(fact, labels, CUTOFF, 500).collect()]
         assert half == [r["line_id"] for r in training_rows(fact, labels, CUTOFF, 500).collect()]
         assert set(half) <= set(rows)
-        print(f"OK: {len(rows)} train rows; daily snapshots khớp đếm Python")
+        print(f"OK: {len(rows)} train rows; daily snapshots match the Python count")
     finally:
         spark.stop()
 

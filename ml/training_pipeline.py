@@ -1,7 +1,7 @@
 """Kubeflow Pipelines: load (Feast offline) → split → train → evaluate → register (MLflow).
 
-Mọi bước chạy trong image `platform-train` (docker/Dockerfile.train), gọi hàm của `ml/train_lib.py`.
-Biên dịch + submit: `scripts/run/run_training_pipeline.sh`.
+Every step runs in the `platform-train` image (docker/Dockerfile.train), calling functions from `ml/train_lib.py`.
+Compile + submit: `scripts/run/run_training_pipeline.sh`.
 """
 
 import os
@@ -9,8 +9,8 @@ import os
 from kfp import dsl, kubernetes
 
 IMAGE = f"{os.environ.get('REGISTRY', 'localhost:5001')}/platform-train:{os.environ.get('TAG', '0.1.0')}"
-# Đích chọn lúc biên dịch. aws: S3 thật qua Pod Identity của kubeflow/pipeline-runner (không key),
-# MLflow trên EC2 qua IP riêng. kind: MinIO, credential từ Secret tạo lúc submit (không nằm trong YAML).
+# Target chosen at compile time. aws: real S3 via the kubeflow/pipeline-runner Pod Identity (no keys),
+# MLflow on EC2 via private IP. kind: MinIO, credentials from a Secret created at submit time (not in the YAML).
 TARGET = os.environ.get("PIPELINE_TARGET", "kind")
 SECRET = "platform-minio" if TARGET == "kind" else None
 if TARGET == "aws":
@@ -35,7 +35,7 @@ FEAST_ENV = {
 
 @dsl.component(base_image=IMAGE)
 def load_features(entity_path: str, features: dsl.Output[dsl.Dataset]):
-    """Đọc tập line có nhãn rồi PIT join feature SKU từ kho OFFLINE của Feast."""
+    """Read the labeled lines, then PIT-join SKU features from Feast's OFFLINE store."""
     import pandas as pd
     import s3fs
     from feast import FeatureStore
@@ -45,16 +45,16 @@ def load_features(entity_path: str, features: dsl.Output[dsl.Dataset]):
     fs = s3fs.S3FileSystem()
     entity = pd.read_parquet(entity_path.removeprefix("s3://"), filesystem=fs)
     store = FeatureStore("/opt/feature_repo")
-    # Kho offline file của Feast nối mỗi line với MỌI ảnh chụp ngày của SKU rồi mới lọc PIT:
-    # 360k line × ~180 ngày ≈ 65 tr dòng trung gian ⇒ OOM. Gọi theo lô, kết quả y hệt một lần.
-    # Giới hạn: lô 20k cố định; dữ liệu lớn hơn thì dùng offline store Spark.
+    # Feast's file offline store joins each line with EVERY daily snapshot of the SKU before PIT filtering:
+    # 360k lines × ~180 days ≈ 65M intermediate rows ⇒ OOM. Call in batches, same result as a single call.
+    # Limitation: fixed 20k batches; for larger data use the Spark offline store.
     chunks = [entity.iloc[i : i + 20_000] for i in range(0, len(entity), 20_000)]
     frame = pd.concat(
         store.get_historical_features(entity_df=chunk, features=FEAST_FEATURES).to_df()
         for chunk in chunks
     )
     frame.to_parquet(features.path)
-    print(f"{len(frame)} dòng, cột {list(frame.columns)}")
+    print(f"{len(frame)} rows, columns {list(frame.columns)}")
 
 
 @dsl.component(base_image=IMAGE)
@@ -64,7 +64,7 @@ def split(
     train_set: dsl.Output[dsl.Dataset],
     test_set: dsl.Output[dsl.Dataset],
 ):
-    """Chia theo ngày đặt đơn: `test_days` ngày cuối làm test."""
+    """Split by order date: the last `test_days` days become test."""
     import pandas as pd
 
     from ml.train_lib import temporal_split
@@ -73,13 +73,13 @@ def split(
     train.to_parquet(train_set.path)
     test.to_parquet(test_set.path)
     print(
-        f"train {len(train)} dòng, test {len(test)} dòng, test prevalence {test['label'].mean():.3f}"
+        f"train {len(train)} rows, test {len(test)} rows, test prevalence {test['label'].mean():.3f}"
     )
 
 
 @dsl.component(base_image=IMAGE)
 def train(train_set: dsl.Input[dsl.Dataset], model: dsl.Output[dsl.Model]):
-    """Train LightGBM với seed cố định, lưu model dạng booster text."""
+    """Train LightGBM with a fixed seed, save the model as booster text."""
     import pandas as pd
 
     from ml.train_lib import add_order_features, train_model
@@ -95,7 +95,7 @@ def evaluate(
     model: dsl.Input[dsl.Model],
     metrics: dsl.Output[dsl.Metrics],
 ) -> str:
-    """PR-AUC model vs baseline trên cùng test; trả metric dạng JSON cho bước register."""
+    """PR-AUC of model vs baseline on the same test; return metrics as JSON for the register step."""
     import json
 
     import lightgbm as lgb
@@ -126,8 +126,8 @@ def register(
     tracking_uri: str,
     model_name: str,
 ):
-    """Ghi run MLflow (param, metric, model, dữ liệu), đăng ký version; tag `latest` luôn,
-    alias + tag `production` chỉ khi thắng baseline."""
+    """Log the MLflow run (params, metrics, model, data), register the version; always tag `latest`,
+    alias + tag `production` only when it beats the baseline."""
     import hashlib
     import json
 
@@ -139,7 +139,7 @@ def register(
     from ml.train_lib import FEATURES
 
     def sha256(path):
-        """Tính mã băm SHA-256 của file để ghi nhận phiên bản artifact."""
+        """Compute the file's SHA-256 hash to record the artifact version."""
         with open(path, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
 
@@ -169,7 +169,7 @@ def register(
         )
     client = MlflowClient()
     version = info.registered_model_version
-    # Alias "latest" bị MLflow giữ chỗ (models:/<tên>/latest đã trỏ version mới nhất) ⇒ dùng tag.
+    # The "latest" alias is reserved by MLflow (models:/<name>/latest already points to the newest version) ⇒ use a tag.
     for older in client.search_model_versions(f"name='{model_name}'"):
         if older.version != version and older.tags.get("latest") == "true":
             client.set_model_version_tag(model_name, older.version, "latest", "false")
@@ -191,7 +191,7 @@ def return_risk_training(
     tracking_uri: str = TRACKING_URI,
     model_name: str = "return-risk",
 ):
-    """Năm bước; mỗi bước nhận đúng artifact của bước trước."""
+    """Five steps; each step takes exactly the artifacts of the previous one."""
     loaded = load_features(entity_path=entity_path)
     parts = split(features=loaded.outputs["features"], test_days=test_days)
     trained = train(train_set=parts.outputs["train_set"])
@@ -209,7 +209,7 @@ def return_risk_training(
         tracking_uri=tracking_uri,
         model_name=model_name,
     )
-    # Khai RAM để thiếu thì lỗi rõ ở pod, không bóp cả node: load giữ entity + feature PIT trong pandas.
+    # Declare RAM so a shortage fails clearly at the pod instead of starving the whole node: load holds entity + PIT features in pandas.
     loaded.set_memory_request("2G").set_memory_limit("4G")
     for task in (parts, trained, scored, reg):
         task.set_memory_request("1G").set_memory_limit("3G")

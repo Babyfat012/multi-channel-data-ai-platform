@@ -1,4 +1,4 @@
-"""Chọn file đổi giữa hai commit và chạy mutmut trên snapshot Git trong thư mục tạm."""
+"""Select the files changed between two commits and run mutmut on a Git snapshot in a temp directory."""
 
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ TERMINAL_STATUSES = {"killed", "survived", "timeout", "no tests"}
 
 
 def git(repo, *args):
-    """Đọc Git bằng argv riêng, dừng nếu ref hoặc lệnh không hợp lệ."""
+    """Read Git with a separate argv; stop if the ref or command is invalid."""
     return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True).stdout
 
 
 def select_paths(changed, configured):
-    """Lấy giao file Python đổi và phạm vi cấu hình, luôn loại test."""
+    """Intersect the changed Python files with the configured scope, always excluding tests."""
     selected = []
     for name in sorted(set(changed)):
         path = PurePosixPath(name)
@@ -43,7 +43,7 @@ def select_paths(changed, configured):
 
 
 def summarize(output):
-    """Đếm trạng thái thật của mutmut; giữ cả mutant không có test trong mẫu số thô."""
+    """Count mutmut's actual statuses; keep mutants without tests in the raw denominator."""
     statuses = re.findall(r"^\s+\S+__mutmut_\d+: ([^\r\n]+)$", output, re.MULTILINE)
     counts = Counter(statuses)
     total = len(statuses)
@@ -58,13 +58,13 @@ def summarize(output):
         "detected_percent_tested": (
             100 * (counts["killed"] + counts["timeout"]) / tested if tested else None
         ),
-        # Ngưỡng bảo thủ: chỉ killed, tính cả no tests, không gộp timeout vào killed.
+        # Conservative threshold: killed only, counting no tests, without folding timeouts into killed.
         "passed": complete and counts["killed"] / total > 0.8,
     }
 
 
 def snapshot(repo, head, target, config, selected):
-    """Xuất code và dependency nội bộ từ head, tạo cấu hình mutation riêng."""
+    """Export code and internal dependencies from head and create a dedicated mutation config."""
     paths = selected + config["tests_dir"] + config.get("also_copy", [])
     roots = sorted({PurePosixPath(p).parts[0] for p in paths})
     archive = git(repo, "archive", "--format=tar", head, "--", *roots)
@@ -82,8 +82,8 @@ def snapshot(repo, head, target, config, selected):
 
 
 def run_logged(command, cwd, log):
-    """Lưu stdout/stderr đầy đủ và trả exit code để không che lỗi thực thi."""
-    print(f"Chạy {' '.join(command)}; log: {log}", flush=True)
+    """Save full stdout/stderr and return the exit code so execution errors are not hidden."""
+    print(f"Running {' '.join(command)}; log: {log}", flush=True)
     env = os.environ.copy()
     for name in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
         env.pop(name, None)
@@ -94,16 +94,20 @@ def run_logged(command, cwd, log):
 
 
 def main(argv=None):
-    """Ghi manifest phạm vi trước khi chạy; skip khác pass, score thấp trả lỗi."""
+    """Write the scope manifest before running; skip is not pass, a low score returns an error."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
-    parser.add_argument("--output", type=Path, required=True, help="Thư mục mới để lưu bằng chứng")
+    parser.add_argument(
+        "--output", type=Path, required=True, help="New directory to store the evidence"
+    )
     parser.add_argument("--max-children", type=int, default=2)
-    parser.add_argument("--dry-run", action="store_true", help="Chỉ ghi phạm vi, không chạy mutmut")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Only write the scope, do not run mutmut"
+    )
     args = parser.parse_args(argv)
     if args.max_children < 1:
-        parser.error("--max-children phải >= 1")
+        parser.error("--max-children must be >= 1")
     base = (
         git(ROOT, "rev-parse", "--verify", "--end-of-options", args.base + "^{commit}")
         .decode()
@@ -160,7 +164,7 @@ def main(argv=None):
         return 0
     version = importlib.metadata.version("mutmut")
     if version != "3.3.1":
-        raise RuntimeError(f"Cần mutmut 3.3.1, đang có {version}")
+        raise RuntimeError(f"Requires mutmut 3.3.1, found {version}")
     manifest["mutmut_version"] = version
     manifest["status"] = "error"
     try:
@@ -170,7 +174,7 @@ def main(argv=None):
             (args.output / "mutation-config.toml").write_text(config_text)
             executable = shutil.which("mutmut")
             if not executable:
-                raise RuntimeError("Không tìm thấy CLI mutmut trong môi trường chạy")
+                raise RuntimeError("mutmut CLI not found in the runtime environment")
             command = [executable]
             run_code = run_logged(
                 [*command, "run", "--max-children", str(args.max_children)],

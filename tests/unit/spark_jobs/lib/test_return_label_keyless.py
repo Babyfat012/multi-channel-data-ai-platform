@@ -1,4 +1,4 @@
-"""Kiểm nhãn qua API Python thuần khi bỏ trường chỉ phục vụ xác minh coverage."""
+"""Check labels through the pure Python API when the coverage-verification-only field is dropped."""
 
 import json
 
@@ -10,7 +10,7 @@ from spark_jobs.lib.return_label import label_line, source_line
 
 @pytest.fixture(scope="module")
 def source_records(tmp_path_factory):
-    """Đọc duy nhất source từ fixture, không dùng truth/probe làm expected."""
+    """Read only the source from the fixture; truth/probe are never used as expected values."""
     root = tmp_path_factory.mktemp("keyless") / "source"
     manifest = generate_fixture(root)
     return [
@@ -24,7 +24,7 @@ def source_records(tmp_path_factory):
 @pytest.mark.parametrize("status", ["complete", "partial", None])
 @pytest.mark.parametrize("cutoff", ["2026-04-05T00:00:00Z", "2026-06-01T00:00:00Z"])
 def test_sequence_ranges_do_not_change_labels_with_silver_status(source_records, status, cutoff):
-    """So cả LabelResult; map rỗng cũng phải dùng nhánh trạng thái Silver."""
+    """Compare the whole LabelResult; an empty map must also use the Silver status branch."""
     coverage = [row for row in source_records if row.get("coverage_id")]
     assert coverage and any(row.get("source_sequence_ranges") for row in coverage)
     statuses = (
@@ -52,7 +52,7 @@ def test_sequence_ranges_do_not_change_labels_with_silver_status(source_records,
     for identity in identities.values():
         full = source_line(identity, source_records, coverage_status=statuses)
         slim = source_line(identity, trimmed, coverage_status=statuses)
-        # Cả JSON truyền cho worker lẫn dict đều đi qua cùng API return_label.
+        # Both the JSON passed to workers and the dict go through the same return_label API.
         from_json = source_line(
             identity, [json.dumps(row) for row in trimmed], coverage_status=statuses
         )
@@ -67,7 +67,7 @@ def test_sequence_ranges_do_not_change_labels_with_silver_status(source_records,
 
 
 def test_weekly_tail_does_not_grow_line_input_or_borrow_authority(source_records):
-    """Thêm 100 tuần ngoài cửa sổ không đổi input; producer lạ vẫn không có authority."""
+    """Adding 100 weeks outside the window does not change the input; an unknown producer still has no authority."""
     from copy import deepcopy
     from datetime import timedelta
 
@@ -103,7 +103,7 @@ def test_weekly_tail_does_not_grow_line_input_or_borrow_authority(source_records
         )
         statuses[f"future-{week}:1"] = "complete"
     assert source_line(identity, raw, statuses) == before
-    # Bỏ authority của đúng producer, giữ envelope producer khác có cùng feed.
+    # Drop the authority of exactly that producer, keeping another producer's envelope with the same feed.
     foreign = [{**r, "producer": "foreign"} if r.get("coverage_id") else r for r in raw]
     line = source_line(identity, foreign, statuses)
     assert any(r.get("authority_valid") is False for r in line["events"] if r["kind"] == "delivery")
@@ -111,7 +111,7 @@ def test_weekly_tail_does_not_grow_line_input_or_borrow_authority(source_records
 
 
 def test_coverage_revision_moving_outside_window_does_not_revive_old_claim(source_records):
-    """Revision thu hẹp interval phải vô hiệu claim cũ dù interval mới không giao line."""
+    """A revision narrowing the interval must invalidate the old claim even if the new interval does not intersect the line."""
     from copy import deepcopy
 
     records = deepcopy(source_records)

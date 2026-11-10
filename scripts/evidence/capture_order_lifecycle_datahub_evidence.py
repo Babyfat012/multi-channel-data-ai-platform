@@ -1,7 +1,7 @@
-"""Chụp Lineage/Quality thật cho Gold fact và Silver lifecycle của dp_order_lifecycle.
+"""Capture the real Lineage/Quality for the Gold fact and Silver lifecycle of dp_order_lifecycle.
 
-Dùng Chrome headless/CDP và đăng nhập như evidence/capture_order_snapshots_datahub_evidence.py.
---print-urls chỉ dựng URL/URN, không import browser hay mở kết nối.
+Uses headless Chrome/CDP and logs in like evidence/capture_order_snapshots_datahub_evidence.py.
+--print-urls only builds URLs/URNs, without importing the browser or opening connections.
 """
 
 from __future__ import annotations
@@ -24,17 +24,17 @@ DATASETS = {
 
 
 def dataset_urn(name: str) -> str:
-    """URN Iceberg PROD với namespace v2, khớp publisher v2."""
+    """Iceberg PROD URN with the v2 namespace, matching publisher v2."""
     return f"urn:li:dataset:(urn:li:dataPlatform:iceberg,{name},PROD)"
 
 
 def dataset_url(name: str, tab: str) -> str:
-    """Route DataHub với URN đã percent-encode."""
+    """DataHub route with the percent-encoded URN."""
     return f"{BASE_URL}/dataset/{quote(dataset_urn(name), safe='')}/{tab}"
 
 
 def capture_targets() -> list[dict[str, str]]:
-    """Liệt kê bốn ảnh để test offline và người vận hành kiểm trước."""
+    """List the four images so offline tests and operators can check them beforehand."""
     return [
         {
             "urn": dataset_urn(name),
@@ -49,20 +49,20 @@ def capture_targets() -> list[dict[str, str]]:
 
 
 async def wait_for_quality(page, seconds: int = 90) -> str:
-    """Không giả định chỉ một assertion: publisher v2 tạo nhiều check mỗi bảng."""
+    """Do not assume a single assertion: publisher v2 creates several checks per table."""
     body = ""
     for _ in range(seconds * 2):
         body = await page.evaluate("document.body.innerText || ''") or ""
         if re.search(r"\b[1-9]\d*\s+Passing\b", body):
             if re.search(r"\b[1-9]\d*\s+Failing\b", body):
-                raise RuntimeError(f"Quality có assertion lỗi: {body[:1500]}")
+                raise RuntimeError(f"Quality has failing assertions: {body[:1500]}")
             return body
         await asyncio.sleep(0.5)
-    raise TimeoutError(f"Chưa thấy assertion Passing v2: {body[:1500]}")
+    raise TimeoutError(f"No Passing v2 assertion seen yet: {body[:1500]}")
 
 
 async def capture(inspect_only: bool = False) -> None:
-    """Chụp UI thật, chỉ lưu khi dataset và nội dung tab đã xuất hiện."""
+    """Capture the real UI, saving only once the dataset and tab content have appeared."""
 
     from scripts.evidence.capture_order_snapshots_datahub_evidence import (
         collapse_sidebar,
@@ -98,11 +98,11 @@ async def capture(inspect_only: bool = False) -> None:
             )
             path = Path(target["path"])
             path.write_bytes(base64.b64decode(result["data"]))
-            print(f"Đã chụp {path.relative_to(ROOT)}")
+            print(f"Captured {path.relative_to(ROOT)}")
 
 
 def main() -> None:
-    """CLI capture hoặc kiểm route không cần Chrome."""
+    """CLI: capture, or check routes without Chrome."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inspect-only", action="store_true")
     parser.add_argument("--print-urls", action="store_true")

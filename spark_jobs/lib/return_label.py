@@ -1,14 +1,14 @@
-"""Luật nhãn Return v2, không phụ thuộc Spark hay đáp án của simulator.
+"""Return label rules v2, independent of Spark and of the simulator's ground truth.
 
-Đầu vào: định danh một line và `events` là các quan sát nguồn đã chuẩn hoá (`kind`, định
-danh sự kiện, revision, `effective_at`, `source_observed_at`, payload). Mọi đồng hồ là UTC.
+Input: the identity of one line and `events`, the normalized source observations (`kind`, event
+identity, revision, `effective_at`, `source_observed_at`, payload). All clocks are UTC.
 
-- Coverage: cần envelope nguồn đã kiểm, phủ trọn cửa sổ giao (cho phép nhiều envelope liền
-  nhau). Thiếu authority, liên kết hay bằng chứng thì trả `unknown` (fail closed).
-- Huỷ/đảo thông thường giữ nguyên lịch sử; correction tường minh chỉ thay quan sát kể từ
-  lúc nó được quan sát.
-- Đảo mơ hồ, giao từng phần ở các thời điểm khác nhau, revision xung đột: `unknown`.
-- `decision_observed_at` tính mọi quan sát liên quan đã thấy, không đoán tập tối thiểu.
+- Coverage: needs checked source envelopes covering the whole delivery window (several contiguous
+  envelopes allowed). Missing authority, links or evidence returns `unknown` (fail closed).
+- Ordinary cancellations/reversals keep history; an explicit correction only replaces observations from
+  the time it was observed.
+- Ambiguous reversals, partial deliveries at different times, conflicting revisions: `unknown`.
+- `decision_observed_at` counts every related observation seen, without guessing a minimal set.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ REQUIRED_KINDS = ("commitment", "allocation", "delivery", "return", "refund")
 
 @dataclass(frozen=True)
 class LabelResult:
-    """Kết quả nhãn (có thể null) và bằng chứng để kiểm lại lúc nào nó có được."""
+    """Label result (possibly null) and the evidence to re-check when it became available."""
 
     state: str
     label: int | None
@@ -36,12 +36,12 @@ class LabelResult:
     label_version: str = LABEL_VERSION
     decision_observed_at: datetime | None = None
     source_event_refs: list[str] = field(default_factory=list)
-    # Ba ca hậu mãi khi label = 1 (Return ≠ Refund): return_and_refund / refund_only / return_only; else None.
+    # Three post-sale cases when label = 1 (Return ≠ Refund): return_and_refund / refund_only / return_only; else None.
     positive_kind: str | None = None
 
 
 def utc(value: str | datetime) -> datetime:
-    """Chuỗi ISO của nguồn hoặc datetime UTC không múi giờ của Spark -> datetime UTC có múi giờ."""
+    """Source ISO string or Spark's naive UTC datetime -> time-zone-aware UTC datetime."""
     parsed = (
         datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
     )
@@ -53,7 +53,7 @@ def utc(value: str | datetime) -> datetime:
 
 
 def scope_matches(scope: Mapping[str, Any], line: Mapping[str, Any]) -> bool:
-    """Giữ mọi line có thể bị ảnh hưởng; chỉ thu hẹp khi nguồn khai scope tường minh."""
+    """Keep every line that may be affected; narrow only when the source declares an explicit scope."""
     for key in (
         "dataset_version",
         "channel",
@@ -75,7 +75,7 @@ def scope_matches(scope: Mapping[str, Any], line: Mapping[str, Any]) -> bool:
 
 
 def visible_events(line: Mapping[str, Any], cutoff: str | datetime) -> list[dict]:
-    """Lọc theo ảnh chụp quan sát (loại trừ cutoff) và scope, trước khi xử lý revision."""
+    """Filter by observation snapshot (cutoff exclusive) and scope, before handling revisions."""
     observed = [
         dict(r)
         for r in line.get("events", [])
@@ -95,14 +95,14 @@ def visible_events(line: Mapping[str, Any], cutoff: str | datetime) -> list[dict
             record.get("corrects_source_event_id")
             and record["corrects_source_event_id"] in matched_ids
         ):
-            # Scope cũ phải thấy sự kiện chưa khớp đã được giải quyết,
-            # kể cả khi bản thay thế giờ thu hẹp về line khác.
+            # The old scope must see that the unmatched event was resolved,
+            # even when the replacement now narrows to another line.
             result.append({**record, "invalidated": True, "scope": {}, "affected_scope": {}})
     return result
 
 
 def _resolved(records: list[dict]) -> tuple[list[dict], bool]:
-    """Áp correction và revision trạng thái đã quan sát; giữ nguyên sự kiện quy trình trong lịch sử."""
+    """Apply observed corrections and status revisions; keep process events in history."""
     by_id = {}
     conflict = False
     for record in records:
@@ -140,11 +140,11 @@ def _resolved(records: list[dict]) -> tuple[list[dict], bool]:
 
 
 def _first_uncovered_kind(records, first_delivery: datetime, maturity: datetime) -> str | None:
-    """Feed đầu tiên mà chuỗi coverage hợp lệ, nối liền, KHÔNG phủ hết `[first_delivery, maturity]`.
+    """First feed whose valid, contiguous coverage chain does NOT fully cover `[first_delivery, maturity]`.
 
-    Coverage nối tiếp (ADR-0013): bắt đầu từ lần giao đầu, mỗi envelope bắt đầu không muộn hơn
-    chỗ đã phủ thì kéo dài chỗ phủ. Có khe hở là dừng. Coverage end là exclusive nên phải
-    VƯỢT `maturity`.
+    Contiguous coverage (ADR-0013): starting from the first delivery, each envelope starting no later than
+    the covered point extends the coverage. A gap stops it. Coverage end is exclusive, so it must
+    EXCEED `maturity`.
     """
     coverage = [r for r in records if r["kind"] == "coverage"]
     for kind in REQUIRED_KINDS:
@@ -171,11 +171,11 @@ def _first_uncovered_kind(records, first_delivery: datetime, maturity: datetime)
 
 
 def label_line(line: Mapping[str, Any], cutoff: str | datetime) -> LabelResult:
-    """Tính nhãn chính thức của một line tại cutoff (loại trừ), chỉ dùng bằng chứng đã quan sát.
+    """Compute the official label of a line at the cutoff (exclusive), using only observed evidence.
 
-    Chưa giao (kể cả line còn mở) là `ineligible`. Thiếu commitment, định danh, authority,
-    feed, hoặc allocation mơ hồ là `unknown`. Fulfillment chưa rõ được xét trước nhãn dương.
-    Cuối coverage là loại trừ nên phải vượt mọi hạn chót. Nhãn dương và âm chờ cùng bằng chứng.
+    Not delivered (including still-open lines) is `ineligible`. Missing commitment, identity, authority,
+    feed, or an ambiguous allocation is `unknown`. Unknown fulfillment is considered before a positive label.
+    Coverage end is exclusive, so it must exceed every deadline. Positive and negative labels wait for the same evidence.
     """
     cutoff = utc(cutoff)
     visible = visible_events(line, cutoff)
@@ -184,7 +184,7 @@ def label_line(line: Mapping[str, Any], cutoff: str | datetime) -> LabelResult:
     cohort = maturity = None
 
     def result(state, value=None, reason=None, eid=None):
-        """Dựng kết quả bất biến, kèm bằng chứng ảnh chụp dùng chung."""
+        """Build an immutable result, with the shared snapshot evidence."""
         return LabelResult(
             state,
             value,
@@ -279,7 +279,7 @@ def label_line(line: Mapping[str, Any], cutoff: str | datetime) -> LabelResult:
             qualifying.append(r["source_event_id"])
             kinds.add(r["kind"])
     outcome = result("labeled", int(bool(qualifying)), eid=min(qualifying) if qualifying else None)
-    # Ghép Return–Refund theo line + cửa sổ, chưa theo return_id (không phải Channel nào cũng gửi).
+    # Pair Return–Refund by line + window, not yet by return_id (not every Channel sends it).
     positive_kind = (
         {"return", "refund"} == kinds
         and "return_and_refund"
@@ -293,10 +293,10 @@ def label_line(line: Mapping[str, Any], cutoff: str | datetime) -> LabelResult:
 
 
 def sku_return_feature(target: Mapping[str, Any], history: list[Mapping[str, Any]]) -> dict:
-    """Feature theo SKU trên 90 ngày cohort UTC [T.date-90, T.date), tính lại nhãn tại T.
+    """Per-SKU feature over a 90-day UTC cohort [T.date-90, T.date), recomputing labels at T.
 
-    Đầu vào lịch sử là sự kiện nguồn, không phải nhãn cuối hay đáp án simulator. Tính lại tại
-    T để không dính sự kiện đến muộn hay correction trong tương lai.
+    History input is source events, not final labels or simulator ground truth. Recomputing at
+    T avoids late-arriving events or future corrections.
     """
     timestamp = utc(target["created_at"])
     values = []
@@ -327,12 +327,12 @@ FAR_FUTURE = datetime(9999, 1, 1, tzinfo=timezone.utc)
 
 
 def label_segments(line: Mapping[str, Any]) -> list[dict]:
-    """Mọi khoảng cutoff `(start, end]` mà line ở trạng thái `labeled`, kèm kết quả.
+    """Every cutoff range `(start, end]` in which the line is `labeled`, with its result.
 
-    `label_line` chỉ đọc cutoff ở hai chỗ: `observed < cutoff` và `maturity >= cutoff`. Giữa hai
-    thời điểm quan sát liên tiếp x_i < x_{i+1}, tập sự kiện thấy được không đổi, nên kết quả
-    không đổi trên (max(x_i, maturity_i), x_{i+1}]. Tính một lần ở đầu trên mỗi đoạn là đủ:
-    tuyến tính thay vì tính lại cho mọi cặp (line, thời điểm đặt). `end=None` là đoạn cuối mở.
+    `label_line` only reads the cutoff in two places: `observed < cutoff` and `maturity >= cutoff`. Between two
+    consecutive observation times x_i < x_{i+1}, the visible event set does not change, so the result
+    is constant on (max(x_i, maturity_i), x_{i+1}]. Computing once at the upper end of each segment is enough:
+    linear instead of recomputing for every (line, order time) pair. `end=None` is the open last segment.
     """
     times = sorted(
         {
@@ -365,10 +365,10 @@ def label_segments(line: Mapping[str, Any]) -> list[dict]:
 
 
 def feature_window(segment: Mapping[str, Any]) -> tuple[datetime, datetime] | None:
-    """Khoảng thời điểm đặt hàng [a, b) mà một đoạn có nhãn được đếm vào feature PIT.
+    """Order-time range [a, b) in which a labeled segment counts toward the PIT feature.
 
-    Đếm tại t khi t thuộc (start, end] và ngày cohort thuộc [t.date-90, t.date), tức t thuộc
-    [cohort+1 ngày, cohort+91 ngày) lúc 0h UTC. Timestamp chính xác tới micro giây nên
+    Counted at t when t is in (start, end] and the cohort day is in [t.date-90, t.date), i.e. t is in
+    [cohort+1 day, cohort+91 days) at 00:00 UTC. Timestamps are exact to the microsecond, so
     (start, end] == [start+1µs, end+1µs).
     """
     micro = timedelta(microseconds=1)
@@ -390,7 +390,7 @@ FEED_KINDS = {
 
 
 def _coverage_verified(raw: Mapping[str, Any], decoded: list[dict]) -> bool:
-    """Tự kiểm một coverage envelope trên TOÀN BỘ feed đã quan sát (digest, số dòng, sequence, partition)."""
+    """Self-check a coverage envelope against the WHOLE observed feed (digest, row count, sequence, partition)."""
     import hashlib
     import json
 
@@ -449,7 +449,7 @@ def _coverage_verified(raw: Mapping[str, Any], decoded: list[dict]) -> bool:
 def _coverage_record(
     raw: Mapping[str, Any], decoded: list[dict], coverage_status: Mapping[str, str] | None
 ) -> dict:
-    """Coverage envelope → bản ghi `coverage`; trạng thái lấy từ Silver nếu có, không thì tự kiểm."""
+    """Coverage envelope → `coverage` record; status comes from Silver if present, otherwise self-checked."""
     event_id = raw["coverage_id"] + ":" + str(raw["revision"])
     if coverage_status is not None:
         status = coverage_status.get(event_id, "partial")
@@ -473,7 +473,7 @@ def _coverage_record(
 def _operational_record(
     raw: Mapping[str, Any], decoded: list[dict], identity: Mapping[str, Any]
 ) -> dict:
-    """Sự kiện feed nghiệp vụ → bản ghi phẳng (envelope + payload), kèm scope và authority."""
+    """Business feed event → flat record (envelope + payload), with scope and authority."""
     feed = raw.get("feed")
     payload = raw.get("payload") or {}
     scope = {
@@ -482,8 +482,8 @@ def _operational_record(
         if payload.get(key) is not None
     }
     record = {**raw, **payload, "scope": scope, "kind": FEED_KINDS[feed]}
-    # Coverage khai authority cho đúng feed/producer/epoch vận hành;
-    # producer khác không được mượn bằng chứng của feed khác.
+    # Coverage declares authority for exactly the operational feed/producer/epoch;
+    # another producer may not borrow evidence from a different feed.
     record["authority_valid"] = any(
         c.get("coverage_id")
         and c.get("feed") == feed
@@ -499,17 +499,17 @@ def _operational_record(
         if len(money) == 1 and money[0].get("amount_minor") == payload.get("amount_minor"):
             record["allocation_id"] = money[0]["allocation_id"]
         elif money:
-            # Refund hàng nhiều allocation cần bằng chứng hiệu lực cho từng allocation.
+            # A Refund across several allocations needs effective evidence for each allocation.
             record["allocation_id"] = None
     return record
 
 
 def _relevant_coverage(events: list[dict], identity: Mapping[str, Any]) -> list[dict]:
-    """Chỉ giữ coverage giao với `[delivery đầu, deadline cuối]` của line (khi đã có trạng thái Silver).
+    """Keep only coverage that intersects the line's `[first delivery, last deadline]` (once Silver status exists).
 
-    Superset qua TẤT CẢ revision delivery: correction tương lai không mất coverage.
-    Authority đã kiểm trên decoded đầy đủ, cùng feed/producer/epoch, trước khi lọc.
-    Line chưa giao thì không cần coverage nào.
+    A superset across ALL delivery revisions: future corrections do not lose coverage.
+    Authority is checked on the full decoded set, same feed/producer/epoch, before filtering.
+    A line not yet delivered needs no coverage.
     """
     deliveries = [
         utc(r["actual_delivered_at"])
@@ -529,8 +529,8 @@ def _relevant_coverage(events: list[dict], identity: Mapping[str, Any]) -> list[
         or not r.get("interval_end")
         or (utc(r["interval_start"]) <= end and utc(r["interval_end"]) > begin)
     }
-    # Giữ mọi revision của envelope liên quan: revision mới có thể thu hẹp/dời
-    # interval ra ngoài. Nếu bỏ nó, revision cũ sẽ sống lại trong _resolved.
+    # Keep every revision of a related envelope: a newer revision may narrow/move
+    # the interval outside. Dropping it would revive the old revision in _resolved.
     changed = True
     while changed:
         refs = {r["source_event_id"] for r in coverage if r["entity_id"] in keep}
@@ -545,21 +545,21 @@ def source_line(
     raw_records: list[str | dict],
     coverage_status: Mapping[str, str] | None = None,
 ) -> dict:
-    """Đổi envelope nguồn đã quan sát thành đầu vào thuần cho luật nhãn, không dùng sự thật ẩn.
+    """Turn observed source envelopes into pure input for the label rules, without hidden truth.
 
-    Không có `coverage_status` (fixture nhỏ, unit test): kiểm digest/count/sequence/partition
-    của coverage ngay tại đây trên cả feed, nên `raw_records` phải chứa đủ feed. Có
-    `coverage_status` ({source_event_id của coverage: 'complete'|'partial'}, Silver tính một
-    lần ở `coverage_validity`): chỉ cần bản ghi của line này, coverage cắt theo cửa sổ giao.
+    Without `coverage_status` (small fixtures, unit tests): check digest/count/sequence/partition
+    of the coverage right here over the whole feed, so `raw_records` must contain the full feed. With
+    `coverage_status` ({coverage source_event_id: 'complete'|'partial'}, computed once by Silver
+    in `coverage_validity`): only this line's records are needed, coverage is cut to the delivery window.
 
-    Thời điểm tạo là `effective_at` của commitment revision 1; không có thì `created_at` null.
-    Authority lấy từ capability/profile khai trên coverage envelope của feed vận hành.
+    Creation time is the `effective_at` of commitment revision 1; without it `created_at` is null.
+    Authority comes from the capability/profile declared on the operational feed's coverage envelope.
     """
     import json
 
     decoded = [json.loads(r) if isinstance(r, str) else dict(r) for r in raw_records]
     decoded = [r for r in decoded if r.get("dataset_version") == identity["dataset_version"]]
-    # Bản retry y hệt không phải quan sát mới.
+    # An identical retry is not a new observation.
     unique = {json.dumps(r, sort_keys=True, separators=(",", ":")): r for r in decoded}
     decoded = list(unique.values())
     events = []

@@ -100,7 +100,7 @@ def test_quantity_money_cancellation_and_stock_balance_are_observable(tmp_path):
         for line in (root / item["path"]).read_text().splitlines():
 
             def check(v):
-                """Duyệt đệ quy payload, chặn float và trường lộ nhãn."""
+                """Walk the payload recursively, rejecting floats and label-leaking fields."""
                 assert not isinstance(v, float)
                 if isinstance(v, dict):
                     assert not {"label", "return_probability", "defect_propensity"} & v.keys()
@@ -124,7 +124,7 @@ def test_renderer_variants_keep_physical_world_and_unit_outcomes(tmp_path):
     assert a["physical_outcome_sha256"] == b["physical_outcome_sha256"]
 
     def outcomes(root, m):
-        """Lấy cặp (unit, giờ giao thật) đã sắp xếp từ feed giao hàng."""
+        """Get sorted (unit, actual delivery time) pairs from the delivery feed."""
         return sorted(
             (u, r["payload"]["actual_delivered_at"])
             for r in read_rows(root, m, "carrier.delivery_events")
@@ -414,8 +414,8 @@ def test_pinned_profiles_and_recreated_sources_have_stable_fact_identity(tmp_pat
     assert a["dataset_version"] == b["dataset_version"]
     pinned = json.loads((tmp_path / "a" / "identity.json").read_text())
     assert pinned["dataset_version"] == a["dataset_version"]
-    # Fixture đóng băng contract baseline; docs hiện tại có coverage tuần chỉ cho scale.
-    # So hash lịch sử, không đổi identity/byte fixture khi tài liệu contract tiến hóa.
+    # The fixture freezes the baseline contract; the current docs have weekly coverage only for scale.
+    # Compare the historical hash, so the fixture identity/bytes do not change as the contract doc evolves.
     assert (
         pinned["identity"]["contract_sha256"]
         == "84fa3bb73775e418e8e7ea5fc69be20f4f9324e99abc7f43a9aee0af7faacabf"

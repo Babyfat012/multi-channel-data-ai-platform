@@ -1,7 +1,7 @@
-"""Chuẩn hóa ba nguồn Batch JSONL thành Silver ở độ hạt Order Line.
+"""Normalize three Batch JSONL sources into Silver at Order Line grain.
 
-Mỗi Channel giữ một bảng riêng. Lấy snapshot mới nhất theo cặp ID gốc của
-Order và Order Line; không dùng Export Date làm khóa vì export chồng lấn.
+Each Channel keeps its own table. Takes the latest snapshot per pair of original IDs of
+Order and Order Line; Export Date is not used as a key because exports overlap.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def epoch_seconds(col):
 
 
 def normalize(bronze: DataFrame, channel: str) -> DataFrame:
-    """Parse cột cần thiết từ response gốc, rồi nổ mảng Order Line."""
+    """Parse the needed columns from the original response, then explode the Order Line array."""
     if channel == "tiktok_shop":
         root = "$.data.orders[0]"
         item_path = root + ".line_items"
@@ -193,7 +193,7 @@ def normalize(bronze: DataFrame, channel: str) -> DataFrame:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse Channel, table, and run metadata for the Silver file job."""
-    parser = argparse.ArgumentParser(description="Silver Order Line cho ba Channel Batch")
+    parser = argparse.ArgumentParser(description="Silver Order Line for the three Batch Channels")
     parser.add_argument("--channel", choices=CHANNELS, required=True)
     parser.add_argument("--source-table", required=True)
     parser.add_argument("--table", required=True)
@@ -201,7 +201,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     for value in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
     return args
 
 
@@ -233,11 +233,11 @@ def main(argv: list[str] | None = None) -> int:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.silver")
         unique.writeTo(target).partitionedBy(F.days("created_at")).createOrReplace()
         after = spark.table(target).count()
-        print(f"nguồn Bronze = {source}")
-        print(f"đích Silver  = {target}")
-        print(f"Order Line trước dedup = {before:,}")
-        print(f"Order Line sau dedup   = {after:,}")
-        print(f"bản trùng đã bỏ        = {before - after:,}")
+        print(f"source Bronze           = {source}")
+        print(f"target Silver           = {target}")
+        print(f"Order Line before dedup = {before:,}")
+        print(f"Order Line after dedup  = {after:,}")
+        print(f"duplicates dropped      = {before - after:,}")
         return 0
     finally:
         spark.stop()

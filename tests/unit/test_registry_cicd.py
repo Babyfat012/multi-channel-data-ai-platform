@@ -1,4 +1,4 @@
-"""Kiểm hợp đồng phát hành image và cổng CI, hoàn toàn offline."""
+"""Check the image release contract and CI gates, fully offline."""
 
 import os
 import re
@@ -12,12 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def read(path):
-    """Đọc cấu hình trong repo."""
+    """Read a config file from the repo."""
     return (ROOT / path).read_text()
 
 
 def test_no_direct_kind_image_loading():
-    """Các script/CI phải phát hành image, không nạp trực tiếp vào node."""
+    """Scripts/CI must release images, not load them directly into nodes."""
     for folder in ("scripts", "ci"):
         for path in (ROOT / folder).rglob("*"):
             if path.suffix not in (".sh", ".Jenkinsfile"):
@@ -28,7 +28,7 @@ def test_no_direct_kind_image_loading():
 
 
 def test_build_pipelines_publish_before_deploy():
-    """Mọi pipeline build phải có Push trước deploy đầu tiên."""
+    """Every build pipeline must Push before the first deploy."""
     for path in (ROOT / "ci/jenkins").glob("*.Jenkinsfile"):
         text = path.read_text()
         stages = re.findall(r"stage\('([^']+)'\)", text)
@@ -45,7 +45,7 @@ def test_build_pipelines_publish_before_deploy():
 
 
 def test_registry_and_pull_configuration():
-    """Registry chỉ bind loopback, có volume, node pull qua địa chỉ chuẩn."""
+    """The registry binds loopback only, has a volume, and nodes pull via the canonical address."""
     compose = yaml.safe_load(read("docker-compose.yml"))
     registry = compose["services"]["registry"]
     assert registry["image"] == "registry:2.8.3"
@@ -81,12 +81,12 @@ def test_registry_and_pull_configuration():
     ],
 )
 def test_shell_syntax(script):
-    """Parse bash, không chạy hạ tầng hay mạng."""
+    """Parse bash without running infrastructure or network."""
     subprocess.run(["bash", "-n", str(ROOT / script)], check=True)
 
 
 def test_letsencrypt_disabled_without_domain():
-    """Nhánh mặc định vẫn chạy khi không có công cụ hạ tầng trong PATH."""
+    """The default branch still runs with no infrastructure tools in PATH."""
     env = {**os.environ, "DUCKDNS_DOMAIN": "", "PATH": "/nonexistent"}
     result = subprocess.run(
         ["/bin/bash", str(ROOT / "scripts/setup/setup_letsencrypt.sh")],
@@ -95,12 +95,12 @@ def test_letsencrypt_disabled_without_domain():
         capture_output=True,
     )
     assert result.returncode == 0
-    assert "Giữ CA nội bộ" in result.stdout
+    assert "Keeping the internal CA." in result.stdout
     assert not result.stderr
 
 
 def test_push_retags_to_immutable_release(tmp_path):
-    """Docker giả ghi lại lệnh: inspect → tag release SHA → push cùng địa chỉ."""
+    """Fake Docker records commands: inspect → tag release SHA → push to the same address."""
     docker = tmp_path / "docker"
     docker.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n')
     docker.chmod(0o755)
@@ -134,7 +134,7 @@ def test_push_retags_to_immutable_release(tmp_path):
 
 
 def test_compose_release_matches_published_tag():
-    """Các service dùng chung image nhận cùng địa chỉ đã push, kể cả taskmanager."""
+    """Services sharing an image get the same pushed address, taskmanager included."""
     result = subprocess.run(
         [
             "bash",
@@ -153,7 +153,7 @@ def test_compose_release_matches_published_tag():
 
 
 def test_eval_gate_propagates_failure_and_archives_summary_contract():
-    """pipefail giữ exit 1 của harness qua tee; ngưỡng CI được ghi tường minh."""
+    """pipefail keeps the harness exit 1 through tee; the CI threshold is stated explicitly."""
     text = read("scripts/run/eval_agent_ci.sh")
     assert "set -euo pipefail" in text
     assert "--min-accuracy 0.95" in text
@@ -162,7 +162,7 @@ def test_eval_gate_propagates_failure_and_archives_summary_contract():
 
 
 def test_registry_setup_repeated_on_existing_nodes(tmp_path):
-    """Hai lượt setup ghi cùng hosts/ConfigMap trên cả hai node, không tạo lại cluster."""
+    """Two setup passes write the same hosts/ConfigMap on both nodes without recreating the cluster."""
     import json
     import sys
 
@@ -212,7 +212,7 @@ def test_registry_setup_repeated_on_existing_nodes(tmp_path):
 
 
 def test_push_logs_into_ecr_only_for_ecr_registries(tmp_path):
-    """Registry ECR ⇒ aws ecr get-login-password đúng region rồi docker login; registry local ⇒ không gọi aws."""
+    """ECR registry ⇒ aws ecr get-login-password for the right region, then docker login; local registry ⇒ no aws calls."""
     for tool in ("docker", "aws"):
         fake = tmp_path / tool
         fake.write_text(
@@ -234,7 +234,7 @@ def test_push_logs_into_ecr_only_for_ecr_registries(tmp_path):
         stdin=subprocess.DEVNULL,
     )
     calls = log.read_text().splitlines()
-    # `aws … | docker login` chạy song song trong pipe ⇒ không giả định thứ tự giữa hai dòng đầu.
+    # `aws … | docker login` run concurrently in a pipe ⇒ assume no order between the first two lines.
     assert set(calls[:2]) == {
         "aws ecr get-login-password --region ap-southeast-2",
         "docker login --username AWS --password-stdin 665116832975.dkr.ecr.ap-southeast-2.amazonaws.com",
@@ -255,7 +255,7 @@ def test_push_logs_into_ecr_only_for_ecr_registries(tmp_path):
 
 
 def test_jenkins_on_ec2_is_loopback_with_eks_kubeconfig_and_bundle_source():
-    """Jenkins AWS: chỉ loopback, job lấy git bundle, kubeconfig EKS khi s3, kubectl khớp EKS 1.37, có aws CLI."""
+    """Jenkins AWS: loopback only, jobs fetch a git bundle, EKS kubeconfig on s3, kubectl matches EKS 1.37, aws CLI present."""
     import yaml as _yaml
 
     from tests.unit.infra.aws.test_aws_provision import ComposeLoader
@@ -282,7 +282,7 @@ def test_jenkins_on_ec2_is_loopback_with_eks_kubeconfig_and_bundle_source():
 
 
 def _compose_args(tmp_path, env):
-    """Chạy ci_compose.sh với docker giả, trả các tham số nó truyền cho docker."""
+    """Run ci_compose.sh with fake docker and return the arguments it passes to docker."""
     fake = tmp_path / "docker"
     fake.write_text('#!/bin/bash\nprintf "%s\\n" "$*" > "$DOCKER_LOG"\n')
     fake.chmod(0o755)
@@ -302,7 +302,7 @@ def _compose_args(tmp_path, env):
 
 
 def test_ci_compose_adds_aws_overlays_only_on_s3(tmp_path):
-    """Jenkins trên EC2 phải mang overlay AWS (không thì tạo lại Airflow/Flink bằng cấu hình local)."""
+    """Jenkins on EC2 must carry the AWS overlay (otherwise it recreates Airflow/Flink with the local config)."""
     assert _compose_args(tmp_path, {}) == ["compose", "-f", "docker-compose.yml", "ps"]
     assert _compose_args(tmp_path, {"DATA_STORAGE": "s3"}) == [
         "compose",
@@ -329,7 +329,7 @@ def test_ci_compose_adds_aws_overlays_only_on_s3(tmp_path):
 
 
 def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
-    """Nhánh s3: .env thật của EC2, không key MinIO, không setup_airflow, 2 job PyFlink; không còn compose trơn."""
+    """s3 branch: EC2's real .env, no MinIO keys, no setup_airflow, 2 PyFlink jobs; no more bare compose."""
     rag = (ROOT / "ci/jenkins/rag-pipeline.Jenkinsfile").read_text()
     stream = (ROOT / "ci/jenkins/stream-features.Jenkinsfile").read_text()
     for text in (rag, stream):
@@ -338,16 +338,16 @@ def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
         assert "-f docker-compose.yml -f out/ci-compose-images.yaml" not in text
         assert "always { sh 'rm -f .env' }" in text
     assert 'if [ "$DATA_STORAGE" != s3 ]; then bash scripts/setup/setup_airflow.sh' in rag
-    # AWS: hai job PyFlink trên cluster Flink ML, verify đúng 2 job RUNNING.
+    # AWS: two PyFlink jobs on the Flink ML cluster, verify exactly 2 jobs RUNNING.
     assert 'COMPOSE="$COMPOSE" scripts/run/run_stream_feature_jobs.sh' in stream
     assert 'want="ml-sku-return-24h-online ml-sku-return-24h-offline"' in stream
-    # Chỉ nhánh local lấy key MinIO từ Vault; AWS đi IAM role.
+    # Only the local branch fetches MinIO keys from Vault; AWS goes through the IAM role.
     local_branch = stream.split("else\n", 1)[1].split("fi", 1)[0]
     assert 'set +x; eval "$(scripts/setup/vault_env.sh minio)"' in local_branch
 
 
 def test_agent_pipelines_pass_eval_skus_for_pipeline_a():
-    """SKU AWS (APP-…) khác local ⇒ hai pipeline agent nhận EVAL_SKUS, script dùng bộ local khi trống."""
+    """AWS SKUs (APP-…) differ from local ⇒ both agent pipelines get EVAL_SKUS; the script uses the local set when empty."""
     for name in ("feature-api-agents", "coordinator"):
         text = (ROOT / f"ci/jenkins/{name}.Jenkinsfile").read_text()
         assert "string(name: 'EVAL_SKUS'" in text and 'EVAL_SKUS = "${params.EVAL_SKUS}"' in text

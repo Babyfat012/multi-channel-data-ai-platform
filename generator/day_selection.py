@@ -1,8 +1,8 @@
-"""Chọn ngày export để nạp; logic thuần, không chạm PostgreSQL hay fsspec.
+"""Choose export days to load; pure logic, does not touch PostgreSQL or fsspec.
 
-`pick_sample_days` trùng với `spark_jobs/lib/day_selection.py` có chủ ý: container Spark
-không cài package `generator`, container generator không mount `spark_jobs/`. Sửa một bên
-thì sửa cả bên kia; hai bên đều có test.
+`pick_sample_days` duplicates `spark_jobs/lib/day_selection.py` on purpose: the Spark container
+does not install the `generator` package and the generator container does not mount `spark_jobs/`. Change
+one side, change the other too; both sides have tests.
 """
 
 from __future__ import annotations
@@ -10,13 +10,13 @@ from __future__ import annotations
 DAY_MARKER = "export_date="
 
 
-# Giới hạn: bản sao của spark_jobs/lib/day_selection.pick_sample_days (hai image không thấy nhau).
-# Gộp khi generator và job Spark dùng chung một package.
+# Limitation: copy of spark_jobs/lib/day_selection.pick_sample_days (the two images cannot see each other).
+# Merge once the generator and the Spark jobs share one package.
 def pick_sample_days(all_days: list[str], n: int) -> list[str]:
-    """Chọn `n` ngày rải đều, luôn gồm ngày đầu và ngày cuối; `n <= 0` hoặc quá dài là lấy hết.
+    """Pick `n` evenly spread days, always including the first and last; `n <= 0` or too large takes all.
 
-    Rải đều vì dữ liệu lớn dần theo thời gian: lấy các ngày liền nhau ở cuối thì mẫu không
-    đại diện cho cả dải.
+    Spread evenly because data grows over time: taking consecutive days at the end gives a sample that
+    does not represent the whole range.
     """
     if n <= 0 or n >= len(all_days):
         return all_days
@@ -27,17 +27,17 @@ def pick_sample_days(all_days: list[str], n: int) -> list[str]:
 
 
 def day_of(path: str) -> str | None:
-    """Giá trị `export_date=` trong đường dẫn, hoặc None."""
+    """The `export_date=` value in the path, or None."""
     if DAY_MARKER not in path:
         return None
     return path.split(DAY_MARKER, 1)[1].split("/", 1)[0]
 
 
 def filter_to_sample_days(paths: list[str], n: int) -> list[str]:
-    """Giữ các file thuộc `n` ngày export rải đều; `n <= 0` là giữ hết.
+    """Keep files belonging to `n` evenly spread export days; `n <= 0` keeps all.
 
-    Lọc theo đường dẫn nên không phải mở file. Đường dẫn không có `export_date=` (vd
-    `seller.skus`) luôn được giữ.
+    Filters by path, so files are not opened. Paths without `export_date=` (e.g.
+    `seller.skus`) are always kept.
     """
     if n <= 0:
         return paths

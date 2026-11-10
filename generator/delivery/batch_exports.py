@@ -1,23 +1,23 @@
-"""Lớp giao hàng của Batch: Order nào nằm ở ngày export nào, và chèn duplicate.
+"""Batch delivery layer: which Order lands on which export day, and duplicate injection.
 
-Quy tắc cơ bản (chưa có lỗi): mỗi Order xuất hiện **đúng một lần**, ở ngày
-export chứa lần cập nhật cuối cùng của nó trước `cutoff`, với trạng thái lúc đó.
-Nhờ vậy khi chưa chèn lỗi, tỷ lệ trùng theo khóa bằng 0.
+Base rule (no faults yet): each Order appears **exactly once**, on the export
+day holding its last update before `cutoff`, with the status at that time.
+So with no faults injected, the duplicate rate by key is 0.
 
-Chèn duplicate (mô phỏng export chồng lấn: mỗi lần export lấy lại vài ngày gần
-nhất để bắt cập nhật). Với xác suất `p`, Order có thêm **một** bản nữa:
+Duplicate injection (simulates overlapping exports: each export re-pulls the last few
+days to catch updates). With probability `p`, an Order gets **one** extra copy:
 
-- **Bản y hệt**: nằm ở ngày export muộn hơn 1 đến `overlap_days` ngày. Trạng thái
-  không đổi vì lần cập nhật cuối đã xảy ra rồi, nên nội dung giống hệt.
-- **Bản cũ hơn**: nằm ở ngày export sớm hơn 1 đến `overlap_days` ngày, chụp lúc
-  Order còn ở trạng thái trước. Cùng khóa với bản chính nhưng thời điểm cập nhật
-  cũ hơn. Dedup đúng phải giữ bản mới nhất theo thời điểm cập nhật, chứ không chỉ
-  bỏ dòng giống hệt.
+- **Identical copy**: on an export day 1 to `overlap_days` days later. The status
+  does not change because the last update already happened, so the content is identical.
+- **Older version**: on an export day 1 to `overlap_days` days earlier, captured while
+  the Order was still in its previous status. Same key as the primary but an older
+  update time. Correct dedup must keep the latest version by update time, not just
+  drop identical rows.
 
-Chọn `p` thế nào để tỷ lệ trùng đo được bằng `r` (cấu hình `duplicate_rate`):
-tỷ lệ trùng đo bằng `1 - số khóa khác nhau / số dòng`. Nếu N Order có thêm pN bản,
-tỷ lệ là pN / (N + pN) = p / (1 + p). Muốn bằng r thì p = r / (1 - r).
-Ví dụ r = 2% thì p ≈ 2,04%.
+How to choose `p` so the measured duplicate rate equals `r` (config `duplicate_rate`):
+the duplicate rate is measured as `1 - distinct keys / rows`. If N Orders get pN extra copies,
+the rate is pN / (N + pN) = p / (1 + p). For it to equal r, p = r / (1 - r).
+E.g. r = 2% gives p ≈ 2.04%.
 """
 
 from __future__ import annotations
@@ -37,12 +37,12 @@ OLDER_VERSION = "older_version"
 
 @dataclass(frozen=True)
 class ExportPlacement:
-    """Một lần Order xuất hiện trong dữ liệu Batch.
+    """One appearance of an Order in the Batch data.
 
-    Thuộc tính:
-        export_day: ngày mô phỏng của lần export, quyết định partition `export_date`.
-        as_of: thời điểm chụp trạng thái Order (cuối ngày export, không quá `cutoff`).
-        kind: `primary`, `identical_copy` hoặc `older_version`.
+    Attributes:
+        export_day: simulated day of the export, decides the `export_date` partition.
+        as_of: time the Order status is captured (end of the export day, no later than `cutoff`).
+        kind: `primary`, `identical_copy` or `older_version`.
     """
 
     export_day: int
@@ -51,22 +51,22 @@ class ExportPlacement:
 
 
 def day_of(config: GeneratorConfig, t: datetime) -> int:
-    """Đổi một thời điểm UTC thành số thứ tự ngày mô phỏng (ngày 1 là `start_date`)."""
+    """Convert a UTC time to the simulated day number (day 1 is `start_date`)."""
     return (t.date() - config.scale.start_date).days + 1
 
 
 def end_of_day(config: GeneratorConfig, day: int) -> datetime:
-    """Thời điểm cuối ngày `day` (23:59:59 UTC), là lúc chạy export của ngày đó."""
+    """End of day `day` (23:59:59 UTC), when that day's export runs."""
     return config.day_start(day + 1) - timedelta(seconds=1)
 
 
 def plan_exports(
     order: Order, config: GeneratorConfig, rng: np.random.Generator
 ) -> list[ExportPlacement]:
-    """Các lần Order xuất hiện trong Batch: bản chính và có thể một bản trùng.
+    """An Order's appearances in the Batch: the primary and possibly one duplicate.
 
-    Ảnh chụp lấy ở `cutoff - 1s`; Order tạo sau mốc đó chưa tồn tại nên trả rỗng. Phải trừ
-    1s: Order tạo trong giây cuối sẽ làm `status_at` ném lỗi, và ở quy mô lớn gần như chắc gặp.
+    The snapshot is taken at `cutoff - 1s`; Orders created after that do not exist yet, so return empty. The
+    1s is required: an Order created in the last second makes `status_at` raise, which is near certain at scale.
     """
     as_of = config.cutoff - timedelta(seconds=1)
     if order.created_at > as_of:
@@ -90,10 +90,10 @@ def _pick_duplicate(
     config: GeneratorConfig,
     rng: np.random.Generator,
 ) -> ExportPlacement | None:
-    """Chọn chỗ đặt bản trùng; kiểu bốc trước không hợp lệ thì thử kiểu còn lại.
+    """Choose where to place the duplicate; if the kind drawn first is invalid, try the other.
 
-    Bản muộn không vượt ngày lịch sử cuối, bản sớm không trước ngày tạo Order. Không đặt được
-    thì bỏ qua; manifest ghi số bản trùng thật.
+    A later copy cannot pass the last history day, an earlier copy cannot precede the Order's creation day. If
+    neither fits, skip it; the manifest records the actual number of duplicates.
     """
     shift = int(rng.integers(1, config.offline_problems.overlap_days + 1))
     first_day = day_of(config, order.created_at)

@@ -1,4 +1,4 @@
-"""Test renderer Amazon: đúng dạng gốc, đúng schema theo ngày export."""
+"""Tests for the Amazon renderer: correct native shape, correct schema per export day."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from generator.delivery.batch_exports import end_of_day
 
 
 def _orders_of(config, storefront_prefix, days=range(1, 4)):
-    """Các Order của những Storefront có mã bắt đầu bằng `storefront_prefix`."""
+    """Orders of Storefronts whose id starts with `storefront_prefix`."""
     sim = Simulator(config)
     return [
         o
@@ -20,7 +20,7 @@ def _orders_of(config, storefront_prefix, days=range(1, 4)):
 
 
 def test_amazon_schema_switches_on_configured_day(tiny_config):
-    """Chứng minh đúng ngày chuyển schema: cùng một đơn ra v0 trước ngày đó và 2026 từ ngày đó, với đổi tên, đổi cấu trúc và khoá chỉ có ở một bản."""
+    """Prove the exact schema switch day: the same order renders as v0 before it and 2026 from it on, with renames, structure changes and keys present in only one version."""
     renderer = AmazonOrdersRenderer(tiny_config)
     order = _orders_of(tiny_config, "amazon")[0]
     as_of = end_of_day(tiny_config, 8)
@@ -29,18 +29,18 @@ def test_amazon_schema_switches_on_configured_day(tiny_config):
     old = renderer.render(order, as_of, export_day=switch - 1).record
     new = renderer.render(order, as_of, export_day=switch).record
 
-    # Đổi tên: cùng một đơn, khóa khác tên.
+    # Rename: same order, differently named key.
     assert old["AmazonOrderId"] == new["orderId"]
-    # Không có field mới: cột chỉ có ở một dạng thì null ở dạng kia, vì tên khoá đã đổi
-    # (`proceeds` là `OrderTotal` đổi tên + lồng một cấp, không phải field mới).
+    # No new fields: a column present in only one shape is null in the other because the key was renamed
+    # (`proceeds` is `OrderTotal` renamed + nested one level, not a new field).
     assert "proceeds" in new and "proceeds" not in old
     assert "IsPrime" in old and "IsPrime" not in new
-    # Đổi cấu trúc và cách viết giá trị.
+    # Structure and value spelling change.
     assert new["fulfillment"]["status"] == old["OrderStatus"].upper()
 
 
 def test_amazon_ids_are_stable_and_well_formed(tiny_config):
-    """Chứng minh mã đơn Amazon ổn định qua hai lần dựng renderer và đúng định dạng 3-7-7."""
+    """Prove Amazon order ids are stable across two renderer builds and match the 3-7-7 format."""
     renderer = AmazonOrdersRenderer(tiny_config)
     order = _orders_of(tiny_config, "amazon")[0]
     amazon_id = renderer.amazon_order_id(order)
@@ -49,7 +49,7 @@ def test_amazon_ids_are_stable_and_well_formed(tiny_config):
 
 
 def test_amazon_never_shows_delivered_and_only_mfn_has_delivery_window(tiny_config):
-    """Chứng minh Amazon không bao giờ hiện trạng thái 'đã giao', và chỉ đơn Seller tự giao (MFN) có cửa sổ giao dự kiến."""
+    """Prove Amazon never shows a 'delivered' status, and only Seller-fulfilled (MFN) orders have an estimated delivery window."""
     renderer = AmazonOrdersRenderer(tiny_config)
     for order in _orders_of(tiny_config, "amazon"):
         record = renderer.render(order, end_of_day(tiny_config, 12), export_day=1).record

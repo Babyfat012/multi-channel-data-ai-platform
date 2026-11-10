@@ -1,4 +1,4 @@
--- Nguồn v2 bounded; render placeholder bằng scripts/run/render_order_lifecycle_stream.py trước khi chạy.
+-- Bounded v2 source; render placeholders with scripts/run/render_order_lifecycle_stream.py before running.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'order-lifecycle-stream-@@JOB@@-@@EPOCH@@';
@@ -8,7 +8,7 @@ SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
 SET 'execution.checkpointing.dir' = 'file:///opt/flink/checkpoints';
 SET 'execution.checkpointing.externalized-checkpoint-retention' = 'RETAIN_ON_CANCELLATION';
 SET 'pipeline.auto-watermark-interval' = '@@WATERMARK_MS@@ms';
--- Batch phải đặt TRƯỚC khi tạo bảng nguồn: đổi mode sau CREATE làm rowtime lệch kiểu (Calcite AssertionError).
+-- Batch must be set BEFORE creating the source tables: switching mode after CREATE gives a rowtime type mismatch (Calcite AssertionError).
 SET 'execution.runtime-mode' = 'batch';
 CREATE TABLE lifecycle_source (
   feed STRING, record_sha256 STRING, entity_id STRING, entity_revision BIGINT,

@@ -1,4 +1,4 @@
-"""Sinh insert/update/delete xác định theo seed và lưu oracle sau mỗi commit."""
+"""Generate seed-deterministic insert/update/delete and save the oracle after each commit."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from spark_jobs.lib.order_lifecycle_cdc import payload_sha256, write_json
 
 
 def mutation_plan(sample, seed):
-    """Sao chép đơn mẫu thành khóa riêng; payload c/u phải qua hợp đồng có sẵn."""
+    """Copy a sample Order under its own key; c/u payloads must pass the existing contract."""
     key = "CDC-V2-" + hashlib.sha256(str(seed).encode()).hexdigest()[:16]
     payload = json.loads(sample["raw_payload"])
     payload["purchaseOrderId"] = key
@@ -48,7 +48,7 @@ def mutation_plan(sample, seed):
                 schema,
             )
             if errors:
-                raise ValueError(f"Payload không đúng contract: {errors}")
+                raise ValueError(f"Payload does not match the contract: {errors}")
         plan.append(
             {
                 "op": op,
@@ -63,7 +63,7 @@ def mutation_plan(sample, seed):
 
 
 def mutate(settings, output, seed):
-    """Chỉ sửa khóa probe; oracle chưa complete bị validator từ chối."""
+    """Only modify probe keys; an incomplete oracle is rejected by the validator."""
     import urllib.request
 
     import psycopg
@@ -81,9 +81,9 @@ def mutate(settings, output, seed):
         or not status["tasks"]
         or any(t["state"] != "RUNNING" for t in status["tasks"])
     ):
-        raise RuntimeError("Connector/task chưa RUNNING")
+        raise RuntimeError("Connector/task not RUNNING yet")
     if output.exists():
-        raise FileExistsError(f"Không ghi đè oracle {output}; dùng output mới")
+        raise FileExistsError(f"Not overwriting oracle {output}; use a new output")
     with psycopg.connect(
         host=settings.get("POSTGRES_HOST", "127.0.0.1"),
         port=int(settings.get("POSTGRES_PORT", "5432")),
@@ -94,13 +94,13 @@ def mutate(settings, output, seed):
         if not conn.execute(
             "SELECT 1 FROM pg_replication_slots WHERE slot_name=%s AND active", (SLOT,)
         ).fetchone():
-            raise RuntimeError("Slot v2 chưa active")
+            raise RuntimeError("v2 slot not active yet")
         row = conn.execute(
             "SELECT dataset_version,purchase_order_id,fetched_at,raw_payload "
             "FROM walmart_lifecycle.orders ORDER BY dataset_version,purchase_order_id LIMIT 1"
         ).fetchone()
         if row is None:
-            raise ValueError("Cần nạp fixture v2 bằng loader trước")
+            raise ValueError("Load the v2 fixture with the loader first")
         sample = dict(
             zip(("dataset_version", "purchase_order_id", "fetched_at", "raw_payload"), row)
         )
@@ -111,7 +111,7 @@ def mutate(settings, output, seed):
             "SELECT 1 FROM walmart_lifecycle.orders WHERE dataset_version=%s AND purchase_order_id=%s",
             key,
         ).fetchone():
-            raise ValueError("Khóa probe đã tồn tại")
+            raise ValueError("Probe key already exists")
         conn.commit()
         oracle = {"format_version": 1, "seed": seed, "complete": False, "events": []}
         write_json(output, oracle)
@@ -133,7 +133,7 @@ def mutate(settings, output, seed):
                     key,
                 )
             if cursor.rowcount != 1:
-                raise RuntimeError("Mutation phải chạm đúng một dòng")
+                raise RuntimeError("Mutation must touch exactly one row")
             conn.commit()
             oracle["events"].append(
                 {**event, "committed_at": datetime.now(timezone.utc).isoformat()}
@@ -144,7 +144,7 @@ def mutate(settings, output, seed):
 
 
 def main():
-    """Chạy chuỗi mutation sau khi connector sẵn sàng."""
+    """Run the mutation sequence once the connector is ready."""
     from scripts.setup.setup_order_snapshots_debezium import load_settings
 
     parser = argparse.ArgumentParser(description=__doc__)

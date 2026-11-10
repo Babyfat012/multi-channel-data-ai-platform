@@ -1,11 +1,11 @@
-"""Nạp đơn Walmart bootstrap của nguồn v2 vào PostgreSQL `walmart_lifecycle.orders` (mô phỏng DB phòng ban khác).
+"""Load the v2 source's bootstrap Walmart Orders into PostgreSQL `walmart_lifecycle.orders` (simulating another department's DB).
 
-Sau bước này job `bronze/ingest_order_lifecycle.py --walmart-jdbc walmart_lifecycle.orders` đọc Walmart qua JDBC,
-đúng boundary manifest khai. Bảng v1 `walmart.orders` không bị đụng.
+After this step the job `bronze/ingest_order_lifecycle.py --walmart-jdbc walmart_lifecycle.orders` reads Walmart via JDBC,
+exactly at the boundary the manifest declares. The v1 table `walmart.orders` is not touched.
 
-`raw_payload` lưu TEXT chứ không JSONB: JSONB sắp lại khóa và bỏ khoảng trắng, tức DB "sửa"
-chuỗi gốc trước khi Bronze chép. Nạp lại cùng dataset_version thì xóa rồi chèn trong MỘT
-transaction, nên chạy lại không nhân đôi dòng.
+`raw_payload` is stored as TEXT, not JSONB: JSONB reorders keys and strips whitespace, i.e. the DB "fixes"
+the original string before Bronze copies it. Reloading the same dataset_version deletes then inserts in ONE
+transaction, so reruns do not duplicate rows.
 
     .venv/bin/python scripts/setup/load_order_lifecycle_walmart.py --root out/<fixture>/default
 """
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS walmart_lifecycle.orders (
 
 
 class Row(NamedTuple):
-    """Một đơn Walmart sẵn sàng chèn."""
+    """One Walmart Order ready to insert."""
 
     dataset_version: str
     purchase_order_id: str
@@ -40,11 +40,13 @@ class Row(NamedTuple):
 
 
 def bootstrap_rows(root: Path) -> list[Row]:
-    """Đọc file bootstrap Walmart theo manifest; payload giữ đúng chuỗi JSON canonical của file."""
+    """Read the Walmart bootstrap file per the manifest; the payload keeps the file's exact canonical JSON string."""
     manifest = json.loads((root / "manifest.json").read_text())
     files = [f for f in manifest["files"] if f["feed"] == "walmart.orders"]
     if len(files) != 1:
-        raise ValueError(f"Cần đúng một file walmart.orders trong manifest, có {len(files)}")
+        raise ValueError(
+            f"Expected exactly one walmart.orders file in the manifest, got {len(files)}"
+        )
     rows = []
     for line in (root / files[0]["path"]).read_text(encoding="utf-8").splitlines():
         record = json.loads(line)
@@ -64,13 +66,13 @@ def bootstrap_rows(root: Path) -> list[Row]:
             )
         )
     if len(rows) != files[0]["rows"]:
-        raise ValueError("Số dòng file Walmart khác manifest")
+        raise ValueError("Walmart file row count differs from the manifest")
     return rows
 
 
 def load(rows: list[Row], settings: dict[str, str]) -> int:
-    """Thay toàn bộ dòng của dataset_version này trong một transaction; trả số dòng đã chèn."""
-    import psycopg  # nhập muộn để test phần đọc file không cần thư viện PostgreSQL
+    """Replace all rows of this dataset_version in one transaction; return the number of rows inserted."""
+    import psycopg  # late import so the file-reading tests do not need the PostgreSQL library
 
     with (
         psycopg.connect(
@@ -100,7 +102,7 @@ def load(rows: list[Row], settings: dict[str, str]) -> int:
 
 
 def main() -> int:
-    """Nạp bootstrap Walmart của một biến thể fixture."""
+    """Load the Walmart bootstrap for one fixture variant."""
     from scripts.setup.setup_order_snapshots_debezium import load_settings
 
     parser = argparse.ArgumentParser(description=__doc__)

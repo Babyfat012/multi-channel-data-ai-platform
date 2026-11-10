@@ -1,4 +1,4 @@
-"""Đo EXPLAIN JSON cùng dữ liệu, chỉ PK rồi có index; rollback mọi DDL benchmark."""
+"""Measure EXPLAIN JSON on the same data, PK only and then with indexes; roll back all benchmark DDL."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from spark_jobs.lib.order_lifecycle_warehouse import (
 
 
 def queries():
-    """Ba truy vấn đại diện, luôn giữ grain/currency và cutoff/generation khi join."""
+    """Three representative queries, always keeping grain/currency and cutoff/generation when joining."""
     return {
         "headline_30d": """SELECT created_at::date AS day, channel, currency,
             sum(headline_product_net_minor::numeric) AS headline_minor
@@ -44,7 +44,7 @@ def queries():
 
 
 def summarize(raw):
-    """Lấy buffers ở node gốc (đã bao gồm con), tránh cộng đếm hai lần."""
+    """Take buffers at the root node (already includes children) to avoid double counting."""
     plan = raw[0]["Plan"]
     return {
         "root_node": plan["Node Type"],
@@ -57,15 +57,15 @@ def summarize(raw):
 
 
 def benchmark(conn, sql_dir, parameters, repeats=5):
-    """Khóa writer, đo hai pha trên cùng transaction/snapshot rồi rollback cả index."""
+    """Lock writers, measure two phases in the same transaction/snapshot, then roll back the indexes too."""
     if repeats < 5:
-        raise ValueError("Cần ít nhất 5 lần đo")
+        raise ValueError("At least 5 measurements are required")
     result = {
         "repeats": repeats,
         "parameters": {k: str(v) for k, v in parameters.items()},
         "phases": {},
     }
-    # Advisory lock lấy trước snapshot; LOCK SHARE chặn INSERT/UPDATE từ session khác.
+    # The advisory lock is taken before the snapshot; LOCK SHARE blocks INSERT/UPDATE from other sessions.
     conn.autocommit = True
     try:
         with conn.cursor() as cur:
@@ -121,13 +121,13 @@ def benchmark(conn, sql_dir, parameters, repeats=5):
 
 
 def main(argv=None):
-    """Nhận cutoff/SKU/thời điểm tường minh, lưu toàn bộ plan và median dạng JSON."""
+    """Take explicit cutoff/SKU/timestamps, save all plans and medians as JSON."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--sku", required=True)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--event-timestamp", required=True)
-    parser.add_argument("--as-of", required=True, help="Thời điểm đã biết feature.created")
+    parser.add_argument("--as-of", required=True, help="Time at which feature.created is known")
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument(
         "--sql-dir",

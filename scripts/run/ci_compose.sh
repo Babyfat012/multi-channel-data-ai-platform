@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# docker compose cho Jenkins: local = file gốc; AWS (DATA_STORAGE=s3, Jenkins trên EC2) thêm overlay AWS (+ stream khi
-# CI_STREAM=1) để KHÔNG tạo lại service đang chạy bằng cấu hình local. Có out/ci-compose-images.yaml thì kéo image phát hành.
+# docker compose for Jenkins: local = base file; AWS (DATA_STORAGE=s3, Jenkins on EC2) adds the AWS overlay (+ stream when
+# CI_STREAM=1) so running services are NOT recreated with the local config. If out/ci-compose-images.yaml exists, released images are pulled.
 set -euo pipefail
 files=(-f docker-compose.yml)
 if [[ "${DATA_STORAGE:-minio}" == s3 ]]; then

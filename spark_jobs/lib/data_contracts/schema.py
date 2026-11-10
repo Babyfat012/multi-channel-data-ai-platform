@@ -1,8 +1,8 @@
-"""Suy luận và kiểm tra tập con JSON Schema của registry."""
+"""Inference and validation of the registry's JSON Schema subset."""
 
 
 def _type(value):
-    """Tên kiểu JSON, tránh coi boolean là integer."""
+    """JSON type name, avoiding treating booleans as integers."""
     return {
         type(None): "null",
         bool: "boolean",
@@ -15,7 +15,7 @@ def _type(value):
 
 
 def infer_schema(records):
-    """Hợp kiểu quan sát; required là giao các khóa trong mọi object quan sát."""
+    """Union of observed types; required is the intersection of keys across all observed objects."""
     values = list(records)
     if not values:
         return {}
@@ -33,7 +33,7 @@ def infer_schema(records):
 
 
 def validate_record(record, schema, path="$"):
-    """Kiểm mọi phần tử, trả đường dẫn thiếu required hoặc sai kiểu."""
+    """Check every element, returning paths missing required fields or with wrong types."""
     errors = []
     types = schema.get("type", [])
     types = [types] if isinstance(types, str) else types
@@ -54,10 +54,10 @@ def validate_record(record, schema, path="$"):
 
 
 def required_json_paths(schema, path="$"):
-    """Đường dẫn bắt buộc cho Spark; mảng chỉ kiểm phần tử đầu ([0]).
+    """Required paths for Spark; arrays only check the first element ([0]).
 
-    Không đi vào object tùy chọn hoặc trường cho phép null; empty array không đòi item.
-    Spark dùng thêm điều kiện array rỗng để tránh coi mảng hợp lệ là thiếu phần tử.
+    Does not descend into optional objects or nullable fields; an empty array requires no item.
+    Spark adds an empty-array condition to avoid treating a valid array as missing elements.
     """
     paths = []
     for key in schema.get("required", []):

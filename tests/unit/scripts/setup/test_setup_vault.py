@@ -1,4 +1,4 @@
-"""Vault: key agentgateway chép từ Secret EKS cả khi chạy trên EC2 (host không có kubeconfig)."""
+"""Vault: the agentgateway key is copied from the EKS Secret even when running on EC2 (host has no kubeconfig)."""
 
 from pathlib import Path
 
@@ -7,7 +7,7 @@ SCRIPT = (ROOT / "scripts/setup/setup_vault.sh").read_text()
 
 
 def test_agentgateway_key_is_read_through_jenkins_kubeconfig_on_ec2():
-    """Thiếu nhánh s3 ⇒ kubectl host trỏ kind, lỗi bị nuốt ⇒ Vault không có key, eval CI 404."""
+    """Without the s3 branch ⇒ host kubectl points at kind, the error is swallowed ⇒ Vault has no key, CI eval 404s."""
     s3 = SCRIPT[SCRIPT.index('if [[ "${PLATFORM_STORAGE:-minio}" == s3 ]]; then') :].split("else")[
         0
     ]

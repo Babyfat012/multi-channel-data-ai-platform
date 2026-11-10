@@ -1,9 +1,9 @@
-"""Chạy các bộ kiểm thử của Web API/model và chụp output terminal thành ảnh PNG (+ file .txt giữ nguyên output).
+"""Run the Web API/model test suites and capture the terminal output as PNG images (+ a .txt file with the raw output).
 
-Mỗi mục là một lệnh thật; ảnh là output của chính lần chạy đó (không dựng tay). Chạy từ thư mục gốc repo:
+Each item is a real command; the image is the output of that very run (not hand-made). Run from the repo root:
   uv run python -m scripts.evidence.capture_testing_evidence --out docs/evidence --tag 20261104 [--only coverage,epbva,hypothesis]
-Mutation theo Git diff: thêm --mutation-dir out/<thư mục kết quả> (chụp từ lần chạy đã có, không chạy lại).
-Locust cần cụm EKS nên không nằm ở đây (xem docs/ml-llm-platform/validation_verification.md).
+Mutation by Git diff: add --mutation-dir out/<output directory> (captures an existing run, does not re-run).
+Locust needs the EKS cluster, so it is not here (see docs/ml-llm-platform/validation_verification.md).
 """
 
 from __future__ import annotations
@@ -75,21 +75,21 @@ PROGRESS = re.compile(
 
 
 def mutation_output(run_dir: Path) -> tuple[str, int]:
-    """Output dễ đọc của một lần `run_changed_mutation.py`: dòng tiến độ cuối của run.txt (bỏ spinner) và manifest.
+    """Readable output of one `run_changed_mutation.py` run: the last progress line of run.txt (spinner removed) and the manifest.
 
-    Trả (văn bản, mã thoát): mã 0 khi manifest ghi status passed.
+    Returns (text, exit code): code 0 when the manifest records status passed.
     """
     manifest = json.loads((run_dir / "manifest.json").read_text())
     found = PROGRESS.findall((run_dir / "run.txt").read_text())
     if not found:
-        raise ValueError(f"run.txt không có dòng tiến độ mutmut: {run_dir}")
+        raise ValueError(f"run.txt has no mutmut progress line: {run_dir}")
     done, killed, no_tests, timeout, suspicious, survived, skipped = found[-1]
     summary = manifest["summary"]
     lines = [
-        f"mutmut {manifest['mutmut_version']}; chọn file từ Git diff {manifest['base'][:7]}..{manifest['head'][:7]}",
+        f"mutmut {manifest['mutmut_version']}; files selected from Git diff {manifest['base'][:7]}..{manifest['head'][:7]}",
         f"selected_files: {', '.join(manifest['selected_files'])}",
         f"{done}  killed {killed}  no tests {no_tests}  timeout {timeout}  suspicious {suspicious}  survived {survived}  skipped {skipped}",
-        f"killed / tổng = {summary['killed_percent_all']:.1f}%  (loại no tests: {summary['killed_percent_tested']:.1f}%)",
+        f"killed / total = {summary['killed_percent_all']:.1f}%  (excluding no tests: {summary['killed_percent_tested']:.1f}%)",
         f"status: {manifest['status']}  run_exit_code: {manifest['run_exit_code']}  results_exit_code: {manifest['results_exit_code']}",
         f"{manifest['started_at']} → {manifest['finished_at']}",
     ]
@@ -97,7 +97,7 @@ def mutation_output(run_dir: Path) -> tuple[str, int]:
 
 
 def terminal_html(command: list[str], output: str, exit_code: int, started: str) -> str:
-    """Trang HTML kiểu terminal: dòng lệnh, output, mã thoát và giờ chạy."""
+    """Terminal-style HTML page: command line, output, exit code and run time."""
     return (
         "<meta charset=utf-8><style>body{background:#1e1e1e;color:#ddd;margin:0;padding:16px}"
         "pre{font:13px/1.35 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word}"
@@ -108,13 +108,13 @@ def terminal_html(command: list[str], output: str, exit_code: int, started: str)
 
 
 def run(command: list[str]) -> tuple[str, int]:
-    """Chạy lệnh, gộp stdout+stderr; trả (output, mã thoát)."""
+    """Run a command, merging stdout+stderr; returns (output, exit code)."""
     done = subprocess.run(command, capture_output=True, text=True, check=False)
     return done.stdout + done.stderr, done.returncode
 
 
 async def shoot(doc: str, png: Path) -> None:
-    """Render HTML trong Chrome headless, chụp toàn trang."""
+    """Render HTML in headless Chrome and capture the full page."""
     tmp = png.with_suffix(".html")
     tmp.write_text(doc)
     try:
@@ -143,7 +143,7 @@ async def shoot(doc: str, png: Path) -> None:
 
 
 def main(argv=None) -> int:
-    """CLI: chạy từng mục, ghi .txt + .png; trả 1 nếu có lệnh thất bại."""
+    """CLI: run each item, write .txt + .png; returns 1 if any command failed."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("docs/evidence"))
     parser.add_argument("--tag", required=True)
@@ -151,7 +151,7 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--mutation-dir",
         type=Path,
-        help="thư mục kết quả run_changed_mutation.py; chỉ chụp mục này",
+        help="run_changed_mutation.py output directory; captures only this item",
     )
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)

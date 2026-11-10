@@ -51,12 +51,12 @@ def wait_for_change(consumer: Consumer, probe_id: str, expected_op: str) -> dict
             "has_before": event.get("before") is not None,
             "has_after": event.get("after") is not None,
         }
-    raise TimeoutError(f"Không thấy CDC op={expected_op} cho {probe_id} sau 45 giây")
+    raise TimeoutError(f"No CDC op={expected_op} seen for {probe_id} after 45 seconds")
 
 
 def main() -> int:
     """Create a source change and measure its arrival in the CDC topic."""
-    parser = argparse.ArgumentParser(description="Đo commit PostgreSQL → Kafka CDC")
+    parser = argparse.ArgumentParser(description="Measure PostgreSQL commit → Kafka CDC")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--output-dir", type=Path, default=Path("out/cdc"))
     args = parser.parse_args()
@@ -78,7 +78,7 @@ def main() -> int:
     while not consumer.assignment() and time.monotonic() < deadline:
         consumer.poll(0.5)
     if not consumer.assignment():
-        raise TimeoutError("Consumer chưa nhận được partition CDC")
+        raise TimeoutError("Consumer has not been assigned a CDC partition")
 
     events: list[dict] = []
     try:
@@ -93,7 +93,7 @@ def main() -> int:
                 cur.execute("SELECT raw_payload, export_date FROM walmart.orders LIMIT 1")
                 sample = cur.fetchone()
                 if sample is None:
-                    raise RuntimeError("walmart.orders chưa có dòng nguồn để sao chép")
+                    raise RuntimeError("walmart.orders has no source row to copy")
                 payload, export_date = sample
                 payload["purchaseOrderId"] = probe_id
                 payload["customerOrderId"] = probe_id
@@ -128,12 +128,12 @@ def main() -> int:
                     (probe_id,),
                 )
                 if cur.rowcount != 1:
-                    raise RuntimeError(f"UPDATE chạm {cur.rowcount} dòng, cần đúng 1")
+                    raise RuntimeError(f"UPDATE touched {cur.rowcount} rows, expected exactly 1")
                 commit_and_observe("u")
 
                 cur.execute("DELETE FROM walmart.orders WHERE purchase_order_id = %s", (probe_id,))
                 if cur.rowcount != 1:
-                    raise RuntimeError(f"DELETE chạm {cur.rowcount} dòng, cần đúng 1")
+                    raise RuntimeError(f"DELETE touched {cur.rowcount} rows, expected exactly 1")
                 commit_and_observe("d")
 
                 cur.execute(
@@ -142,7 +142,7 @@ def main() -> int:
                 )
                 remaining = cur.fetchone()[0]
                 if remaining:
-                    raise RuntimeError(f"Probe còn {remaining} dòng trong nguồn")
+                    raise RuntimeError(f"Probe still has {remaining} rows in the source")
     except Exception:
         # If observation fails after an INSERT commit, remove only our probe
         # row so a later DP1 batch run still sees the original source data.
@@ -169,7 +169,7 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
-    print(f"Bằng chứng: {output}")
+    print(f"Evidence: {output}")
     return 0
 
 

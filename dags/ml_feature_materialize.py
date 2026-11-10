@@ -1,7 +1,7 @@
-"""ML Platform: Gold → Parquet offline/tập train → apply → nạp/đối soát bản batch riêng rồi công bố.
+"""ML Platform: Gold → offline Parquet/training set → apply → load/reconcile a separate batch release, then publish.
 
-`end` là mốc thời gian GIẢ LẬP (mặc định = cutoff Gold), không phải giờ thật: mỗi lần chạy
-Publisher chọn snapshot mới nhất mỗi SKU đến end; bản active tiếp tục phục vụ khi bản mới đang nạp.
+`end` is a SIMULATED point in time (default = Gold Cutoff), not wall-clock time: on every run the
+Publisher picks the latest snapshot per SKU up to end; the active release keeps serving while the new one loads.
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ ENSURE_24H = (
     "ensure_offline_file(os.environ['FEAST_SKU_RETURN_24H_PATH'])"
 )
 REPO = "/opt/feature_repo"
-# Cutoff của Gold A (hết 180 ngày dữ liệu); local chưa đặt biến thì về cutoff cũ.
-FULL_RELOAD_START = "2000-01-01T00:00:00+00:00"  # trước mọi dữ liệu giả lập
+# Gold A Cutoff (end of the 180 days of data); locally, if the variable is unset, fall back to the old Cutoff.
+FULL_RELOAD_START = "2000-01-01T00:00:00+00:00"  # before any simulated data
 CUTOFF = "{{ var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff) }}"
-# Spark ghi qua s3a://, Feast đọc cùng chỗ qua s3://.
+# Spark writes via s3a://, Feast reads the same location via s3://.
 SPARK_ROOT = "{{ var.value.platform_feast_root | replace('s3://', 's3a://') }}"
 SPARK_OUTPUT = SPARK_ROOT + "/sku_daily"
 CONF = {
@@ -40,20 +40,22 @@ CONF = {
 
 
 def run_feast(*args, **context):
-    """Chạy CLI Feast trên bản sao repo (mount read-only), credential lấy lúc chạy."""
-    # Không khai `params=` trong chữ ký: Airflow cấm tên context trùng vị trí của *args (ValueError reserved).
+    """Run the Feast CLI on a copy of the repo (mounted read-only), with credentials fetched at run time."""
+    # Do not declare `params=` in the signature: Airflow forbids context names clashing with *args positions (ValueError reserved).
     params = context.get("params")
-    # Redis mất dữ liệu nhưng registry vẫn nhớ mốc cũ ⇒ incremental nạp 0 dòng
-    # mà vẫn xanh. full_reload: nạp lại toàn bộ (FULL_RELOAD_START, end], ghi giá trị mới nhất mỗi SKU.
+    # Redis lost its data but the registry still remembers the old watermark ⇒ incremental loads 0 rows
+    # and still goes green. full_reload: reload everything (FULL_RELOAD_START, end], writing the latest value per SKU.
     if args[0] == "materialize-incremental" and (params or {}).get("full_reload"):
-        print("full_reload=true: chủ động nạp lại batch, bỏ kiểm tra mốc incremental.")
+        print(
+            "full_reload=true: deliberately reloading the batch, skipping the incremental watermark check."
+        )
         args = ("materialize", *args[1:-1], FULL_RELOAD_START, args[-1])
     root = Variable.get("platform_feast_root")
     redis = Variable.get("platform_feast_redis")
     if not redis:
-        raise ValueError("platform_feast_redis rỗng: chưa đặt địa chỉ Redis online")
+        raise ValueError("platform_feast_redis is empty: the online Redis address is not set")
     env = {**os.environ}
-    # AWS: S3 thật qua IAM role của EC2, không key, không endpoint riêng. Local: MinIO.
+    # AWS: real S3 via the EC2 IAM role, no keys, no custom endpoint. Local: MinIO.
     if os.environ.get("PLATFORM_STORAGE", "minio") != "s3":
         minio = BaseHook.get_connection("platform_minio")
         env.update(
@@ -85,7 +87,7 @@ def run_feast(*args, **context):
                 timeout=120,
             )
         if args[0] == "apply":
-            # View stream 24h đọc Parquet do pusher tạo; nơi chưa chạy pusher (AWS) thì tạo file rỗng.
+            # The 24h stream view reads Parquet created by the pusher; where the pusher is not running (AWS), create an empty file.
             subprocess.run(
                 [FEAST_PYTHON, "-c", ENSURE_24H], cwd=repo, env=env, check=True, timeout=120
             )
@@ -98,18 +100,18 @@ def run_feast(*args, **context):
 
 with DAG(
     dag_id="ml_feature_materialize",
-    description="Feature SKU theo ngày: Parquet → batch riêng → đối soát → công bố Redis A/B",
+    description="Daily SKU features: Parquet → separate batch → reconcile → publish Redis A/B",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,
     is_paused_upon_creation=False,
     max_active_runs=1,
     params={
-        "end": Param("", type="string", description="Mốc giả lập; trống = cutoff Gold"),
+        "end": Param("", type="string", description="Simulated point in time; empty = Gold Cutoff"),
         "full_reload": Param(
             False,
             type="boolean",
-            description="Cho phép phục hồi khi bản online đang phục vụ đã mất dữ liệu",
+            description="Allow recovery when the online release being served has lost its data",
         ),
     },
     tags=["platform", "ml-platform", "feature-store"],
@@ -123,7 +125,7 @@ with DAG(
         driver_memory="1g",
         conf=CONF,
     )
-    # Tập train (entity df cho KFP): line có nhãn trước cutoff + thuộc tính lúc đặt, cùng run nhãn với feature.
+    # Training set (entity df for KFP): labeled lines before the Cutoff + order-time attributes, same label run as the features.
     export_training = PlatformSparkSubmitOperator(
         task_id="export_training_lines",
         application="/opt/spark_jobs/gold/export_training_lines.py",
@@ -132,7 +134,7 @@ with DAG(
             CUTOFF,
             "--output",
             SPARK_ROOT + "/training_lines",
-            # 2‰ ≈ 360k line: Feast PIT join offline chạy pandas trong MỘT pod KFP; 1% (1,8 tr) OOM node 8 GB.
+            # 2‰ ≈ 360k lines: the offline Feast PIT join runs pandas in ONE KFP pod; 1% (1.8M) OOMs an 8 GB node.
             "--sample-per-mille",
             "2",
         ],
@@ -148,7 +150,7 @@ with DAG(
         op_args=[
             "publish-batch",
             "--end",
-            # Python 3.10 không đọc được đuôi "Z" của fromisoformat.
+            # Python 3.10 fromisoformat cannot parse the "Z" suffix.
             "{{ (params.end or var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff))"
             " | replace('Z', '+00:00') }}",
         ],

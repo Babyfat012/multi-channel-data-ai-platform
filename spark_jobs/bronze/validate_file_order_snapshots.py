@@ -1,7 +1,7 @@
-"""Kiểm Bronze JSONL cho TikTok Shop, Shopify và Shopee sau khi nạp.
+"""Validate Bronze JSONL for TikTok Shop, Shopify and Shopee after loading.
 
-So số dòng với đúng thư mục JSONL nguồn và kiểm ID gốc/provenance trên từng
-dòng. Bản trùng từ export chồng lấn là dữ liệu hợp lệ ở Bronze.
+Compares the row count with exactly the source JSONL directory and checks original IDs/provenance on every
+row. Duplicates from overlapping exports are valid data in Bronze.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc Channel, nguồn JSONL, bảng Bronze và run_id từ Airflow."""
+    """Parse the Channel, JSONL source, Bronze table and run_id from Airflow."""
     parser = argparse.ArgumentParser(description="Validate Bronze JSONL")
     parser.add_argument("--channel", choices=ID_PATH, required=True)
     parser.add_argument("--source-root", required=True)
@@ -32,12 +32,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
     if not IDENTIFIER.fullmatch(args.table):
-        parser.error(f"Tên bảng không hợp lệ: {args.table!r}")
+        parser.error(f"Invalid table name: {args.table!r}")
     return args
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Trả mã lỗi nếu bảng/cột, số dòng, ID hoặc provenance không đạt."""
+    """Return an error code if the table/columns, row count, IDs or provenance fail."""
     args = parse_args(argv)
     source = f"{args.source_root.rstrip('/')}/channel={args.channel}/dataset=orders"
     target = f"{CATALOG}.bronze.{args.table}"
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         bronze = spark.table(target)
         missing = sorted(REQUIRED - set(bronze.columns))
         if missing:
-            raise ValueError(f"{target} thiếu cột: {missing}")
+            raise ValueError(f"{target} is missing columns: {missing}")
         bad = (
             F.get_json_object(F.col("payload"), ID_PATH[args.channel]).isNull()
             | F.col("source_file").isNull()
@@ -63,13 +63,13 @@ def main(argv: list[str] | None = None) -> int:
         ).first()
         target_count = counts["rows"]
         invalid_count = counts["invalid_rows"] or 0
-        print(f"nguồn       = {source}")
-        print(f"bảng Bronze = {target}")
-        print(f"dòng nguồn  = {source_count:,}")
-        print(f"dòng Bronze = {target_count:,}")
-        print(f"dòng lỗi    = {invalid_count:,}")
+        print(f"source       = {source}")
+        print(f"Bronze table = {target}")
+        print(f"source rows  = {source_count:,}")
+        print(f"Bronze rows  = {target_count:,}")
+        print(f"invalid rows = {invalid_count:,}")
         if source_count == 0 or target_count != source_count or invalid_count:
-            raise ValueError("Bronze validate thất bại")
+            raise ValueError("Bronze validate failed")
         print("Bronze validate: PASS")
         return 0
     finally:

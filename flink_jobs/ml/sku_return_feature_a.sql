@@ -1,13 +1,13 @@
--- Đã thay trên AWS bằng flink_jobs/ml/sku_return_feature.py (2 job PyFlink online/offline); giữ cho lần chạy 30–31/10.
--- Pipeline A: số Return "approved" mỗi SKU trong 24h gần nhất (HOP trượt 1h) → Kafka ml.sku_return_24h → feast-pusher.
--- Khác bản B (sku_return_feature.sql): tin đã mang seller_sku (phát lại từ Gold A) nên không tra PostgreSQL.
+-- Replaced on AWS by flink_jobs/ml/sku_return_feature.py (2 PyFlink jobs, online/offline); kept for the 30–31/10 run.
+-- Pipeline A: count of "approved" Returns per SKU over the last 24h (HOP sliding 1h) → Kafka ml.sku_return_24h → feast-pusher.
+-- Unlike version B (sku_return_feature.sql): messages already carry seller_sku (replayed from Gold A), so no PostgreSQL lookup.
 -- Submit: FEATURE_SQL=flink_jobs/ml/sku_return_feature_a.sql scripts/run/run_sku_return_feature.sh
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'ml-sku-return-24h';
 SET 'execution.checkpointing.interval' = '10s';
--- Checkpoint ra đĩa (mount /mnt/platform-data/flink trên EC2): mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB;
--- state bỏ trùng + HOP của stream A ~72 MB ⇒ mọi checkpoint hỏng, job RESTARTING mãi (30/10).
+-- Checkpoints to disk (mount /mnt/platform-data/flink on EC2): the default keeps them in JobManager memory, max 5 MB;
+-- dedup state + HOP of stream A is ~72 MB ⇒ every checkpoint failed and the job kept RESTARTING (30/10).
 SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
 SET 'table.exec.source.idle-timeout' = '10s';
 
@@ -42,7 +42,7 @@ CREATE TABLE sku_return_24h (
   'value.fields-include' = 'ALL'
 );
 
--- Phát lại hai lần cùng Order Line ⇒ giữ bản đầu theo record_sha256.
+-- Replaying the same Order Line twice ⇒ keep the first copy by record_sha256.
 CREATE VIEW approved AS
 SELECT * FROM (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY record_sha256 ORDER BY event_ts) AS rn
@@ -50,7 +50,7 @@ SELECT * FROM (
   WHERE event_type = 'approved' AND quantity > 0
 ) WHERE rn = 1;
 
--- Giới hạn: HOP chỉ phát cửa sổ CÓ tin; SKU hết Return thì Redis giữ số cũ tới khi có tin mới.
+-- Limitation: HOP only emits windows WITH messages; once a SKU has no more Returns, Redis keeps the old count until a new message arrives.
 INSERT INTO sku_return_24h
 SELECT seller_sku, window_end, COUNT(*)
 FROM TABLE(HOP(TABLE approved, DESCRIPTOR(event_ts), INTERVAL '1' HOUR, INTERVAL '24' HOUR))

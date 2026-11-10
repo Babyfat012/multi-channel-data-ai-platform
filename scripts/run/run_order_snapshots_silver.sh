@@ -1,48 +1,48 @@
 #!/usr/bin/env bash
-# Chạy hai job Silver trên cụm Spark standalone.
+# Run the two Silver jobs on the Spark standalone cluster.
 #
-# Vì sao script RIÊNG chứ không thêm đích vào `evidence/measure_order_snapshots_bronze.sh`: script kia là
-# bằng chứng đo hiệu năng của tầng Bronze (`docs/data-platform/reference/spark.md` mục 5 và 6) — mỗi đích trong đó
-# gắn với một con số đã ghi vào tài liệu. Silver là tầng khác, chạy vì mục đích khác (ra
-# bảng dùng được, không phải ra số so sánh), nên để riêng cho khỏi lẫn.
+# Why a SEPARATE script instead of adding targets to `evidence/measure_order_snapshots_bronze.sh`: that script is
+# the Bronze layer performance evidence (`docs/data-platform/reference/spark.md` sections 5 and 6) — each target there
+# is tied to a number recorded in the docs. Silver is a different layer, run for a different purpose (to produce
+# usable tables, not comparison numbers), so it stays separate to avoid mixing them up.
 #
-# BẮT BUỘC bật MinIO trước, cùng lý do như Bronze: `spark-master` không `depends_on` MinIO,
-# nên job đọc và tính xong rồi gãy ĐÚNG LÚC GHI với `BadRequestException: Malformed request`.
+# MinIO MUST be started first, for the same reason as Bronze: `spark-master` does not `depends_on` MinIO,
+# so the job reads and computes, then breaks EXACTLY AT WRITE TIME with `BadRequestException: Malformed request`.
 #   docker compose up -d minio minio-init postgres
 #   docker compose --profile spark up -d spark-master spark-worker-1 spark-worker-2
 #
-# ĐỪNG chạy `docker compose --profile spark up -d` trần — nó bật luôn `generator-batch`
-# và sinh lại 100 GB vào MinIO.
+# DO NOT run a bare `docker compose --profile spark up -d` — it also starts `generator-batch`
+# and regenerates 100 GB into MinIO.
 #
-# Các đích:
-#   smoke    — chạy thử nhanh trên hai bảng Bronze NHỎ, ghi ra bảng Silver có hậu tố
-#              `_smoke`. Dùng để kiểm job chạy được trước khi đụng bảng thật.
-#   dup      — BẰNG CHỨNG DEDUP: nạp Bronze từ 10 ngày LIỀN NHAU (2026-04-05..04-14) rồi
-#              chạy Silver lên nó. Phải là ngày liền nhau vì bản trùng của generator chỉ
-#              nằm trong overlap_days=3 — 20 ngày rải đều cho dedup bắt được đúng 0 bản.
-#              Cửa sổ này cố ý trùm lên 04-07..04-12, nơi hai dạng schema chồng nhau, nên
-#              một lần chạy chứng minh được cả dedup lẫn schema evolution.
-#              Số đã đo: 134.990 bản trùng (1,5976%), 34.080 vắt qua hai dạng.
-#              Xem `docs/data-platform/reference/silver.md` mục 10.6. Tốn ~400 MB đĩa, nhớ DROP sau khi đo.
-#   walmart  — bảng Walmart thật  -> silver.stg_walmart_order_lines
-#   amazon   — bảng Amazon thật   -> silver.stg_amazon_order_lines  (NẶNG: 108 triệu dòng)
-#   tatca    — walmart rồi amazon
+# Targets:
+#   smoke    — quick trial run on the two SMALL Bronze tables, writing Silver tables with the
+#              `_smoke` suffix. Use it to check the job runs before touching the real tables.
+#   dup      — DEDUP EVIDENCE: load Bronze from 10 CONSECUTIVE days (2026-04-05..04-14), then
+#              run Silver on it. The days must be consecutive because generator duplicates only
+#              fall within overlap_days=3 — 20 evenly spread days let dedup catch exactly 0 rows.
+#              This window deliberately covers 04-07..04-12, where the two schema shapes overlap, so
+#              one run proves both dedup and schema evolution.
+#              Measured: 134,990 duplicates (1.5976%), 34,080 spanning both shapes.
+#              See `docs/data-platform/reference/silver.md` section 10.6. Uses ~400 MB of disk, remember to DROP after measuring.
+#   walmart  — real Walmart table  -> silver.stg_walmart_order_lines
+#   amazon   — real Amazon table   -> silver.stg_amazon_order_lines  (HEAVY: 108 million rows)
+#   all    — walmart then amazon
 #
-# Dùng:  bash scripts/run/run_order_snapshots_silver.sh [smoke|dup|walmart|amazon|tatca]
+# Usage:  bash scripts/run/run_order_snapshots_silver.sh [smoke|dup|walmart|amazon|all]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 WHICH="${1:-smoke}"
-# Driver chạy ở worker-1 chứ không ở spark-master: container master chỉ có 512 MB và bị
-# Docker kill OOM (phát hiện khi chạy brief 02 của tầng Bronze).
+# The driver runs on worker-1, not on spark-master: the master container only has 512 MB and gets
+# OOM-killed by Docker (found while running brief 02 of the Bronze layer).
 MASTER_CONTAINER="${MASTER_CONTAINER:-platform-spark-worker-1-1}"
 ICEBERG_PKGS="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.11.0,org.apache.iceberg:iceberg-aws-bundle:1.11.0"
 LOG_DIR="out/silver-runs"
 mkdir -p "$LOG_DIR"
 
 submit() {
-  # $1 = tên lần chạy (dùng cho tên file log), $2 = file job, $@ còn lại = cờ cho job
+  # $1 = run name (used for the log file name), $2 = job file, remaining $@ = job flags
   local name="$1"; shift
   local job="$1"; shift
   local log="$LOG_DIR/${name}.log"
@@ -53,42 +53,42 @@ submit() {
     --driver-memory "${DRIVER_MEMORY:-600m}" \
     ${EXTRA_SUBMIT_ARGS:-} \
     "/opt/spark_jobs/$job" "$@" > "$log" 2>&1
-  grep -E "^run_id|^bảng (đích|nguồn)|^Order Line|^bản trùng|^tỉ lệ|^XONG" \
+  grep -E "^run_id|^(source|target) table|^Order Line|^duplicates dropped|^duplicate ratio|^DONE" \
     "$log" || tail -20 "$log"
 }
 
 case "$WHICH" in
   smoke)
-    # Hai bảng Bronze nhỏ đã có sẵn từ lúc dựng Bronze: `*_smoke` (Walmart, 20 file) và
-    # `raw_amazon_orders_sample` (20 ngày mẫu). Đủ để kiểm cả hai nhánh schema của Amazon,
-    # vì 20 ngày rải đều cắt qua cả mốc đổi schema (export day 100 = 2026-04-10).
+    # Two small Bronze tables already exist from building Bronze: `*_smoke` (Walmart, 20 files) and
+    # `raw_amazon_orders_sample` (20 sample days). Enough to check both Amazon schema branches,
+    # because 20 evenly spread days cross the schema change point (export day 100 = 2026-04-10).
     submit "silver-walmart-smoke" silver/build_walmart_order_snapshots.py \
       --source-table raw_walmart_orders_smoke --table stg_walmart_order_lines_smoke
     submit "silver-amazon-smoke" silver/build_amazon_order_snapshots.py \
       --source-table raw_amazon_orders_sample --table stg_amazon_order_lines_smoke
     ;;
   dup)
-    # Hai bước: nạp Bronze 10 ngày liền nhau, rồi Silver lên đúng bảng đó.
-    # Bronze dùng ICEBERG_PKGS như Silver — job 01 không cần driver JDBC.
-    printf '==> bronze-dup (10 ngày liền nhau 2026-04-05..04-14)\n'
+    # Two steps: load Bronze for 10 consecutive days, then Silver on exactly that table.
+    # Bronze uses ICEBERG_PKGS like Silver — job 01 does not need the JDBC driver.
+    printf '==> bronze-dup (10 consecutive days 2026-04-05..04-14)\n'
     docker exec "$MASTER_CONTAINER" /opt/spark/bin/spark-submit \
       --master spark://spark-master:7077 --packages "$ICEBERG_PKGS" \
       --driver-memory "${DRIVER_MEMORY:-600m}" \
       /opt/spark_jobs/bronze/ingest_amazon_order_snapshots.py \
       --window-days 10 --window-start 2026-04-05 --aqe on \
       --table raw_amazon_orders_dup > "$LOG_DIR/bronze-dup.log" 2>&1
-    grep -E "^ngày sẽ nạp|^  ->|^XONG" "$LOG_DIR/bronze-dup.log" || tail -5 "$LOG_DIR/bronze-dup.log"
+    grep -E "^days to load|^  ->|^DONE" "$LOG_DIR/bronze-dup.log" || tail -5 "$LOG_DIR/bronze-dup.log"
     submit "silver-amazon-dup" silver/build_amazon_order_snapshots.py \
       --source-table raw_amazon_orders_dup --table stg_amazon_order_lines_dup
     ;;
-  walmart|tatca)
+  walmart|all)
     submit "silver-walmart" silver/build_walmart_order_snapshots.py
     ;;&
-  amazon|tatca)
+  amazon|all)
     submit "silver-amazon" silver/build_amazon_order_snapshots.py
     ;;
   *)
-    echo "Tham số phải là smoke | dup | walmart | amazon | tatca" >&2
+    echo "Argument must be smoke | dup | walmart | amazon | all" >&2
     exit 2
     ;;
 esac

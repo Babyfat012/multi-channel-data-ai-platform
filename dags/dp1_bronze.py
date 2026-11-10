@@ -1,6 +1,6 @@
-"""DP1: nạp năm Channel vào Bronze, validate từng nguồn trước khi tiếp tục.
+"""DP1: load five Channels into Bronze, validating each source before moving on.
 
-Chạy tay trên bảng thử `_dp1`, một Spark task mỗi lần để vừa RAM laptop.
+Manually triggered on the `_dp1` trial tables, one Spark task at a time to fit laptop RAM.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ WALMART_TABLE = "{{ var.value.platform_dp1_walmart_table }}"
 SOURCE_ROOT = "{{ var.value.platform_dp1_extra_source_root }}"
 WINDOW_DAYS = "{{ var.value.platform_dp1_amazon_window_days }}"
 WINDOW_START = "{{ var.value.platform_dp1_amazon_window_start }}"
-# Local đọc mount /data/raw; AWS đặt Variable trỏ s3a:// (docker-compose.aws.yml).
+# Local reads the /data/raw mount; AWS sets the Variable to point at s3a:// (docker-compose.aws.yml).
 AMAZON_SOURCE = (
     "{{ var.value.get('platform_dp1_amazon_source', "
     "'/data/raw/source-exports/channel=amazon/dataset=orders') }}"
@@ -42,7 +42,7 @@ SPARK_CONF = {
 
 with DAG(
     dag_id="dp1_bronze",
-    description="Raw 5 Channel -> Bronze; kiểm số dòng, payload và provenance",
+    description="Raw 5 Channels -> Bronze; check row counts, payload and provenance",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,

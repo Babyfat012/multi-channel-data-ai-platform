@@ -1,6 +1,6 @@
-"""Test bảng ánh xạ của tầng Silver, không cần cụm Spark.
+"""Tests for the Silver layer mapping tables, no Spark cluster needed.
 
-Job Spark tra các dict này bằng `create_map`, nên `dict.get` ở đây đúng là phép tra của job.
+Spark jobs look these dicts up with `create_map`, so `dict.get` here is exactly the job's lookup.
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ from spark_jobs.lib.order_snapshot_mapping import (
 )
 
 
-class TestTrangThaiAmazon:
-    """Hai dạng schema của Amazon có hai bảng trạng thái riêng."""
+class TestAmazonStatus:
+    """Amazon's two schema shapes have two separate status tables."""
 
-    def test_v0_va_2026_cung_bon_nghia(self):
-        """Hai bảng phủ đúng cùng một tập trạng thái chuẩn."""
+    def test_v0_and_2026_share_the_same_meanings(self):
+        """Both tables cover exactly the same set of canonical statuses."""
         assert set(AMAZON_V0_STATUS.values()) == set(AMAZON_2026_STATUS.values())
 
-    def test_ep_chu_hoa_khong_gop_duoc_hai_cach_viet(self):
-        """`Canceled` (v0) viết hoa thành `CANCELED`, vẫn khác `CANCELLED` (2026)."""
+    def test_uppercasing_cannot_merge_the_two_spellings(self):
+        """`Canceled` (v0) uppercased becomes `CANCELED`, still different from `CANCELLED` (2026)."""
         assert "Canceled" in AMAZON_V0_STATUS
         assert "CANCELLED" in AMAZON_2026_STATUS
         assert "Canceled".upper() not in AMAZON_2026_STATUS
@@ -42,19 +42,19 @@ class TestTrangThaiAmazon:
             (AMAZON_2026_STATUS, "CANCELLED", "cancelled"),
         ],
     )
-    def test_trang_thai_chuan(self, table, raw, expected):
-        """Mỗi trạng thái Amazon ra đúng trạng thái chuẩn."""
+    def test_canonical_status(self, table, raw, expected):
+        """Each Amazon status maps to the right canonical status."""
         assert table[raw] == expected
 
-    def test_amazon_khong_bao_gio_ra_delivered(self):
-        """Amazon không báo "đã giao": `Shipped` gộp shipped/delivered/completed."""
+    def test_amazon_never_yields_delivered(self):
+        """Amazon does not report "delivered": `Shipped` covers shipped/delivered/completed."""
         for table in (AMAZON_V0_STATUS, AMAZON_2026_STATUS):
             assert "delivered" not in table.values()
             assert "completed" not in table.values()
 
 
-class TestTrangThaiWalmart:
-    """Walmart có `Delivered` thật, nhưng nó gộp hai trạng thái lõi."""
+class TestWalmartStatus:
+    """Walmart has a real `Delivered`, but it covers two core statuses."""
 
     @pytest.mark.parametrize(
         "raw,expected",
@@ -66,17 +66,17 @@ class TestTrangThaiWalmart:
             ("Cancelled", "cancelled"),
         ],
     )
-    def test_trang_thai_chuan(self, raw, expected):
-        """Mỗi trạng thái Walmart ra đúng trạng thái chuẩn."""
+    def test_canonical_status(self, raw, expected):
+        """Each Walmart status maps to the right canonical status."""
         assert WALMART_STATUS[raw] == expected
 
-    def test_delivered_chon_trang_thai_som_hon(self):
-        """`Delivered` gộp delivered + completed; chọn `delivered` vì luôn đúng."""
+    def test_delivered_picks_the_earlier_status(self):
+        """`Delivered` covers delivered + completed; pick `delivered` because it is always true."""
         assert "completed" not in WALMART_STATUS.values()
 
 
-def test_fulfillment_hai_dang_ve_mot_bo_gia_tri():
-    """AFN/AMAZON là Channel giao, MFN/MERCHANT là Seller tự giao."""
+def test_fulfillment_two_shapes_map_to_one_value_set():
+    """AFN/AMAZON means the Channel ships, MFN/MERCHANT means the Seller ships."""
     assert AMAZON_FULFILLMENT == {
         "AFN": "channel",
         "AMAZON": "channel",
@@ -85,6 +85,6 @@ def test_fulfillment_hai_dang_ve_mot_bo_gia_tri():
     }
 
 
-def test_ma_quoc_gia():
-    """`USA` quy về `US`; mã khác không có trong bảng nên job giữ nguyên."""
+def test_country_codes():
+    """`USA` maps to `US`; other codes are not in the table, so the job keeps them."""
     assert COUNTRY_ALIASES == {"USA": "US"}

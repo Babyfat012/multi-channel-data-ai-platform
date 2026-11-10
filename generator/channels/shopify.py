@@ -1,9 +1,9 @@
-"""Renderer Batch cho Shopify REST Admin Order.
+"""Batch renderer for the Shopify REST Admin Order.
 
-Một dòng JSONL mô phỏng response `GET /orders/{id}.json`, gồm `order` và mảng
-`line_items`. REST Admin API hiện là legacy; chọn dạng này vì `docs/data-platform/reference/channel_sources.md`
-đã ghi schema và cả hai cách lưu Order đều dùng cùng dữ liệu lõi. Không gắn
-`delivered_at`: Order resource chỉ cho biết fulfillment, không cho ngày giao thật.
+One JSONL row simulates the `GET /orders/{id}.json` response, with `order` and the
+`line_items` array. The REST Admin API is now legacy; this shape was chosen because `docs/data-platform/reference/channel_sources.md`
+already records its schema and both ways of storing Orders use the same core data. No
+`delivered_at`: the Order resource only reports fulfillment, not the actual delivery date.
 """
 
 from __future__ import annotations
@@ -26,26 +26,26 @@ from generator.core.storefronts import CURRENCY_DECIMALS
 
 
 class ShopifyOrdersRenderer:
-    """Vẽ một snapshot Order Shopify với ID ổn định qua mọi Export Date."""
+    """Render a Shopify Order snapshot with ids stable across every Export Date."""
 
     channel = "shopify"
     dataset = "orders"
     storage = OBJECT_STORE
 
     def __init__(self, config: GeneratorConfig) -> None:
-        """Ghi seed để sinh ID dạng số như API Shopify."""
+        """Store the seed to generate numeric ids like the Shopify API."""
         self.seed = config.seed
 
     def order_id(self, order: Order) -> int:
-        """Sinh ID Order dạng số cố định cho một Order lõi."""
+        """Generate a fixed numeric Order id for a core Order."""
         return int("5" + native_digits(self.seed, "shopify_order", order.order_id, 12))
 
     def line_id(self, line: OrderLine) -> int:
-        """Sinh ID Line Item dạng số cố định cho một Order Line lõi."""
+        """Generate a fixed numeric Line Item id for a core Order Line."""
         return int("6" + native_digits(self.seed, "shopify_line", line.order_line_id, 12))
 
     def line_keys(self, order: Order) -> list[dict[str, Any]]:
-        """Nối ID lõi với ID Order/Line Item Shopify."""
+        """Map core ids to Shopify Order/Line Item ids."""
         order_id = str(self.order_id(order))
         return [
             {
@@ -57,7 +57,7 @@ class ShopifyOrdersRenderer:
         ]
 
     def render(self, order: Order, as_of: datetime, export_day: int) -> RenderedRecord:
-        """Vẽ Order tại `as_of`; ngày export được lớp Batch ghi vào đường dẫn."""
+        """Render the Order at `as_of`; the Batch layer writes the export date into the path."""
         del export_day
         status_change = order.status_at(as_of)
         status = status_change.status

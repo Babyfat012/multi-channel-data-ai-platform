@@ -1,11 +1,11 @@
-"""Chứng minh một run MLflow lưu version dữ liệu: tag SHA-256 khớp artifact data/train và data/test.
+"""Prove an MLflow run stores the data version: the SHA-256 tags match the data/train and data/test artifacts.
 
-Chạy (MLflow EC2 qua tunnel hoặc trên EC2):
+Run (EC2 MLflow via tunnel or on EC2):
   python3 scripts/evidence/mlflow_run_data_proof.py --run-name mysterious-flea-253 \
-    > docs/evidence/aws/mlflow-run-data-proof-<ngày>.json
-  # Truy ngược từ model đang phục vụ: model version → run đã train ra nó → dữ liệu (hash) và tham số/metric
+    > docs/evidence/aws/mlflow-run-data-proof-<date>.json
+  # Trace back from the serving model: model version → the run that trained it → data (hash) and params/metrics
   python3 scripts/evidence/mlflow_run_data_proof.py --model return-risk --version 1
-Chỉ dùng thư viện chuẩn: gọi REST của MLflow server (server proxy artifact). Thoát 1 nếu thiếu hoặc lệch.
+Uses only the standard library: calls the MLflow server REST API (the server proxies artifacts). Exits 1 if anything is missing or mismatched.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import urllib.request
 
 
 def request(base: str, path: str, params: dict | None = None, body: dict | None = None) -> bytes:
-    """GET (hoặc POST JSON nếu có body) tới MLflow server, trả bytes."""
+    """GET (or POST JSON if a body is given) to the MLflow server, returning bytes."""
     url = f"{base}{path}" + (f"?{urllib.parse.urlencode(params)}" if params else "")
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data, {"Content-Type": "application/json"} if data else {})
@@ -28,7 +28,7 @@ def request(base: str, path: str, params: dict | None = None, body: dict | None 
 
 
 def run_of_model(base: str, name: str, version: str) -> tuple[dict, dict]:
-    """Từ model registry (name, version) đi tới run đã train ra nó; trả (model_version, run)."""
+    """From the model registry (name, version) go to the run that trained it; returns (model_version, run)."""
     got = json.loads(
         request(base, "/api/2.0/mlflow/model-versions/get", {"name": name, "version": version})
     )["model_version"]
@@ -37,7 +37,7 @@ def run_of_model(base: str, name: str, version: str) -> tuple[dict, dict]:
 
 
 def find_run(base: str, experiment: str, run_name: str) -> dict:
-    """Tìm run theo tên trong experiment; lỗi rõ nếu không có."""
+    """Find a run by name in the experiment; clear error if absent."""
     got = json.loads(
         request(base, "/api/2.0/mlflow/experiments/get-by-name", {"experiment_name": experiment})
     )
@@ -53,12 +53,12 @@ def find_run(base: str, experiment: str, run_name: str) -> dict:
         )
     ).get("runs")
     if not runs:
-        raise SystemExit(f"Không thấy run {run_name!r} trong experiment {experiment!r}")
+        raise SystemExit(f"Run {run_name!r} not found in experiment {experiment!r}")
     return runs[0]
 
 
 def check_split(base: str, run_id: str, tags: dict, split: str) -> dict:
-    """Liệt kê artifact data/<split>, tính SHA-256 từng file và so với tag data.<split>_sha256."""
+    """List the data/<split> artifacts, compute each file's SHA-256 and compare with the data.<split>_sha256 tag."""
     want = tags.get(f"data.{split}_sha256")
     files = json.loads(
         request(base, "/api/2.0/mlflow/artifacts/list", {"run_id": run_id, "path": f"data/{split}"})
@@ -82,18 +82,18 @@ def check_split(base: str, run_id: str, tags: dict, split: str) -> dict:
 
 
 def main(argv=None) -> int:
-    """In JSON bằng chứng; mã 1 nếu tag/artifact thiếu hoặc hash lệch."""
+    """Print the evidence JSON; code 1 if a tag/artifact is missing or a hash mismatches."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--run-name", help="tên run MLflow (hoặc dùng --model/--version)")
-    parser.add_argument("--model", help="tên model trong registry, ví dụ return-risk")
-    parser.add_argument("--version", help="phiên bản model, đi cùng --model")
+    parser.add_argument("--run-name", help="MLflow run name (or use --model/--version)")
+    parser.add_argument("--model", help="model name in the registry, e.g. return-risk")
+    parser.add_argument("--version", help="model version, used with --model")
     parser.add_argument("--experiment", default="return-risk")
     parser.add_argument("--url", default="http://127.0.0.1:5050")
     args = parser.parse_args(argv)
     lineage = {}
     if args.model:
         if not args.version:
-            parser.error("--model cần --version")
+            parser.error("--model requires --version")
         version, run = run_of_model(args.url, args.model, args.version)
         lineage = {
             "model": {
@@ -106,7 +106,7 @@ def main(argv=None) -> int:
     elif args.run_name:
         run = find_run(args.url, args.experiment, args.run_name)
     else:
-        parser.error("cần --run-name hoặc --model --version")
+        parser.error("--run-name or --model --version is required")
     run_id = run["info"]["run_id"]
     tags = {t["key"]: t["value"] for t in run["data"].get("tags", [])}
     result = {

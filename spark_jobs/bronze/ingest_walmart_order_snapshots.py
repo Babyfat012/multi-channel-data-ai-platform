@@ -1,12 +1,12 @@
-"""Bronze: PostgreSQL `walmart.orders` -> Iceberg `bronze.raw_walmart_orders` qua JDBC.
+"""Bronze: PostgreSQL `walmart.orders` -> Iceberg `bronze.raw_walmart_orders` via JDBC.
 
-Walmart nằm trong DB của phòng ban khác nên đọc qua JDBC; Amazon giao file nên có job riêng.
-Mỗi nguồn một bảng: commit Iceberg là nguyên khối, nguồn này hỏng không kéo nguồn kia.
+Walmart lives in another department's DB, so it is read via JDBC; Amazon delivers files, so it has its own job.
+One table per source: an Iceberg commit is atomic, so one broken source does not drag down the other.
 
-`raw_payload` giữ nguyên chuỗi JSON, parse là việc của Silver. `fetched_at` (giờ nguồn kéo
-đơn) tách khỏi `ingested_at` (giờ Spark ghi) để đo được độ trễ nguồn.
+`raw_payload` keeps the JSON string as is; parsing is Silver's job. `fetched_at` (when the source pulled
+the Order) is separate from `ingested_at` (when Spark wrote it) so source latency can be measured.
 
-Chạy (cần driver PostgreSQL trong --packages, xem scripts/evidence/measure_order_snapshots_bronze.sh):
+Run (needs the PostgreSQL driver in --packages, see scripts/evidence/measure_order_snapshots_bronze.sh):
     spark-submit --master spark://spark-master:7077 --packages <iceberg,aws,postgresql> \
         /opt/spark_jobs/bronze/ingest_walmart_order_snapshots.py --num-partitions 16
 """
@@ -27,48 +27,48 @@ from spark_jobs.lib.iceberg_session import catalog_conf
 CATALOG = "lakehouse"
 NAMESPACE = "bronze"
 
-# Bảng của "phòng ban khác", data team không sở hữu.
+# The "other department's" table; the data team does not own it.
 SOURCE_TABLE = "walmart.orders"
 
-# Spark JDBC chia việc được theo cột DATE, nên không phải thêm cột id vào bảng nguồn.
+# Spark JDBC can split work on a DATE column, so no id column has to be added to the source table.
 PARTITION_COLUMN = "export_date"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc tham số dòng lệnh."""
+    """Parse command-line arguments."""
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument(
         "--run-id",
         default=None,
-        help="Mã của lần chạy này, ghi vào mọi dòng. Mặc định sinh uuid4. Giai đoạn "
-        "Airflow sẽ truyền run_id thật của DAG vào đây để dò ngược được log.",
+        help="Id of this run, written to every row. Defaults to a generated uuid4. The Airflow "
+        "stage passes the DAG's real run_id here so logs can be traced back.",
     )
     p.add_argument(
         "--num-partitions",
         type=int,
         default=16,
-        help="Số kết nối JDBC song song. 1 = hành vi mặc định của Spark (một task kéo cả "
-        "bảng). Đặt 16 để 2 worker x 2 core có việc liên tục mà không mở quá nhiều "
-        "kết nối tới PostgreSQL.",
+        help="Number of parallel JDBC connections. 1 = Spark's default behavior (one task pulls the whole "
+        "table). Set 16 so 2 workers x 2 cores stay busy without opening too many "
+        "connections to PostgreSQL.",
     )
     p.add_argument(
         "--aqe",
         choices=("on", "off"),
         default="on",
-        help="Adaptive Query Execution. Giữ cờ này để so được với job Amazon; lưu ý số đo "
-        "ở job Amazon cho thấy AQE KHÔNG chữa được skew khi không có JOIN.",
+        help="Adaptive Query Execution. Kept so the run is comparable with the Amazon job; note the measurements "
+        "from the Amazon job show AQE does NOT fix skew when there is no JOIN.",
     )
     p.add_argument(
         "--table",
         default="raw_walmart_orders",
-        help="Tên bảng trong namespace bronze. Lần chạy thử nên dùng tên khác "
-        "(ví dụ raw_walmart_orders_smoke) để không đè bảng thật.",
+        help="Table name in the bronze namespace. Trial runs should use a different name "
+        "(e.g. raw_walmart_orders_smoke) so the real table is not overwritten.",
     )
     return p.parse_args(argv)
 
 
 def jdbc_options() -> dict[str, str]:
-    """Thông tin kết nối PostgreSQL từ biến môi trường; host là service `postgres` trong Compose."""
+    """PostgreSQL connection details from environment variables; the host is the `postgres` service in Compose."""
     user = os.environ["POSTGRES_USER"]
     password = os.environ["POSTGRES_PASSWORD"]
     db = os.environ["POSTGRES_DB"]
@@ -83,10 +83,10 @@ def jdbc_options() -> dict[str, str]:
 
 
 def source_query() -> str:
-    """Câu SQL nguồn, ép `raw_payload::text`.
+    """Source SQL query, casting `raw_payload::text`.
 
-    JDBC trả JSONB dưới kiểu `OTHER` mà Spark không đọc được. Ép text cũng giữ đúng chuỗi
-    nguồn, đúng việc của Bronze.
+    JDBC returns JSONB as type `OTHER`, which Spark cannot read. Casting to text also keeps the exact source
+    string, which is Bronze's job.
     """
     return f"""(
         SELECT purchase_order_id,
@@ -97,13 +97,13 @@ def source_query() -> str:
     ) AS src"""
 
 
-# Giới hạn: trùng phần lớn `lib/iceberg_session.build_spark`, giữ riêng vì cần cờ AQE và event log
-# (phải đặt trước khi tạo session) và vì số đo trong docs/data-platform/reference/spark.md gắn với cấu hình này.
-# Gộp khi đo lại Bronze v1.
+# Limitation: largely duplicates `lib/iceberg_session.build_spark`, kept separate because it needs the AQE flag and event log
+# (set before the session is created) and because the measurements in docs/data-platform/reference/spark.md are tied to this config.
+# Merge when Bronze v1 is re-measured.
 def build_spark(aqe: str, app_name: str) -> SparkSession:
-    """SparkSession nối catalog Iceberg trên Lakekeeper, dữ liệu nằm trên MinIO hoặc S3 thật."""
+    """SparkSession wired to the Iceberg catalog on Lakekeeper, data on MinIO or real S3."""
     if os.environ.get("PLATFORM_STORAGE") == "s3":
-        # AWS: dùng chung cấu hình catalog S3 (IAM role của EC2), chỉ thêm cờ AQE của job này.
+        # AWS: reuse the shared S3 catalog config (EC2 IAM role), only adding this job's AQE flag.
         builder = SparkSession.builder.appName(app_name)
         for key, value in catalog_conf(os.environ).items():
             builder = builder.config(key, value)
@@ -137,10 +137,10 @@ def build_spark(aqe: str, app_name: str) -> SparkSession:
 
 
 def read_bounds(spark: SparkSession) -> tuple[str, str, int]:
-    """Hỏi PostgreSQL dải `export_date` thật trước khi đọc.
+    """Ask PostgreSQL for the actual `export_date` range before reading.
 
-    `lowerBound`/`upperBound` không lọc dòng, chỉ dùng để chia việc; đoán sai thì một task
-    ôm gần hết bảng. `upper` cộng thêm một ngày vì Spark chia khoảng nửa mở.
+    `lowerBound`/`upperBound` do not filter rows, they only split the work; a wrong guess leaves one task
+    holding almost the whole table. `upper` adds one day because Spark splits half-open ranges.
     """
     opts = jdbc_options()
     stats = f"""(
@@ -154,10 +154,10 @@ def read_bounds(spark: SparkSession) -> tuple[str, str, int]:
 
 
 def read_jdbc(spark: SparkSession, lower: str, upper: str, num_partitions: int) -> DataFrame:
-    """Đọc bảng qua JDBC bằng `num_partitions` kết nối song song.
+    """Read the table via JDBC with `num_partitions` parallel connections.
 
-    Thiếu một trong bốn tuỳ chọn partition thì Spark lặng lẽ dùng một kết nối. `fetchsize`
-    đặt khác 0 để driver không kéo cả kết quả vào RAM.
+    If any of the four partition options is missing, Spark silently uses a single connection. `fetchsize`
+    is set non-zero so the driver does not pull the whole result into RAM.
     """
     opts = jdbc_options()
     return (
@@ -174,7 +174,7 @@ def read_jdbc(spark: SparkSession, lower: str, upper: str, num_partitions: int) 
 
 
 def add_provenance(df: DataFrame, run_id: str) -> DataFrame:
-    """Thêm cột provenance; `source_table` đặt cứng vì `input_file_name()` qua JDBC trả rỗng."""
+    """Add provenance columns; `source_table` is hard-coded because `input_file_name()` is empty over JDBC."""
     return (
         df.withColumn("source_table", F.lit(SOURCE_TABLE))
         .withColumn("ingested_at", F.current_timestamp())
@@ -183,9 +183,9 @@ def add_provenance(df: DataFrame, run_id: str) -> DataFrame:
 
 
 def write_bronze(spark: SparkSession, df: DataFrame, table: str) -> None:
-    """Ghi đè bảng Iceberg trong một commit, partition ẩn `days(fetched_at)`.
+    """Overwrite the Iceberg table in one commit, hidden partition `days(fetched_at)`.
 
-    `partitionedBy` cần `F.days(...)`; `F.expr("days(...)")` bị từ chối.
+    `partitionedBy` needs `F.days(...)`; `F.expr("days(...)")` is rejected.
     """
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.{NAMESPACE}")
     full_name = f"{CATALOG}.{NAMESPACE}.{table}"
@@ -193,7 +193,7 @@ def write_bronze(spark: SparkSession, df: DataFrame, table: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Chạy job và in số dòng để đối chiếu với PostgreSQL."""
+    """Run the job and print the row count to compare with PostgreSQL."""
     args = parse_args(argv)
     run_id = args.run_id or str(uuid.uuid4())
     app_name = f"bronze-walmart-jdbc-{args.num_partitions}p-{args.table}"
@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         lower, upper, source_rows = read_bounds(spark)
         if source_rows == 0:
             print(
-                f"{SOURCE_TABLE} đang RỖNG. Nạp trước bằng:\n"
+                f"{SOURCE_TABLE} is EMPTY. Load it first with:\n"
                 "  uv run python -m generator load-postgres --source /data/raw "
                 "--sample-days 20 --dsn postgresql://<user>:<pass>@localhost:5432/sources",
                 file=sys.stderr,
@@ -211,10 +211,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         print(f"run_id            = {run_id}")
-        print(f"bảng nguồn        = {SOURCE_TABLE} ({source_rows:,} dòng)")
-        print(f"bảng đích         = {CATALOG}.{NAMESPACE}.{args.table}")
-        print(f"chia theo          = {PARTITION_COLUMN} [{lower} .. {upper})")
-        print(f"số kết nối JDBC   = {args.num_partitions}")
+        print(f"source table      = {SOURCE_TABLE} ({source_rows:,} rows)")
+        print(f"target table      = {CATALOG}.{NAMESPACE}.{args.table}")
+        print(f"partitioned by    = {PARTITION_COLUMN} [{lower} .. {upper})")
+        print(f"JDBC connections  = {args.num_partitions}")
         print(f"AQE               = {args.aqe}")
 
         started = time.monotonic()
@@ -225,15 +225,15 @@ def main(argv: list[str] | None = None) -> int:
         written = spark.table(f"{CATALOG}.{NAMESPACE}.{args.table}")
         rows = written.count()
         days = written.select(F.to_date("fetched_at").alias("d")).distinct().count()
-        print(f"XONG sau {elapsed:.1f}s — {rows:,} dòng, {days} ngày fetched_at")
+        print(f"DONE in {elapsed:.1f}s — {rows:,} rows, {days} fetched_at days")
         if rows != source_rows:
             print(
-                f"CẢNH BÁO: lệch {source_rows - rows:,} dòng so với nguồn. Bronze phải "
-                "chép trung thực, lệch là có lỗi — kiểm lại trước khi dùng bảng này.",
+                f"WARNING: {source_rows - rows:,} rows differ from the source. Bronze must "
+                "copy faithfully, a difference is a bug: check before using this table.",
                 file=sys.stderr,
             )
             return 1
-        print("Số dòng khớp nguồn.")
+        print("Row count matches source.")
         return 0
     finally:
         spark.stop()

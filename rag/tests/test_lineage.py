@@ -1,4 +1,4 @@
-"""Test MCP DataHub của pipeline RAG: đúng chuỗi lineage và assertion theo receipt."""
+"""Tests for the RAG pipeline's DataHub MCPs: correct lineage chain and assertions from the receipt."""
 
 import json
 
@@ -47,12 +47,12 @@ def test_assertion_result_follows_check_value():
 
 
 def test_aspect_values_are_latin1_bytes_for_restli():
-    """DataHub GMS từ chối value có ký tự > U+00FF ('is not a valid string representation of bytes')."""
+    """DataHub GMS rejects values with characters > U+00FF ('is not a valid string representation of bytes')."""
     for mcp in lineage_mcps("platform/rag", RECEIPT):
         mcp["aspect"]["value"].encode("latin-1")
 
 
 def test_datajob_type_is_a_restli_union_member():
-    """DataJobInfo.type là union ⇒ chữ trơn bị GMS trả 422 'union type is not backed by a DataMap'."""
+    """DataJobInfo.type is a union ⇒ a plain string gets 422 from GMS 'union type is not backed by a DataMap'."""
     infos = by_aspect(lineage_mcps("platform/rag", RECEIPT), "dataJobInfo")
     assert infos and all(value["type"] == {"string": "COMMAND"} for _, value in infos)

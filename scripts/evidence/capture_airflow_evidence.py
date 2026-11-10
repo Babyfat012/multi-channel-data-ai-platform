@@ -1,8 +1,8 @@
-"""Chụp Grid của các DAG Airflow bằng Chrome headless cho pipeline Data Platform.
+"""Capture the Grid of Airflow DAGs with headless Chrome for the Data Platform pipeline.
 
-Đọc mật khẩu standalone từ container qua stdout nội bộ của subprocess, không in
-ra terminal hay ghi vào file. Dùng Chrome DevTools Protocol để đăng nhập và lưu
-ảnh UI thật, không dựng lại ảnh từ trạng thái CLI.
+Reads the standalone password from the container via the subprocess's internal stdout,
+without printing it to the terminal or writing it to a file. Uses the Chrome DevTools Protocol
+to log in and save real UI screenshots, not images rebuilt from CLI state.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ BASE_URL = "http://127.0.0.1:8081"
 
 
 def standalone_password() -> str:
-    """Đọc password Airflow từ container mà không lộ trong command line."""
+    """Read the Airflow password from the container without exposing it on the command line."""
     env = os.environ.copy()
     env.pop("POSTGRES_PASSWORD", None)
     command = [
@@ -42,7 +42,7 @@ def standalone_password() -> str:
 
 
 async def capture(password: str, dag_ids: list[str], suffix: str = "") -> None:
-    """Đăng nhập Airflow và chụp Grid/Graph của DAG đã chọn thành PNG."""
+    """Log in to Airflow and capture the Grid/Graph of the selected DAGs as PNG."""
     OUTPUT.mkdir(parents=True, exist_ok=True)
     async with chrome_page() as page:
         await page.navigate(f"{BASE_URL}/login/")
@@ -51,7 +51,7 @@ async def capture(password: str, dag_ids: list[str], suffix: str = "") -> None:
             "&& document.querySelector('input[name=\"password\"]'))"
         )
         if not form_present:
-            raise RuntimeError("Không thấy form đăng nhập Airflow")
+            raise RuntimeError("Airflow login form not found")
         await page.evaluate(
             "(() => {"
             f"document.querySelector('input[name=\"username\"]').value = {json.dumps('admin')};"
@@ -65,7 +65,7 @@ async def capture(password: str, dag_ids: list[str], suffix: str = "") -> None:
                 break
             await asyncio.sleep(0.5)
         else:
-            raise RuntimeError("Airflow không chấp nhận đăng nhập")
+            raise RuntimeError("Airflow did not accept the login")
 
         for dag_id in dag_ids:
             for view in ("grid", "graph"):
@@ -73,7 +73,7 @@ async def capture(password: str, dag_ids: list[str], suffix: str = "") -> None:
                 await asyncio.sleep(3)
                 url = await page.evaluate("location.href")
                 if "/login/" in url:
-                    raise RuntimeError("Phiên đăng nhập hết hạn khi chụp DAG")
+                    raise RuntimeError("Login session expired while capturing the DAG")
                 image = await page.call(
                     "Page.captureScreenshot",
                     {
@@ -83,13 +83,13 @@ async def capture(password: str, dag_ids: list[str], suffix: str = "") -> None:
                 )
                 path = OUTPUT / f"{dag_id}-{view}{suffix}.png"
                 path.write_bytes(base64.b64decode(image["data"]))
-                print(f"Đã chụp {path.relative_to(ROOT)}")
+                print(f"Captured {path.relative_to(ROOT)}")
     await asyncio.sleep(0.5)
 
 
 def main() -> None:
-    """Đọc CLI và chạy phiên chụp."""
-    parser = argparse.ArgumentParser(description="Chụp bằng chứng Airflow UI")
+    """Parse the CLI and run the capture session."""
+    parser = argparse.ArgumentParser(description="Capture Airflow UI evidence")
     parser.add_argument(
         "--dag-id",
         action="append",
@@ -101,12 +101,14 @@ def main() -> None:
             "dp3_return_labels",
             "platform_runtime_config_check",
         ),
-        help="DAG cần chụp; bỏ trống để chụp DP1/DP2 mặc định",
+        help="DAG to capture; leave empty to capture the default DP1/DP2",
     )
-    parser.add_argument("--suffix", default="", help="hậu tố để giữ ảnh của các lần chạy trước")
+    parser.add_argument("--suffix", default="", help="suffix to keep images from previous runs")
     args = parser.parse_args()
     if args.suffix and not re.fullmatch(r"-[a-z0-9-]+", args.suffix):
-        parser.error("--suffix phải bắt đầu bằng '-' và chỉ có chữ thường, số, dấu '-'")
+        parser.error(
+            "--suffix must start with '-' and contain only lowercase letters, digits and '-'"
+        )
     dag_ids = args.dag_id or ["dp1_bronze", "dp2_silver"]
     asyncio.run(capture(standalone_password(), dag_ids, args.suffix))
 

@@ -1,4 +1,4 @@
-"""Langfuse và agentregistry dùng DB trên pgvector ⇒ tài khoản phải lấy từ Secret rag-pg, không từ .env laptop."""
+"""Langfuse and agentregistry use the pgvector DB ⇒ the account must come from the rag-pg Secret, not the laptop .env."""
 
 import os
 import subprocess
@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 @pytest.mark.parametrize("script", ["deploy_kind_langfuse.sh", "deploy_kind_agentregistry.sh"])
 def test_db_credentials_come_from_pgvector_secret(tmp_path, script):
-    """30/10: .env lệch Vault ⇒ Langfuse/agentregistry ghi URL DB sai. Biến shell cũ cũng không được thắng Secret."""
+    """30/10: .env drifted from Vault ⇒ Langfuse/agentregistry wrote a wrong DB URL. Stale shell variables must not beat the Secret either."""
     log = tmp_path / "calls.log"
     fake = tmp_path / "kubectl"
     fake.write_text(
@@ -26,7 +26,7 @@ def test_db_credentials_come_from_pgvector_secret(tmp_path, script):
         "sys.exit(1 if 'rollout' in args else 0)\n"
     )
     fake.chmod(0o755)
-    # Dừng script sau bước ghi Secret DB: không chạm helm/rollout/seed thật.
+    # Stop the script after the DB Secret write step: never touch real helm/rollout/seed.
     (tmp_path / "helm").write_text("#!/bin/sh\nexit 1\n")
     (tmp_path / "helm").chmod(0o755)
     env = {

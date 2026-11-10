@@ -1,4 +1,4 @@
-"""Kiểm Silver Order Line của TikTok Shop, Shopify và Shopee."""
+"""Validate Silver Order Lines for TikTok Shop, Shopify and Shopee."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse source and target identifiers for file-backed Silver validation."""
-    parser = argparse.ArgumentParser(description="Validate Silver cho ba Channel Batch")
+    parser = argparse.ArgumentParser(description="Validate Silver for the three Batch Channels")
     parser.add_argument("--channel", choices=ID_PATH, required=True)
     parser.add_argument("--source-table", required=True)
     parser.add_argument("--table", required=True)
@@ -43,7 +43,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     for value in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
     return args
 
 
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         silver = spark.table(target)
         missing = sorted(set(REQUIRED) - set(silver.columns))
         if missing:
-            raise ValueError(f"{target} thiếu cột: {missing}")
+            raise ValueError(f"{target} is missing columns: {missing}")
         source_orders = (
             bronze.select(F.get_json_object("payload", ID_PATH[args.channel]).alias("id"))
             .distinct()
@@ -84,20 +84,20 @@ def main(argv: list[str] | None = None) -> int:
             .limit(1)
             .count()
         )
-        print(f"nguồn Bronze             = {source}")
-        print(f"đích Silver              = {target}")
-        print(f"Order nguồn duy nhất      = {source_orders:,}")
-        print(f"Order Silver duy nhất     = {counts['orders']:,}")
+        print(f"source Bronze             = {source}")
+        print(f"target Silver             = {target}")
+        print(f"source Orders unique      = {source_orders:,}")
+        print(f"Silver Orders unique      = {counts['orders']:,}")
         print(f"Order Line Silver         = {counts['rows']:,}")
-        print(f"dòng lỗi                 = {counts['invalid_rows'] or 0:,}")
-        print(f"có khóa Order Line trùng  = {bool(duplicates)}")
+        print(f"invalid rows              = {counts['invalid_rows'] or 0:,}")
+        print(f"duplicate Order Line keys = {bool(duplicates)}")
         if (
             not source_orders
             or counts["orders"] != source_orders
             or counts["invalid_rows"]
             or duplicates
         ):
-            raise ValueError("Silver validate thất bại")
+            raise ValueError("Silver validate failed")
         print("Silver validate: PASS")
         return 0
     finally:

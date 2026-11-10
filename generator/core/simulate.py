@@ -1,22 +1,22 @@
-"""Lõi mô phỏng: sinh các Order của một ngày cùng toàn bộ vòng đời của chúng.
+"""Simulation core: generate one day's Orders along with their whole lifecycle.
 
-Mỗi lần gọi `Simulator.simulate_day(day)` trả về các Order **được tạo** trong
-ngày `day`. Mỗi Order đã có sẵn cả tương lai của nó: lúc thanh toán, lúc gửi,
-lúc giao, có bị hủy không, dòng nào bị trả và trả lúc nào. Lõi không quan tâm
-tới `cutoff`. Việc cắt "đến hôm nay thấy được gì" là việc của lớp export và
-renderer, nhờ hàm `Order.status_at(t)`.
+Each call to `Simulator.simulate_day(day)` returns the Orders **created** on
+day `day`. Each Order already carries its whole future: when it is paid, shipped,
+delivered, whether it is cancelled, which lines are returned and when. The core ignores
+`cutoff`. Cutting down to "what is visible as of today" is the job of the export layer and
+the renderers, via `Order.status_at(t)`.
 
-Vòng đời một Order (thời gian tính từ lúc tạo):
+An Order's lifecycle (times measured from creation):
 
-    pending_payment ──(vài phút)──► awaiting_shipment ──(0,3 đến 3 ngày)──► shipped
-        ──(1 đến 6 ngày)──► delivered ──(3 đến 7 ngày)──► completed
+    pending_payment ──(a few minutes)──► awaiting_shipment ──(0.3 to 3 days)──► shipped
+        ──(1 to 6 days)──► delivered ──(3 to 7 days)──► completed
 
-Khoảng 3% Order bị hủy trong vòng 24 giờ sau khi thanh toán, trước khi gửi.
-Khi đó vòng đời dừng ở `cancelled` và các Order Line không có nhãn.
+About 3% of Orders are cancelled within 24 hours of payment, before shipping.
+The lifecycle then stops at `cancelled` and the Order Lines have no label.
 
-Livestream TikTok (sau `cutoff`): trong vài giờ của buổi live, số Order của
-TikTok Shop gấp `live_multiplier` lần bình thường. Phần Order thêm rút bằng bộ
-sinh riêng, nên các Order còn lại của ngày đó giống hệt khi không có live.
+TikTok livestream (after `cutoff`): during the few livestream hours, TikTok Shop gets
+`live_multiplier` times its normal Orders. The extra Orders are drawn with a separate
+generator, so the day's other Orders are identical to a day without a livestream.
 """
 
 from __future__ import annotations
@@ -48,22 +48,22 @@ from generator.core.rngs import rng_for, stable_int
 from generator.core.storefronts import CURRENCY_DECIMALS, POSTAL_PREFIX, STOREFRONTS, Storefront
 
 CANCEL_RATE = 0.03
-DISCOUNT_RATE = 0.25  # tỷ lệ Order Line có giảm giá
-EXTRA_LINES_MEAN = 0.45  # số Order Line thêm trung bình, nên trung bình khoảng 1,45 dòng mỗi Order
+DISCOUNT_RATE = 0.25  # share of Order Lines with a discount
+EXTRA_LINES_MEAN = 0.45  # mean extra Order Lines, so about 1.45 lines per Order on average
 MAX_LINES = 5
-CITY_ZIPF_EXPONENT = 1.3  # vài thành phố lớn chiếm phần lớn Order (skew địa lý)
-BUYERS_PER_ORDER = 0.5  # quy mô tập buyer so với số Order, nhỏ hơn 1 nên có buyer mua lại
-GUEST_SHARE = {"shopify": 0.20, "walmart_us": 0.10}  # khách không đăng nhập
-DISCOUNT_RANGE = (0.05, 0.30)  # mức giảm giá ngày thường
-SALE_DISCOUNT_RANGE = (0.20, 0.40)  # mức giảm giá ngày Sale Event
+CITY_ZIPF_EXPONENT = 1.3  # a few large cities take most Orders (geographic skew)
+BUYERS_PER_ORDER = 0.5  # buyer pool size relative to Order count; below 1 so some buyers buy again
+GUEST_SHARE = {"shopify": 0.20, "walmart_us": 0.10}  # guest checkouts
+DISCOUNT_RANGE = (0.05, 0.30)  # discount range on normal days
+SALE_DISCOUNT_RANGE = (0.20, 0.40)  # discount range on Sale Event days
 
 
 @dataclass(frozen=True)
 class BuyerPool:
-    """Tập buyer cố định của một Storefront, sinh một lần lúc khởi tạo.
+    """A Storefront's fixed buyer pool, generated once at init.
 
-    Buyer thứ i luôn ở cùng thành phố và mã bưu chính, nên mỗi lần buyer đó mua lại
-    thì địa chỉ không đổi. Lưu dạng mảng numpy để gọn bộ nhớ.
+    Buyer i always has the same city and postal code, so the address stays the same
+    each time that buyer buys again. Stored as numpy arrays to save memory.
     """
 
     storefront: Storefront
@@ -72,7 +72,7 @@ class BuyerPool:
     is_guest: np.ndarray
 
     def buyer(self, i: int) -> Buyer:
-        """Tạo đối tượng `Buyer` cho buyer thứ `i` của Storefront."""
+        """Build the `Buyer` object for the Storefront's buyer `i`."""
         city = self.storefront.cities[int(self.city_index[i])]
         return Buyer(
             buyer_id=f"{self.storefront.storefront_id}-B{i:07d}",
@@ -83,14 +83,14 @@ class BuyerPool:
         )
 
 
-# Chữ cái được dùng ở inward code của Anh (bỏ C, I, K, M, O, V vì dễ nhầm).
+# Letters used in UK inward codes (C, I, K, M, O, V excluded as easily confused).
 _UK_INWARD_LETTERS = "ABDEFGHJLNPQRSTUWXYZ"
 
 
 def postal_code(country: str, city: str, suffix: int) -> str:
-    """Tạo mã bưu chính đúng định dạng của `country`, thuộc vùng của `city`.
+    """Build a postal code in `country`'s format, within `city`'s area.
 
-    `suffix` (0 đến 999) phân biệt các địa chỉ trong cùng thành phố. Ví dụ với suffix 248:
+    `suffix` (0 to 999) distinguishes addresses within the same city. E.g. with suffix 248:
     New York `10048`, Berlin `10248`, London `SW9 2WT`, Hanoi `10248`.
     """
     prefix = POSTAL_PREFIX[city]
@@ -101,15 +101,15 @@ def postal_code(country: str, city: str, suffix: int) -> str:
         letters = _UK_INWARD_LETTERS
         h = stable_int("postal", city, suffix)
         return f"{prefix}{district} {suffix // 100}{letters[h % 20]}{letters[h // 20 % 20]}"
-    # Đức và Việt Nam: 2 số đầu theo vùng, 3 số sau.
+    # Germany and Vietnam: first 2 digits by area, then 3 digits.
     return f"{prefix}{suffix:03d}"
 
 
 class Simulator:
-    """Giữ các thứ cố định của thế giới (SKU, buyer) và sinh Order theo ngày."""
+    """Holds the fixed parts of the world (SKUs, buyers) and generates Orders per day."""
 
     def __init__(self, config: GeneratorConfig) -> None:
-        """Dựng danh mục SKU và tập buyer từ cấu hình."""
+        """Build the SKU catalog and buyer pools from the config."""
         self.config = config
         self.catalog: Catalog = build_catalog(config)
         self.storefronts = [STOREFRONTS[s] for s in config.storefront_weights]
@@ -118,9 +118,9 @@ class Simulator:
             s.storefront_id: self._build_buyer_pool(s, w)
             for s, w in zip(self.storefronts, self.storefront_weights)
         }
-        # Sale Event chỉ diễn ra ở các Storefront Amazon.
+        # The Sale Event only happens on the Amazon Storefronts.
         self.is_amazon = np.array([s.channel == "amazon" for s in self.storefronts])
-        # Hệ số burst của livestream, rút một lần cho cả lần chạy.
+        # Livestream burst multiplier, drawn once for the whole run.
         live = config.drift.tiktok_live
         self.live_multiplier = (
             float(rng_for(config.seed, "tiktok_live").uniform(*live.burst_multiplier))
@@ -129,12 +129,12 @@ class Simulator:
         )
 
     def is_sale_day(self, day: int) -> bool:
-        """Ngày mô phỏng `day` có thuộc một Sale Event (Prime Day) không."""
+        """Whether simulated day `day` is part of a Sale Event (Prime Day)."""
         sale = self.config.drift.prime_day
         return sale is not None and sale.covers(day)
 
     def _build_buyer_pool(self, storefront: Storefront, weight: float) -> BuyerPool:
-        """Sinh tập buyer của một Storefront, quy mô tỷ lệ với lượng Order dự kiến."""
+        """Generate a Storefront's buyer pool, sized in proportion to its expected Orders."""
         rng = rng_for(self.config.seed, "buyers", storefront.storefront_id)
         expected_orders = self.config.scale.orders_per_day * self.config.scale.days_history * weight
         size = max(10, int(expected_orders * BUYERS_PER_ORDER))
@@ -151,17 +151,17 @@ class Simulator:
         )
 
     def simulate_day(self, day: int) -> Iterator[Order]:
-        """Sinh mọi Order được tạo trong ngày `day`, theo thứ tự `created_at`.
+        """Generate every Order created on day `day`, in `created_at` order.
 
-        Trả iterator để không giữ cả ngày trong RAM; vẫn tiền định vì mỗi ngày có `rng` riêng.
-        Ngày TikTok livestream là ngoại lệ: phải gom cả ngày để trộn Order của buổi live đúng thứ tự.
+        Returns an iterator so the whole day is not held in RAM; still deterministic since each day has its own `rng`.
+        The TikTok livestream day is the exception: the whole day is collected to merge the livestream Orders in order.
         """
         rng = rng_for(self.config.seed, "orders", day)
         day_start = self.config.day_start(day)
         sale_day = self.is_sale_day(day)
 
-        # Ngày sale: Order của Storefront Amazon nhân lên, nên tổng Order trong ngày
-        # tăng theo phần Amazon chiếm, còn tỷ trọng giữa các Storefront lệch hẳn về Amazon.
+        # Sale day: Amazon Storefront Orders are multiplied, so the day's total Orders
+        # grow by Amazon's share, and the mix across Storefronts tilts heavily toward Amazon.
         weights = self.storefront_weights
         expected = self.config.scale.orders_per_day
         if sale_day:
@@ -178,7 +178,7 @@ class Simulator:
             len(self.catalog.skus), size=int(n_lines.sum()), p=self.catalog.popularity
         )
         if sale_day:
-            # Dòng của Storefront Amazon rút lại theo phân phối SKU của ngày sale.
+            # Amazon Storefront lines are redrawn from the sale-day SKU distribution.
             on_sale = self.is_amazon[np.repeat(storefront_idx, n_lines)]
             sku_idx[on_sale] = rng.choice(
                 len(self.catalog.skus), size=int(on_sale.sum()), p=self.catalog.sale_popularity
@@ -186,7 +186,7 @@ class Simulator:
         created_offsets = np.sort(rng.uniform(0, 86_400, size=n_orders))
 
         def created_orders() -> Iterator[Order]:
-            """Các Order thường của ngày, đã theo thứ tự vì `created_offsets` đã sort."""
+            """The day's regular Orders, already ordered because `created_offsets` is sorted."""
             next_sku = 0
             for i in range(n_orders):
                 storefront = self.storefronts[storefront_idx[i]]
@@ -211,11 +211,11 @@ class Simulator:
         yield from orders
 
     def _live_orders(self, day: int, first_number: int) -> list[Order]:
-        """Order thêm của TikTok Shop trong buổi livestream của ngày `day`.
+        """Extra TikTok Shop Orders during the livestream on day `day`.
 
-        Tốc độ thường của TikTok Shop là `orders_per_day * tỷ trọng / 24` mỗi giờ.
-        Trong buổi live, thêm `(live_multiplier - 1)` lần tốc độ đó, nên tổng tốc độ
-        gấp `live_multiplier` lần.
+        TikTok Shop's normal rate is `orders_per_day * share / 24` per hour.
+        During the livestream, `(live_multiplier - 1)` times that rate is added, so the total rate
+        is `live_multiplier` times normal.
         """
         live = self.config.drift.tiktok_live
         idx = next(
@@ -251,7 +251,7 @@ class Simulator:
         rng: np.random.Generator,
         sale_day: bool = False,
     ) -> Order:
-        """Tạo một Order với vòng đời đầy đủ, rồi quyết định Return cho từng dòng."""
+        """Create an Order with its full lifecycle, then decide the Return for each line."""
         pool = self.buyer_pools[storefront.storefront_id]
         buyer = pool.buyer(int(rng.integers(len(pool.city_index))))
 
@@ -259,14 +259,14 @@ class Simulator:
         fulfillment = FULFILLED_BY_CHANNEL if by_channel else FULFILLED_BY_SELLER
         is_prime = storefront.channel == "amazon" and by_channel and rng.random() < 0.6
 
-        # Ngày giao dự kiến Channel hứa lúc đặt hàng.
+        # Estimated delivery date the Channel promises at order time.
         promise_days = (1, 3) if is_prime else (3, 5) if by_channel else (4, 8)
         promised = (
             created_at + timedelta(days=promise_days[0]),
             created_at + timedelta(days=promise_days[1]),
         )
 
-        # Vòng đời thật.
+        # The actual lifecycle.
         paid_at = created_at + timedelta(minutes=float(rng.exponential(10)))
         timeline = [
             StatusChange(created_at, PENDING_PAYMENT),
@@ -314,11 +314,11 @@ class Simulator:
         rng: np.random.Generator,
         sale_day: bool = False,
     ) -> OrderLine:
-        """Tạo một Order Line: giá, giảm giá, số lượng, và kết quả Return.
+        """Create an Order Line: price, discount, quantity, and the Return outcome.
 
-        Trong ngày Sale Event, dòng của Storefront Amazon được giảm giá nhiều hơn
-        và sâu hơn. Vì mức giảm giá nằm trong hàm tính xác suất trả, tỷ lệ trả
-        của những ngày này cũng nhích lên. Đó chính là covariate drift.
+        On Sale Event days, Amazon Storefront lines are discounted more often
+        and more deeply. Since the discount is an input to the Return probability, the Return rate
+        of those days rises too. That is the covariate drift.
         """
         sku = self.catalog.skus[sku_index]
         decimals = CURRENCY_DECIMALS[storefront.currency]

@@ -1,4 +1,4 @@
-"""Phát lại Return pipeline A: chuẩn thời gian cho Flink, khoá bỏ trùng theo Order Line."""
+"""Pipeline A Return replay: Flink time format, dedup key per Order Line."""
 
 import pytest
 
@@ -14,7 +14,7 @@ from feature_repo.replay_return_events import event_ms, to_event
     ],
 )
 def test_event_time_is_utc_millis_for_flink(raw):
-    """Trino trả nhiều dạng ISO; Flink cắt 23 ký tự đầu ⇒ phải luôn là UTC, đúng mili giây."""
+    """Trino returns several ISO forms; Flink takes the first 23 characters ⇒ must always be UTC, exact to the millisecond."""
     event = to_event({"seller_sku": "APP-00042", "label_available_at": raw, "order_line_key": "k1"})
     assert event["effective_at"] == "2026-06-29T13:05:07.123Z"
     assert (event["event_type"], event["quantity"], event["seller_sku"]) == (
@@ -25,7 +25,7 @@ def test_event_time_is_utc_millis_for_flink(raw):
 
 
 def test_dedup_key_follows_order_line():
-    """Cùng Order Line phát lại ⇒ cùng khoá (Flink giữ bản đầu); line khác ⇒ khoá khác."""
+    """Replaying the same Order Line ⇒ same key (Flink keeps the first); a different line ⇒ a different key."""
     row = {
         "seller_sku": "APP-00042",
         "label_available_at": "2026-06-29T13:05:07",
@@ -38,7 +38,7 @@ def test_dedup_key_follows_order_line():
 
 
 def test_feast_apply_skips_helper_scripts():
-    """`feast apply` import mọi .py trong repo (Python 3.10 ở Airflow) ⇒ script ngoài features.py phải nằm trong .feastignore."""
+    """`feast apply` imports every .py in the repo (Python 3.10 in Airflow) ⇒ scripts other than features.py must be in .feastignore."""
     from pathlib import Path
 
     repo = Path(__file__).resolve().parents[2] / "feature_repo"
@@ -49,7 +49,7 @@ def test_feast_apply_skips_helper_scripts():
 
 
 def test_event_ms_matches_event_time_for_watermark():
-    """Timestamp bản ghi Kafka = effective_at: job PyFlink sinh watermark theo partition từ giá trị này."""
+    """Kafka record timestamp = effective_at: the PyFlink job derives per-partition watermarks from this value."""
     event = to_event(
         {
             "label_available_at": "2026-06-27 01:00:00.123 UTC",

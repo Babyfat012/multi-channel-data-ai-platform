@@ -100,7 +100,7 @@ def main() -> None:
             )
             return
         if not duplicate:
-            raise RuntimeError("Không còn partition nhiều file để gom")
+            raise RuntimeError("No partitions with many files left to compact")
         dates = [str(row["export_date"]) for row in duplicate]
         before_query = query_stats(spark, dates)
         print(
@@ -151,9 +151,9 @@ def main() -> None:
             before_files["rows"] != after_files["rows"]
             or before_query["result"] != after_query["result"]
         ):
-            raise RuntimeError("Compaction làm thay đổi dữ liệu truy vấn")
+            raise RuntimeError("Compaction changed the query data")
         if after_files["files"] >= before_files["files"]:
-            raise RuntimeError("Compaction không giảm số file")
+            raise RuntimeError("Compaction did not reduce the file count")
     finally:
         spark.stop()
 

@@ -1,4 +1,4 @@
-"""Công bố batch A/B: con trỏ S3, cache ngắn và lease đọc được bảo vệ trong Redis DB0."""
+"""A/B batch publication: S3 pointer, short cache and guarded read leases in Redis DB0."""
 
 from __future__ import annotations
 
@@ -23,22 +23,22 @@ BATCH_FIELDS = (
 
 
 class FeatureDataUnavailable(RuntimeError):
-    """Không đủ căn cứ để phục vụ một bản batch đã công bố."""
+    """Not enough grounds to serve a published batch release."""
 
 
 class PublicationBusy(RuntimeError):
-    """Writer khác hoặc lượt đọc cũ đang giữ slot; dừng để thử lại sau."""
+    """Another writer or an old read holds the slot; stop and retry later."""
 
 
 def redis_database(connection, database):
-    """Chọn DB theo cú pháp Feast, giữ host/auth và các tùy chọn khác."""
+    """Select the DB using Feast syntax, keeping host/auth and other options."""
     parts = [p for p in connection.split(",") if not p.startswith("db=")]
     return ",".join([*parts, f"db={database}"])
 
 
 @dataclass(frozen=True)
 class Release:
-    """Danh tính một bản đã đối soát, không đổi khi con trỏ active chuyển bản."""
+    """Identity of a reconciled release; does not change when the active pointer moves to another release."""
 
     release_id: str
     database: int
@@ -49,7 +49,7 @@ class Release:
 
     @classmethod
     def from_document(cls, document):
-        """Chỉ cho reader sử dụng manifest đã đạt đối soát ở slot batch hợp lệ."""
+        """Let readers use only a manifest that passed reconciliation in a valid batch slot."""
         if document.get("validation") != "passed" or document.get("database") not in (1, 2):
             raise FeatureDataUnavailable("batch manifest is not validated")
         if not document.get("release_id") or not document.get("registry_uri"):
@@ -72,7 +72,7 @@ class Release:
 
 
 def s3_location(uri):
-    """Đọc bucket/key S3, không nhận đường dẫn không xác định."""
+    """Parse the S3 bucket/key; reject undetermined paths."""
     parsed = urlsplit(uri)
     if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.strip("/"):
         raise ValueError("publication requires an s3://bucket/key path")
@@ -80,10 +80,10 @@ def s3_location(uri):
 
 
 class S3Catalog:
-    """Manifest bất biến và active pointer có conditional write để tránh ghi đè công bố khác."""
+    """Immutable manifests and an active pointer with conditional writes to avoid overwriting another publication."""
 
     def __init__(self, root, client=None):
-        """Dùng IAM role trên AWS hoặc endpoint/credential local đã cấu hình."""
+        """Use the IAM role on AWS or the configured local endpoint/credentials."""
         if client is None:
             import boto3
 
@@ -91,13 +91,13 @@ class S3Catalog:
         self.root, self.client = root.rstrip("/"), client
 
     def read_json(self, uri):
-        """Đọc object JSON cùng ETag để dùng khi công bố có điều kiện."""
+        """Read a JSON object with its ETag for conditional publication."""
         bucket, key = s3_location(uri)
         response = self.client.get_object(Bucket=bucket, Key=key)
         return json.loads(response["Body"].read()), response["ETag"]
 
     def pointer(self):
-        """Chỉ NoSuchKey là bootstrap; lỗi quyền/mạng phải được truyền lên."""
+        """Only NoSuchKey means bootstrap; permission/network errors must propagate."""
         from botocore.exceptions import ClientError
 
         try:
@@ -108,7 +108,7 @@ class S3Catalog:
             raise
 
     def current(self):
-        """Giải con trỏ thành manifest, kiểm danh tính trùng khớp."""
+        """Resolve the pointer to a manifest and check that the identities match."""
         pointer, _ = self.pointer()
         if pointer is None:
             raise FeatureDataUnavailable("batch has no published release")
@@ -119,7 +119,7 @@ class S3Catalog:
         return release
 
     def write_json(self, uri, document, **conditions):
-        """Ghi nguyên object; caller chọn điều kiện IfMatch/IfNoneMatch."""
+        """Write the whole object; the caller chooses the IfMatch/IfNoneMatch condition."""
         bucket, key = s3_location(uri)
         self.client.put_object(
             Bucket=bucket,
@@ -130,7 +130,7 @@ class S3Catalog:
         )
 
     def publish(self, document, previous_etag):
-        """Lưu proof trước, chỉ đổi active sau khi manifest hợp lệ đã tồn tại."""
+        """Store the proof first; switch active only once a valid manifest exists."""
         release = Release.from_document(document)
         uri = f"{self.root}/releases/{release.release_id}/manifest.json"
         self.write_json(uri, document, IfNoneMatch="*")
@@ -143,10 +143,10 @@ class S3Catalog:
 
 
 class ReleaseCache:
-    """Cache active tối đa TTL; lỗi refresh không được giữ bản cũ vô thời hạn."""
+    """Cache active for at most TTL; a failed refresh must not keep the old release indefinitely."""
 
     def __init__(self, load, ttl=5, clock=time.monotonic):
-        """Inject loader/clock để kiểm cutover mà không ngủ trong test."""
+        """Inject loader/clock to test cutover without sleeping in tests."""
         if ttl <= 0:
             raise ValueError("cache TTL must be positive")
         self.load, self.ttl, self.clock = load, ttl, clock
@@ -154,7 +154,7 @@ class ReleaseCache:
         self._lock = threading.Lock()
 
     def current(self, force=False):
-        """Trả đối tượng bất biến: request cũ giữ A dù cache đã chuyển B."""
+        """Return an immutable object: an old request keeps A even after the cache moved to B."""
         with self._lock:
             if force or self._release is None or self.clock() >= self._until:
                 release = self.load()
@@ -162,7 +162,7 @@ class ReleaseCache:
             return self._release
 
 
-# Đồng hồ Redis tránh dùng thời gian khác nhau giữa các Pod/EC2.
+# The Redis clock avoids differing times across Pods/EC2.
 _NOW = "local t=redis.call('TIME'); local now=t[1]*1000+math.floor(t[2]/1000); "
 _ACQUIRE = (
     _NOW
@@ -203,19 +203,19 @@ _UNLOCK = (
 
 
 class RedisLeases:
-    """Reader lease có hạn và generation fence ngăn tái dùng slot khi request cũ còn đọc."""
+    """Expiring reader leases and a generation fence prevent slot reuse while old requests are still reading."""
 
     def __init__(self, client, prefix="platform:batch-publication", seconds=30):
-        """Control nằm DB0; không ghi control vào DB1/2 sẽ được dùng lại."""
+        """Control lives in DB0; never write control into DB1/2, which get reused."""
         self.client, self.prefix, self.seconds = client, prefix, seconds
         self.writer_key = f"{prefix}:writer"
 
     def keys(self, database):
-        """Cùng slot có trạng thái generation và tập lease riêng."""
+        """Each slot has its own generation state and lease set."""
         return [f"{self.prefix}:slot:{database}", f"{self.prefix}:readers:{database}"]
 
     def acquire(self, release):
-        """Trả token nếu generation còn ready; con trỏ cache cũ bị fence sẽ phải refresh."""
+        """Return a token if the generation is still ready; a fenced stale cached pointer must refresh."""
         token = uuid.uuid4().hex
         ok = self.client.eval(
             _ACQUIRE,
@@ -228,19 +228,19 @@ class RedisLeases:
         return token if ok else None
 
     def finish(self, release, token):
-        """Chỉ được trả dữ liệu nếu lease vẫn còn hiệu lực khi đọc xong."""
+        """Data may be returned only if the lease is still valid when the read finishes."""
         if not self.client.eval(
             _FINISH, 2, *self.keys(release.database), release.release_id, token
         ):
             raise FeatureDataUnavailable("batch read lease expired; result discarded")
 
     def cancel(self, release, token):
-        """Dọn lease khi đọc lỗi; nếu dọn thất bại, lease tự hết hạn."""
+        """Clean up the lease when a read fails; if cleanup fails, the lease expires on its own."""
         self.client.zrem(self.keys(release.database)[1], token)
 
     @contextmanager
     def writer(self):
-        """Một writer, không tự hết hạn: crash cần người vận hành xác minh trước khi mở khóa."""
+        """One writer, no auto-expiry: after a crash an operator must verify before unlocking."""
         owner = uuid.uuid4().hex
         if not self.client.set(self.writer_key, owner, nx=True):
             raise PublicationBusy("batch publisher locked; inspect previous run before unlocking")
@@ -250,7 +250,7 @@ class RedisLeases:
             self.client.eval(_UNLOCK, 1, self.writer_key, owner)
 
     def prepare(self, database, release_id, owner):
-        """Đóng nhận reader generation cũ trước khi writer được xóa/nạp lại slot."""
+        """Stop admitting readers of the old generation before the writer may clear/reload the slot."""
         if not self.client.eval(
             _PREPARE,
             3,
@@ -262,7 +262,7 @@ class RedisLeases:
             raise PublicationBusy("batch slot still has readers or writer lost ownership")
 
     def ready(self, database, release_id, owner):
-        """Đánh dấu generation đã đối soát, trước conditional publish S3."""
+        """Mark the generation as reconciled, before the conditional S3 publish."""
         if not self.client.eval(
             _READY,
             2,
@@ -275,7 +275,7 @@ class RedisLeases:
 
 
 def make_store(repo, connection, registry=None):
-    """Tạo config riêng cho từng store, không đổi os.environ dùng chung giữa request."""
+    """Build a separate config per store without changing the os.environ shared between requests."""
     import yaml
     from feast import FeatureStore
     from feast.repo_config import RepoConfig
@@ -288,7 +288,7 @@ def make_store(repo, connection, registry=None):
 
 
 def redis_client(store, database=0):
-    """Dùng parser Redis của Feast đã pin, giữ auth và chọn đúng logical DB."""
+    """Use the pinned Feast Redis parser, keeping auth and selecting the right logical DB."""
     from feast.infra.online_stores.redis import RedisOnlineStore
 
     config = store.config.online_store.model_copy(deep=True)
@@ -297,28 +297,28 @@ def redis_client(store, database=0):
 
 
 class FeatureResult:
-    """Kết quả ghép batch đã pin và stream, giữ giao diện mà API/predictor đang dùng."""
+    """Combined result of the pinned batch and stream, keeping the interface the API/predictor use."""
 
     def __init__(self, columns, release=None):
-        """Đính kèm bản đã đọc để response không nhầm với bản vừa được công bố sau đó."""
+        """Attach the release that was read so the response is not confused with one published afterwards."""
         self.columns, self.release = columns, release
 
     def to_dict(self):
-        """Giữ hình dạng cột→list của OnlineResponse Feast."""
+        """Keep the column→list shape of Feast's OnlineResponse."""
         return self.columns
 
     def to_df(self):
-        """Predictor cần DataFrame, chỉ import pandas khi dùng."""
+        """The predictor needs a DataFrame; import pandas only when used."""
         import pandas as pd
 
         return pd.DataFrame(self.columns)
 
 
 class PublishedFeatureStore:
-    """Reader batch dùng active trên S3; stream tiếp tục DB0 với registry cũ."""
+    """The batch reader uses the active release on S3; stream keeps DB0 with the old registry."""
 
     def __init__(self, stream, cache, leases, batch_factory):
-        """Transport/config được inject để unit test không cần Feast/AWS."""
+        """Transport/config are injected so unit tests need no Feast/AWS."""
         self.stream, self.cache, self.leases, self.batch_factory = (
             stream,
             cache,
@@ -328,7 +328,7 @@ class PublishedFeatureStore:
         self._stores, self._lock = {}, threading.Lock()
 
     def _pin(self):
-        """Cached generation bị thu hồi thì refresh active một lần, không đọc slot đang nạp."""
+        """If the cached generation was reclaimed, refresh active once; never read a slot being loaded."""
         for force in (False, True):
             release = self.cache.current(force=force)
             token = self.leases.acquire(release)
@@ -337,7 +337,7 @@ class PublishedFeatureStore:
         raise FeatureDataUnavailable("published batch is unavailable or being reclaimed")
 
     def get_online_features(self, features, entity_rows, **kwargs):
-        """Ghim một bản cho toàn bộ nhóm batch trong lần đọc; lease bao quanh việc lấy dữ liệu."""
+        """Pin one release for the whole batch group in a read; the lease wraps the data fetch."""
         batch = [f for f in features if f.split(":", 1)[0] == BATCH_VIEW]
         stream = [f for f in features if f not in batch]
         columns, release = {}, None
@@ -376,14 +376,14 @@ class PublishedFeatureStore:
         return FeatureResult(columns, release)
 
     async def get_online_features_async(self, **kwargs):
-        """Giữ I/O S3/Redis đồng bộ ngoài event loop FastAPI."""
+        """Keep synchronous S3/Redis I/O off the FastAPI event loop."""
         import asyncio
 
         return await asyncio.to_thread(self.get_online_features, **kwargs)
 
 
 def load_published_store(repo):
-    """Opt-in qua FEAST_PUBLICATION_ROOT; reader cũ giữ nguyên đến khi migration được bật."""
+    """Opt-in via FEAST_PUBLICATION_ROOT; the old reader stays as is until the migration is enabled."""
     connection = os.environ["FEAST_REDIS"]
     stream = make_store(repo, redis_database(connection, 0))
     catalog = S3Catalog(os.environ["FEAST_PUBLICATION_ROOT"])

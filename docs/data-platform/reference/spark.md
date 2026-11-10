@@ -150,7 +150,7 @@ Kết quả **ngược kỳ vọng**: bật AQE **chậm hơn** (72,3s → 81,7s
 > **Phần KHÔNG bị nhiễu ảnh hưởng và vẫn đứng vững**, vì là số đếm và phân bố chứ không phải bấm
 > giờ: AQE gộp **200 task → 8 task**; chỉ **19/200 task có dữ liệu** (181 task rỗng); task nặng
 > nhất ôm đúng **2.173.164 dòng** và **384,5 MiB** shuffle read — ba số này giống hệt nhau qua cả
-> lần `lan1` và cả ba lần chạy đối chứng. Kết luận ở mục (c) dưới đây dựa trên các số này, nên nó
+> lần `run1` và cả ba lần chạy đối chứng. Kết luận ở mục (c) dưới đây dựa trên các số này, nên nó
 > không bị lung lay.
 
 ### c. Vì sao AQE không chữa được skew của job này
@@ -387,9 +387,9 @@ bash scripts/setup/setup_lakekeeper.sh                                          
 
 **Chạy job** (script chạy cả ba lần hoặc từng lần):
 ```bash
-bash scripts/evidence/measure_order_snapshots_bronze.sh lan3   # 180 ngày, AQE on  → bảng thật
-bash scripts/evidence/measure_order_snapshots_bronze.sh lan1   # 20 ngày, AQE off  → ảnh skew
-bash scripts/evidence/measure_order_snapshots_bronze.sh lan2   # 20 ngày, AQE on   → ảnh so sánh
+bash scripts/evidence/measure_order_snapshots_bronze.sh run3   # 180 ngày, AQE on  → bảng thật
+bash scripts/evidence/measure_order_snapshots_bronze.sh run1   # 20 ngày, AQE off  → ảnh skew
+bash scripts/evidence/measure_order_snapshots_bronze.sh run2   # 20 ngày, AQE on   → ảnh so sánh
 ```
 
 **Chạy lại loạt thí nghiệm skew của mục 5f** (mỗi lần ghi một bảng thử, đo xong thì `DROP TABLE
@@ -400,7 +400,7 @@ bash scripts/evidence/measure_order_snapshots_bronze.sh skew_a   # shuffle.parti
 bash scripts/evidence/measure_order_snapshots_bronze.sh skew_b   # distribution-mode=none
 bash scripts/evidence/measure_order_snapshots_bronze.sh skew_c   # distribution-mode=range
 ```
-Bốn đích này **không** nằm trong `tatca`, và **không** ghi vào hai bảng thật. Mỗi lần
+Bốn đích này **không** nằm trong `all`, và **không** ghi vào hai bảng thật. Mỗi lần
 `spark-submit` để lại ~108 MB jar trong `/opt/spark/work` của **mỗi** worker — chạy nhiều thì
 thư mục đó phình, xoá được vì chỉ chứa jar tải lại được cộng `stderr`/`stdout`
 (**đừng** chạm `out/spark-events`, đó mới là bằng chứng).

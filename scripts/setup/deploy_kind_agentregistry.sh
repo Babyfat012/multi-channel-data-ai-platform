@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Cài agentregistry vào kind platform (ns agentregistry), DB = database `agentregistry` trên pgvector (ns rag).
+# Install agentregistry into kind platform (ns agentregistry), DB = database `agentregistry` on pgvector (ns rag).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 KC="kubectl --context ${KCTX:-kind-platform}"
-# Tài khoản DB = chính tài khoản của pgvector (Secret rag-pg), không lấy .env/biến shell: lệch là app không vào được DB.
+# DB account = pgvector's own account (Secret rag-pg), never .env/shell variables: any mismatch locks the app out of the DB.
 pg() { $KC -n rag get secret rag-pg -o jsonpath="{.data.$1}" | base64 -d; }
 POSTGRES_USER=$(pg POSTGRES_USER); POSTGRES_PASSWORD=$(pg POSTGRES_PASSWORD)
 $KC -n rag exec deploy/pgvector -- sh -c \

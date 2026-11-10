@@ -70,14 +70,14 @@ def resolve_rag_env(
     *,
     storage: str = "minio",
 ) -> dict[str, str]:
-    """Env cho `rag.pipeline`: pgvector + registry RAG; MinIO cần key, S3 (AWS) dùng IAM role của máy."""
+    """Env for `rag.pipeline`: pgvector + RAG registry; MinIO needs keys, S3 (AWS) uses the machine's IAM role."""
     if storage not in {"minio", "s3"}:
         raise ValueError(f"unknown runtime storage: {storage!r}")
     pg = connections["platform_rag_pg"]
     if not pg.get("host"):
-        # AWS: pgvector là NodePort trên node EKS, IP đổi mỗi lần node thay ⇒ Ansible -e rag_pg=<IP>:30432.
+        # AWS: pgvector is a NodePort on an EKS node, the IP changes whenever the node is replaced ⇒ Ansible -e rag_pg=<IP>:30432.
         raise ValueError(
-            "platform_rag_pg chưa có host: chạy Ansible với -e rag_pg=<IP node EKS>:30432"
+            "platform_rag_pg has no host: run Ansible with -e rag_pg=<EKS node IP>:30432"
         )
     root = variables["platform_rag_root"]
     env = {

@@ -1,7 +1,7 @@
-"""Tạo MCP DataHub v2 từ bảng thật, hợp đồng và receipt; mặc định chỉ in offline.
+"""Build v2 DataHub MCPs from real tables, contracts and receipts; prints offline by default.
 
-Chỉ --publish mới gửi mạng. --dry-run xuất đúng danh sách MCP dùng khi gửi thật,
-không import SDK và không tự chạy Spark hoặc biến số cách ly thành check lỗi.
+Only --publish sends over the network. --dry-run outputs exactly the MCP list used for a real send,
+without importing the SDK, running Spark, or turning quarantine counts into failing checks.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ TASKS = ("check_contracts", "ingest_bronze", "build_silver", "build_gold", "vali
 
 
 def constants(filename):
-    """Đọc hằng bằng AST để không cần import pyspark hoặc thực thi job."""
+    """Read constants via AST so pyspark need not be imported and no job is executed."""
     tree = ast.parse((ROOT / "spark_jobs" / filename).read_text())
     values = {}
     for node in tree.body:
@@ -35,7 +35,7 @@ def constants(filename):
 
 
 def inventory():
-    """Lấy tên bảng mặc định và các tuple bảng từ code job đang thực sự ghi."""
+    """Get default table names and table tuples from the job code that actually writes them."""
     bronze = constants("bronze/ingest_order_lifecycle.py")
     silver = constants("silver/build_order_lifecycle.py")
     gold = constants("lib/order_lifecycle_gold.py")
@@ -59,18 +59,18 @@ def inventory():
     gold_names = {
         n: f"lakehouse.gold.lifecycle_{n.removesuffix('_v2')}" for n in gold["GOLD_TABLES"]
     }
-    # Gold đọc CHỈ Silver (lịch sử quan sát + coverage validity nằm ở Silver), không còn Bronze.
+    # Gold reads ONLY Silver (observation history + coverage validity live in Silver), no longer Bronze.
     gold_inputs = [silver_names[n] for n in gold["SILVER_TABLES"]]
     return bronze_name, silver_names, gold_names, gold_inputs
 
 
 def dataset_urn(name, platform="iceberg"):
-    """Tạo URN theo platform và namespace v2, không dùng bảng lịch sử v1."""
+    """Build a URN from platform and the v2 namespace, never the historical v1 tables."""
     return f"urn:li:dataset:(urn:li:dataPlatform:{platform},{name},PROD)"
 
 
 def mcp(entity_type, urn, aspect_name, value):
-    """Đóng gói MetadataChangeProposal đúng dạng REST JSON của DataHub."""
+    """Wrap a MetadataChangeProposal in DataHub's exact REST JSON shape."""
     return {
         "entityType": entity_type,
         "entityUrn": urn,
@@ -84,7 +84,7 @@ def mcp(entity_type, urn, aspect_name, value):
 
 
 def schema_fields(schema, prefix="", optional=False):
-    """Trải JSON Schema hoặc Spark StructType, giữ đường dẫn và nullable gốc."""
+    """Flatten a JSON Schema or Spark StructType, keeping the original paths and nullability."""
     fields = []
     spark = schema.get("type") == "struct"
     entries = (
@@ -137,7 +137,7 @@ def schema_fields(schema, prefix="", optional=False):
 
 
 def source_inventory(contracts_dir, source_root, walmart_jdbc):
-    """Đọc schema hợp đồng cho từng feed; dùng manifest nếu có để lấy thư mục thật."""
+    """Read the contract schema for each feed; use the manifest, if present, for the real directory."""
     registry = json.loads((contracts_dir / "registry.json").read_text())
     source_uri = str(source_root).rstrip("/")
     remote = "://" in source_uri
@@ -157,7 +157,7 @@ def source_inventory(contracts_dir, source_root, walmart_jdbc):
             schema_id = manifest["native_sources"][channel]["schema_id"]
             selected = [v for v in selected if v["schema_id"] == schema_id]
         schemas = [json.loads((contracts_dir / v["schema_path"]).read_text()) for v in selected]
-        # Nhiều version đăng ký: hợp các đường dẫn, giữ native type của từng version.
+        # Several registered versions: union the paths, keeping each version's native type.
         fields = {}
         for schema in schemas:
             for field in schema_fields(schema):
@@ -166,7 +166,7 @@ def source_inventory(contracts_dir, source_root, walmart_jdbc):
                     fields[key]["nativeDataType"] += " | " + field["nativeDataType"]
                 else:
                     fields[key] = field
-                fields[key]["description"] = "Hợp đồng: " + ", ".join(
+                fields[key]["description"] = "Contract: " + ", ".join(
                     v["schema_id"] for v in selected
                 )
         paths = (
@@ -191,7 +191,7 @@ def source_inventory(contracts_dir, source_root, walmart_jdbc):
                 "active": not (walmart_jdbc and feed == "walmart.orders"),
             }
         if feed == "walmart.orders":
-            # Luôn đăng ký bảng v2; chỉ nối input khi DAG bật JDBC.
+            # Always register the v2 table; only wire it as input when the DAG enables JDBC.
             feeds[walmart_jdbc or "walmart_lifecycle.orders"] = {
                 "platform": "postgres",
                 "feed": feed,
@@ -203,11 +203,11 @@ def source_inventory(contracts_dir, source_root, walmart_jdbc):
 
 
 def load_receipts(args):
-    """Đọc receipt được chỉ định, từ chối thiếu file hoặc thiếu run_id gốc."""
+    """Read the given receipts, refusing missing files or a missing original run_id."""
     paths = {}
     if args.receipt_dir:
         if not args.receipt_dir.is_dir():
-            raise ValueError(f"Không có thư mục receipt: {args.receipt_dir}")
+            raise ValueError(f"Receipt directory does not exist: {args.receipt_dir}")
         paths.update(
             {
                 t: args.receipt_dir / f"{t}.json"
@@ -218,18 +218,18 @@ def load_receipts(args):
     for value in args.receipt:
         task, filename = value.split("=", 1)
         if task not in TASKS:
-            raise ValueError(f"Task receipt không thuộc DAG: {task}")
+            raise ValueError(f"Receipt task does not belong to the DAG: {task}")
         paths[task] = Path(filename)
     if not paths:
         raise ValueError(
-            "Cần ít nhất một receipt đã chạy qua --receipt-dir hoặc --receipt TASK=PATH"
+            "Need at least one completed receipt via --receipt-dir or --receipt TASK=PATH"
         )
     receipts = {}
     schemas = {}
     for task, path in paths.items():
         doc = json.loads(path.read_text())
         if not isinstance(doc.get("run_id"), str) or not doc["run_id"]:
-            raise ValueError(f"Receipt thiếu run_id gốc: {path}")
+            raise ValueError(f"Receipt is missing the original run_id: {path}")
         receipts[task] = (doc, path)
         if doc.get("schema_file"):
             schema_path = Path(doc["schema_file"])
@@ -240,7 +240,7 @@ def load_receipts(args):
 
 
 def build_mcps(args):
-    """Dựng toàn bộ dataset, job, cạnh lineage và mỗi check thành một assertion."""
+    """Build all datasets, jobs, lineage edges, and one assertion per check."""
     receipts, schemas = load_receipts(args)
     bronze, silver, gold, gold_inputs = inventory()
     sources = source_inventory(args.contracts_dir, args.source_root, args.walmart_jdbc)
@@ -258,7 +258,9 @@ def build_mcps(args):
     for urn, (name, meta) in datasets.items():
         description = f"PLATFORM v2 {meta['platform']}: {name}"
         if not meta["fields"]:
-            description += "; chưa có schema field (job chưa xuất schema JSON trong receipt)."
+            description += (
+                "; no schema fields yet (the job has not emitted a JSON schema in its receipt)."
+            )
         result.append(
             mcp(
                 "dataset",
@@ -313,7 +315,7 @@ def build_mcps(args):
             "dataFlow",
             FLOW,
             "dataFlowInfo",
-            {"name": DAG_ID, "description": "DAG nguồn v2 chạy tay"},
+            {"name": DAG_ID, "description": "v2 source DAG, manual trigger"},
         )
     )
     upstreams = {}
@@ -354,7 +356,7 @@ def build_mcps(args):
     for task, (doc, path) in receipts.items():
         checks = doc.get("checks", {})
         if not isinstance(checks, dict):
-            raise ValueError(f"checks không phải object: {path}")
+            raise ValueError(f"checks is not an object: {path}")
         timestamp = (
             int(
                 datetime.fromisoformat(doc["completed_at"].replace("Z", "+00:00")).timestamp()
@@ -376,7 +378,9 @@ def build_mcps(args):
                 or isinstance(value, bool)
                 or not math.isfinite(value)
             ):
-                raise ValueError(f"Check cần số hữu hạn theo job v2: {path}: {check}={value!r}")
+                raise ValueError(
+                    f"Check needs a finite number per the v2 job: {path}: {check}={value!r}"
+                )
             check_id = re.sub(r"[^A-Za-z0-9_-]", "_", check)
             if check_id != check:
                 check_id += "-" + hashlib.sha256(check.encode()).hexdigest()[:12]
@@ -388,7 +392,7 @@ def build_mcps(args):
                     "assertionInfo",
                     {
                         "type": "CUSTOM",
-                        "description": f"{task}: {check} = 0; số vi phạm khác 0 là FAIL",
+                        "description": f"{task}: {check} = 0; a nonzero violation count is FAIL",
                         "customAssertion": {
                             "type": "PLATFORM v2 reconcile/validate",
                             "entity": assertee,
@@ -428,11 +432,13 @@ def build_mcps(args):
 
 
 def main():
-    """Mặc định in MCP; chỉ gửi GMS khi người vận hành chọn --publish rõ ràng."""
+    """Print MCPs by default; only send to GMS when the operator explicitly picks --publish."""
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--dry-run", action="store_true", help="In JSON toàn bộ MCP, không gọi mạng")
-    mode.add_argument("--publish", action="store_true", help="Gửi chính các MCP này tới GMS")
+    mode.add_argument(
+        "--dry-run", action="store_true", help="Print all MCPs as JSON, no network calls"
+    )
+    mode.add_argument("--publish", action="store_true", help="Send these exact MCPs to GMS")
     parser.add_argument("--receipt-dir", type=Path)
     parser.add_argument("--receipt", action="append", default=[], metavar="TASK=PATH")
     parser.add_argument("--contracts-dir", type=Path, default=ROOT / "contracts")
@@ -443,12 +449,12 @@ def main():
     if args.walmart_jdbc and not re.fullmatch(
         r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*", args.walmart_jdbc
     ):
-        parser.error("--walmart-jdbc cần SCHEMA.TABLE")
+        parser.error("--walmart-jdbc requires SCHEMA.TABLE")
     proposals = build_mcps(args)
     if not args.publish:
         print(json.dumps(proposals, ensure_ascii=False, indent=2, sort_keys=True))
         return
-    # SDK chỉ được nạp khi gửi; emitter nhận đúng MCP đã xuất trong dry-run.
+    # The SDK is loaded only when sending; the emitter gets exactly the MCPs printed in dry-run.
     from datahub.emitter.rest_emitter import DatahubRestEmitter
     from datahub.metadata.schema_classes import MetadataChangeProposalClass
 
@@ -456,7 +462,7 @@ def main():
     for proposal in proposals:
         emitter.emit_mcp(MetadataChangeProposalClass.from_obj(proposal))
     emitter.flush()
-    print(f"Đã gửi {len(proposals)} MCP v2")
+    print(f"Sent {len(proposals)} v2 MCPs")
 
 
 if __name__ == "__main__":

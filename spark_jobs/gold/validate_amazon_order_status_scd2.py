@@ -1,4 +1,4 @@
-"""Kiểm khoảng hiệu lực SCD2 và quan hệ một phiên bản cho mỗi fact Amazon."""
+"""Validate SCD2 validity ranges and the one-version relationship for each Amazon fact."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     for value in (args.table, args.fact_table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
 
     spark = build_spark("validate-dim-amazon-order", shuffle_partitions=64)
     try:
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             f"missing_version={missing_version}"
         )
         if invalid or duplicate or multiple_current or bad_fact or missing_version:
-            raise ValueError("Validate Amazon Order SCD2 thất bại")
+            raise ValueError("Validate Amazon Order SCD2 failed")
         print("Validate Amazon Order SCD2: PASS")
         return 0
     finally:

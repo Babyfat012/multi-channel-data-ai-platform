@@ -1,4 +1,4 @@
-"""Registry trong Git: nạp schema và kiểm luật dùng lại parser."""
+"""Registry in Git: loads schemas and checks rules, reusing the parser."""
 
 import json
 import os
@@ -11,7 +11,7 @@ REPO_CONTRACTS_DIR = Path(__file__).resolve().parents[3] / "contracts"
 
 
 def resolve_contracts_dir(contracts_dir=None):
-    """Ưu tiên cờ, env, Docker nếu tồn tại, rồi contracts cạnh gốc package."""
+    """Prefer the flag, then env, then Docker if it exists, then contracts next to the package root."""
     if contracts_dir is not None:
         return Path(contracts_dir)
     environment = os.environ.get("PLATFORM_CONTRACTS_DIR")
@@ -37,10 +37,10 @@ SUPPORTED_PARSERS = NATIVE_PARSERS | set(OPERATIONAL_FEEDS) | set(SIDE_FEEDS)
 
 
 class Registry:
-    """Chỉ mục schema_id cho driver và CLI, không tải mạng."""
+    """schema_id index for the driver and CLI, no network loading."""
 
     def __init__(self, contracts_dir=None):
-        """Đọc một snapshot registry và các schema tương đối với thư mục contracts."""
+        """Read one registry snapshot and the schemas relative to the contracts directory."""
         self.root = resolve_contracts_dir(contracts_dir)
         self.document = json.loads((self.root / "registry.json").read_text())
         self.entries = {}
@@ -53,7 +53,7 @@ class Registry:
                 self.entries[entry["schema_id"]] = entry
 
     def check_registry(self):
-        """Liệt kê version phá vỡ nhưng dùng lại parser trước, kèm đường dẫn thay đổi."""
+        """List breaking versions that still reuse the previous parser, with the changed paths."""
         errors = []
         for name, subject in self.document["subjects"].items():
             versions = subject["versions"]

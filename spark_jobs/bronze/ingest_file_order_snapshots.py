@@ -1,8 +1,8 @@
-"""Nạp nguồn JSONL của TikTok Shop, Shopify hoặc Shopee vào Bronze Iceberg.
+"""Load TikTok Shop, Shopify or Shopee JSONL sources into Bronze Iceberg.
 
-Mỗi dòng nguồn là một response API mô phỏng. Bronze giữ nguyên chuỗi JSON,
-không parse hoặc dedup; chỉ thêm đường dẫn file, Export Date, lúc nạp và run_id.
-Amazon giữ job riêng vì nó là bằng chứng baseline/AQE đã đo của bộ dữ liệu.
+Each source line is a simulated API response. Bronze keeps the JSON string as is,
+without parsing or dedup; it only adds the file path, Export Date, load time and run_id.
+Amazon keeps its own job because it is the dataset's measured baseline/AQE evidence.
 """
 
 from __future__ import annotations
@@ -21,22 +21,24 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc Channel, đường dẫn nguồn và bảng Bronze đích."""
-    parser = argparse.ArgumentParser(description="Bronze JSONL cho ba Channel mới")
+    """Parse the Channel, source path and target Bronze table."""
+    parser = argparse.ArgumentParser(description="Bronze JSONL for the three new Channels")
     parser.add_argument("--channel", choices=CHANNELS, required=True)
     parser.add_argument(
-        "--source-root", required=True, help="gốc source-exports/ có thư mục channel=..."
+        "--source-root",
+        required=True,
+        help="source-exports/ root containing channel=... directories",
     )
     parser.add_argument("--table", required=True)
     parser.add_argument("--run-id", default=None)
     args = parser.parse_args(argv)
     if not IDENTIFIER.fullmatch(args.table):
-        parser.error(f"Tên bảng không hợp lệ: {args.table!r}")
+        parser.error(f"Invalid table name: {args.table!r}")
     return args
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Đọc JSONL và ghi Bronze; in số dòng của snapshot mới."""
+    """Read JSONL and write Bronze; print the row count of the new snapshot."""
     args = parse_args(argv)
     run_id = args.run_id or str(uuid.uuid4())
     source = f"{args.source_root.rstrip('/')}/channel={args.channel}/dataset=orders"
@@ -57,10 +59,10 @@ def main(argv: list[str] | None = None) -> int:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.bronze")
         bronze.writeTo(target).partitionedBy("export_date").createOrReplace()
         rows = spark.table(target).count()
-        print(f"nguồn       = {source}")
-        print(f"bảng Bronze = {target}")
-        print(f"run_id      = {run_id}")
-        print(f"dòng đã nạp = {rows:,}")
+        print(f"source       = {source}")
+        print(f"Bronze table = {target}")
+        print(f"run_id       = {run_id}")
+        print(f"rows loaded  = {rows:,}")
         return 0
     finally:
         spark.stop()

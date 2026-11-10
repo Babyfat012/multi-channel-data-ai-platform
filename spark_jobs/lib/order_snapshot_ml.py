@@ -1,7 +1,7 @@
-"""Gold A (order snapshot) → tập train và feature SKU theo ngày cho ML, đúng thời điểm.
+"""Gold A (order snapshot) → training set and daily SKU features for ML, point-in-time correct.
 
-Một nhãn chỉ "biết được" từ `label_available_at`: ảnh chụp feature lúc 00:00 ngày S chỉ đếm
-nhãn có `label_available_at <= S`, và tập train chỉ lấy nhãn có trước cutoff.
+A label is only "known" from `label_available_at`: the feature snapshot at 00:00 on day S only counts
+labels with `label_available_at <= S`, and the training set only takes labels available before the cutoff.
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 
 DATASET_VERSION = "order_snapshots"
-# Cùng bảng với generator/core/storefronts.py CURRENCY_DECIMALS (Spark không mang theo generator).
+# Same table as generator/core/storefronts.py CURRENCY_DECIMALS (Spark does not ship the generator).
 CURRENCY_DECIMALS = {"USD": 2, "GBP": 2, "EUR": 2, "VND": 0}
 WINDOW_DAYS = 90
 
 
 def configure_output(spark, output: str) -> None:
-    """MinIO local cần endpoint + key; AWS (PLATFORM_STORAGE=s3) dùng IAM role mặc định."""
+    """Local MinIO needs endpoint + keys; AWS (PLATFORM_STORAGE=s3) uses the default IAM role."""
     if not output.startswith("s3a://") or os.environ.get("PLATFORM_STORAGE", "minio") == "s3":
         return
     hadoop = spark.sparkContext._jsc.hadoopConfiguration()
@@ -29,22 +29,22 @@ def configure_output(spark, output: str) -> None:
 
 
 def minor_units(amount, currency):
-    """Tiền decimal → số nguyên đơn vị nhỏ nhất theo tiền tệ; tiền tệ lạ ra NULL, không đoán."""
+    """Decimal money → integer in the currency's minor units; unknown currencies give NULL, no guessing."""
     scale = F.create_map(*[F.lit(v) for kv in CURRENCY_DECIMALS.items() for v in kv])[currency]
     return F.round(amount * F.pow(F.lit(10), scale)).cast("bigint")
 
 
 def first_snapshot_day(available_at):
-    """Ngày 00:00 đầu tiên mà nhãn đã có: làm tròn lên theo ngày (đúng 00:00 thì chính ngày đó)."""
+    """First 00:00 day on which the label is known: round up to the day (exactly 00:00 is that day)."""
     day = F.to_date(available_at)
     return F.when(F.to_timestamp(day) == available_at, day).otherwise(F.date_add(day, 1))
 
 
 def training_rows(fact: DataFrame, labels: DataFrame, cutoff, per_mille: int) -> DataFrame:
-    """Line có nhãn biết trước cutoff + thuộc tính lúc đặt; giữ `per_mille`/1000 theo hash khóa."""
+    """Lines with a label known before the cutoff + order-time attributes; keep `per_mille`/1000 by key hash."""
     sampled = fact.filter(F.pmod(F.xxhash64("order_line_key"), F.lit(1000)) < per_mille)
     known = labels.filter(F.col("label_available_at") <= F.lit(cutoff).cast("timestamp"))
-    # Fact Gold cũng có cột run_id (run dựng fact): đổi tên run nhãn trước khi join cho khỏi mơ hồ.
+    # The Gold fact also has a run_id column (the run that built the fact): rename the label run before joining to avoid ambiguity.
     label_run = known.select("order_line_key", "label", F.col("run_id").alias("label_run_id"))
     return sampled.join(label_run, "order_line_key").select(
         F.lit(DATASET_VERSION).alias("dataset_version"),
@@ -63,7 +63,7 @@ def training_rows(fact: DataFrame, labels: DataFrame, cutoff, per_mille: int) ->
 
 
 def sku_daily_features(fact: DataFrame, labels: DataFrame, cutoff) -> DataFrame:
-    """Ảnh chụp 00:00 mỗi ngày, từ ngày đặt đầu tiên của SKU tới cutoff: nhãn biết trong 90 ngày."""
+    """00:00 snapshot each day, from the SKU's first order day to the cutoff: labels known within 90 days."""
     cutoff_day = F.to_date(F.lit(cutoff).cast("timestamp"))
     days = (
         fact.filter(F.col("created_at").isNotNull())
@@ -76,13 +76,13 @@ def sku_daily_features(fact: DataFrame, labels: DataFrame, cutoff) -> DataFrame:
         .groupBy("seller_sku", first_snapshot_day(F.col("label_available_at")).alias("day"))
         .agg(F.count("*").alias("n"), F.sum("label").alias("p"))
     )
-    # rangeBetween theo số ngày: nhãn có từ ngày S-89 tới S ⇔ label_available_at trong (S-90d, S].
+    # rangeBetween in days: labels known from day S-89 to S ⇔ label_available_at in (S-90d, S].
     window = (
         Window.partitionBy("seller_sku")
         .orderBy(F.datediff("day", F.lit("1970-01-01")))
         .rangeBetween(-(WINDOW_DAYS - 1), 0)
     )
-    # Ngày có nhãn nhưng nằm ngoài lưới (trước ngày đặt đầu tiên/sau cutoff) bị bỏ ở join trái.
+    # Days with labels but outside the grid (before the first order day/after the cutoff) are dropped by the left join.
     daily = days.join(known, ["seller_sku", "day"], "left").na.fill(0, ["n", "p"])
     labeled = F.sum("n").over(window)
     positive = F.sum("p").over(window)

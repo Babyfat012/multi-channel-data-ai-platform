@@ -1,4 +1,4 @@
-"""Kiểm inventory Docker (không cần Docker) và việc image naive cài đúng bộ thư viện khóa."""
+"""Check the Docker inventory (no Docker needed) and that the naive image installs exactly the locked library set."""
 
 import importlib.util
 from pathlib import Path
@@ -12,7 +12,7 @@ spec.loader.exec_module(inventory)
 
 
 def test_services_keep_profiles_ports_and_limits():
-    """Một hàng mỗi service, port giữ host_ip; thiếu host_ip nghĩa là mở mọi interface."""
+    """One row per service, ports keep host_ip; a missing host_ip means listening on every interface."""
     config = {
         "services": {
             "spark-master": {
@@ -33,7 +33,7 @@ def test_services_keep_profiles_ports_and_limits():
 
 
 def test_naive_dockerfile_installs_locked_dependencies_only():
-    """Image naive cài thư viện từ requirements.lock, project cài --no-deps ⇒ cùng bộ thư viện với uv.lock."""
+    """The naive image installs libraries from requirements.lock, the project with --no-deps ⇒ same library set as uv.lock."""
     text = (ROOT / "docker/Dockerfile.naive").read_text()
     assert "pip install -r requirements.lock" in text and "--no-deps ." in text
     lock = (ROOT / "requirements.lock").read_text()
@@ -41,6 +41,6 @@ def test_naive_dockerfile_installs_locked_dependencies_only():
 
 
 def test_dockerignore_excludes_secrets_and_agent_notes():
-    """Build context không mang .env, ghi chú agent hay dữ liệu sinh ra vào image naive (COPY . .)."""
+    """The build context does not carry .env, agent notes or generated data into the naive image (COPY . .)."""
     ignored = set((ROOT / ".dockerignore").read_text().split())
     assert {".env", ".git", "out", ".briefs", ".vibe-wise"} <= ignored

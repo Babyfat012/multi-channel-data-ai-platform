@@ -1,4 +1,4 @@
-"""Gộp file kênh nhỏ: SQL đổi spec ngày → tháng + viết lại toàn bộ; dữ liệu đổi thì chặn."""
+"""Compacting a small Channel's files: SQL changes the spec day → month + rewrites everything; changed data is blocked."""
 
 import importlib.util
 from pathlib import Path
@@ -15,7 +15,7 @@ TABLE = "lakehouse.bronze.raw_shopee_orders_dp1"
 
 
 def test_evolve_and_rewrite_sql():
-    """Spec mới là months(cột); viết lại mọi file, không chỉ file nhỏ dưới ngưỡng."""
+    """The new spec is months(column); rewrite every file, not only small files below the threshold."""
     assert job.evolve_sql(TABLE, "export_date") == (
         "ALTER TABLE `lakehouse`.`bronze`.`raw_shopee_orders_dp1` "
         "REPLACE PARTITION FIELD `export_date` WITH months(`export_date`)"
@@ -29,7 +29,7 @@ def test_evolve_and_rewrite_sql():
 
 
 def test_changed_data_is_blocked():
-    """Cùng dòng + fingerprint thì qua; lệch một trong hai thì báo lỗi."""
+    """Same rows + fingerprint passes; a difference in either raises an error."""
     same = {"rows": 10, "fingerprint": "42"}
     job.check_same(same, dict(same))
     for changed in ({"rows": 9, "fingerprint": "42"}, {"rows": 10, "fingerprint": "41"}):

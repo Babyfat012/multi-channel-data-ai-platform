@@ -1,7 +1,7 @@
-"""Gộp năm bảng Silver thành Gold fact ở độ hạt một sản phẩm trong đơn.
+"""Merge the five Silver tables into a Gold fact at the grain of one product in an Order.
 
-Chỉ mang thông tin quan sát được từ Channel. Nhãn trả hàng và delivered_at thật
-nằm ngoài fact; DP3 sẽ dùng bridge ground truth riêng.
+Carries only information observed from the Channel. Return labels and the real delivered_at
+stay outside the fact; DP3 will use a separate ground-truth bridge.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def common(df: DataFrame, channel: str, source_table: str) -> DataFrame:
 
 def parse_args(argv: list[str] | None = None):
     """Parse source table mappings and Gold target/run identifiers."""
-    parser = argparse.ArgumentParser(description="Gold fact Order Line của năm Channel")
+    parser = argparse.ArgumentParser(description="Gold Order Line fact for the five Channels")
     parser.add_argument("--table", default="fact_order_lines_dp2")
     parser.add_argument("--run-id", default=None)
     for channel, default in SOURCES.items():
@@ -116,7 +116,7 @@ def parse_args(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     for value in [args.table, *[getattr(args, f"{c}_source") for c in SOURCES]]:
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
     return args
 
 
@@ -156,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         target = f"{CATALOG}.gold.{args.table}"
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.gold")
         fact.writeTo(target).partitionedBy(F.days("created_at")).createOrReplace()
-        print(f"Gold fact đã ghi: {target}; run_id={run_id}")
+        print(f"Gold fact written: {target}; run_id={run_id}")
         return 0
     finally:
         spark.stop()

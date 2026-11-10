@@ -1,13 +1,13 @@
-"""Renderer Batch cho TikTok Shop Get Order Detail 202309.
+"""Batch renderer for TikTok Shop Get Order Detail 202309.
 
-Mỗi dòng JSONL là một response `data.orders` chứa đúng một Order. Cách bọc này
-giữ hình dạng API nhưng vẫn cho lớp export ghi một bản ghi trên mỗi Order.
-Webhook Stream giữ renderer riêng trong `tiktok.py`; hai renderer dùng cùng mã
-Order nên một Order ở Batch và Stream nối được với nhau.
+Each JSONL row is a `data.orders` response holding exactly one Order. This wrapping
+keeps the API shape while still letting the export layer write one record per Order.
+The Stream webhook keeps its own renderer in `tiktok.py`; both renderers use the same
+Order id, so an Order in Batch and in Stream can be joined.
 
-Field Order/Line Item và trạng thái dựa trên `docs/data-platform/reference/channel_sources.md` mục 5.
-Hai khoản giản lược của dữ liệu giả lập: `seller_discount` chứa toàn bộ giảm giá
-(không tách platform discount), và một Order có một loại fulfillment cho mọi dòng.
+Order/Line Item fields and statuses follow `docs/data-platform/reference/channel_sources.md` section 5.
+Two simplifications in the simulated data: `seller_discount` holds the whole discount
+(platform discount is not split out), and an Order has one fulfillment type for all lines.
 """
 
 from __future__ import annotations
@@ -42,23 +42,23 @@ API_STATUS = {
 
 
 class TikTokOrdersRenderer:
-    """Vẽ Order TikTok Shop ở một thời điểm thành response API Batch."""
+    """Render a TikTok Shop Order at a point in time as a Batch API response."""
 
     channel = "tiktok_shop"
     dataset = "orders"
     storage = OBJECT_STORE
 
     def __init__(self, config: GeneratorConfig) -> None:
-        """Dùng seed và quy tắc mã Order chung với renderer webhook."""
+        """Use the seed and Order id rule shared with the webhook renderer."""
         self.seed = config.seed
         self.webhook = TikTokOrderWebhookRenderer(config)
 
     def line_id(self, line: OrderLine) -> str:
-        """Sinh mã Order Line ổn định từ mã lõi, không từ ngày export."""
+        """Generate a stable Order Line id from the core id, not from the export date."""
         return "7" + native_digits(self.seed, "tiktok_line", line.order_line_id, 18)
 
     def line_keys(self, order: Order) -> list[dict[str, Any]]:
-        """Nối ID lõi với mã Order và Order Line của TikTok Shop."""
+        """Map core ids to TikTok Shop Order and Order Line ids."""
         order_id = self.webhook.tiktok_order_id(order)
         return [
             {
@@ -70,7 +70,7 @@ class TikTokOrdersRenderer:
         ]
 
     def render(self, order: Order, as_of: datetime, export_day: int) -> RenderedRecord:
-        """Vẽ một snapshot Get Order Detail; `export_day` chỉ quyết định đường dẫn."""
+        """Render a Get Order Detail snapshot; `export_day` only decides the path."""
         del export_day
         status_change = order.status_at(as_of)
         order_id = self.webhook.tiktok_order_id(order)

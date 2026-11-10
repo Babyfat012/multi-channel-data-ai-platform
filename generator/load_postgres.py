@@ -1,28 +1,28 @@
-"""Nạp `pg-load/` vào PostgreSQL, mô phỏng hệ thống của phòng ban khác.
+"""Load `pg-load/` into PostgreSQL, simulating another department's system.
 
-Lệnh `batch` chỉ ghi file. Các dòng dành cho PostgreSQL nằm ở `pg-load/` (thư mục
-local hoặc MinIO), và module này đưa chúng vào bảng:
+The `batch` command only writes files. Rows meant for PostgreSQL live in `pg-load/` (a local
+directory or MinIO), and this module puts them into tables:
 
-    walmart.orders   một dòng mỗi lần hệ thống kia kéo đơn từ Walmart, giữ nguyên body API
-    seller.skus      danh mục SKU của Seller
+    walmart.orders   one row per pull of an order from Walmart by that system, API body kept as is
+    seller.skus      the Seller's SKU catalog
 
-`walmart.orders` cố ý không có khóa chính: export chồng lấn tạo bản trùng theo
-`purchase_order_id`, và việc dedup thuộc về pipeline phía sau (Spark), không phải
-hệ thống nguồn. Cột `export_date` lấy từ tên thư mục, để DP1 kéo theo từng ngày.
+`walmart.orders` deliberately has no primary key: overlapping exports create duplicates by
+`purchase_order_id`, and deduplication belongs to the downstream pipeline (Spark), not the
+source system. The `export_date` column comes from the directory name, so DP1 can pull day by day.
 
-Mỗi lần chạy xóa sạch bảng rồi nạp lại trong cùng một transaction, nên chạy lại
-bao nhiêu lần cũng ra cùng kết quả. Dữ liệu vào bằng `COPY`, nhanh hơn nhiều so
-với `INSERT` từng dòng.
+Each run truncates the tables and reloads them in one transaction, so rerunning
+any number of times gives the same result. Data goes in with `COPY`, much faster than
+row-by-row `INSERT`.
 
-`sample_days` cho nạp một tập ngày export rải đều thay vì cả dải. Hai lý do:
+`sample_days` loads an evenly spread set of export days instead of the whole range. Two reasons:
 
-  * Chạy thử rẻ. Nguồn thật là 13 GB / 180 ngày; 20 ngày rải đều chỉ ~1,4 GB. Volume
-    PostgreSQL nằm trên cùng phân vùng `/` với file nguồn, nên nạp cả dải là ăn chỗ hai
-    lần trên một phân vùng đang chật.
-  * Airflow (DP1) rồi cũng cần kéo theo từng ngày — cột `export_date` tồn tại sẵn cho
-    việc đó. Nên đây là việc phải làm, không phải cầu tạm cho một lần chạy thử.
+  * Cheap trial runs. The real source is 13 GB / 180 days; 20 evenly spread days are only ~1.4 GB. The
+    PostgreSQL volume sits on the same `/` partition as the source files, so loading the whole range uses
+    the space twice on an already tight partition.
+  * Airflow (DP1) will need to pull day by day anyway — the `export_date` column already exists for
+    that. So this is required work, not a stopgap for one trial run.
 
-`seller.skus` không chia theo ngày nên cờ này không áp vào nó; xem `filter_to_sample_days`.
+`seller.skus` is not split by day, so this flag does not apply to it; see `filter_to_sample_days`.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS seller.skus (
 
 @dataclass(frozen=True)
 class TableLoad:
-    """Cách nạp một bảng: đọc file nào dưới `pg-load/`, đổi mỗi bản ghi thành dòng ra sao."""
+    """How to load a table: which files under `pg-load/` to read, and how each record becomes a row."""
 
     table: str
     columns: tuple[str, ...]
@@ -67,7 +67,7 @@ class TableLoad:
 
 
 def _walmart_order_row(record: dict[str, Any], path: str) -> tuple[Any, ...]:
-    """Một bản ghi Walmart thành dòng; `export_date` lấy từ thư mục chứa file."""
+    """Turn a Walmart record into a row; `export_date` comes from the file's directory."""
     export_date = path.split("export_date=", 1)[1].split("/", 1)[0]
     return (
         record["purchase_order_id"],
@@ -78,7 +78,7 @@ def _walmart_order_row(record: dict[str, Any], path: str) -> tuple[Any, ...]:
 
 
 def _sku_row(record: dict[str, Any], path: str) -> tuple[Any, ...]:
-    """Một SKU thành dòng của `seller.skus`."""
+    """Turn a SKU into a row of `seller.skus`."""
     return (
         record["sku"],
         record["name"],
@@ -107,10 +107,10 @@ TABLES = (
 def iter_rows(
     store: OutputStore, load: TableLoad, sample_days: int = 0
 ) -> Iterator[tuple[Any, ...]]:
-    """Đọc file của `load` dưới `store` và trả về từng dòng sẵn sàng cho `COPY`.
+    """Read the files of `load` under `store` and yield rows ready for `COPY`.
 
-    `sample_days > 0` thì chỉ đọc file thuộc N ngày export rải đều. Mặc định 0 = đọc hết,
-    nên hành vi cũ không đổi.
+    With `sample_days > 0`, only files of N evenly spread export days are read. The default 0 = read all,
+    so the old behavior is unchanged.
     """
     for path in filter_to_sample_days(store.glob(load.pattern), sample_days):
         for record in store.read_jsonl(path):
@@ -118,12 +118,12 @@ def iter_rows(
 
 
 def load_postgres(source_root: str, dsn: str, sample_days: int = 0) -> dict[str, int]:
-    """Tạo bảng nếu chưa có, xóa dữ liệu cũ rồi nạp lại. Trả về số dòng theo bảng.
+    """Create tables if missing, delete old data, then reload. Return row counts per table.
 
-    `sample_days > 0` chỉ nạp N ngày export rải đều. TRUNCATE vẫn xoá sạch bảng trước, nên
-    kết quả luôn là "đúng N ngày đó và không gì khác", chạy lại bao nhiêu lần cũng vậy.
+    `sample_days > 0` loads only N evenly spread export days. TRUNCATE still empties the tables first, so
+    the result is always "exactly those N days and nothing else", however many times it reruns.
     """
-    import psycopg  # nhập muộn để test phần đọc file không cần thư viện PostgreSQL
+    import psycopg  # lazy import so tests of the file reading do not need the PostgreSQL library
 
     store = OutputStore(source_root)
     counts: dict[str, int] = {}

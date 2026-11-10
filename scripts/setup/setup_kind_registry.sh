@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Cấu hình registry cho cụm HIỆN CÓ, không tạo/xoá node. Node thiếu config_path: bật một lần và restart
-# containerd trong node (container đang chạy giữ nguyên nhờ shim, kubelet tự nối lại).
+# Configure the registry for an EXISTING cluster without creating/deleting nodes. Nodes missing config_path: enable it once and restart
+# containerd in the node (running containers survive thanks to the shim, kubelet reconnects itself).
 # Theo https://kind.sigs.k8s.io/docs/user/local-registry/ (containerd hosts.toml).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 cluster=${KIND_CLUSTER:-platform}
 nodes=$(kind get nodes --name "$cluster")
-[[ -n "$nodes" ]] || { echo "Chưa có cụm $cluster; giữ nguyên hạ tầng." >&2; exit 1; }
+[[ -n "$nodes" ]] || { echo "Cluster $cluster does not exist yet; leaving infrastructure untouched." >&2; exit 1; }
 for node in $nodes; do
   if ! docker exec "$node" containerd config dump | grep -E "config_path = [\"']/etc/containerd/certs.d" >/dev/null; then
-    echo "$node: bật config_path=/etc/containerd/certs.d rồi restart containerd"
+    echo "$node: enabling config_path=/etc/containerd/certs.d, then restarting containerd"
     docker exec -i "$node" sh -c 'cat >> /etc/containerd/config.toml' <<'TOML'
 
 [plugins."io.containerd.grpc.v1.cri".registry]
@@ -39,4 +39,4 @@ data:
     host: "localhost:5001"
     help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
 YAML
-printf 'Registry localhost:5001 → registry:5000, đã cấu hình %s\n' "$cluster"
+printf 'Registry localhost:5001 → registry:5000, configured %s\n' "$cluster"

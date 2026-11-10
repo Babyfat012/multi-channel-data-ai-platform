@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--boundary-dir", required=True)
     args = parser.parse_args(argv)
     if not IDENTIFIER.fullmatch(args.table):
-        parser.error(f"Tên bảng không hợp lệ: {args.table!r}")
+        parser.error(f"Invalid table name: {args.table!r}")
 
     spark = build_spark("validate-walmart-cdc", shuffle_partitions=4)
     try:
@@ -98,8 +98,8 @@ def main(argv: list[str] | None = None) -> int:
         unique = int(result["unique_offsets"])
         invalid = int(result["invalid_rows"] or 0)
         print(
-            f"Kafka={source_count:,}, Bronze={rows:,}, offsets duy nhất={unique:,}, "
-            f"thiếu={missing:,}, thừa={extra:,}, sai payload={mismatched:,}, lỗi={invalid:,}"
+            f"Kafka={source_count:,}, Bronze={rows:,}, unique offsets={unique:,}, "
+            f"missing={missing:,}, extra={extra:,}, payload mismatch={mismatched:,}, invalid={invalid:,}"
         )
         if (
             source_count <= 0
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             or mismatched
             or invalid
         ):
-            raise ValueError("Validate CDC Bronze thất bại")
+            raise ValueError("Validate CDC Bronze failed")
         print("Validate CDC Bronze: PASS")
         return 0
     finally:

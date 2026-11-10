@@ -1,12 +1,12 @@
-"""Gộp file nhỏ của bảng kênh nhỏ: đổi partition ngày → tháng (partition evolution) rồi viết lại.
+"""Compact small files of a small Channel's table: change day → month partitioning (partition evolution), then rewrite.
 
-Bảng Bronze kênh nhỏ chia theo ngày ra 1 file/ngày (~2,5 MB) nên `rewrite_data_files` thường không
-gộp được gì (gap #16). Job đo trước, đổi spec, viết lại toàn bộ theo spec mới, đo sau và chặn nếu
-dữ liệu đổi (fingerprint). Spec cũ vẫn nằm trong snapshot trước: lùi bằng `rollback_to_snapshot`.
+The small-Channel Bronze table partitioned by day has 1 file/day (~2.5 MB), so `rewrite_data_files` usually cannot
+compact anything (gap #16). The job measures first, changes the spec, rewrites everything with the new spec, measures again and blocks if
+the data changed (fingerprint). The old spec stays in earlier snapshots: roll back with `rollback_to_snapshot`.
 
-Chạy: spark-submit .../repartition_small_channel.py --table lakehouse.bronze.raw_shopee_orders_dp1 \
+Run: spark-submit .../repartition_small_channel.py --table lakehouse.bronze.raw_shopee_orders_dp1 \
   --column export_date --receipt /opt/airflow/logs/iceberg-maintenance/repartition.json
-Module chỉ import pyspark khi dựng session; test được câu SQL không cần Spark.
+The module only imports pyspark when building the session; the SQL is testable without Spark.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ RUNS = 3
 
 
 def evolve_sql(table, column):
-    """Đổi trường partition identity(ngày) sang months(ngày): dữ liệu cũ giữ spec cũ tới khi viết lại."""
+    """Change the partition field identity(day) to months(day): old data keeps the old spec until rewritten."""
     return (
         f"ALTER TABLE {identifier(table)} REPLACE PARTITION FIELD {column_name(column)} "
         f"WITH months({column_name(column)})"
@@ -36,7 +36,7 @@ def evolve_sql(table, column):
 
 
 def rewrite_sql(table):
-    """Viết lại MỌI file theo spec hiện hành (rewrite-all), không chỉ file dưới ngưỡng cỡ."""
+    """Rewrite EVERY file with the current spec (rewrite-all), not only files below the size threshold."""
     identifier(table)
     catalog, short = table.split(".", 1)
     return (
@@ -46,7 +46,7 @@ def rewrite_sql(table):
 
 
 def probe_queries(table, column):
-    """Hai câu đo: quét cả bảng và lọc 30 ngày cuối (theo cột partition)."""
+    """Two measurement queries: full table scan and a filter on the last 30 days (by the partition column)."""
     relation = identifier(table)
     col = column_name(column)
     return {
@@ -59,13 +59,13 @@ def probe_queries(table, column):
 
 
 def check_same(before, after):
-    """Chặn nếu số dòng hoặc fingerprint khác: viết lại file không được đổi dữ liệu."""
+    """Block if the row count or fingerprint differs: rewriting files must not change data."""
     if (before["rows"], before["fingerprint"]) != (after["rows"], after["fingerprint"]):
-        raise ValueError(f"Dữ liệu đổi sau khi viết lại: {before} → {after}")
+        raise ValueError(f"Data changed after rewrite: {before} → {after}")
 
 
 def measure(spark, table, column):
-    """Số file, cỡ trung bình, số spec đang dùng và trung vị thời gian mỗi câu đo (3 lần)."""
+    """File count, average size, number of specs in use and median time per measurement query (3 runs)."""
     files = spark.sql(
         f"SELECT count(*) AS n, coalesce(avg(file_size_in_bytes), 0) AS avg, "
         f"count(DISTINCT spec_id) AS specs FROM {identifier(table)}.files"
@@ -88,7 +88,7 @@ def measure(spark, table, column):
 
 
 def main(argv=None):
-    """Đo → đổi spec → viết lại → đo, ghi biên lai kể cả khi lỗi."""
+    """Measure → change spec → rewrite → measure, writing the receipt even on failure."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--table", required=True)
     parser.add_argument("--column", required=True)

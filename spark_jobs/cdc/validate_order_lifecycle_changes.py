@@ -1,4 +1,4 @@
-"""Đối soát Bronze CDC v2 với oracle độc lập; mọi vi phạm làm exit khác không."""
+"""Reconcile CDC v2 Bronze against an independent oracle; any violation gives a non-zero exit."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from spark_jobs.lib.order_lifecycle_cdc import TARGET, build_session, compare_ev
 
 
 def main(argv=None):
-    """Đọc toàn bộ dòng cùng run, kể cả epoch sai, rồi xuất receipt trước khi trả lỗi."""
+    """Read every row of the same run, including wrong epochs, then write the receipt before failing."""
     from pyspark.sql import functions as F
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -33,9 +33,9 @@ def main(argv=None):
             or not oracle.get("complete")
             or not oracle.get("events")
         ):
-            raise ValueError("Oracle rỗng/chưa commit đủ/khác định dạng")
+            raise ValueError("Oracle is empty/not fully committed/in a different format")
         if ingest["run_id"] != args.run_id or ingest["status"] != "passed":
-            raise ValueError("Receipt ingest chưa thành công hoặc khác run")
+            raise ValueError("Ingest receipt did not succeed or belongs to another run")
         boundary = load_boundary(args.boundary_dir, args.run_id, ingest["boundary"])
         epoch = boundary["cluster_id"] + "/" + boundary["topic_id"]
         spark = build_session("validate-cdc-v2", args.local_warehouse)

@@ -1,10 +1,10 @@
--- TikTok Shop: giữ webhook đầu tiên theo tts_notification_id bằng Flink state.
--- ROW_NUMBER ... ORDER BY proc ASC là pattern dedup append-only của Flink SQL.
+-- TikTok Shop: keep the first webhook per tts_notification_id using Flink state.
+-- ROW_NUMBER ... ORDER BY proc ASC is Flink SQL's append-only dedup pattern.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'flink-dedup-tiktok';
 SET 'execution.checkpointing.interval' = '10s';
--- Checkpoint ra đĩa EBS (mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB).
+-- Checkpoints to the EBS disk (the default keeps them in JobManager memory, max 5 MB).
 SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
 
 CREATE TABLE tiktok_webhooks (

@@ -1,4 +1,4 @@
-"""Nạp staging JDBC, đối soát Gold và publish warehouse v2 trong transaction chung."""
+"""Load JDBC staging, reconcile against Gold and publish warehouse v2 in a single transaction."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ LOCK_ID = 802521
 
 
 def connect(dsn=None):
-    """Dùng driver sẵn có: psycopg ở venv hoặc psycopg2 trong image Airflow."""
+    """Use whichever driver is available: psycopg in the venv or psycopg2 in the Airflow image."""
     try:
         import psycopg as driver
     except ImportError:
@@ -38,14 +38,14 @@ def connect(dsn=None):
 
 
 def statements(path):
-    """Đọc migration cố định, bỏ comment và tách các statement không có literal chấm phẩy."""
+    """Read fixed migrations, strip comments and split statements that contain no semicolon literals."""
     return [
         s.strip() for s in re.sub(r"--[^\n]*", "", Path(path).read_text()).split(";") if s.strip()
     ]
 
 
 def ddl_tables(sql_dir):
-    """Lấy định nghĩa bảng duy nhất từ migration đã version hóa."""
+    """Get the unique table definitions from versioned migrations."""
     return {
         name: next(
             s
@@ -57,7 +57,7 @@ def ddl_tables(sql_dir):
 
 
 def index_statements(sql_dir, tables=TABLES):
-    """Chọn index của đúng những bảng đang được publish."""
+    """Select the indexes of exactly the tables being published."""
     return [
         s
         for s in statements(Path(sql_dir) / "002_indexes.sql")
@@ -66,20 +66,20 @@ def index_statements(sql_dir, tables=TABLES):
 
 
 def should_publish(checks):
-    """Chỉ cho swap khi có checks và tất cả kiểm tra đều thành công rõ ràng."""
+    """Only allow the swap when checks exist and every check explicitly succeeded."""
     return bool(checks) and all(value is True for value in checks.values())
 
 
 def cutoff_utc(value):
-    """Chuẩn hóa cutoff có timezone về datetime UTC không timezone của Spark/JDBC."""
+    """Normalize a time-zone-aware cutoff to the naive UTC datetime Spark/JDBC use."""
     instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if instant.tzinfo is None:
-        raise ValueError("cutoff phải có timezone")
+        raise ValueError("cutoff must have a time zone")
     return instant.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def table_metrics(cur, table):
-    """Đếm staging thực trong PostgreSQL và cộng từng tiền riêng theo channel/currency."""
+    """Count actual staging rows in PostgreSQL and sum each amount separately per channel/currency."""
     cur.execute(f"SELECT count(*) FROM warehouse_lifecycle.{table}")
     result = {"rows": cur.fetchone()[0]}
     if table.startswith("fact_order_lines"):
@@ -95,7 +95,7 @@ def table_metrics(cur, table):
 
 
 def source_metrics(frame, name):
-    """Đọc logical rows Gold đã pin snapshot, cộng decimal để không tràn sum bigint."""
+    """Read Gold logical rows with a pinned snapshot, summing decimals to avoid bigint sum overflow."""
     from pyspark.sql import functions as F
 
     result = {"rows": frame.count()}
@@ -113,16 +113,16 @@ def source_metrics(frame, name):
 
 
 def publish(cur, stages, token, sql_dir, checks):
-    """Swap tất cả staging đã validate; caller commit/rollback cả DDL và ANALYZE."""
+    """Swap all validated staging tables; the caller commits/rolls back both DDL and ANALYZE."""
     if not should_publish(checks):
-        raise ValueError("Đối soát thất bại; không swap")
+        raise ValueError("Reconciliation failed; not swapping")
     old_tables = []
     for name, stage in stages.items():
         cur.execute("SELECT to_regclass(%s)", (f"warehouse_lifecycle.{name}",))
         if cur.fetchone()[0] is not None:
             old = f"{name}__old_{token}"
             cur.execute(f"ALTER TABLE warehouse_lifecycle.{name} RENAME TO {old}")
-            # Index có tên schema-wide: giải phóng tên trước khi áp lại 002.
+            # Index names are schema-wide: free the names before re-applying 002.
             cur.execute(
                 "SELECT indexname FROM pg_indexes WHERE schemaname=%s AND tablename=%s",
                 ("warehouse_lifecycle", old),
@@ -146,11 +146,11 @@ def publish(cur, stages, token, sql_dir, checks):
 def export_frames(
     spark, frames, run_id, cutoff, receipt_path, sql_dir, dsn=None, jdbc=None, stage_transform=None
 ):
-    """Nạp qua JDBC rồi kiểm/swap; hook chỉ dùng harness tiêm lệch staging trước đối soát."""
+    """Load via JDBC then check/swap; the hook is only used by the harness to inject staging drift before reconciliation."""
     from pyspark.sql import functions as F
 
     if not frames or not set(frames).issubset(TABLES):
-        raise ValueError("Danh sách bảng không hợp lệ")
+        raise ValueError("Invalid table list")
     token = hashlib.sha256(run_id.encode()).hexdigest()[:12]
     stages = {name: f"{name}__load_{token}" for name in frames}
     document = {"run_id": run_id, "cutoff": cutoff, "status": "failed", "checks": {}, "tables": {}}
@@ -221,7 +221,7 @@ def export_frames(
                         expected["money_by_channel_currency"] == actual["money_by_channel_currency"]
                     )
             if not should_publish(document["checks"]):
-                raise ValueError("Đối soát thất bại; bảng phục vụ giữ nguyên")
+                raise ValueError("Reconciliation failed; serving tables unchanged")
             conn.autocommit = False
             try:
                 publish(cur, stages, token, sql_dir, document["checks"])
@@ -233,11 +233,11 @@ def export_frames(
                 conn.autocommit = True
             document["status"] = "passed"
     except Exception as error:
-        # Không ghi chuỗi exception JDBC: có thể chứa URL/thông tin kết nối.
+        # Do not write the JDBC exception string: it may contain the URL/connection details.
         document["error_type"] = type(error).__name__
         raise
     finally:
-        # Chỉ xóa staging do chính lần gọi này tạo; không đụng staging có sẵn.
+        # Only drop staging created by this call; never touch pre-existing staging.
         try:
             conn.rollback()
             conn.autocommit = True
@@ -248,7 +248,7 @@ def export_frames(
             document["cleanup_error_type"] = type(cleanup_error).__name__
         for frame in cached:
             frame.unpersist()
-        conn.close()  # đóng session giải phóng advisory lock cả khi lỗi
+        conn.close()  # closing the session releases the advisory lock even on error
         target = Path(receipt_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")

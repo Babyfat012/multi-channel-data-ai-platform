@@ -1,8 +1,8 @@
-"""Vẽ bảng so sánh hai cấu hình model của A/B Agent từ các JSONL eval đã đo trên AWS (không đo lại).
+"""Render the A/B Agent comparison table of two model configurations from eval JSONL measured on AWS (no re-run).
 
 python -m scripts.evidence.render_ab_comparison --a docs/evidence/aws/agent-eval-data-agent-20261031.jsonl \
   --b docs/evidence/aws/agent-eval-data-agent-b-20261031.jsonl --out docs/evidence/ab-agent-comparison-20261031.png
-Ảnh này là bảng dựng lại từ số liệu eval, KHÔNG phải ảnh chụp Grafana (dashboard Grafana ở ab_testing.md).
+This image is a table rebuilt from eval data, NOT a Grafana screenshot (the Grafana dashboard is in ab_testing.md).
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ from scripts.evidence.chrome import chrome_page
 
 
 def load(path: Path) -> dict[str, dict]:
-    """JSONL eval → {sku: dòng}; giữ dòng đầu của mỗi SKU."""
+    """Eval JSONL → {sku: row}; keeps the first row of each SKU."""
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     return {r["sku"]: r for r in rows}
 
 
 def mark(row: dict | None) -> str:
-    """Ô một nhánh: ✓/✗/– kèm số giây."""
+    """Cell for one branch: ✓/✗/– with seconds."""
     if row is None:
         return "–"
     if not row.get("gradable"):
@@ -33,13 +33,13 @@ def mark(row: dict | None) -> str:
 
 
 def page(a: dict, b: dict, label_a: str, label_b: str) -> str:
-    """HTML bảng từng SKU và dòng tổng: đạt/tổng và giây trung bình mỗi nhánh."""
+    """HTML table per SKU plus a total row: passed/total and mean seconds per branch."""
 
     def total(rows):
         graded = [r for r in rows.values() if r.get("gradable")]
         passed = sum(bool(r["pass"]) for r in graded)
         seconds = sum(r["seconds"] for r in rows.values()) / len(rows) if rows else 0
-        return f"{passed}/{len(graded)} đạt, TB {seconds:.1f} s/câu"
+        return f"{passed}/{len(graded)} passed, avg {seconds:.1f} s/question"
 
     body = "".join(
         f"<tr><td>{html.escape(sku)}</td><td>{mark(a.get(sku))}</td><td>{mark(b.get(sku))}</td></tr>"
@@ -48,14 +48,14 @@ def page(a: dict, b: dict, label_a: str, label_b: str) -> str:
     return (
         "<meta charset=utf-8><style>body{font:16px sans-serif;margin:24px}table{border-collapse:collapse}"
         "td,th{border:1px solid #888;padding:6px 14px;text-align:left}tfoot td{font-weight:bold}</style>"
-        "<h2>A/B Agent: cùng prompt, cùng tool, khác ModelConfig (eval 12 SKU, AWS 31/10/2026)</h2><table>"
+        "<h2>A/B Agent: same prompt, same tools, different ModelConfig (eval 12 SKUs, AWS 31/10/2026)</h2><table>"
         f"<tr><th>SKU</th><th>{html.escape(label_a)}</th><th>{html.escape(label_b)}</th></tr>{body}"
-        f"<tfoot><tr><td>Tổng</td><td>{total(a)}</td><td>{total(b)}</td></tr></tfoot></table>"
+        f"<tfoot><tr><td>Total</td><td>{total(a)}</td><td>{total(b)}</td></tr></tfoot></table>"
     )
 
 
 async def shoot(doc: str, out: Path) -> None:
-    """Render HTML trong Chrome headless và lưu PNG."""
+    """Render HTML in headless Chrome and save a PNG."""
     tmp = out.with_suffix(".html")
     tmp.write_text(doc)
     try:
@@ -82,7 +82,7 @@ async def shoot(doc: str, out: Path) -> None:
 
 
 def main(argv=None) -> None:
-    """CLI: hai JSONL (A, B) → một PNG so sánh."""
+    """CLI: two JSONL files (A, B) → one comparison PNG."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--a", type=Path, required=True)
     parser.add_argument("--b", type=Path, required=True)

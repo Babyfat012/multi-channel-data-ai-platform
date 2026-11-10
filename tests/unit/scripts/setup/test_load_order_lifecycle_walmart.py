@@ -1,4 +1,4 @@
-"""Test phần đọc file bootstrap Walmart v2 trước khi nạp PostgreSQL (không cần DB)."""
+"""Test reading the Walmart v2 bootstrap file before loading PostgreSQL (no DB needed)."""
 
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ spec.loader.exec_module(loader)
 
 @pytest.fixture(scope="module")
 def fixture_root(tmp_path_factory):
-    """Sinh fixture nguồn v2 nhỏ để kiểm bootstrap Walmart."""
+    """Generate a small v2 source fixture to check the Walmart bootstrap."""
     root = tmp_path_factory.mktemp("v2") / "fixture"
     generate_fixture(root)
     return root
 
 
 def test_rows_cover_manifest_snapshot_scope(fixture_root):
-    """Kiểm các dòng bootstrap phủ đúng snapshot scope trong manifest."""
+    """Check the bootstrap rows cover exactly the snapshot scope in the manifest."""
     manifest = json.loads((fixture_root / "manifest.json").read_text())
     rows = loader.bootstrap_rows(fixture_root)
     assert [r.purchase_order_id for r in rows] == manifest["native_sources"]["walmart"][
@@ -35,7 +35,7 @@ def test_rows_cover_manifest_snapshot_scope(fixture_root):
 
 
 def test_raw_payload_text_is_byte_identical_to_file(fixture_root):
-    """Kiểm raw payload giữ nguyên byte so với file nguồn."""
+    """Check the raw payload is byte-identical to the source file."""
     rows = loader.bootstrap_rows(fixture_root)
     path = next((fixture_root).rglob("feed=walmart.orders/*/part-00000.jsonl"))
     first_line = path.read_text().splitlines()[0]
@@ -43,7 +43,7 @@ def test_raw_payload_text_is_byte_identical_to_file(fixture_root):
 
 
 def test_rejects_root_without_walmart_file(tmp_path):
-    """Kiểm từ chối nguồn thiếu file Walmart."""
+    """Check a source missing the Walmart file is rejected."""
     (tmp_path / "manifest.json").write_text(
         json.dumps({"dataset_version": "dataset-x", "files": []})
     )

@@ -1,12 +1,12 @@
--- Amazon: watermark trễ 1 giờ. Ghi riêng tin mà event time đã ở sau watermark.
+-- Amazon: watermark delayed by 1 hour. Write messages whose event time is already behind the watermark separately.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'flink-late-amazon';
 SET 'execution.checkpointing.interval' = '10s';
--- Checkpoint ra đĩa EBS (mặc định giữ ở bộ nhớ JobManager, tối đa 5 MB).
+-- Checkpoints to the EBS disk (the default keeps them in JobManager memory, max 5 MB).
 SET 'state.checkpoints.dir' = 'file:///opt/flink/output/checkpoints';
 SET 'table.exec.source.idle-timeout' = '10s';
--- Phát watermark mỗi 1 ms để bắt tin muộn chính xác khi backlog được đọc nhanh.
+-- Emit a watermark every 1 ms to catch late messages precisely when the backlog is read quickly.
 SET 'pipeline.auto-watermark-interval' = '1ms';
 
 CREATE TABLE amazon_notifications (

@@ -1,4 +1,4 @@
-"""DP3: Gold fact -> offline feature lúc đặt Order -> Validate."""
+"""DP3: Gold fact -> offline features at Order time -> Validate."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ SPARK_CONF = {
 
 with DAG(
     dag_id="dp3_features",
-    description="Gold fact năm Channel → feature offline lúc đặt Order; kiểm độ đầy đủ",
+    description="Five-Channel Gold fact → offline features at Order time; check completeness",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,

@@ -1,7 +1,7 @@
-"""Sao chép 30 ngày gần nhất của Gold fact năm Channel sang PostgreSQL warehouse, kèm index.
+"""Copy the last 30 days of the five-Channel Gold fact to the PostgreSQL warehouse, with an index.
 
-Warehouse giữ phần "nóng" để tra từng SKU nhanh; toàn bộ lịch sử ở Iceberg. Giữ ít cột
-để vừa đĩa EBS. Sau khi ghi: đối soát số dòng theo Channel với Gold rồi mới tạo index.
+The warehouse keeps the "hot" part for fast per-SKU lookups; the full history is in Iceberg. Few columns are kept
+to fit the EBS disk. After writing: reconcile row counts per Channel with Gold, then create the index.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 def main(argv: list[str] | None = None) -> int:
     """Export the recent Gold window to PostgreSQL, reconcile per Channel, then index it."""
     parser = argparse.ArgumentParser(
-        description="Gold năm Channel (30 ngày) → PostgreSQL warehouse"
+        description="Five-Channel Gold (30 days) → PostgreSQL warehouse"
     )
     parser.add_argument("--source-table", default="fact_order_lines_dp2")
     parser.add_argument("--table", default="fact_order_lines_30d_dp2")
@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     for value in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
     end = cutoff_utc(args.cutoff)
     start = end - timedelta(days=args.days)
 
@@ -66,14 +66,14 @@ def main(argv: list[str] | None = None) -> int:
             "driver": "org.postgresql.Driver",
             "batchsize": "5000",
         }
-        # Postgres mới (AWS) chưa có schema: JDBC không tự tạo schema, chỉ tạo bảng.
+        # A fresh Postgres (AWS) has no schema yet: JDBC does not create schemas, only tables.
         conn = connect()
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("CREATE SCHEMA IF NOT EXISTS warehouse")
         conn.close()
-        # Giới hạn: overwrite thẳng, lúc nạp lại bảng vắng/rỗng; cần đọc liên tục thì staging +
-        # rename như spark_jobs/lib/order_lifecycle_warehouse.py.
+        # Limitation: overwrites directly, so the table is missing/empty during reload; for continuous reads use staging +
+        # rename like spark_jobs/lib/order_lifecycle_warehouse.py.
         rows.repartition(4, "seller_sku").write.format("jdbc").options(**options).mode(
             "overwrite"
         ).save()
@@ -86,12 +86,12 @@ def main(argv: list[str] | None = None) -> int:
                 bad = count_mismatches(gold, loaded)
                 print(f"Warehouse {target} [{start} → {end}): gold={gold} postgres={loaded}")
                 if bad:
-                    raise ValueError(f"Warehouse lệch Gold hoặc kênh rỗng: {bad}")
+                    raise ValueError(f"Warehouse differs from Gold or a Channel is empty: {bad}")
                 cur.execute(f"CREATE INDEX ON {target} (seller_sku)")
                 cur.execute(f"ANALYZE {target}")
         finally:
             conn.close()
-        print(f"Warehouse đã ghi + index seller_sku: {target}; rows={sum(loaded.values())}")
+        print(f"Warehouse written + index seller_sku: {target}; rows={sum(loaded.values())}")
         return 0
     finally:
         spark.stop()

@@ -1,4 +1,4 @@
-"""Kiểm phạm vi Git và cách tính mutation score, không cần mutmut hay dịch vụ ngoài."""
+"""Check the Git scope and the mutation score computation, without mutmut or external services."""
 
 import subprocess
 
@@ -9,14 +9,14 @@ from scripts.evidence.run_changed_mutation import git, select_paths, snapshot, s
 
 
 def commit(repo, message):
-    """Lưu fixture bằng Git local với danh tính chỉ áp dụng cho lệnh này."""
+    """Commit the fixture with local Git using an identity scoped to this command only."""
     git(repo, "add", ".")
     git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message)
     return git(repo, "rev-parse", "HEAD").decode().strip()
 
 
 def test_snapshot_uses_head_and_only_changed_configured_code(tmp_path):
-    """Code/test lấy đúng head; file không đổi, bị xóa và file ngoài scope không được mutate."""
+    """Code/tests come from head; unchanged, deleted and out-of-scope files are not mutated."""
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init")
@@ -59,13 +59,13 @@ def test_snapshot_uses_head_and_only_changed_configured_code(tmp_path):
     assert (work / "serving/app.py").read_text() == "value = 2\n"
     assert "UNCOMMITTED" not in (work / "serving/app.py").read_text()
     assert "stable.py" not in config_text
-    # Không copy cả serving đè lên mã mutant sau lúc mutmut sinh mutant.
+    # Do not copy all of serving over the mutant code after mutmut generates mutants.
     assert 'also_copy = ["serving/tests"]' in config_text
     assert (work / "serving/tests/test_app.py").read_text() == "def test_ok(): assert 2 == 2\n"
 
 
 def test_renames_are_selected_at_new_path(tmp_path):
-    """Đổi tên được coi là xóa/thêm để file mới vẫn nằm trong phạm vi mutation."""
+    """A rename is treated as delete/add so the new file stays in the mutation scope."""
     git(tmp_path, "init")
     (tmp_path / "old.py").write_text("value = 1\n")
     base = commit(tmp_path, "base")
@@ -80,13 +80,13 @@ def test_renames_are_selected_at_new_path(tmp_path):
 
 
 def test_no_matching_files_is_empty():
-    """Thay docs hoặc test không được dùng làm bằng chứng mutation pass."""
+    """Changing docs or tests must not count as evidence of a mutation pass."""
     assert select_paths(["README.md", "serving/tests/test_app.py"], ["serving"]) == []
     assert select_paths(["serving/app.py"], ["serving/other.py"]) == []
 
 
 def test_score_keeps_no_tests_and_timeouts_separate():
-    """Score thô không loại no-tests hay tính timeout thành killed để vượt ngưỡng."""
+    """The raw score neither excludes no-tests nor counts timeouts as killed to clear the threshold."""
     output = "\n".join(
         f"    serving.app.x_f__mutmut_{i}: {status}"
         for i, status in enumerate(["killed"] * 8 + ["timeout", "no tests"])
@@ -95,19 +95,19 @@ def test_score_keeps_no_tests_and_timeouts_separate():
     assert result["total"] == 10
     assert result["killed_percent_all"] == 80
     assert result["detected_percent_tested"] == 100
-    assert not result["passed"]  # Rubric yêu cầu >80, không phải >=80.
+    assert not result["passed"]  # The threshold is >80, not >=80.
     assert summarize(output + "\n    serving.app.x_f__mutmut_10: killed")["passed"]
 
 
 def test_incomplete_or_missing_results_never_pass():
-    """Kết quả rỗng hoặc còn mutant chưa kiểm đều không đạt."""
+    """Empty results or remaining unchecked mutants never pass."""
     assert not summarize("")["passed"]
     output = "\n".join(f"    m.x_f__mutmut_{i}: killed" for i in range(10))
     assert not summarize(output + "\n    m.x_f__mutmut_10: not checked")["passed"]
 
 
 def test_bad_ref_fails_instead_of_mutating_everything(tmp_path):
-    """Ref sai dừng ngay tại Git, không fallback sang tất cả file."""
+    """A bad ref stops right at Git, without falling back to all files."""
     git(tmp_path, "init")
     with pytest.raises(subprocess.CalledProcessError):
         git(tmp_path, "rev-parse", "--verify", "--end-of-options", "missing^{commit}")
@@ -115,7 +115,7 @@ def test_bad_ref_fails_instead_of_mutating_everything(tmp_path):
 
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_manifest_skip_and_dry_run_do_not_execute_mutmut(tmp_path, monkeypatch, dry_run):
-    """Không có diff thì skip; dry-run có diff chỉ ghi plan và không chạy mutation."""
+    """No diff means skip; dry-run with a diff only writes the plan and does not run mutation."""
     import json
 
     git(tmp_path, "init")
@@ -130,7 +130,7 @@ def test_manifest_skip_and_dry_run_do_not_execute_mutmut(tmp_path, monkeypatch, 
     monkeypatch.setattr(run_changed_mutation, "ROOT", tmp_path)
 
     def unexpected_run(*args, **kwargs):
-        raise AssertionError("Không được chạy mutmut khi skip hoặc dry-run")
+        raise AssertionError("mutmut must not run on skip or dry-run")
 
     monkeypatch.setattr(run_changed_mutation, "run_logged", unexpected_run)
     output = tmp_path / "evidence"

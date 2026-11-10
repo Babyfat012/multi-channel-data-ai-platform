@@ -1,7 +1,7 @@
-"""Đo baseline/skew v2 bằng event log Spark, chỉ dùng nguồn scale và module job thật.
+"""Measure v2 baseline/skew from the Spark event log, using only the scale source and the real job modules.
 
-Không cần listener callback hay mạng. Event log không nén, đóng Spark trước khi đọc;
-JSON giữ tất cả stage, task thành công, plan và nhận diện exchange cấp dữ liệu cho sweep.
+No listener callback or network needed. The event log is uncompressed, and Spark is stopped before reading;
+the JSON keeps all stages, successful tasks, plans and identifies the data-level exchange for the sweep.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 
 def distribution(values):
-    """Thống kê mọi task kể cả rỗng; median=0 thì ratio không xác định, không chia giả cho 1."""
+    """Stats over every task including empty ones; with median=0 the ratio is undefined, no fake division by 1."""
     values = sorted(values)
     if not values:
         return dict(max=0, median=0, p95=0, max_median=None)
@@ -37,17 +37,17 @@ def distribution(values):
 
 
 def _nodes(node):
-    """Duyệt cây physical plan được ghi bởi SQLExecutionStart."""
+    """Walk the physical plan tree recorded by SQLExecutionStart."""
     yield node
     for child in node.get("children", []):
         yield from _nodes(child)
 
 
 def _window_exchanges(plan):
-    """Chỉ lấy Exchange cấp Window qua Sort/wrapper; không nhận aggregate/join cùng khóa."""
+    """Take only Window-level Exchanges through Sort/wrappers; ignore aggregates/joins on the same keys."""
 
     def inputs(node):
-        """Dừng ở ranh giới operator thay đổi dữ liệu hoặc Exchange đầu tiên."""
+        """Stop at operator boundaries that change data or at the first Exchange."""
         name = node.get("nodeName", "")
         if name == "Exchange":
             yield node
@@ -68,10 +68,10 @@ def _window_exchanges(plan):
 
 
 def read_event_logs(directory):
-    """Gắn stage vào job group và nhận diện consumer của exchange (dataset,SKU[,bucket]).
+    """Attach stages to job groups and identify exchange consumers (dataset,SKU[,bucket]).
 
-    records_read = input records + shuffle records; cache không có nghĩa số này
-    bằng output rows. Chỉ sweep consumer có shuffle mới dùng để so tải window.
+    records_read = input records + shuffle records; caching does not make this number
+    equal output rows. Only sweep consumers with a shuffle are used to compare window load.
     """
     stage_groups, stages, tasks, exchanges, plans = {}, {}, {}, {}, []
     for path in sorted(Path(directory).rglob("*")):
@@ -175,7 +175,7 @@ def run_measurement(
     partitions=16,
     aqe=False,
 ):
-    """Sinh/đọc một nguồn, dựng Silver→Gold thật, pin fact/segments rồi đo hai sweep cùng input."""
+    """Generate/read one source, build real Silver→Gold, pin fact/segments, then measure both sweeps on the same input."""
     from pyspark.sql import SparkSession
     from pyspark.sql import functions as F
 
@@ -212,7 +212,7 @@ def run_measurement(
     os.environ["PLATFORM_CONTRACTS_DIR"] = str(ROOT / "contracts")
     builder = SparkSession.builder
     if cloud:
-        # Nhánh S3 giữ master từ spark-submit; thuật toán đo giữ nguyên.
+        # The S3 branch keeps the master from spark-submit; the measurement algorithm is unchanged.
         from spark_jobs.lib.iceberg_session import catalog_conf
 
         for key, value in catalog_conf(os.environ).items():
@@ -234,10 +234,10 @@ def run_measurement(
     )
     spark.sparkContext.setLogLevel("ERROR")
     if cloud:
-        # Lấy byte manifest gốc để hash trùng object S3, không canonicalize JSON.
+        # Take the original manifest bytes so the hash matches the S3 object; do not canonicalize the JSON.
         content = spark.read.text(source.rstrip("/") + "/manifest.json", wholetext=True).collect()
         if len(content) != 1:
-            raise ValueError("Cần đúng một manifest.json")
+            raise ValueError("Expected exactly one manifest.json")
         manifest_bytes = content[0]["value"].encode()
         manifest = read_source_manifest(spark, source)
     cutoff = manifest["horizons"]["source_observation_end"]
@@ -267,7 +267,7 @@ def run_measurement(
     if cloud:
         report["runtime"]["master"] = spark.sparkContext.master
     try:
-        spark.sparkContext.setJobGroup("silver_gold_build", "Silver và Gold từ module thật")
+        spark.sparkContext.setJobGroup("silver_gold_build", "Silver and Gold from the real modules")
         bronze = bronze_from_root(spark, str(source), "skew").cache()
         silver = build_silver(bronze=bronze, as_of=cutoff, contracts_dir=str(ROOT / "contracts"))
         gold = gold_job.build_gold(
@@ -281,7 +281,7 @@ def run_measurement(
         ]
         gold["label_return_v2"].count()
         windows = gold_job._feature_windows(segments, fact.select(*gold_job.KEY, "seller_sku"))
-        # Đếm đầu vào sweep bằng endpoint thật; đây là key load, không giả làm task metrics.
+        # Count sweep input with the real endpoints; this is key load, not pretending to be task metrics.
         key_times = windows.select(
             "dataset_version", "seller_sku", F.explode(F.array("a", "b")).alias("time")
         ).unionByName(
@@ -324,7 +324,7 @@ def run_measurement(
             ("baseline", lambda: gold_job.sku_features(fact, segments)),
             ("salted", lambda: sku_features_salted(fact, segments, buckets)),
         ):
-            spark.sparkContext.setJobGroup(mode, mode + " sweep cùng fact/segments")
+            spark.sparkContext.setJobGroup(mode, mode + " sweep on the same fact/segments")
             features = build()
             report["physical_plans"][mode] = (
                 features._jdf.queryExecution().executedPlan().toString()
@@ -332,7 +332,7 @@ def run_measurement(
             path = str(workdir / mode)
             features.write.mode("error").parquet(path)
             outputs[mode] = spark.read.parquet(path)
-        spark.sparkContext.setJobGroup("correctness", "exceptAll hai chiều")
+        spark.sparkContext.setJobGroup("correctness", "exceptAll in both directions")
         cols = outputs["baseline"].columns
         left, right = outputs["baseline"].select(*cols), outputs["salted"].select(*cols)
         report["differences"] = dict(
@@ -352,7 +352,7 @@ def run_measurement(
 
 
 def main():
-    """CLI không cần catalog/Docker service; đầu ra và event log phải nằm ở thư mục ghi được."""
+    """CLI needs no catalog/Docker service; output and event logs must be in writable directories."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source")
     parser.add_argument("--workdir", type=Path)

@@ -1,18 +1,18 @@
-"""Cắt tài liệu Markdown thành chunk cho RAG; thuần Python để test không cần model hay Feast.
+"""Split Markdown documents into chunks for RAG; pure Python so tests need no model or Feast.
 
-Mỗi mục `## ` là một chunk (kèm tiêu đề tài liệu); mục dài hơn `max_chars` bị cắt theo câu với
-phần gối `overlap` ký tự. `chunk_id` là băm của nội dung ⇒ chạy lại ra cùng id (ghi đè, không nhân bản).
+Each `## ` section is one chunk (with the document title); a section longer than `max_chars` is split by
+sentence with an `overlap`-character overlap. `chunk_id` is a hash of the content ⇒ reruns give the same id (overwrite, no duplicates).
 """
 
 import functools
 import hashlib
 import re
 
-MODEL = "BAAI/bge-small-en-v1.5"  # 384 chiều, ONNX chạy CPU qua fastembed
+MODEL = "BAAI/bge-small-en-v1.5"  # 384 dims, ONNX on CPU via fastembed
 
 
 def _split_long(text, max_chars, overlap):
-    """Gom câu thành đoạn ≤ max_chars; đoạn sau lặp lại đuôi đoạn trước để không mất ngữ cảnh."""
+    """Group sentences into parts ≤ max_chars; each part repeats the tail of the previous one to keep context."""
     sentences = re.split(r"(?<=[.!?])\s+|\n(?=- )", text)
     parts, current = [], ""
     for sentence in sentences:
@@ -27,7 +27,7 @@ def _split_long(text, max_chars, overlap):
 
 
 def chunk_markdown(doc_id, markdown, max_chars=700, overlap=100):
-    """Trả list dict {chunk_id, doc_id, heading, text}; bỏ comment HTML và mục rỗng."""
+    """Return a list of dicts {chunk_id, doc_id, heading, text}; drop HTML comments and empty sections."""
     markdown = re.sub(r"<!--.*?-->", "", markdown, flags=re.S)
     title_match = re.search(r"^# (.+)$", markdown, flags=re.M)
     title = title_match.group(1).strip() if title_match else doc_id
@@ -48,12 +48,12 @@ def chunk_markdown(doc_id, markdown, max_chars=700, overlap=100):
 
 @functools.lru_cache(maxsize=2)
 def _model(model_name, cache_dir):
-    """Nạp và cache model embedding theo tên và thư mục lưu model."""
+    """Load and cache the embedding model by name and model directory."""
     from fastembed import TextEmbedding
 
     return TextEmbedding(model_name, cache_dir=cache_dir)
 
 
 def embed(texts, model_name=MODEL, cache_dir=None):
-    """Embedding chuẩn hoá (dùng cosine); model nạp 1 lần mỗi process, fastembed chỉ import khi cần."""
+    """Normalized embeddings (for cosine); the model loads once per process, fastembed is imported only when needed."""
     return [vector.tolist() for vector in _model(model_name, cache_dir).embed(list(texts))]

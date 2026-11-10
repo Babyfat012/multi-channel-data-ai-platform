@@ -1,6 +1,6 @@
-"""Đối soát Spark scale 200 đơn/ngày × 10 ngày; chỉ chạy trong image Airflow/Spark.
+"""Spark reconciliation at scale, 200 Orders/day × 10 days; runs only in the Airflow/Spark image.
 
-Nguồn sinh mới trong /tmp, không catalog, không mạng; dùng contracts_dir tường minh.
+The source is freshly generated in /tmp, no catalog, no network; uses an explicit contracts_dir.
 """
 
 import json
@@ -23,11 +23,11 @@ from generator.generate_order_lifecycle import ScaleConfig, generate_scaled
 
 
 class SourceV2ScaleChecks(unittest.TestCase):
-    """Đối soát trọn bộ Silver và line oracle qua API công khai."""
+    """Full reconciliation of Silver and the line oracle through the public API."""
 
     @classmethod
     def setUpClass(cls):
-        """Sinh scale vào /tmp và dựng Silver bằng tham số tên."""
+        """Generate the scale source into /tmp and build Silver with keyword arguments."""
         cls.tmp = Path(tempfile.mkdtemp(prefix="platform-v2-scale-"))
         cls.root = cls.tmp / "source"
         cls.manifest = generate_scaled(cls.root, ScaleConfig(orders_per_day=200, days=10))
@@ -48,22 +48,22 @@ class SourceV2ScaleChecks(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        """Dừng Spark và xóa đúng thư mục tạm của test."""
+        """Stop Spark and delete exactly the test's temporary directory."""
         cls.spark.stop()
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_every_reconcile_check_is_zero(self):
-        """Mọi bất biến quantity/money/linkage/coverage cùng phải sạch."""
+        """Every quantity/money/linkage/coverage invariant must be clean."""
         result = v2.reconcile(silver=self.silver)
         self.assertTrue(result["checks"])
         self.assertEqual({k: v for k, v in result["checks"].items() if v != 0}, {})
 
     def test_contract_quarantine_is_empty(self):
-        """Registry chấp nhận toàn bộ nguồn mặc định."""
+        """The registry accepts the whole default source."""
         self.assertEqual(self.silver["quarantine_records"].count(), 0)
 
     def test_silver_lines_equal_truth(self):
-        """So cả số lượng và tập line identity, tránh count bằng nhau do fanout."""
+        """Compare both the count and the set of line identities, avoiding equal counts caused by fan-out."""
         with (self.root / "_truth/lines.jsonl").open() as handle:
             expected = {json.loads(row)["line_id"] for row in handle}
         lines = self.silver["line_commitments"]

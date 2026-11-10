@@ -1,4 +1,4 @@
-"""Iceberg maintenance: lịch bảo trì Iceberg hằng ngày, mặc định tạm dừng, bật tay sau khi kiểm tra."""
+"""Iceberg maintenance: daily Iceberg maintenance schedule, paused by default, enabled manually after review."""
 
 from datetime import datetime, timezone
 
@@ -17,7 +17,7 @@ CONF = {
 
 with DAG(
     dag_id="maintenance_iceberg",
-    description="Lập kế hoạch → bảo trì + kiểm dữ liệu → kiểm receipt bằng session mới",
+    description="Plan → maintain + check data → check receipt with a fresh session",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule="@daily",
     catchup=False,

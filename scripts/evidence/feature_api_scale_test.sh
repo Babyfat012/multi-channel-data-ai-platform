@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Đo KEDA autoscale trên cluster thật: pod tải TRONG cluster gọi qua Service, ghi target/pods theo thời gian
-# tới khi scale lên rồi về lại tối thiểu.
-# Chạy: KCTX=<kube-context> [TARGET=feature-api|feature-mcp|return-risk] scripts/evidence/feature_api_scale_test.sh [luồng=4] [giây tải=150]
-#   feature-api (mặc định): POST /features, release Helm feature-api (values-aws.yaml bật autoscaling).
-#   feature-mcp: POST /mcp/ tools/list (pod MCP riêng, release feature-mcp).
-#   return-risk: POST KServe :predict (backend predict của Model Agent), ScaledObject return-risk-predictor.
+# Measure KEDA autoscaling on a real cluster: a load pod INSIDE the cluster calls through the Service, recording target/pods over time
+# until it scales up and then back down to the minimum.
+# Run: KCTX=<kube-context> [TARGET=feature-api|feature-mcp|return-risk] scripts/evidence/feature_api_scale_test.sh [threads=4] [load seconds=150]
+#   feature-api (default): POST /features, Helm release feature-api (values-aws.yaml enables autoscaling).
+#   feature-mcp: POST /mcp/ tools/list (separate MCP pod, release feature-mcp).
+#   return-risk: POST KServe :predict (the Model Agent's predict backend), ScaledObject return-risk-predictor.
 # Ghi docs/evidence/aws/<target>-autoscale.txt.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -23,12 +23,12 @@ case "$target" in
     ns=ml-serving; scaled=return-risk-predictor; selector=serving.kserve.io/inferenceservice=return-risk
     url=http://return-risk-predictor/v1/models/return-risk:predict
     body='{"instances":[{"seller_sku":"APP-00042","channel":"amazon","country":"US","ordered_basis_qty":1,"ordered_product_net_minor":2500}]}' ;;
-  *) echo "TARGET phải là feature-api, feature-mcp hoặc return-risk" >&2; exit 1 ;;
+  *) echo "TARGET must be feature-api, feature-mcp or return-risk" >&2; exit 1 ;;
 esac
 hpa="keda-hpa-$scaled"
 load="$target-load"
 out=${OUT:-docs/evidence/aws/$target-autoscale.txt}
-K=(kubectl --context "${KCTX:?đặt KCTX=<kube-context>}" -n "$ns")
+K=(kubectl --context "${KCTX:?set KCTX=<kube-context>}" -n "$ns")
 trap '"${K[@]}" delete pod "$load" --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT
 
 hpa_get() { "${K[@]}" get hpa "$hpa" -o "jsonpath=$1"; }
@@ -38,7 +38,7 @@ running() { "${K[@]}" get pods -l "$selector" --no-headers | awk '$2=="1/1" && $
 
 {
   echo "# KEDA autoscale $scaled ($KCTX, $(date -u +%Y-%m-%dT%H:%M:%SZ))"
-  echo "# Tải: $conc luồng curl song song trong cluster, POST $url, ${load_s} s; ngưỡng $thr/giây mỗi pod."
+  echo "# Load: $conc parallel curl threads inside the cluster, POST $url, ${load_s} s; threshold $thr/second per pod."
   "${K[@]}" get scaledobject "$scaled"
 } | tee "$out"
 
@@ -60,8 +60,8 @@ while :; do
   ((p > peak)) && peak=$p
   if ((t > load_s)); then
     ((peak > min && p <= min)) && break
-    ((peak <= min && t > load_s + 180)) && { echo "# Không scale quá $min: kiểm Prometheus/KEDA." | tee -a "$out"; break; }
-    ((t > load_s + 900)) && { echo "# Quá 900 s sau tải mà chưa về $min pod." | tee -a "$out"; break; }
+    ((peak <= min && t > load_s + 180)) && { echo "# Did not scale above $min: check Prometheus/KEDA." | tee -a "$out"; break; }
+    ((t > load_s + 900)) && { echo "# Over 900 s after load and not back to $min pods." | tee -a "$out"; break; }
   fi
   sleep "$interval"
 done

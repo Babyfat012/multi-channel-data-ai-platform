@@ -1,13 +1,13 @@
-"""Các bước của pipeline RAG; DAG `ml_rag_ingest` gọi từng bước trong feast-venv.
+"""RAG pipeline steps; the `ml_rag_ingest` DAG calls each step inside feast-venv.
 
-upload   : tài liệu text (rag/corpus) → s3://…/rag/raw/*.md               (nguồn "kéo dữ liệu từ text")
+upload   : text documents (rag/corpus) → s3://…/rag/raw/*.md               ("pull data from text" source)
 chunk    : raw → s3://…/rag/chunks_text.parquet                            (rag.chunking.chunk_markdown)
-embed    : chunks_text → s3://…/rag/chunks.parquet (+ embedding 384 chiều)  (offline source của Feast)
-load     : feast apply + write_to_online_store → Postgres/pgvector          ("lưu embedding qua Feast")
-validate : đếm, kiểm vector, thử tìm câu hỏi mẫu → receipt JSON (mỗi check = số vi phạm, 0 là đạt)
-publish  : dataset + job + lineage + assertion lên DataHub qua REST (không cần SDK)
+embed    : chunks_text → s3://…/rag/chunks.parquet (+ 384-dim embedding)   (Feast offline source)
+load     : feast apply + write_to_online_store → Postgres/pgvector          ("store embeddings via Feast")
+validate : count, check vectors, try sample questions → receipt JSON (each check = violation count, 0 passes)
+publish  : dataset + job + lineage + assertion to DataHub over REST (no SDK needed)
 
-Cấu hình qua biến môi trường (DAG lấy từ Airflow Connection/Variable): RAG_ROOT (s3://bucket/rag),
+Configured through environment variables (the DAG reads them from Airflow Connection/Variable): RAG_ROOT (s3://bucket/rag),
 FEAST_S3_ENDPOINT_URL, AWS_*, FEAST_RAG_REGISTRY, RAG_PG_*.
 """
 
@@ -28,7 +28,7 @@ from rag.chunking import MODEL, chunk_markdown, embed
 FEATURE_VIEW = "policy_chunks"
 REPO = Path(__file__).resolve().parent / "feature_repo"
 DAG_ID = "ml_rag_ingest"
-# Câu hỏi mẫu → tài liệu phải đứng đầu kết quả tìm; bắt lỗi embedding/chỉ mục sai.
+# Sample question → the document that must rank first in search; catches wrong embeddings/indexes.
 PROBES = {
     "How many days does a buyer have to return an item on Walmart?": "walmart-returns",
     "Can a TikTok Shop buyer get a refund without sending the item back?": "tiktok-shop-returns",
@@ -37,19 +37,19 @@ PROBES = {
 
 
 def _fs():
-    """Tạo client S3 dùng endpoint cấu hình cho dữ liệu RAG."""
+    """Create an S3 client using the configured endpoint for RAG data."""
     import s3fs
 
     return s3fs.S3FileSystem(endpoint_url=os.environ.get("FEAST_S3_ENDPOINT_URL"))
 
 
 def _root():
-    """Lấy đường dẫn gốc RAG trên S3, bỏ tiền tố giao thức và dấu gạch cuối."""
+    """Get the RAG root path on S3, without the protocol prefix and trailing slash."""
     return os.environ["RAG_ROOT"].removeprefix("s3://").rstrip("/")
 
 
 def upload(corpus):
-    """Tải các tài liệu Markdown trong corpus lên vùng raw trên S3."""
+    """Upload the Markdown documents in the corpus to the raw area on S3."""
     fs = _fs()
     files = sorted(Path(corpus).glob("*.md"))
     for path in files:
@@ -58,7 +58,7 @@ def upload(corpus):
 
 
 def chunk():
-    """Cắt tài liệu raw thành chunk và ghi Parquet chứa văn bản trên S3."""
+    """Split raw documents into chunks and write a Parquet with the text to S3."""
     import pandas as pd
 
     fs = _fs()
@@ -73,7 +73,7 @@ def chunk():
 
 
 def embed_step(cache_dir):
-    """Tạo embedding cho chunk và ghi Parquet kèm thời điểm sự kiện trên S3."""
+    """Create embeddings for the chunks and write a Parquet with the event timestamp to S3."""
     import pandas as pd
 
     fs = _fs()
@@ -87,7 +87,7 @@ def embed_step(cache_dir):
 
 
 def _store():
-    """FeatureStore trên bản sao repo (thư mục mount read-only, Feast cần ghi file tạm)."""
+    """FeatureStore on a copy of the repo (the mounted directory is read-only, Feast needs to write temp files)."""
     from feast import FeatureStore
 
     tmp = tempfile.mkdtemp()
@@ -95,14 +95,14 @@ def _store():
 
 
 def load():
-    """Áp dụng định nghĩa Feast và ghi các chunk vào online store."""
+    """Apply the Feast definitions and write the chunks to the online store."""
     import pandas as pd
 
     fs = _fs()
     with fs.open(f"{_root()}/chunks.parquet", "rb") as f:
         frame = pd.read_parquet(f)
     store = _store()
-    # CLI cùng venv: tạo bảng pgvector + ghi định nghĩa vào registry.
+    # CLI from the same venv: create the pgvector table + write definitions to the registry.
     feast = Path(sys.executable).parent / "feast"
     subprocess.run([str(feast), "apply"], cwd=store.repo_path, check=True)
     store = _store()
@@ -111,7 +111,7 @@ def load():
 
 
 def search(store, question, top_k=3, cache_dir=None):
-    """Tìm top_k chunk gần câu hỏi nhất; dùng chung cho validate và Feature API."""
+    """Find the top_k chunks closest to the question; shared by validate and the Feature API."""
     vector = embed([question], cache_dir=cache_dir)[0]
     response = store.retrieve_online_documents_v2(
         features=[f"{FEATURE_VIEW}:{n}" for n in ("text", "doc_id", "heading", "embedding")],
@@ -119,7 +119,7 @@ def search(store, question, top_k=3, cache_dir=None):
         top_k=top_k,
         distance_metric="cosine",
     ).to_dict()
-    # SQL của Feast chọn đúng top_k nhưng trả về không theo thứ tự ⇒ tự sắp lại (gần nhất trước).
+    # Feast's SQL picks the right top_k but returns them unordered ⇒ re-sort here (closest first).
     rows = [
         {"chunk_id": c, "doc_id": d, "heading": h, "text": t, "distance": dist}
         for c, d, h, t, dist in zip(
@@ -135,7 +135,7 @@ def search(store, question, top_k=3, cache_dir=None):
 
 
 def get_chunks(store, chunk_ids):
-    """Tra chunk theo id trong online store (không cần embedding); id không có ⇒ text None."""
+    """Look up chunks by id in the online store (no embedding needed); unknown id ⇒ text None."""
     response = store.get_online_features(
         features=[f"{FEATURE_VIEW}:{n}" for n in ("text", "doc_id", "heading")],
         entity_rows=[{"chunk_id": c} for c in chunk_ids],
@@ -153,7 +153,7 @@ def get_chunks(store, chunk_ids):
 
 
 def validate(receipt_dir, run_id, cache_dir):
-    """Kiểm số chunk, vector và truy vấn mẫu rồi ghi receipt đạt hoặc lỗi."""
+    """Check chunk count, vectors and sample queries, then write a pass or fail receipt."""
     import pandas as pd
     import psycopg
 
@@ -198,14 +198,14 @@ def validate(receipt_dir, run_id, cache_dir):
 
 
 def _mcp(entity_type, urn, aspect, value):
-    """Tạo đề xuất cập nhật một aspect của thực thể DataHub."""
+    """Build a proposal that updates one aspect of a DataHub entity."""
     return {
         "entityType": entity_type,
         "entityUrn": urn,
         "changeType": "UPSERT",
         "aspectName": aspect,
         "aspect": {
-            # Rest.li đọc `value` là bytes (mỗi ký tự ≤ U+00FF): "→"/tiếng Việt thô ⇒ HTTP 400 ⇒ escape \uXXXX.
+            # Rest.li reads `value` as bytes (each character ≤ U+00FF): raw "→"/Vietnamese text ⇒ HTTP 400 ⇒ escape \uXXXX.
             "value": json.dumps(value),
             "contentType": "application/json",
         },
@@ -213,10 +213,10 @@ def _mcp(entity_type, urn, aspect, value):
 
 
 def lineage_mcps(bucket_root, receipt):
-    """Dataset (S3 raw, Parquet, bảng online Postgres), job theo task DAG, cạnh lineage, assertion."""
+    """Datasets (S3 raw, Parquet, Postgres online table), jobs per DAG task, lineage edges, assertions."""
 
     def ds(platform, name):
-        """Tạo URN dataset DataHub từ nền tảng và tên dữ liệu."""
+        """Build a DataHub dataset URN from the platform and dataset name."""
         return f"urn:li:dataset:(urn:li:dataPlatform:{platform},{name},PROD)"
 
     flow = f"urn:li:dataFlow:(airflow,{DAG_ID},prod)"
@@ -241,10 +241,10 @@ def lineage_mcps(bucket_root, receipt):
         )
     ]
     descriptions = {
-        corpus: "Tài liệu chính sách trả hàng (giả lập) trong repo rag/corpus",
-        raw: "Tài liệu gốc trên MinIO",
-        text: "Chunk text (chưa embedding)",
-        vectors: f"Chunk + embedding {MODEL}; offline source của Feast platform_rag",
+        corpus: "Return policy documents (simulated) in the repo at rag/corpus",
+        raw: "Source documents on MinIO",
+        text: "Chunk text (no embedding yet)",
+        vectors: f"Chunk + embedding {MODEL}; offline source of Feast platform_rag",
         online: "Feast online store (pgvector), feature view policy_chunks",
     }
     for urn, description in descriptions.items():
@@ -264,7 +264,7 @@ def lineage_mcps(bucket_root, receipt):
                 "dataJob",
                 urn,
                 "dataJobInfo",
-                # `type` là union (AzkabanJobType | string) ⇒ Rest.li cần {"string": ...}, không phải chữ trơn (422).
+                # `type` is a union (AzkabanJobType | string) ⇒ Rest.li needs {"string": ...}, not a plain string (422).
                 {"name": task, "type": {"string": "COMMAND"}, "flowUrn": flow},
             )
         )
@@ -333,7 +333,7 @@ def lineage_mcps(bucket_root, receipt):
 
 
 def publish(receipt_dir, server):
-    """Gửi dataset, job, lineage và assertion RAG tới DataHub từ receipt kiểm tra."""
+    """Send RAG datasets, jobs, lineage and assertions to DataHub from the validation receipt."""
     receipt = json.loads((Path(receipt_dir) / "validate.json").read_text())
     proposals = lineage_mcps(_root(), receipt)
     for proposal in proposals:
@@ -347,13 +347,13 @@ def publish(receipt_dir, server):
 
 
 def main():
-    """Đọc tham số dòng lệnh và chạy bước pipeline RAG được chọn."""
+    """Parse command-line arguments and run the selected RAG pipeline step."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("step", choices=["upload", "chunk", "embed", "load", "validate", "publish"])
     parser.add_argument("--corpus", default=str(Path(__file__).resolve().parent / "corpus"))
     parser.add_argument("--receipt-dir", default="/tmp/rag-receipts")
     parser.add_argument("--run-id", default="manual")
-    parser.add_argument("--model-cache", default=None, help="thư mục cache model fastembed")
+    parser.add_argument("--model-cache", default=None, help="fastembed model cache directory")
     parser.add_argument("--datahub", default=os.environ.get("DATAHUB_GMS_URL", ""))
     args = parser.parse_args()
     {

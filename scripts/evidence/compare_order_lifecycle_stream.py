@@ -1,4 +1,4 @@
-"""Đối chiếu file JSON Flink với oracle, kiểm cả identity và số đo từng epoch."""
+"""Reconcile Flink JSON files against the oracle, checking both identity and per-epoch measures."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def read_jsonl(root):
-    """Đọc các part-file đã commit, bỏ file ẩn và metadata của filesystem sink."""
+    """Read committed part files, skipping hidden files and filesystem sink metadata."""
     rows = []
     root = Path(root)
     if not root.exists():
@@ -29,12 +29,12 @@ def read_jsonl(root):
 
 
 def bag(rows, fields):
-    """Đếm multiset để phát hiện cả thiếu, thừa và duplicate sau restart."""
+    """Count a multiset to detect missing, extra and duplicate rows after a restart."""
     return Counter(tuple(r[k] for k in fields) for r in rows)
 
 
 def compare(root, oracle, late_oracle=None):
-    """Trả JSON từng check; main+late exact và late proof một partition phải bằng oracle từng topic."""
+    """Return JSON per check; main+late must be exact and the single-partition late proof must equal the oracle per topic."""
     root, epoch = Path(root), str(oracle["epoch"])
     baseline = read_jsonl(root / "baseline" / epoch / "counts")
     routed = read_jsonl(root / "late" / epoch / "routes")
@@ -62,7 +62,7 @@ def compare(root, oracle, late_oracle=None):
     unique_fields = ["topic", "epoch", "record_sha256", "entity_id", "entity_revision"]
     expected_unique = Counter({key: 1 for key in bag(oracle["records"], unique_fields)})
     checks["dedup_keeps_every_revision_once"] = bag(kept, unique_fields) == expected_unique
-    # Không chọn offset retry thay bản đầu trong mỗi partition/key.
+    # Do not pick a retry offset instead of the first one in each partition/key.
     earliest = {}
     for row in oracle["records"]:
         key = (row["topic"], row["record_sha256"])
@@ -107,9 +107,9 @@ def compare(root, oracle, late_oracle=None):
     )
     checks["late_proof_has_signal"] = sum(r["late"] > 0 for r in proof["late"]) >= 2
 
-    # Bản sao phải giữ đúng bộ envelope/retry của bản ba partition.
+    # The copy must keep exactly the envelope/retry set of the three-partition version.
     def content(rows):
-        """So multiset nguồn giữa hai receipt, bỏ partition/offset khác broker cấp."""
+        """Compare the source multiset between two receipts, ignoring broker-assigned partition/offset."""
         return bag(rows, ["epoch", "record_sha256", "entity_id", "entity_revision"])
 
     checks["late_proof_mirrors_input"] = content(proof["records"]) == content(oracle["records"])
@@ -133,14 +133,18 @@ def compare(root, oracle, late_oracle=None):
 
 
 def main():
-    """CLI trả exit code khác 0 nếu bất kỳ đối soát nào thất bại."""
+    """CLI returns a nonzero exit code if any reconciliation fails."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--flink-output", required=True, help="Thư mục tương ứng /opt/flink/output/order_lifecycle"
+        "--flink-output",
+        required=True,
+        help="Directory corresponding to /opt/flink/output/order_lifecycle",
     )
     parser.add_argument("--oracle", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--late-oracle", help="Oracle riêng cho v2.late.<feed> một partition")
+    parser.add_argument(
+        "--late-oracle", help="Separate oracle for the single-partition v2.late.<feed>"
+    )
     args = parser.parse_args()
     try:
         result = compare(

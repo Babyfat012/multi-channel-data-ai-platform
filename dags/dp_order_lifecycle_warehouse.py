@@ -1,4 +1,4 @@
-"""DAG chạy tay: validate Gold hiện tại rồi publish warehouse v2, không sửa DAG nguồn."""
+"""Manually triggered DAG: validate the current Gold, then publish warehouse v2, without changing the source DAG."""
 
 from datetime import datetime, timezone
 
@@ -8,7 +8,7 @@ from platform_spark_operator import PlatformSparkSubmitOperator
 
 
 class OrderLifecycleSparkSubmitOperator(PlatformSparkSubmitOperator):
-    """Render tài nguyên v2 kể cả khi provider không template các trường này."""
+    """Render v2 resources even when the provider does not template these fields."""
 
     template_fields = tuple(
         dict.fromkeys(
@@ -41,7 +41,10 @@ with DAG(
     is_paused_upon_creation=True,
     params={
         "run_id": Param(
-            "", type="string", minLength=1, description="generation_id Gold đã publish thành công"
+            "",
+            type="string",
+            minLength=1,
+            description="generation_id of the successfully published Gold",
         ),
         "cutoff": Param("2026-06-01T00:00:00.000000Z", type="string", format="date-time"),
     },

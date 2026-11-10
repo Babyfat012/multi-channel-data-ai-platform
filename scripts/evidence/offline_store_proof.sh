@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# In bằng chứng offline store của stream feature sku_return_24h (đọc thẳng S3, không cần bật cluster).
-# Dùng: AWS_PROFILE=platform scripts/evidence/offline_store_proof.sh
-# Mặc định đọc thư mục part của job PyFlink offline; URI=…/sku_return_24h.parquet đọc file của bản SQL + pusher (31/10).
+# Print offline store evidence for the stream feature sku_return_24h (reads S3 directly, no cluster needed).
+# Usage: AWS_PROFILE=platform scripts/evidence/offline_store_proof.sh
+# By default reads the part directory of the offline PyFlink job; URI=…/sku_return_24h.parquet reads the file from the SQL + pusher version (31/10).
 set -euo pipefail
 URI=${URI:-s3://platform-665116832975-lakehouse/feature-store/sku_return_24h/}
 TMP=$(mktemp -d)
@@ -24,13 +24,13 @@ import sys, duckdb
 f = sys.argv[1]
 duckdb.sql("SET TimeZone='UTC'")
 show = lambda title, sql: (print(f"\n# {title}"), duckdb.sql(sql.format(f=f)).show(max_rows=20))
-show("Tổng: số file, số dòng, số SKU, khoảng thời gian (UTC)",
+show("Totals: files, rows, SKUs, time range (UTC)",
      "select count(distinct filename) n_files, count(*) AS n_rows, count(distinct seller_sku) skus, "
      "min(event_timestamp) first_ts, max(event_timestamp) last_ts from read_parquet('{f}', filename=true)")
-show("Giá trị cuối mỗi SKU — so với /features (Redis)",
+show("Last value per SKU — compare with /features (Redis)",
      "select seller_sku, max(event_timestamp) last_ts, arg_max(approved_returns_24h, event_timestamp) last_value "
      "from read_parquet('{f}') where seller_sku in ('BEA-01708','ELE-01084','APP-00042') group by 1 order by 1")
-show("Lịch sử BEA-01708 (offline giữ từng giờ, Redis chỉ giữ số mới nhất)",
+show("History of BEA-01708 (offline keeps every hour, Redis keeps only the latest value)",
      "select distinct event_timestamp, approved_returns_24h from read_parquet('{f}') "
      "where seller_sku='BEA-01708' order by 1 desc limit 8")
 PY

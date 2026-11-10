@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Dựng lại phần nền dùng chung của ML Platform / LLM Platform sau khi máy restart hoặc lỡ `docker compose stop`:
-# MinIO + PostgreSQL + Lakekeeper, Vault (unseal), Jenkins, rồi nạp lại Redis nếu trống (Redis
-# trong kind không lưu đĩa). Chạy lại nhiều lần an toàn; không bật LLM/agent (tốn RAM).
+# Bring back the shared ML Platform / LLM Platform base after a machine restart or an accidental `docker compose stop`:
+# MinIO + PostgreSQL + Lakekeeper, Vault (unseal), Jenkins, then reload Redis if empty (Redis
+# in kind does not persist to disk). Safe to rerun many times; does not start LLM/agents (RAM-hungry).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 docker compose --profile catalog up -d --wait minio postgres lakekeeper >/dev/null
@@ -10,9 +10,9 @@ scripts/setup/setup_vault.sh | tail -1
 scripts/setup/setup_jenkins.sh | tail -1
 keys=$(kubectl --context ${KCTX:-kind-platform} -n feature-store exec deploy/redis -- redis-cli dbsize)
 if [[ "$keys" == 0 ]]; then
-  cutoff=${FEAST_ONLINE_END:-2026-10-13T00:00:00}  # mốc ảnh chụp online = cutoff Gold
+  cutoff=${FEAST_ONLINE_END:-2026-10-13T00:00:00}  # online snapshot point = Gold Cutoff
   docker compose --profile ml-stream run --rm --no-deps feast-pusher \
     feast materialize 2025-12-01T00:00:00 "$cutoff" --views sku_return_daily >/dev/null 2>&1
   keys=$(kubectl --context ${KCTX:-kind-platform} -n feature-store exec deploy/redis -- redis-cli dbsize)
 fi
-printf 'Nền ML Platform sẵn sàng: Redis %s key, Vault unsealed, Jenkins :8090\n' "$keys"
+printf 'ML Platform base ready: Redis %s keys, Vault unsealed, Jenkins :8090\n' "$keys"

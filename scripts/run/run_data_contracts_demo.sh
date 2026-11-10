@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Demo Data contracts không Docker: ba fixture, CLI infer/diff/gate và evidence có hash nguồn.
+# Data contracts demo without Docker: three fixtures, infer/diff/gate CLI, and evidence with source hashes.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 exec .venv/bin/python - <<'PY'
-"""Chạy demo, giữ output/mã exit nguyên văn và in bảng số đo thật."""
+"""Run the demo, keep output/exit codes verbatim, and print a table of real measurements."""
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,7 +18,7 @@ commands = []
 
 
 def run(args):
-    """Ghi lệnh và output đầy đủ; diff phá vỡ được phép trả 1."""
+    """Record commands and full output; a breaking diff is allowed to return 1."""
     result = subprocess.run(args, text=True, capture_output=True)
     commands.append({"command": args, "exit_code": result.returncode,
                      "stdout": result.stdout, "stderr": result.stderr})
@@ -51,12 +51,12 @@ with tempfile.TemporaryDirectory(prefix="platform-contracts-") as directory:
     tracked_sources += sorted(Path("spark_jobs/lib/data_contracts").glob("*.py")) + sorted(Path("contracts").rglob("*.json"))
     hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in tracked_sources}
     head = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-    evidence = {"description": "Data contracts: số đo fixture Python, không khẳng định đã chạy Spark",
+    evidence = {"description": "Data contracts: Python fixture measurements, not a claim that Spark ran",
                 "git_head": head, "commands": commands, "sha256": hashes, "results": rows,
-                "shopee_diff": comparison, "spark": {"status": "chưa chạy",
-                "reason": "Demo này chỉ chạy Python; Spark được kiểm riêng."}}
+                "shopee_diff": comparison, "spark": {"status": "not run",
+                "reason": "This demo only runs Python; Spark is checked separately."}}
     path = Path("out/data-contracts-evidence") / (datetime.now(timezone.utc).strftime("receipt-%Y%m%dT%H%M%S.%fZ.json"))
-    # Mỗi lần chạy tạo receipt mới; giữ nguyên evidence lịch sử đã commit.
+    # Each run creates a new receipt; committed historical evidence is left untouched.
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n")
     print("check-registry: PASS (exit 0)")

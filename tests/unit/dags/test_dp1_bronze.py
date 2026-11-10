@@ -1,4 +1,4 @@
-"""DAG dp1_bronze truyền nguồn Amazon cho cả ingest lẫn validate (để AWS trỏ được s3a://)."""
+"""The dp1_bronze DAG passes the Amazon source to both ingest and validate (so AWS can point at s3a://)."""
 
 import ast
 from pathlib import Path
@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_amazon_tasks_pass_same_source():
-    """Hai task Amazon cùng nhận --source AMAZON_SOURCE; thiếu ở validate thì đếm nhầm mount local."""
+    """Both Amazon tasks get --source AMAZON_SOURCE; missing it in validate would count the local mount by mistake."""
     tree = ast.parse((ROOT / "dags/dp1_bronze.py").read_text())
     tasks = {}
     for call in ast.walk(tree):

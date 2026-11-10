@@ -1,15 +1,15 @@
-"""PyFlink stream feature: số Return "approved" mỗi SKU trong 24h gần nhất (HOP 24h trượt 1h).
+"""PyFlink stream feature: count of "approved" Returns per SKU over the last 24h (HOP 24h sliding 1h).
 
-Cùng một file submit HAI job (DataStream API, Flink 2.2), khác nhau ở sink:
+One file submits TWO jobs (DataStream API, Flink 2.2), differing in the sink:
   --sink online   Feast push ONLINE (Redis)            job ml-sku-return-24h-online
-  --sink offline  Parquet append vào thư mục S3 (offline) job ml-sku-return-24h-offline
-Mỗi job đọc Kafka bằng consumer group riêng, tự tính lại cùng phép đếm.
+  --sink offline  Parquet append to an S3 directory (offline) job ml-sku-return-24h-offline
+Each job reads Kafka with its own consumer group and recomputes the same count itself.
 
-Event time = timestamp bản ghi Kafka (replay_return_events.py đặt bằng effective_at): watermark sinh NGAY Ở SOURCE, theo
-từng partition. Sinh sau khi gộp partition thì partition đọc nhanh làm watermark vượt partition chậm ⇒ tin bị coi là trễ và
-rớt âm thầm (diễn tập 401.129 tin 3 partition, 09/11: sai 37.284 cửa sổ). PyFlink from_source bỏ qua TimestampAssigner Python.
+Event time = Kafka record timestamp (replay_return_events.py sets it to effective_at): watermarks are generated AT THE SOURCE, per
+partition. Generating them after merging partitions lets a fast partition push the watermark past a slow one ⇒ messages are treated as late and
+silently dropped (rehearsal with 401,129 messages on 3 partitions, 09/11: 37,284 wrong windows). PyFlink from_source ignores a Python TimestampAssigner.
 
-Submit: scripts/run/run_stream_feature_jobs.sh (chạy cả hai). Thay cho sku_return_feature_a.sql + feast-pusher.
+Submit: scripts/run/run_stream_feature_jobs.sh (runs both). Replaces sku_return_feature_a.sql + feast-pusher.
 """
 
 import argparse
@@ -21,12 +21,12 @@ TOPIC = "order_snapshots.return_events"
 
 
 def parse_event(raw):
-    """Tin JSON → (record_sha256, seller_sku, event_ms) nếu là Return approved hợp lệ, không thì None."""
+    """JSON message → (record_sha256, seller_sku, event_ms) if it is a valid approved Return, otherwise None."""
     try:
         event = json.loads(raw)
         if event.get("event_type") != "approved" or int(event.get("quantity") or 0) <= 0:
             return None
-        # Giống bản SQL: 23 ký tự đầu (tới mili giây), coi là UTC.
+        # Same as the SQL version: first 23 characters (to the millisecond), treated as UTC.
         at = datetime.fromisoformat(event["effective_at"][:23].replace("Z", "+00:00"))
         at = at if at.tzinfo else at.replace(tzinfo=UTC)
         return event["record_sha256"], event["seller_sku"], int(at.timestamp() * 1000)
@@ -35,7 +35,7 @@ def parse_event(raw):
 
 
 def to_rows(windows):
-    """(sku, window_end_ms, count) → dòng đúng schema feature view sku_return_24h."""
+    """(sku, window_end_ms, count) → rows matching the sku_return_24h feature view schema."""
     return [
         {
             "seller_sku": sku,
@@ -47,9 +47,9 @@ def to_rows(windows):
 
 
 def build_windows(raw_stream, assign_event_time=False):
-    """Chuỗi string JSON → (sku, window_end_ms, count) cho mỗi cửa sổ HOP 24h/1h có tin.
+    """JSON string stream → (sku, window_end_ms, count) for each HOP 24h/1h window with messages.
 
-    Job thật lấy event time và watermark từ source Kafka; `assign_event_time` chỉ cho test với nguồn không có timestamp.
+    The real job takes event time and watermarks from the Kafka source; `assign_event_time` is only for tests with a source that has no timestamps.
     """
     from pyflink.common import Duration, Time, Types, WatermarkStrategy
     from pyflink.common.watermark_strategy import TimestampAssigner
@@ -65,11 +65,11 @@ def build_windows(raw_stream, assign_event_time=False):
             return value[2]
 
     class DropDuplicates(KeyedProcessFunction):
-        """Phát lại hai lần cùng Order Line ⇒ chỉ giữ bản đầu (key = record_sha256)."""
+        """Replaying the same Order Line twice ⇒ keep only the first copy (key = record_sha256)."""
 
         def open(self, runtime_context):
             seen = ValueStateDescriptor("seen", Types.BOOLEAN())
-            # ponytail: TTL 7 ngày giới hạn state; bản trùng đến sau 7 ngày sẽ bị đếm lại.
+            # ponytail: a 7-day TTL bounds the state; a duplicate arriving after 7 days is counted again.
             seen.enable_time_to_live(StateTtlConfig.new_builder(Time.days(7)).build())
             self.seen = runtime_context.get_state(seen)
             self.duplicates = runtime_context.get_metrics_group().counter("duplicates_dropped")
@@ -126,7 +126,7 @@ def build_windows(raw_stream, assign_event_time=False):
 
 
 def write_online(rows):
-    """Feast push ONLINE: Redis đúng định dạng Feast mà Feature API đọc."""
+    """Feast push ONLINE: Redis in exactly the Feast format the Feature API reads."""
     import pandas as pd
     from feast.data_source import PushMode
 
@@ -135,7 +135,7 @@ def write_online(rows):
 
 
 def write_offline(rows, base):
-    """Ghi một file Parquet mới vào thư mục offline (Feast FileSource đọc cả thư mục)."""
+    """Write a new Parquet file into the offline directory (the Feast FileSource reads the whole directory)."""
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -150,12 +150,12 @@ def write_offline(rows, base):
         ),
     )
     end_ms = [int(r["event_timestamp"].timestamp() * 1000) for r in rows]
-    # ponytail: at-least-once; khôi phục từ checkpoint có thể ghi lại lô (dòng trùng cùng giá trị, PIT join không đổi).
+    # ponytail: at-least-once; recovering from a checkpoint may rewrite a batch (duplicate rows with the same values, PIT join unchanged).
     name = f"part-{min(end_ms)}-{max(end_ms)}-{len(rows)}.parquet"
     fs, path = _filesystem(base)
     fs.create_dir(
         path.rstrip("/"), recursive=True
-    )  # file system thường cần thư mục có sẵn; S3 bỏ qua
+    )  # a regular file system needs the directory to exist; S3 ignores this
     pq.write_table(table, f"{path.rstrip('/')}/{name}", filesystem=fs)
 
 
@@ -163,7 +163,7 @@ _STORE = None
 
 
 def _store():
-    """Một FeatureStore cho mỗi Python worker (nạp registry S3 một lần)."""
+    """One FeatureStore per Python worker (loads the S3 registry once)."""
     global _STORE
     if _STORE is None:
         from feast import FeatureStore
@@ -173,7 +173,7 @@ def _store():
 
 
 def _filesystem(uri):
-    """S3 thật (IAM role) hoặc MinIO (FEAST_S3_ENDPOINT_URL); đường dẫn thường cho test."""
+    """Real S3 (IAM role) or MinIO (FEAST_S3_ENDPOINT_URL); plain paths for tests."""
     from pyarrow import fs
 
     endpoint = os.environ.get("FEAST_S3_ENDPOINT_URL")
@@ -184,7 +184,7 @@ def _filesystem(uri):
 
 
 def attach_sink(windows, sink, flush_seconds, offline_path):
-    """Gom cửa sổ theo lô thời gian xử lý (state lô nằm trong checkpoint) rồi ghi một lần mỗi lô."""
+    """Batch windows by processing time (batch state lives in the checkpoint), then write once per batch."""
     from pyflink.common import Time, Types
     from pyflink.datastream.functions import ProcessAllWindowFunction
     from pyflink.datastream.window import TumblingProcessingTimeWindows
@@ -219,7 +219,7 @@ def attach_sink(windows, sink, flush_seconds, offline_path):
 
 
 def main(argv=None):
-    """Đọc cờ, dựng job đúng sink rồi chạy liên tục."""
+    """Parse flags, build the job with the right sink, then run continuously."""
     from pyflink.common import Duration, WatermarkStrategy
     from pyflink.common.serialization import SimpleStringSchema
     from pyflink.datastream import StreamExecutionEnvironment
@@ -230,17 +230,19 @@ def main(argv=None):
     ap.add_argument("--bootstrap", default=os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"))
     ap.add_argument("--topic", default=TOPIC)
     ap.add_argument("--offline-path", default=os.environ.get("FEAST_SKU_RETURN_24H_PATH"))
-    # Online đẩy nhanh (Redis); offline gom lô to hơn để ít file nhỏ trên S3.
+    # Online pushes fast (Redis); offline uses larger batches to avoid small files on S3.
     ap.add_argument("--flush-seconds", type=int)
     args = ap.parse_args(argv)
     if args.sink == "offline" and not args.offline_path:
-        ap.error("--offline-path (hoặc FEAST_SKU_RETURN_24H_PATH) là bắt buộc với --sink offline")
+        ap.error("--offline-path (or FEAST_SKU_RETURN_24H_PATH) is required with --sink offline")
     flush = args.flush_seconds or (2 if args.sink == "online" else 60)
     name = f"ml-sku-return-24h-{args.sink}"
 
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_parallelism(1)
-    env.enable_checkpointing(10_000)  # thư mục checkpoint: execution.checkpointing.dir của cluster
+    env.enable_checkpointing(
+        10_000
+    )  # checkpoint directory: the cluster's execution.checkpointing.dir
     source = (
         KafkaSource.builder()
         .set_bootstrap_servers(args.bootstrap)
@@ -250,7 +252,7 @@ def main(argv=None):
         .set_value_only_deserializer(SimpleStringSchema())
         .build()
     )
-    # Watermark theo từng partition, event time = timestamp bản ghi Kafka; idleness: partition hết tin không giữ watermark.
+    # Per-partition watermarks, event time = Kafka record timestamp; idleness: a partition with no messages does not hold the watermark.
     watermarks = WatermarkStrategy.for_bounded_out_of_orderness(Duration.of_hours(1)).with_idleness(
         Duration.of_seconds(10)
     )

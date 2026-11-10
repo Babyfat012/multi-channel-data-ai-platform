@@ -1,4 +1,4 @@
-"""Kiểm producer/oracle và đối soát độc lập, không dùng Kafka hoặc Docker."""
+"""Check the producer/oracle and independent reconciliation, without Kafka or Docker."""
 
 import hashlib
 import json
@@ -16,14 +16,14 @@ from scripts.run.render_order_lifecycle_stream import render
 
 @pytest.fixture(scope="module")
 def source(tmp_path_factory):
-    """Sinh fixture quan sát thật một lần cho nhóm kiểm thử stream."""
+    """Generate the real observed fixture once for the stream test group."""
     root = tmp_path_factory.mktemp("stream-source") / "source"
     generate_fixture(root)
     return root
 
 
 def produce(source, root, epoch=1, rate=0.03, seed=7):
-    """Chạy file sink và trả receipt cùng dòng phát thực tế."""
+    """Run the file sink and return the receipts with the actually emitted rows."""
     manifest = root / f"manifest-{epoch}.json"
     log = root / f"log-{epoch}.jsonl"
     result = run_stream(
@@ -33,7 +33,7 @@ def produce(source, root, epoch=1, rate=0.03, seed=7):
 
 
 def test_order_retry_seed_revisions_and_epoch(source, tmp_path):
-    """Retry giữ đúng bytes/hash; revision vẫn riêng; replay chỉ đổi epoch header."""
+    """Retries keep the exact bytes/hash; revisions stay distinct; replay only changes the epoch header."""
     first, rows, path = produce(source, tmp_path)
     second, replay, _ = produce(source, tmp_path, epoch=2)
     assert [r["value"]["source_observed_at"] for r in rows] == sorted(
@@ -64,7 +64,7 @@ def test_order_retry_seed_revisions_and_epoch(source, tmp_path):
 
 
 def tiny_source(root):
-    """Dựng tay approved/requested/refund failed/shipping/correction để đếm độc lập."""
+    """Hand-build approved/requested/refund failed/shipping/correction to count independently."""
     root.mkdir()
     cases = [
         (
@@ -149,7 +149,7 @@ def tiny_source(root):
 
 
 def test_hand_built_windows_and_late(tmp_path):
-    """Kỳ vọng tay: hai approval và hai refund revision success, retry không tăng window."""
+    """Hand-computed expectation: two approvals and two successful refund revisions; retries do not increase the window."""
     source = tiny_source(tmp_path / "source")
     receipt, _, path = produce(source, tmp_path, rate=1)
     oracle = expected(source, path, delay_seconds=3600)
@@ -168,7 +168,7 @@ def test_hand_built_windows_and_late(tmp_path):
 
 
 def test_oracle_rejects_tampered_receipt(source, tmp_path):
-    """Không dùng manifest bị sửa offset/counter/digest làm đáp án đáng tin cậy."""
+    """Never trust a manifest with tampered offsets/counters/digests as the answer key."""
     manifest, _, path = produce(source, tmp_path)
     manifest["ledger"][0]["record_sha256"] = manifest["ledger"][1]["record_sha256"]
     path.write_text(json.dumps(manifest))
@@ -177,14 +177,14 @@ def test_oracle_rejects_tampered_receipt(source, tmp_path):
 
 
 def write_rows(root, relative, rows):
-    """Ghi output giả theo schema Flink để kiểm khả năng phát hiện sai của comparator."""
+    """Write fake output in the Flink schema to check that the comparator detects errors."""
     path = root / relative / "part-0"
     path.parent.mkdir(parents=True)
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
 def test_comparator_detects_loss_duplicates_and_missing_epoch(source, tmp_path):
-    """Output đúng phải pass; thiếu late, retry lọt và epoch sai đều phải fail."""
+    """Correct output must pass; missing late, leaked retries and wrong epochs must all fail."""
     _, _, path = produce(source, tmp_path)
     oracle = expected(source, path, delay_seconds=0)
     output = tmp_path / "output"
@@ -219,7 +219,7 @@ def test_comparator_detects_loss_duplicates_and_missing_epoch(source, tmp_path):
 
 
 def test_render_and_validate(source, tmp_path):
-    """Render đủ config checkpoint/epoch và không cho ghi đè template hay output."""
+    """Render the full checkpoint/epoch config and refuse to overwrite the template or output."""
     _, _, manifest = produce(source, tmp_path, epoch=12)
     render(tmp_path / "sql", epoch=12, manifest=manifest, delay_seconds=60, checkpoint_ms=250)
     files = list((tmp_path / "sql").glob("*.sql"))
@@ -236,7 +236,7 @@ def test_render_and_validate(source, tmp_path):
 
 @pytest.mark.parametrize("rate", [0, 0.17, 1])
 def test_exact_rate_and_preserved_source_envelope(source, tmp_path, rate):
-    """Kiểm tỉ lệ và mọi trường nguồn gốc; hash fallback lấy từ raw source không LF."""
+    """Check ratios and every provenance field; the fallback hash comes from the raw source without LF."""
     receipt, rows, path = produce(source, tmp_path, rate=rate, seed=42)
     manifest = json.loads((source / "manifest.json").read_text())
     originals = {}
@@ -259,7 +259,7 @@ def test_exact_rate_and_preserved_source_envelope(source, tmp_path, rate):
 
 
 def test_retry_selection_varies_by_seed(source, tmp_path):
-    """Seed thay đổi tập retry nhưng không đổi tập envelope nguồn."""
+    """The seed changes the retry set but not the source envelope set."""
     first, _, _ = produce(source, tmp_path, rate=0.2, seed=1)
     second, _, _ = produce(source, tmp_path, epoch=2, rate=0.2, seed=2)
     selected1 = {r["record_sha256"] for r in first["ledger"] if r["retry"]}
@@ -269,7 +269,7 @@ def test_retry_selection_varies_by_seed(source, tmp_path):
 
 
 def test_late_mismatch_one_record_fails(source, tmp_path):
-    """Đổi đúng một late thành main vẫn bảo toàn input nhưng bắt buộc phải FAIL."""
+    """Turning exactly one late into main still preserves the input but must FAIL."""
     _, _, path = produce(source, tmp_path)
     oracle = expected(source, path, delay_seconds=0)
     output = tmp_path / "output"
@@ -286,7 +286,7 @@ def test_late_mismatch_one_record_fails(source, tmp_path):
 
 
 def test_mixed_header_epoch_is_detected(source, tmp_path):
-    """Bản ghi đúng offset/hash nhưng header epoch khác phải hiện ra và làm FAIL."""
+    """A record with the right offset/hash but a different epoch header must show up and cause a FAIL."""
     _, _, manifest = produce(source, tmp_path)
     oracle = expected(source, manifest)
     rows = [dict(r) for r in oracle["records"]]
@@ -303,7 +303,7 @@ def test_mixed_header_epoch_is_detected(source, tmp_path):
 
 
 def test_offset_boundaries_and_proof_render(source, tmp_path):
-    """Replay chỉ đọc offset epoch mới; proof mỗi SQL đúng một topic và on-event."""
+    """Replay only reads new-epoch offsets; each proof SQL has exactly one topic and is on-event."""
     manifest_path = tmp_path / "manifest.json"
     receipt = run_stream(
         source, FileSink(tmp_path / "log"), manifest_path, epoch=2, late_topics=True
@@ -312,7 +312,7 @@ def test_offset_boundaries_and_proof_render(source, tmp_path):
     proof = expected(source, proof_path, delay_seconds=0)
     assert sum(r["late"] > 0 for r in proof["late"]) >= 2
     assert all(r["partition"] == 0 for r in proof["records"])
-    # Mô phỏng offset đã có từ epoch trước trên cùng broker.
+    # Simulate offsets already present from a previous epoch on the same broker.
     for entry in receipt["ledger"]:
         entry["offset"] += 123
     for stats in receipt["topics"].values():
@@ -349,7 +349,7 @@ def test_offset_boundaries_and_proof_render(source, tmp_path):
     "field,value", [("first_offset", -1), ("last_offset", "1;DROP"), ("records", 0)]
 )
 def test_invalid_offset_format_rejected(source, tmp_path, field, value):
-    """Receipt chứa offset âm, chuỗi SQL hoặc gap không được đưa vào template."""
+    """Receipts with negative offsets, SQL strings or gaps must not reach the template."""
     receipt, _, manifest = produce(source, tmp_path)
     next(iter(next(iter(receipt["topics"].values()))["partitions"].values()))[field] = value
     manifest.write_text(json.dumps(receipt))
@@ -358,7 +358,7 @@ def test_invalid_offset_format_rejected(source, tmp_path, field, value):
 
 
 def test_separate_late_proof_detects_single_error_and_epoch(source, tmp_path):
-    """Nhánh proof riêng không thể PASS khi lệch một late hoặc lẫn header epoch."""
+    """The separate proof branch cannot PASS when one late is off or epoch headers are mixed."""
     receipt = run_stream(
         source, FileSink(tmp_path / "log"), tmp_path / "manifest.json", epoch=1, late_topics=True
     )
@@ -403,7 +403,7 @@ def test_separate_late_proof_detects_single_error_and_epoch(source, tmp_path):
 
 
 def test_restart_render_is_unbounded_with_separate_summary(source, tmp_path):
-    """Ca restart không EOF; summary bounded chạy riêng sau khi cancel streaming."""
+    """The restart case has no EOF; the bounded summary runs separately after cancelling streaming."""
     _, _, manifest = produce(source, tmp_path, epoch=2)
     render(tmp_path / "restart", epoch=2, manifest=manifest, restart_mode=True, checkpoint_ms=100)
     sql = (tmp_path / "restart/dedup.sql").read_text()
@@ -433,7 +433,7 @@ def test_restart_render_is_unbounded_with_separate_summary(source, tmp_path):
 
 
 def load_restart_control():
-    """Nạp control harness như module, không khởi động CLI hay Docker."""
+    """Load the control harness as a module, without starting the CLI or Docker."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
@@ -446,7 +446,7 @@ def load_restart_control():
 
 
 def test_restart_count_committed_output_only(tmp_path):
-    """Chỉ đếm epoch yêu cầu trong file commit; bỏ hidden, pending và metadata."""
+    """Count only the requested epoch in committed files; skip hidden, pending and metadata."""
     control = load_restart_control()
     root = tmp_path / "kept"
     write_rows(tmp_path, "kept/day=1", [dict(epoch=2), dict(epoch=1), dict(epoch=2)])
@@ -472,7 +472,7 @@ def test_restart_count_committed_output_only(tmp_path):
     ],
 )
 def test_restart_control_protocol(monkeypatch, tmp_path, scenario, error):
-    """REST/Docker giả kiểm thứ tự recovery, checkpoint commit, cancel và lỗi từng bước."""
+    """Fake REST/Docker checks the order of recovery, checkpoint commit, cancel and per-step errors."""
     control = load_restart_control()
     oracle = tmp_path / "oracle.json"
     oracle.write_text(json.dumps(dict(epoch=2, dedup=[dict(kept=2)])))
@@ -482,18 +482,18 @@ def test_restart_control_protocol(monkeypatch, tmp_path, scenario, error):
     state = dict(restarted=False, cancel=False, polls=0, clock=0.0)
 
     def fake_sleep(seconds):
-        """Tiến đồng hồ giả để mọi timeout chạy nhanh, kết quả xác định."""
+        """Advance the fake clock so every timeout runs fast and deterministically."""
         state["clock"] += seconds
 
     def fake_run(command, **kwargs):
-        """Ghi stop/start mà không gọi Docker thật."""
+        """Record stop/start without calling real Docker."""
         calls.append(command[1])
         assert kwargs["check"] and kwargs["timeout"] == 0.5
         if command[1] == "start":
             state["restarted"] = True
 
     def fake_get(base, path):
-        """Sinh REST checkpoint trước/sau restore cùng trạng thái cancel."""
+        """Generate REST checkpoints before/after restore together with the cancel state."""
         if path == "/jobs/overview":
             return dict(
                 jobs=[dict(name="order-lifecycle-stream-dedup-2", jid="abc", state="RUNNING")]
@@ -517,7 +517,7 @@ def test_restart_control_protocol(monkeypatch, tmp_path, scenario, error):
         )
 
     def fake_count(root, epoch):
-        """Giả thiếu/thừa output ở điểm chờ hoặc sau cancel."""
+        """Fake missing/extra output at the wait point or after cancel."""
         assert epoch == 2 and root == tmp_path / "output/dedup/2/kept"
         calls.append("count")
         if scenario == "extra_output" or (scenario == "cancel_extra" and state["cancel"]):
@@ -525,7 +525,7 @@ def test_restart_control_protocol(monkeypatch, tmp_path, scenario, error):
         return 1 if scenario == "short_output" else 2
 
     def fake_cancel(base, job):
-        """Cancel chỉ được gửi sau restore và một checkpoint mới hoàn tất."""
+        """Cancel may only be sent after restore and a new completed checkpoint."""
         assert job == "abc" and state["polls"] >= 3
         calls.append("cancel")
         state["cancel"] = True

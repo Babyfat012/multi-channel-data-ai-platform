@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Planner chạy: network/DB riêng, jar offline, giữ receipt trong out và dọn tài nguyên khi lỗi.
+# Run by the planner: dedicated network/DB, offline jars, receipts kept in out, resources cleaned up on failure.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
@@ -8,12 +8,12 @@ DRIVER_MEMORY=6g
 ARGS=()
 while (($#)); do
   case "$1" in
-    --profile) PROFILE="${2:?Thiếu profile}"; shift 2 ;;
-    --driver-memory) DRIVER_MEMORY="${2:?Thiếu driver memory}"; shift 2 ;;
+    --profile) PROFILE="${2:?Missing profile}"; shift 2 ;;
+    --driver-memory) DRIVER_MEMORY="${2:?Missing driver memory}"; shift 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
-case "$PROFILE" in small|medium) ;; *) echo 'Profile phải là small hoặc medium' >&2; exit 2 ;; esac
+case "$PROFILE" in small|medium) ;; *) echo 'Profile must be small or medium' >&2; exit 2 ;; esac
 IMAGE=platform-airflow:2.10.5-spark3.5.3
 PREFIX="platform-e2e-v2-$$"
 NETWORK="$PREFIX-net"
@@ -21,12 +21,12 @@ mkdir -p out
 WORK="$(mktemp -d "$PWD/out/e2e-v2-${PROFILE}.XXXXXX")"
 chmod 777 "$WORK"
 cleanup() {
-  # Dùng image user sẵn có để Spark; root chỉ dùng chown output về host kể cả khi lỗi.
+  # Use the image's existing user for Spark; root is only used to chown output back to the host, even on failure.
   docker rm -f "$PREFIX-spark" "$PREFIX-postgres" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker run --rm --pull never --network none --user 0 -v "$WORK":/proof \
     --entrypoint chown "$IMAGE" -R "$(id -u):$(id -g)" /proof >/dev/null 2>&1 || true
-  printf 'Receipt/log giữ tại %s\n' "$WORK"
+  printf 'Receipt/log kept at %s\n' "$WORK"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -48,9 +48,9 @@ for ((attempt=0; attempt<60; attempt++)); do
   if docker exec "$PREFIX-postgres" pg_isready -U e2e -d e2e >/dev/null 2>&1; then READY=1; break; fi
   sleep 1
 done
-if [[ "$READY" != 1 ]]; then echo 'PostgreSQL chưa sẵn sàng' >&2; exit 1; fi
-# Không đổi HOME hoặc dùng uid host không có trong passwd image; không tải package/JAR.
-# --source có sẵn: truyền đường dẫn container /workspace/... (repo mount chỉ đọc).
+if [[ "$READY" != 1 ]]; then echo 'PostgreSQL is not ready' >&2; exit 1; fi
+# Do not change HOME or use a host uid missing from the image's passwd; do not download packages/JARs.
+# Existing --source: pass the container path /workspace/... (repo mounted read-only).
 docker run --rm --pull never --name "$PREFIX-spark" --network "$NETWORK" \
   -e SPARK_LOCAL_HOSTNAME=localhost -e PYTHONPATH=/workspace \
   -e WAREHOUSE_TEST_DSN=postgresql://e2e:e2e@postgres:5432/e2e \

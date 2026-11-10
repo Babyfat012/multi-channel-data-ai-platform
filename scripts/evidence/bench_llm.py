@@ -1,7 +1,8 @@
-"""Benchmark LLM server kiểu OpenAI (llama.cpp).
+"""Benchmark an OpenAI-style LLM server (llama.cpp).
 
-Gửi `--requests` request chat ở mỗi mức đồng thời (`--concurrency 1,2,4`), prompt cỡ prompt Agent thật (system
-+ mô tả tool), đo độ trễ p50/p95, request/giây và token sinh ra/giây (từ `usage`). In JSON một dòng mỗi mức.
+Send `--requests` chat requests at each concurrency level (`--concurrency 1,2,4`) with a prompt the size of a real
+Agent prompt (system + tool descriptions); measure p50/p95 latency, requests/second and generated tokens/second
+(from `usage`). Prints one JSON line per level.
 
 python scripts/evidence/bench_llm.py --url http://qwen.llm:8080/v1/chat/completions --label A
 """
@@ -17,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 SYSTEM = (
     "You are the Model Agent for an online seller. You MUST call a tool before answering. "
     "Case A: new order -> predict_return_risk. Case B: policy questions -> search_policy_chunks. "
-) * 4  # ~200 token, gần với system prompt + mô tả tool của Agent
+) * 4  # ~200 tokens, close to the Agent's system prompt + tool descriptions
 TOOLS = [
     {
         "type": "function",
@@ -55,7 +56,7 @@ QUESTIONS = [
 
 
 def one(url, model, i, max_tokens):
-    """Một request chat; trả (độ trễ giây, token sinh ra, token prompt)."""
+    """One chat request; returns (latency in seconds, generated tokens, prompt tokens)."""
     body = {
         "model": model,
         "max_tokens": max_tokens,
@@ -68,7 +69,7 @@ def one(url, model, i, max_tokens):
     }
     start = time.perf_counter()
     headers = {"Content-Type": "application/json"}
-    # Qua agentgateway (vd model ảo `platform-chat` cho A/B) cần API key; gọi thẳng llama.cpp thì không.
+    # Going through agentgateway (e.g. the virtual model `platform-chat` for A/B) needs an API key; calling llama.cpp directly does not.
     if os.environ.get("AGW_AGENT_KEY"):
         headers["Authorization"] = f"Bearer {os.environ['AGW_AGENT_KEY']}"
     request = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
@@ -81,7 +82,7 @@ def one(url, model, i, max_tokens):
 
 
 def main():
-    """Làm nóng 1 lần rồi đo từng mức đồng thời, in một dòng JSON mỗi mức."""
+    """Warm up once, then measure each concurrency level, printing one JSON line per level."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--url", required=True)
     parser.add_argument("--model", default="qwen2.5-1.5b-instruct")
@@ -90,7 +91,7 @@ def main():
     parser.add_argument("--requests", type=int, default=8)
     parser.add_argument("--max-tokens", type=int, default=64)
     args = parser.parse_args()
-    one(args.url, args.model, 0, 8)  # làm nóng (nạp prompt cache)
+    one(args.url, args.model, 0, 8)  # warm-up (loads the prompt cache)
     for c in map(int, args.concurrency.split(",")):
         start = time.perf_counter()
         with ThreadPoolExecutor(c) as pool:

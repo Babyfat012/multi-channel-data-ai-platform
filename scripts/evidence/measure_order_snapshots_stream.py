@@ -1,11 +1,11 @@
-"""In bằng chứng của ba vấn đề Stream, gọn trong một màn hình để chụp ảnh.
+"""Print evidence of the three Stream problems, compact enough for one screenshot.
 
-Đây là phần đối xứng của lệnh `python -m generator report` bên Batch: `report`
-đọc lại dữ liệu đã ghi ra MinIO và PostgreSQL, còn script này phát lại Stream
-trong bộ nhớ (không cần Kafka) và chỉ ra ví dụ cụ thể cho từng vấn đề.
+This is the counterpart of `python -m generator report` on the Batch side: `report`
+re-reads the data written to MinIO and PostgreSQL, while this script replays the Stream
+in memory (no Kafka needed) and shows a concrete example of each problem.
 
-Số tổng của cả lần chạy nằm trong `stream_manifest.json`; script này trả lời câu
-hỏi khác: "cho tôi xem một trường hợp thật". Chạy:
+The totals of the whole run are in `stream_manifest.json`; this script answers a different
+question: "show me a real case". Run:
 
     uv run python scripts/evidence/measure_order_snapshots_stream.py                      # configs/default.yaml
     uv run python scripts/evidence/measure_order_snapshots_stream.py configs/small.yaml
@@ -26,14 +26,14 @@ RULE = "=" * 78
 
 
 def main(config_path: str) -> None:
-    """Quét một lần qua Stream, giữ lại ví dụ tiêu biểu của từng vấn đề."""
+    """Scan the Stream once, keeping a representative example of each problem."""
     config = load_config(config_path)
     live = config.drift.tiktok_live
     hours = range(int(live.start_hour_utc), int(live.start_hour_utc + live.duration_hours))
 
     originals: dict[str, object] = {}
-    dup_pair = None  # (bản gốc, bản gửi lại)
-    worst_late = None  # (message, event_time mới nhất đã đến trước đó)
+    dup_pair = None  # (original, resend)
+    worst_late = None  # (message, latest event_time that arrived before it)
     newest = None
     orders_by_hour: collections.Counter = collections.Counter()
 
@@ -60,53 +60,53 @@ def main(config_path: str) -> None:
 
 
 def _print_duplicate(first, second) -> None:
-    """Hai bản của cùng một thông báo: khác lúc đến, giống hệt mọi thứ còn lại."""
+    """Two copies of the same notification: different arrival time, identical in everything else."""
     print(RULE)
-    print("1. DUPLICATE: bản gửi lại của TikTok Shop giữ nguyên tts_notification_id")
+    print("1. DUPLICATE: a TikTok Shop resend keeps the same tts_notification_id")
     print(RULE)
     print(f"tts_notification_id : {first.dedup_key}")
-    print(f"bản gốc đến lúc     : {first.arrive_at:%Y-%m-%d %H:%M:%S}")
+    print(f"original arrived at : {first.arrive_at:%Y-%m-%d %H:%M:%S}")
     print(
-        f"bản gửi lại đến lúc : {second.arrive_at:%Y-%m-%d %H:%M:%S}"
-        f"   → sau {(second.arrive_at - first.arrive_at).total_seconds() / 60:.0f} phút"
+        f"resend arrived at   : {second.arrive_at:%Y-%m-%d %H:%M:%S}"
+        f"   → {(second.arrive_at - first.arrive_at).total_seconds() / 60:.0f} minutes later"
     )
-    print(f"nội dung giống hệt  : {first.value == second.value}")
+    print(f"identical content   : {first.value == second.value}")
     print(f"payload             : {json.dumps(first.value['data'], separators=(',', ':'))}")
 
 
 def _print_late(msg, newest) -> None:
-    """Tin trễ nặng nhất: đến sau một tin có EventTime muộn hơn nhiều."""
+    """The most delayed message: arrives after a message with a much later EventTime."""
     print()
     print(RULE)
-    print("2. LATE + OUT-OF-ORDER: notification Amazon đến sau một tin mới hơn nó")
+    print("2. LATE + OUT-OF-ORDER: an Amazon notification arrives after a newer message")
     print(RULE)
-    print(f"EventTime   (lúc xảy ra) : {msg.event_time:%Y-%m-%d %H:%M:%S}")
+    print(f"EventTime   (occurred)   : {msg.event_time:%Y-%m-%d %H:%M:%S}")
     print(
-        f"PublishTime (lúc đến)    : {msg.arrive_at:%Y-%m-%d %H:%M:%S}"
-        f"   → trễ {(msg.arrive_at - msg.event_time).total_seconds() / 60:.0f} phút"
+        f"PublishTime (arrived)    : {msg.arrive_at:%Y-%m-%d %H:%M:%S}"
+        f"   → {(msg.arrive_at - msg.event_time).total_seconds() / 60:.0f} minutes late"
     )
     print(
-        f"tin mới nhất đã đến      : {newest:%Y-%m-%d %H:%M:%S}"
-        f"   → tin này cũ hơn {(newest - msg.event_time).total_seconds() / 3600:.1f} giờ"
+        f"newest message arrived   : {newest:%Y-%m-%d %H:%M:%S}"
+        f"   → this message is {(newest - msg.event_time).total_seconds() / 3600:.1f} hours older"
     )
     print(f"AmazonOrderId            : {msg.key}")
 
 
 def _print_burst(config, orders_by_hour, hours) -> None:
-    """Order mới mỗi giờ của ngày livestream, đặt cạnh ngày ngay trước đó."""
+    """New Orders per hour on the livestream day, next to the day before it."""
     live = config.drift.tiktok_live
     live_date = config.day_start(live.day).date()
     prev_date = config.day_start(live.day - 1).date()
 
     print()
     print(RULE)
-    print("3. BURST: Order TikTok Shop mới mỗi giờ, ngày livestream so với ngày trước")
+    print("3. BURST: new TikTok Shop Orders per hour, livestream day vs the day before")
     print(RULE)
-    # Hàng nhãn và hàng số phải cùng bề rộng phần đầu, nếu không cột sẽ lệch.
+    # The label row and the number rows must share the same prefix width, or the columns misalign.
     head = len(f"{'':>11} {live_date}")
-    for label, day in (("ngày thường", prev_date), ("LIVESTREAM", live_date)):
+    for label, day in (("regular day", prev_date), ("LIVESTREAM", live_date)):
         print(f"{label:>11} {day}:" + "".join(f"{orders_by_hour[(day, h)]:>5}" for h in range(24)))
-    print(f"{'giờ UTC':>{head}}:" + "".join(f"{h:>5}" for h in range(24)))
+    print(f"{'UTC hour':>{head}}:" + "".join(f"{h:>5}" for h in range(24)))
 
     in_window = sum(orders_by_hour[(live_date, h)] for h in hours)
     prev_window = sum(orders_by_hour[(prev_date, h)] for h in hours)
@@ -119,12 +119,12 @@ def _print_burst(config, orders_by_hour, hours) -> None:
 
     span = f"{min(hours):02d}-{max(hours) + 1:02d}h"
     print(
-        f"\nkhung live {span}: {in_window / len(hours):.1f} Order/giờ"
-        f"   ngày trước: {prev_window / len(hours):.1f} Order/giờ"
+        f"\nlive window {span}: {in_window / len(hours):.1f} Orders/hour"
+        f"   day before: {prev_window / len(hours):.1f} Orders/hour"
     )
     print(
-        f"chính ngày đó nếu tắt livestream: {base / len(hours):.1f} Order/giờ"
-        f"   → tỷ lệ {in_window / base:.2f}   (đáp án {Simulator(config).live_multiplier:.2f})"
+        f"same day with livestream off: {base / len(hours):.1f} Orders/hour"
+        f"   → ratio {in_window / base:.2f}   (expected {Simulator(config).live_multiplier:.2f})"
     )
 
 

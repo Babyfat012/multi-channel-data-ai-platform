@@ -1,4 +1,4 @@
-"""Kiểm bucket/prefix không cần JVM hoặc pyspark; dữ liệu và đáp án dựng tay."""
+"""Check bucket/prefix without a JVM or pyspark; data and expected answers built by hand."""
 
 import importlib.util
 from collections import defaultdict
@@ -13,7 +13,7 @@ EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def test_bucket_utc_and_boundaries():
-    """Bucket 10 ngày, sát biên microsecond và timestamp timezone khác vẫn cùng khoảng."""
+    """10-day buckets, microsecond edges and timestamps in other time zones still land in the same range."""
     edge = EPOCH + timedelta(days=10)
     assert bucket_width_days(18) == 10
     assert time_bucket(edge - timedelta(microseconds=1), 18) == 0
@@ -25,19 +25,19 @@ def test_bucket_utc_and_boundaries():
 
 @pytest.mark.parametrize("value", [0, -1, 181, True, 1.5])
 def test_invalid_bucket_count(value):
-    """Không âm thầm đổi số bucket hoặc chấp nhận bool như int."""
+    """Never silently change the bucket count or accept bool as int."""
     with pytest.raises(ValueError):
         bucket_width_days(value)
 
 
 def test_naive_timestamp_rejected():
-    """Oracle không được phụ thuộc timezone máy chạy."""
+    """The oracle must not depend on the host time zone."""
     with pytest.raises(ValueError):
         time_bucket(datetime(2026, 1, 1), 18)
 
 
 def test_sparse_prefix_with_query_only_bucket():
-    """Query-only phải nhận prefix, delta âm đóng cửa sổ qua bucket trống."""
+    """Query-only buckets must get the prefix; a negative delta closes the window across an empty bucket."""
     assert bucket_prefix({8: (-2, -1), 1: (2, 1), 5: (0, 0), 10: (0, 0)}) == {
         1: (0, 0),
         5: (2, 1),
@@ -48,8 +48,8 @@ def test_sparse_prefix_with_query_only_bucket():
 
 
 def test_local_sweep_plus_prefix_equals_direct_half_open_oracle():
-    """Đổi nhãn, tự trừ, cùng timestamp, end-exclusive và nhiều bucket không có change."""
-    # (line, begin day, end day, label), có hai đoạn liên tiếp cho cùng một line.
+    """Label changes, self-subtraction, equal timestamps, end-exclusive and many buckets with no change."""
+    # (line, begin day, end day, label), with two consecutive segments for the same line.
     windows = [("a", 2, 30, 1), ("a", 30, 61, 0), ("b", 10, 40, 1), ("c", 20, 21, 0)]
     queries = [
         ("a", 10),
@@ -92,7 +92,7 @@ def test_local_sweep_plus_prefix_equals_direct_half_open_oracle():
 
 
 def test_event_log_metrics_and_sweep_attribution(tmp_path):
-    """Event log dựng tay: nhận đúng shuffle bytes, bỏ task fail và không bịa ratio khi median=0."""
+    """Hand-built event log: correct shuffle bytes, failed tasks dropped and no invented ratio when median=0."""
     import json
 
     spec = importlib.util.spec_from_file_location(
@@ -175,7 +175,7 @@ def test_event_log_metrics_and_sweep_attribution(tmp_path):
 
 
 def test_exchange_detection_excludes_aggregate_and_reads_adaptive_plan(tmp_path):
-    """Aggregate trùng khóa không phải sweep; plan AQE cập nhật vẫn định vị được Window."""
+    """A same-key aggregate is not a sweep; an updated AQE plan still locates the Window."""
     import json
 
     spec = importlib.util.spec_from_file_location(

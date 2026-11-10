@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Khởi tạo warehouse S3 bằng IAM role của EC2; không dùng access key, không sửa warehouse cũ.
+# Initialize the S3 warehouse using the EC2 IAM role; no access keys, existing warehouses are not modified.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 set -a
 source .env
 set +a
-: "${LAKEHOUSE_BUCKET:?Cần LAKEHOUSE_BUCKET}"
-: "${AWS_REGION:?Cần AWS_REGION}"
+: "${LAKEHOUSE_BUCKET:?LAKEHOUSE_BUCKET is required}"
+: "${AWS_REGION:?AWS_REGION is required}"
 python3 - <<'PY'
-# Gọi Management API cục bộ, lỗi HTTP phải dừng triển khai.
+# Call the local Management API; an HTTP error must stop the deployment.
 import json
 import os
 import urllib.request
 
 
 def request(path, body=None):
-    """Đọc hoặc gửi JSON tới Lakekeeper trên loopback VM."""
+    """Read or send JSON to Lakekeeper on the VM loopback."""
     url = 'http://127.0.0.1:' + os.environ.get('LAKEKEEPER_PORT', '8181')
     req = urllib.request.Request(url + '/management/v1/' + path,
         data=None if body is None else json.dumps(body).encode(),
@@ -36,12 +36,12 @@ existing = next((w for w in warehouses if w['name'] == name), None)
 if existing:
     actual = request('warehouse/' + existing['id'])['storage-profile']
     if any(actual.get(k) != v for k, v in expected.items()):
-        raise SystemExit('Warehouse cùng tên có storage profile khác; từ chối thay đổi.')
-    print('Warehouse đã đúng cấu hình; bỏ qua.')
+        raise SystemExit('A warehouse with the same name has a different storage profile; refusing to change it.')
+    print('Warehouse already correctly configured; skipping.')
 else:
-    # sts-enabled=False: client tự dùng IAM role của EC2, Lakekeeper không vend credential.
+    # sts-enabled=False: clients use the EC2 IAM role themselves; Lakekeeper does not vend credentials.
     request('warehouse', {'warehouse-name': name,
         'storage-profile': {**expected, 'flavor': 'aws', 'sts-enabled': False},
         'storage-credential': {'type': 's3', 'credential-type': 'aws-system-identity'}})
-    print('Đã tạo warehouse S3.')
+    print('Created the S3 warehouse.')
 PY

@@ -1,4 +1,4 @@
-"""Fixture dùng chung cho các test: cấu hình rất nhỏ để test chạy trong vài giây."""
+"""Shared test fixtures: a very small config so tests run in a few seconds."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from generator.config import GeneratorConfig, parse_config
 
 @pytest.fixture
 def tiny_config(tmp_path) -> GeneratorConfig:
-    """Cấu hình 20 SKU, 12 ngày, 60 Order mỗi ngày, ghi vào thư mục tạm của test."""
+    """Config with 20 SKUs, 12 days, 60 Orders per day, written to the test's temp directory."""
     return parse_config(
         {
             "seed": 7,

@@ -578,8 +578,8 @@ def test_positive_kind_ignores_refund_outside_window():
     ],
 )
 def test_contiguous_coverage_union(mode, expected):
-    """L18–L20: union nối liền đủ; gap, partial, unresolved và biên cuối fail closed."""
-    # Cửa sổ giao [D0,D30], phần cuối D28–D35 cần hai tuần liền để phủ deadline.
+    """L18–L20: contiguous union is enough; gaps, partial, unresolved and the end edge fail closed."""
+    # Delivery window [D0,D30]; the tail D28–D35 needs two contiguous weeks to cover the deadline.
     data = line()
     data["events"] = [r for r in data["events"] if r["kind"] != "coverage"]
     for kind in ("commitment", "allocation", "delivery", "return", "refund"):

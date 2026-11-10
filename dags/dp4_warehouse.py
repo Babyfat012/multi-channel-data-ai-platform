@@ -1,4 +1,4 @@
-"""DP4: 30 ngày gần nhất của Gold fact năm Channel → PostgreSQL warehouse + index seller_sku."""
+"""DP4: the last 30 days of the five-Channel Gold fact → PostgreSQL warehouse + seller_sku index."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from platform_spark_operator import PlatformSparkSubmitOperator as SparkSubmitOp
 
 with DAG(
     dag_id="dp4_warehouse",
-    description="Gold fact 30 ngày trước cutoff → PostgreSQL; đối soát theo Channel rồi index",
+    description="Gold fact 30 days before Cutoff → PostgreSQL; reconcile per Channel, then index",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,
@@ -21,8 +21,8 @@ with DAG(
     SparkSubmitOperator(
         task_id="export_and_index_warehouse",
         application="/opt/spark_jobs/warehouse/export_order_snapshot_lines.py",
-        # Ghi JDBC + đối soát cần credential Postgres từ Connection platform_postgres (operator chỉ
-        # cấp đúng nhóm khai báo).
+        # JDBC write + reconciliation need Postgres credentials from Connection platform_postgres (the operator
+        # grants only the declared groups).
         runtime_groups=("iceberg", "postgres"),
         application_args=[
             "--source-table",

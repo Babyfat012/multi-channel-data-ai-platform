@@ -1,6 +1,6 @@
-"""LLM Platform RAG: tài liệu text → chunk → embedding → Feast online store (pgvector) → validate → DataHub.
+"""LLM Platform RAG: text documents → chunk → embedding → Feast online store (pgvector) → validate → DataHub.
 
-Mỗi task gọi một bước của `rag/pipeline.py` trong feast-venv; credential lấy từ Airflow Connection lúc chạy.
+Each task calls one step of `rag/pipeline.py` inside feast-venv; credentials come from Airflow Connections at run time.
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ from platform_runtime import resolve_rag_env
 
 PYTHON = "/home/airflow/feast-venv/bin/python"
 RECEIPTS = "/opt/airflow/receipts/rag/{{ run_id }}"
-MODEL_CACHE = "/opt/airflow/rag-models"  # volume airflow-data: tải model 1 lần
+MODEL_CACHE = "/opt/airflow/rag-models"  # airflow-data volume: download the model once
 
 
 def run_step(step, receipt_dir=None, run_id=None, **_):
-    """Chạy `python -m rag.pipeline <step>` với env dựng từ Connection/Variable."""
+    """Run `python -m rag.pipeline <step>` with env built from Connection/Variable."""
     storage = os.environ.get("PLATFORM_STORAGE", "minio")
-    # AWS (s3): không có MinIO ⇒ không tra connection đó; S3 qua IAM role EC2.
+    # AWS (s3): no MinIO ⇒ do not look up that connection; S3 via the EC2 IAM role.
     names = ["platform_rag_pg"] + (["platform_minio"] if storage != "s3" else [])
     connections = {}
     for name in names:
@@ -50,7 +50,7 @@ def run_step(step, receipt_dir=None, run_id=None, **_):
         server = Variable.get("platform_datahub_gms_url", default_var="")
         if not server:
             raise AirflowSkipException(
-                "chưa đặt Variable platform_datahub_gms_url (DataHub chưa chạy)"
+                "Variable platform_datahub_gms_url is not set (DataHub is not running)"
             )
         args += ["--datahub", server]
     result = subprocess.run(args, env=env, capture_output=True, text=True, check=False)

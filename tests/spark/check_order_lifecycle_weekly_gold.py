@@ -1,4 +1,4 @@
-"""Kiểm Gold PIT dương từ Order scale thật; chạy Spark local offline, không catalog."""
+"""Check positive Gold PIT from real-scale Orders; runs local Spark offline, no catalog."""
 
 import os
 import shutil
@@ -21,10 +21,10 @@ from spark_jobs.lib.order_lifecycle_lakehouse import bronze_from_root, build_sil
 
 
 class WeeklyGoldChecks(unittest.TestCase):
-    """Một ca nhỏ 60 ngày, cùng cấu hình với phép đo Python thuần."""
+    """One small 60-day case, same config as the pure-Python measurement."""
 
     def test_generated_orders_have_positive_pit_history(self):
-        """Coverage tuần phải tạo count lịch sử trên target do chính generator phát."""
+        """Weekly coverage must produce a history count on targets emitted by the generator itself."""
         tmp = Path(tempfile.mkdtemp(prefix="weekly-gold-"))
         spark = (
             SparkSession.builder.master("local[1]")

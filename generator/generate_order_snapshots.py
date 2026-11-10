@@ -1,16 +1,16 @@
-"""Chạy phần Batch: lõi mô phỏng -> lớp export -> renderer -> file.
+"""Run the Batch part: simulation core -> export layer -> renderer -> files.
 
-Mỗi ngày mô phỏng `d`:
-    1. Lõi sinh các Order tạo trong ngày d (kèm cả tương lai của chúng).
-    2. Lớp export chọn ngày export cho từng Order và chèn bản trùng.
-    3. Renderer ghi bản ghi gốc vào `export_date=.../part-sim<d>.jsonl`.
-    4. Đóng mọi file của ngày d, rồi ghi tem `_checkpoint/day-<d>.json`.
+For each simulated day `d`:
+    1. The core generates the Orders created on day d (with their whole future).
+    2. The export layer picks the export day for each Order and injects duplicates.
+    3. The renderer writes native records to `export_date=.../part-sim<d>.jsonl`.
+    4. Close every file of day d, then write the stamp `_checkpoint/day-<d>.json`.
 
-Mỗi ngày mô phỏng ghi file riêng vì một Order có thể được export muộn hơn ngày tạo tới
-~20 ngày; file dùng chung thì không bao giờ nói được "ngày d đã xong". Bên đọc glob cả
-thư mục `export_date=` nên tập dòng không đổi.
+Each simulated day writes its own files because an Order may be exported up to ~20 days
+after its creation day; with shared files one could never say "day d is done". Readers glob the
+whole `export_date=` directory, so the set of rows is unchanged.
 
-Bố cục đầu ra (dưới `storage.output_root`):
+Output layout (under `storage.output_root`):
 
     source-exports/channel=<channel>/dataset=orders/export_date=YYYY-MM-DD/part-simNNNNN.jsonl
     pg-load/walmart.orders/export_date=YYYY-MM-DD/part-simNNNNN.jsonl
@@ -20,11 +20,11 @@ Bố cục đầu ra (dưới `storage.output_root`):
     _checkpoint/day-NNNNN.json
     run_manifest.json
 
-Chạy tiếp sau khi bị cắt: tem ngày d chứa mọi bộ đếm tới hết ngày d. Tem chỉ được ghi
-sau khi file đã `fsync`, bằng ghi-tạm-rồi-đổi-tên. Khi khởi động, tìm d lớn nhất mà tem
-1..d đều có, xoá file của các ngày sau d, rồi chạy từ d+1. `--restart` làm lại từ đầu.
+Resuming after an interruption: the stamp of day d holds every counter up to the end of day d. The stamp is
+only written after the files are `fsync`ed, via write-temp-then-rename. On startup, find the largest d for which
+stamps 1..d all exist, delete the files of days after d, then run from d+1. `--restart` starts over.
 
-`pg-load/` được nạp vào PostgreSQL bằng lệnh `load-postgres` (xem `load_postgres.py`).
+`pg-load/` is loaded into PostgreSQL by the `load-postgres` command (see `load_postgres.py`).
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from generator.storage import JsonlWriterPool, OutputStore
 
 CHECKPOINT_DIR = "_checkpoint"
 DATASET_IDENTITY_PATH = "_dataset_identity.json"
-# Mọi file một ngày mô phỏng ghi ra, liệt kê tường minh để không xoá nhầm thứ khác.
+# Every file a simulated day writes, listed explicitly so nothing else is deleted by mistake.
 DAY_OWNED_PATTERNS = (
     "source-exports/channel=*/dataset=*/export_date=*/part-sim*.jsonl",
     "pg-load/*/export_date=*/part-sim*.jsonl",
@@ -67,7 +67,7 @@ SIM_DAY_IN_NAME = re.compile(r"(?:part-sim|day-)(\d+)\.")
 
 
 def _checkpoint_relative(day: int) -> str:
-    """Đường dẫn tem của một ngày mô phỏng."""
+    """Stamp path of a simulated day."""
     return f"{CHECKPOINT_DIR}/day-{day:05d}.json"
 
 
@@ -91,7 +91,7 @@ LINE_KEYS_SCHEMA = pa.schema(
 
 @dataclass
 class DatasetStats:
-    """Số liệu thật của một dataset, ghi vào manifest làm đáp án đối chiếu."""
+    """Actual figures of a dataset, written to the manifest as the answer key."""
 
     rows: int = 0
     unique_keys: int = 0
@@ -100,7 +100,7 @@ class DatasetStats:
     bytes: int = 0
 
     def summary(self) -> dict[str, Any]:
-        """Tóm tắt thành dict để ghi JSON."""
+        """Summarize as a dict for JSON output."""
         return {
             "rows": self.rows,
             "unique_keys": self.unique_keys,
@@ -112,15 +112,15 @@ class DatasetStats:
 
 
 class BatchRun:
-    """Một lần sinh Batch, từ cấu hình tới các file đầu ra và manifest."""
+    """One Batch generation, from config to output files and manifest."""
 
     def __init__(self, config: GeneratorConfig) -> None:
-        """Chuẩn bị lõi mô phỏng, renderer theo Channel và nơi ghi."""
+        """Set up the simulation core, per-Channel renderers and the output store."""
         self.config = config
         self.simulator = Simulator(config)
         self.store = OutputStore(config.storage.output_root)
         self.dataset_identity = build_dataset_identity(config)
-        # Mỗi Channel có renderer nguồn Batch. Nhãn thật vẫn ở ground truth riêng.
+        # Each Channel has a Batch source renderer. True labels stay in the separate ground truth.
         self.renderers: dict[str, ChannelRenderer] = {
             "amazon": AmazonOrdersRenderer(config),
             "tiktok_shop": TikTokOrdersRenderer(config),
@@ -128,17 +128,17 @@ class BatchRun:
             "walmart": WalmartOrdersRenderer(config),
             "shopee": ShopeeOrdersRenderer(config),
         }
-        # Mỗi ngày export đang chờ dòng có sẵn một file mở, nên RAM không tăng theo số đơn.
+        # Each export day still awaiting rows has an open file, so RAM does not grow with order count.
         self.jsonl: JsonlWriterPool | None = None
         self.stats: dict[str, DatasetStats] = defaultdict(DatasetStats)
-        # Bộ đệm của một ngày mô phỏng; bộ đếm dồn phải nằm trong tem (`_counters`).
+        # Buffers of one simulated day; cumulative counters must live in the stamp (`_counters`).
         self.labels: dict[str, list[Any]] = self._empty_labels()
         self.line_keys: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.label_rows = 0
         self.label_positives = 0
         self.category_labels: dict[str, Counter] = defaultdict(Counter)
         self.orders_by_storefront: Counter = Counter()
-        # Số liệu Sale Event, tách theo ngày sale và ngày thường (khóa True/False).
+        # Sale Event figures, split by sale days and normal days (keys True/False).
         self.sale_days = 0
         self.amazon_orders: Counter = Counter()
         self.amazon_lines: Counter = Counter()
@@ -146,10 +146,10 @@ class BatchRun:
         self.amazon_labels: dict[bool, Counter] = {True: Counter(), False: Counter()}
 
     def run(self, restart: bool = False) -> dict[str, Any]:
-        """Sinh toàn bộ Batch và trả manifest; mặc định chạy tiếp từ tem gần nhất.
+        """Generate the whole Batch and return the manifest; by default resume from the latest stamp.
 
-        `restart=True` xoá đầu ra cũ và làm lại từ ngày 1. Kết quả không phụ thuộc việc có bị cắt
-        hay không, vì mỗi ngày rút số ngẫu nhiên riêng theo `(seed, "batch_exports", day)`.
+        `restart=True` deletes the old output and starts over from day 1. The result does not depend on whether
+        the run was interrupted, since each day draws its own random numbers from `(seed, "batch_exports", day)`.
         """
         self._check_resume_identity(restart)
         resume_from = 0 if restart else self._last_complete_day()
@@ -157,7 +157,7 @@ class BatchRun:
             self._restore(self.store.read_json(_checkpoint_relative(resume_from)))
         self._discard_days_after(resume_from)
         if restart:
-            # Đang chạy dở thì không được để manifest cũ trông như đã xong.
+            # While a run is in progress, an old manifest must not look finished.
             self.store.remove("run_manifest.json")
         self.store.write_json_atomic(DATASET_IDENTITY_PATH, self.dataset_identity)
         with self.store.jsonl_writers() as jsonl:
@@ -175,9 +175,9 @@ class BatchRun:
         return manifest
 
     def _check_resume_identity(self, restart: bool) -> None:
-        """Từ chối chạy tiếp trên đầu ra cũ hoặc khác thế giới, trước khi sửa gì.
+        """Refuse to resume on stale output or a different world, before changing anything.
 
-        `--restart` vẫn được sinh lại. Chỉ giả định một người ghi, không phải khoá phân tán.
+        `--restart` can still regenerate. Assumes a single writer; this is not a distributed lock.
         """
         if restart:
             return
@@ -209,7 +209,7 @@ class BatchRun:
     def _handle_order(
         self, order: Order, rng: np.random.Generator, sale_day: bool, sim_day: int
     ) -> None:
-        """Xử lý một Order: đặt vào ngày export, ghi bản ghi, gom nhãn."""
+        """Process one Order: place it on export days, write records, collect labels."""
         self.orders_by_storefront[order.storefront_id] += 1
         self._collect_labels(order, sale_day)
         if STOREFRONTS[order.storefront_id].channel == "amazon":
@@ -221,7 +221,7 @@ class BatchRun:
         self.line_keys[renderer.channel].extend(
             {**keys, "storefront_id": order.storefront_id} for keys in renderer.line_keys(order)
         )
-        # Channel mới dùng RNG riêng theo Order để không đổi dãy số của Amazon/Walmart.
+        # Newer Channels use a per-Order RNG so the Amazon/Walmart random sequence is unchanged.
         placement_rng = (
             rng
             if renderer.channel in ("amazon", "walmart")
@@ -241,13 +241,13 @@ class BatchRun:
             )
             stats = self.stats[f"{renderer.channel}.{renderer.dataset}"]
             stats.rows += 1
-            # Mỗi Order có đúng một bản `primary`, nên đếm bản chính là đếm khoá duy nhất
-            # mà không phải giữ một set khoá rất lớn trong RAM.
+            # Each Order has exactly one `primary` copy, so counting primaries counts unique keys
+            # without holding a huge key set in RAM.
             stats.unique_keys += placement.kind == PRIMARY
             stats.placements[placement.kind] += 1
 
     def _collect_sale_stats(self, order: Order, sale_day: bool) -> None:
-        """Đếm Order và mức giảm giá của Amazon, tách ngày sale với ngày thường."""
+        """Count Amazon Orders and discounts, splitting sale days from normal days."""
         self.amazon_orders[sale_day] += 1
         self.amazon_lines[sale_day] += len(order.lines)
         self.amazon_discount_sum[sale_day] += sum(
@@ -255,7 +255,7 @@ class BatchRun:
         )
 
     def _collect_labels(self, order: Order, sale_day: bool = False) -> None:
-        """Gom nhãn của các Order Line mà tới `cutoff` đã biết nhãn."""
+        """Collect labels of Order Lines whose label is known by `cutoff`."""
         if order.delivered_at is None:
             return
         available_at = order.delivered_at + timedelta(days=self.config.labels.window_days)
@@ -274,7 +274,7 @@ class BatchRun:
                 self.amazon_labels[sale_day][line.label] += 1
 
     def _export_path(self, renderer: ChannelRenderer, export_day: int, sim_day: int) -> str:
-        """Đường dẫn file: thư mục là `export_date=`, tên file là ngày mô phỏng đã ghi nó."""
+        """File path: the directory is `export_date=`, the file name is the simulated day that wrote it."""
         export_date = self.config.day_start(export_day).date().isoformat()
         part = f"part-sim{sim_day:05d}.jsonl"
         if renderer.storage == OBJECT_STORE:
@@ -285,9 +285,9 @@ class BatchRun:
         return f"pg-load/{renderer.channel}.{renderer.dataset}/export_date={export_date}/{part}"
 
     def _flush(self, day: int) -> None:
-        """Kết thúc ngày `day`: đóng mọi file của nó, ghi Parquet, rồi dán tem.
+        """Finish day `day`: close all its files, write Parquet, then write the stamp.
 
-        Tem phải là bước cuối: mọi thứ nó báo "xong" đã được `fsync` trước đó.
+        The stamp must be the last step: everything it reports as "done" has been `fsync`ed before.
         """
         for key in sorted(self.jsonl.keys()):
             channel = key[0]
@@ -300,10 +300,10 @@ class BatchRun:
         self.store.write_json_atomic(_checkpoint_relative(day), self._counters())
 
     def _flush_ground_truth(self, day: int) -> None:
-        """Ghi nhãn và ánh xạ khoá của ngày `day` thành một file Parquet riêng.
+        """Write the labels and key mapping of day `day` as a separate Parquet file.
 
-        Một file mỗi ngày vì footer Parquet chỉ ghi lúc đóng; file mở suốt kỳ sẽ mất trắng khi
-        bị cắt. Ngày không có dòng thì không tạo file.
+        One file per day because the Parquet footer is only written on close; a file kept open for the whole run
+        would be lost entirely on interruption. Days without rows create no file.
         """
         if self.labels["order_line_id"]:
             with self.store.parquet_writer(
@@ -324,13 +324,13 @@ class BatchRun:
 
     @staticmethod
     def _empty_labels() -> dict[str, list[Any]]:
-        """Bộ đệm nhãn rỗng, một list cho mỗi cột của `LABELS_SCHEMA`."""
+        """Empty label buffer, one list per column of `LABELS_SCHEMA`."""
         return {name: [] for name in LABELS_SCHEMA.names}
 
     def _last_complete_day(self) -> int:
-        """Ngày `d` lớn nhất mà tem của mọi ngày 1..d đều có.
+        """The largest day `d` for which stamps of all days 1..d exist.
 
-        Tem lẻ sau một khoảng trống không chứng minh được các ngày trước đã xong.
+        A stray stamp after a gap does not prove that earlier days are done.
         """
         present = {
             int(match.group(1))
@@ -343,9 +343,9 @@ class BatchRun:
         return day
 
     def _discard_days_after(self, day: int) -> list[str]:
-        """Xoá mọi file của ngày mô phỏng > `day` (kể cả `.tmp` sót), trả danh sách đã xoá.
+        """Delete every file of simulated days > `day` (including leftover `.tmp`), returning the deleted list.
 
-        Các file đó chưa có tem nên không biết đủ hay thiếu; sinh lại cho ra đúng dữ liệu đó.
+        Those files have no stamp, so it is unknown whether they are complete; regenerating yields exactly the same data.
         """
         removed = []
         for pattern in DAY_OWNED_PATTERNS:
@@ -360,10 +360,10 @@ class BatchRun:
         return removed
 
     def _counters(self) -> dict[str, Any]:
-        """Mọi bộ đếm dồn, dạng JSON được, để ghi vào tem.
+        """All cumulative counters, JSON-serializable, to write into the stamp.
 
-        Phải đủ mọi thứ `_manifest` đọc, nếu không lần chạy tiếp ra manifest thiếu số mà không
-        báo lỗi. Khoá bool ghi thành "sale"/"normal", khoá số thành chuỗi.
+        Must cover everything `_manifest` reads, otherwise a resumed run produces a manifest with missing figures
+        without any error. Bool keys are written as "sale"/"normal", numeric keys as strings.
         """
         return {
             "dataset_version": self.dataset_identity["dataset_version"],
@@ -396,7 +396,7 @@ class BatchRun:
         }
 
     def _restore(self, data: dict[str, Any]) -> None:
-        """Nạp lại các bộ đếm từ tem, nghịch đảo của `_counters`."""
+        """Reload the counters from the stamp; the inverse of `_counters`."""
         for name, values in data["datasets"].items():
             stats = self.stats[name]
             stats.rows = values["rows"]
@@ -425,7 +425,7 @@ class BatchRun:
             )
 
     def _write_skus(self) -> None:
-        """Ghi danh mục SKU của Seller (có `category`) để nạp vào `seller.skus`."""
+        """Write the Seller's SKU catalog (with `category`) for loading into `seller.skus`."""
         rows = [
             {
                 "sku": sku.sku_id,
@@ -443,9 +443,9 @@ class BatchRun:
         stats.files = 1
 
     def _prime_day_summary(self) -> dict[str, Any] | None:
-        """Số đo thật của Sale Event, chia ngày sale / ngày thường, để đối chiếu với cấu hình.
+        """Actual Sale Event measurements, split sale days / normal days, to compare with the config.
 
-        Tỷ lệ trả là `null` nếu đợt sale nằm trong 30 ngày cuối của lịch sử.
+        The Return rate is `null` if the sale falls within the last 30 days of history.
         """
         sale = self.config.drift.prime_day
         if sale is None or not self.sale_days:
@@ -453,17 +453,17 @@ class BatchRun:
         normal_days = self.config.scale.days_history - self.sale_days
 
         def per_day(on_sale: bool) -> float:
-            """Số Order Amazon trung bình mỗi ngày của nhóm ngày sale hoặc ngày thường."""
+            """Mean Amazon Orders per day for the sale-day or normal-day group."""
             days = self.sale_days if on_sale else normal_days
             return round(self.amazon_orders[on_sale] / days, 1) if days else 0.0
 
         def mean_discount(on_sale: bool) -> float:
-            """Tỷ lệ giảm giá trung bình trên mỗi Order Line của nhóm."""
+            """Mean discount ratio per Order Line of the group."""
             lines = self.amazon_lines[on_sale]
             return round(self.amazon_discount_sum[on_sale] / lines, 4) if lines else 0.0
 
         def positive_rate(on_sale: bool) -> float | None:
-            """None khi chưa dòng nào của nhóm này biết nhãn trước `cutoff`."""
+            """None when no line of this group has a known label before `cutoff`."""
             counts = self.amazon_labels[on_sale]
             total = counts[0] + counts[1]
             return round(counts[1] / total, 6) if total else None
@@ -481,7 +481,7 @@ class BatchRun:
         }
 
     def _manifest(self) -> dict[str, Any]:
-        """Tập hợp đáp án của lần chạy: cấu hình, số dòng, lỗi đã chèn, nhãn."""
+        """Collect the run's answer key: config, row counts, injected faults, labels."""
         n_labels = self.label_rows
         positives = self.label_positives
         switch_day = self.config.offline_problems.amazon_orders_api_switch_day
@@ -511,8 +511,8 @@ class BatchRun:
                 {s.channel for s in STOREFRONTS.values()} - set(self.renderers)
             ),
             "placement_kinds": {
-                PRIMARY: "bản chính",
-                "identical_copy": "bản trùng y hệt",
-                "older_version": "bản cũ hơn cùng khóa",
+                PRIMARY: "primary copy",
+                "identical_copy": "identical duplicate",
+                "older_version": "older version with the same key",
             },
         }

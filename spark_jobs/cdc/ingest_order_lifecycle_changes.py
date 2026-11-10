@@ -1,4 +1,4 @@
-"""Nạp Kafka Walmart v2 theo offset đóng băng vào nhật ký Bronze append, không MERGE snapshot."""
+"""Load Walmart v2 Kafka at frozen offsets into an append-only Bronze log, without MERGEing a snapshot."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from spark_jobs.lib.order_lifecycle_cdc import TARGET, TOPIC, build_session, wri
 
 
 def main(argv=None):
-    """Chốt boundary trước khi đọc, lưu receipt và append các sự kiện có khóa kép."""
+    """Fix the boundary before reading, save the receipt and append events with a composite key."""
     from pyspark.sql import functions as F
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -46,7 +46,7 @@ def main(argv=None):
             F.col("offset").alias("kafka_offset"),
             F.col("value").cast("string").alias("event_json"),
         )
-        # Giữ cả dòng lỗi/null để validator thấy invalid, không lọc bỏ âm thầm.
+        # Keep invalid/null rows so the validator sees them as invalid, not silently filtered out.
         events = events.select(
             "topic",
             "kafka_partition",
@@ -78,7 +78,7 @@ def main(argv=None):
         )
         spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze")
         if spark.catalog.tableExists(TARGET):
-            # Cùng run retry sau append phải validate lại; không tự append trùng.
+            # A retry of the same run after append must re-validate; never append duplicates itself.
             if spark.table(TARGET).filter(F.col("run_id") == args.run_id).limit(1).count():
                 document["append_skipped_existing_run"] = True
             else:

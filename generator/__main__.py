@@ -1,6 +1,6 @@
-"""Điểm chạy dòng lệnh của generator.
+"""Command-line entry point of the generator.
 
-Ví dụ:
+Examples:
     uv run python -m generator batch --config configs/small.yaml
     uv run python -m generator batch --config configs/default.yaml --output s3://platform
     uv run python -m generator load-postgres --source s3://platform --dsn postgresql://platform:platform@localhost:5432/sources
@@ -9,8 +9,8 @@ Ví dụ:
     uv run python -m generator stream --config configs/small.yaml --sink file --speed 0
     uv run python -m generator stream --config configs/default.yaml --sink kafka --bootstrap localhost:9092
 
-Với `s3://`, thông tin đăng nhập MinIO lấy từ biến môi trường `AWS_ACCESS_KEY_ID`,
-`AWS_SECRET_ACCESS_KEY` và `FSSPEC_S3_ENDPOINT_URL` (ví dụ `http://localhost:9000`).
+With `s3://`, MinIO credentials come from the environment variables `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY` and `FSSPEC_S3_ENDPOINT_URL` (e.g. `http://localhost:9000`).
 """
 
 from __future__ import annotations
@@ -22,55 +22,59 @@ import time
 
 
 def main() -> None:
-    """Đọc tham số dòng lệnh và chạy chế độ được chọn."""
-    parser = argparse.ArgumentParser(prog="generator", description="Sinh dữ liệu giả lập đa kênh")
+    """Parse command-line arguments and run the selected mode."""
+    parser = argparse.ArgumentParser(
+        prog="generator", description="Generate simulated multi-Channel data"
+    )
     sub = parser.add_subparsers(dest="mode", required=True)
 
-    batch = sub.add_parser("batch", help="Sinh dữ liệu Batch (lịch sử tới cutoff)")
-    batch.add_argument("--config", required=True, help="Đường dẫn file cấu hình YAML")
-    batch.add_argument("--output", help="Ghi đè storage.output_root trong cấu hình")
+    batch = sub.add_parser("batch", help="Generate Batch data (history up to the Cutoff)")
+    batch.add_argument("--config", required=True, help="Path to the YAML config file")
+    batch.add_argument("--output", help="Override storage.output_root from the config")
     batch.add_argument(
         "--restart",
         action="store_true",
-        help="Bỏ qua tem của lần chạy cũ và sinh lại từ ngày 1 (mặc định là chạy tiếp)",
+        help="Ignore the previous run's stamps and regenerate from day 1 (default is to resume)",
     )
 
-    load = sub.add_parser("load-postgres", help="Nạp pg-load/ của một lần chạy vào PostgreSQL")
+    load = sub.add_parser("load-postgres", help="Load a run's pg-load/ into PostgreSQL")
     load.add_argument(
-        "--source", required=True, help="Gốc đầu ra của lần chạy (thư mục hoặc s3://...)"
+        "--source", required=True, help="Output root of the run (directory or s3://...)"
     )
-    load.add_argument("--dsn", required=True, help="Chuỗi kết nối PostgreSQL")
+    load.add_argument("--dsn", required=True, help="PostgreSQL connection string")
     load.add_argument(
         "--sample-days",
         type=int,
         default=0,
-        help="Chỉ nạp N ngày export RẢI ĐỀU thay vì cả dải. Rải đều (không "
-        "phải N ngày cuối) vì dữ liệu lớn dần theo thời gian, lấy liền "
-        "nhau ở cuối thì tập mẫu không đại diện. 0 = nạp hết. "
-        "Bảng seller.skus không chia theo ngày nên luôn nạp đủ.",
+        help="Load only N export days SPREAD EVENLY instead of the whole range. Spread "
+        "evenly (not the last N days) because data grows over time, so "
+        "consecutive days at the end are not a representative sample. 0 = load all. "
+        "Table seller.skus is not split by day, so it is always loaded in full.",
     )
 
-    report = sub.add_parser("report", help="In báo cáo chất lượng dữ liệu của một lần chạy")
+    report = sub.add_parser("report", help="Print the data quality report of a run")
     report.add_argument(
-        "--source", required=True, help="Gốc đầu ra của lần chạy (thư mục hoặc s3://...)"
+        "--source", required=True, help="Output root of the run (directory or s3://...)"
     )
-    report.add_argument("--dsn", help="Đọc Walmart và SKU từ PostgreSQL thay vì từ pg-load/")
-    report.add_argument("--markdown", action="store_true", help="In dạng Markdown để dán vào docs/")
+    report.add_argument("--dsn", help="Read Walmart and SKUs from PostgreSQL instead of pg-load/")
+    report.add_argument(
+        "--markdown", action="store_true", help="Print as Markdown to paste into docs/"
+    )
 
-    stream = sub.add_parser("stream", help="Phát Stream sau cutoff vào Kafka hoặc ra file")
-    stream.add_argument("--config", required=True, help="Đường dẫn file cấu hình YAML")
+    stream = sub.add_parser("stream", help="Emit the post-Cutoff Stream to Kafka or to files")
+    stream.add_argument("--config", required=True, help="Path to the YAML config file")
     stream.add_argument(
-        "--output", help="Ghi đè storage.output_root (nơi ghi stream_manifest.json)"
+        "--output", help="Override storage.output_root (where stream_manifest.json is written)"
     )
     stream.add_argument("--sink", choices=["kafka", "file"], default="kafka")
     stream.add_argument(
-        "--bootstrap", default="localhost:9092", help="Địa chỉ Kafka khi --sink kafka"
+        "--bootstrap", default="localhost:9092", help="Kafka address when --sink kafka"
     )
     stream.add_argument(
         "--speed",
         type=float,
         default=1.0,
-        help="1 là đúng nhịp cấu hình, 60 là nhanh gấp 60 lần, 0 là không chờ",
+        help="1 is the configured pace, 60 is 60 times faster, 0 is no waiting",
     )
 
     args = parser.parse_args()
@@ -88,11 +92,11 @@ def main() -> None:
 
         render = render_markdown if args.markdown else render_text
         print("\n\n".join(render(t) for t in QualityReport(args.source, args.dsn).all_tables()))
-    print(f"Xong sau {time.perf_counter() - started:.1f} giây")
+    print(f"Done in {time.perf_counter() - started:.1f} seconds")
 
 
 def _run_batch(args: argparse.Namespace) -> None:
-    """Sinh Batch theo cấu hình, in tóm tắt manifest."""
+    """Generate the Batch from the config and print a manifest summary."""
     from generator.config import load_config
     from generator.generate_order_snapshots import BatchRun
 
@@ -105,11 +109,11 @@ def _run_batch(args: argparse.Namespace) -> None:
     print(
         json.dumps({k: manifest[k] for k in ("datasets", "labels")}, indent=2, ensure_ascii=False)
     )
-    print(f"Ghi tại {config.storage.output_root}")
+    print(f"Written to {config.storage.output_root}")
 
 
 def _run_stream(args: argparse.Namespace) -> None:
-    """Phát Stream theo cấu hình, in số đo."""
+    """Emit the Stream from the config and print the measurements."""
     from generator.config import load_config
     from generator.publish_order_snapshot_events import FileSink, KafkaSink, run_stream
     from generator.storage import OutputStore

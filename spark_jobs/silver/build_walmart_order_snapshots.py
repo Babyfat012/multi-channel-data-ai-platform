@@ -1,13 +1,13 @@
 """Silver: `bronze.raw_walmart_orders` -> `silver.stg_walmart_order_lines`.
 
-Bảng riêng, không gộp với Amazon: hai kênh có khoá dedup khác nhau. Gộp kênh là việc của Gold.
-Khác Amazon: một dạng schema, thời gian là epoch mili-giây, và có trạng thái `Delivered`.
-`Delivered` gộp cả delivered lẫn completed nên cột thời điểm là `status_changed_at`.
+A separate table, not merged with Amazon: the two Channels have different dedup keys. Merging Channels is Gold's job.
+Unlike Amazon: one schema shape, times are epoch milliseconds, and there is a `Delivered` status.
+`Delivered` covers both delivered and completed, so the time column is `status_changed_at`.
 
-Khoá dedup cần `customer_order_id`: `purchase_order_id` từng va chạm giữa hai đơn khác nhau.
-Thiết kế: `docs/data-platform/reference/silver.md`.
+The dedup key needs `customer_order_id`: `purchase_order_id` once collided between two different Orders.
+Design: `docs/data-platform/reference/silver.md`.
 
-Chạy:
+Run:
     spark-submit ... silver/build_walmart_order_snapshots.py
     spark-submit ... silver/build_walmart_order_snapshots.py \
         --source-table raw_walmart_orders_smoke --table stg_walmart_order_lines_smoke
@@ -39,8 +39,8 @@ BRONZE_NS = "bronze"
 SILVER_NS = "silver"
 MONEY = "decimal(14,2)"
 
-# Khác Amazon: thời gian là epoch mili-giây (long), tiền là số (double), `lineNumber` và
-# số lượng là chuỗi. Khai sai kiểu thì `from_json` trả NULL mà không báo lỗi.
+# Unlike Amazon: times are epoch milliseconds (long), money is a number (double), `lineNumber` and
+# quantities are strings. Declaring a wrong type makes `from_json` return NULL without an error.
 
 _CHARGE = StructType(
     [
@@ -157,15 +157,15 @@ PAYLOAD_SCHEMA = StructType(
         ),
     ]
 )
-# Không khai `customerEmailId`, `orderType`: Silver bỏ hai khoá này.
+# `customerEmailId`, `orderType` are not declared: Silver drops these two keys.
 
-# Thứ tự cột của bảng ra.
+# Output table column order.
 OUTPUT_COLUMNS = [
-    # khoá + độ hạt
+    # key + grain
     "purchase_order_id",
     "customer_order_id",
     "line_number",
-    # mức Order
+    # Order level
     "created_at",
     "order_status",
     "channel_status",
@@ -175,7 +175,7 @@ OUTPUT_COLUMNS = [
     "city",
     "postal_code",
     "country",
-    # mức Order Line
+    # Order Line level
     "sku",
     "product_name",
     "quantity",
@@ -185,67 +185,69 @@ OUTPUT_COLUMNS = [
     "ship_date_time",
     "carrier",
     "tracking_number",
-    # provenance từ Bronze
+    # provenance from Bronze
     "source_table",
     "fetched_at",
-    # cột của riêng Silver
+    # Silver-only columns
     "processed_at",
     "run_id",
 ]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Đọc tham số dòng lệnh."""
+    """Parse command-line arguments."""
     p = argparse.ArgumentParser(description="Silver: Walmart Order Line")
     p.add_argument(
         "--source-table",
         default="raw_walmart_orders",
-        help="bảng Bronze nguồn, trong namespace `bronze`.",
+        help="source Bronze table, in the `bronze` namespace.",
     )
     p.add_argument(
         "--table",
         default="stg_walmart_order_lines",
-        help="bảng Silver đích, trong namespace `silver`.",
+        help="target Silver table, in the `silver` namespace.",
     )
     p.add_argument(
         "--shuffle-partitions",
         type=int,
         default=None,
-        help="spark.sql.shuffle.partitions. Để trống thì giữ mặc định 200.",
+        help="spark.sql.shuffle.partitions. Empty keeps the default of 200.",
     )
     p.add_argument(
-        "--run-id", default=None, help="mã lần chạy ghi vào cột run_id. Để trống thì sinh uuid4."
+        "--run-id",
+        default=None,
+        help="run id written to the run_id column. Empty generates a uuid4.",
     )
     return p.parse_args(argv)
 
 
 def _ts_millis(col):
-    """Epoch mili-giây -> timestamp.
+    """Epoch milliseconds -> timestamp.
 
-    Dùng `timestamp_millis` thay vì chia 1000: phép chia qua `double` làm lệch mili-giây,
-    mà lệch ở ranh giới ngày là sai nhãn 30 ngày.
+    Uses `timestamp_millis` instead of dividing by 1000: division through `double` shifts milliseconds,
+    and a shift at a day boundary is a wrong 30-day label.
     """
     return F.timestamp_millis(col)
 
 
 def _country(col):
-    """Quy mã quốc gia về ISO alpha-2 (`"USA"` -> `"US"`); mã lạ giữ nguyên."""
+    """Normalize country codes to ISO alpha-2 (`"USA"` -> `"US"`); unknown codes are kept."""
     pairs = [F.lit(x) for kv in COUNTRY_ALIASES.items() for x in kv]
     return F.coalesce(F.create_map(*pairs)[col], col)
 
 
 def _status(col):
-    """Trạng thái gốc Walmart -> trạng thái chuẩn; chữ lạ ra NULL để đếm được."""
+    """Walmart original status -> canonical status; unknown text gives NULL so it can be counted."""
     pairs = [F.lit(x) for kv in WALMART_STATUS.items() for x in kv]
     return F.create_map(*pairs)[col]
 
 
 def parse_order_lines(bronze: DataFrame) -> DataFrame:
-    """Parse `raw_payload` và nổ `orderLines.orderLine` thành Order Line.
+    """Parse `raw_payload` and explode `orderLines.orderLine` into Order Lines.
 
-    Lấy `[0]` của `charges.charge` và `orderLineStatuses.orderLineStatus` vì nguồn luôn sinh
-    đúng một phần tử. Nếu nguồn thêm charge khác (ship, thuế) thì phải lọc theo `chargeType`.
-    `chargeAmount` là tiền sau giảm giá, nên chỉ có `line_net_amount`.
+    Takes `[0]` of `charges.charge` and `orderLineStatuses.orderLineStatus` because the source always produces
+    exactly one element. If the source adds other charges (shipping, tax), filter by `chargeType`.
+    `chargeAmount` is the amount after discounts, so there is only `line_net_amount`.
     """
     doc = F.from_json(F.col("raw_payload"), PAYLOAD_SCHEMA).alias("d")
     df = bronze.select("raw_payload", "source_table", "fetched_at", doc)
@@ -285,10 +287,10 @@ def parse_order_lines(bronze: DataFrame) -> DataFrame:
 
 
 def dedup(df: DataFrame) -> DataFrame:
-    """Giữ bản mới nhất của mỗi `(purchase_order_id, customer_order_id, line_number)`.
+    """Keep the latest copy of each `(purchase_order_id, customer_order_id, line_number)`.
 
-    Thứ tự: `status_changed_at` mới nhất, hoà thì `fetched_at` lớn nhất. Hoà xảy ra với bản
-    chép y hệt; khi đó chọn bản nào cũng đúng về nghiệp vụ.
+    Order: latest `status_changed_at`, ties broken by largest `fetched_at`. Ties happen with identical
+    copies; then either copy is correct for the business.
     """
     newest = Window.partitionBy("purchase_order_id", "customer_order_id", "line_number").orderBy(
         F.col("status_changed_at").desc_nulls_last(),
@@ -298,14 +300,14 @@ def dedup(df: DataFrame) -> DataFrame:
 
 
 def write_silver(spark: SparkSession, df: DataFrame, table: str) -> None:
-    """Ghi đè bảng Silver trong một commit, partition theo `days(created_at)` như Amazon."""
+    """Overwrite the Silver table in one commit, partitioned by `days(created_at)` like Amazon."""
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.{SILVER_NS}")
     full_name = f"{CATALOG}.{SILVER_NS}.{table}"
     df.writeTo(full_name).partitionedBy(F.days("created_at")).createOrReplace()
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Chạy job và in số dòng trước/sau dedup."""
+    """Run the job and print row counts before/after dedup."""
     args = parse_args(argv)
     run_id = args.run_id or str(uuid.uuid4())
     source = f"{CATALOG}.{BRONZE_NS}.{args.source_table}"
@@ -314,8 +316,8 @@ def main(argv: list[str] | None = None) -> int:
         bronze = spark.table(source)
 
         print(f"run_id          = {run_id}")
-        print(f"bảng nguồn      = {source}")
-        print(f"bảng đích       = {CATALOG}.{SILVER_NS}.{args.table}")
+        print(f"source table    = {source}")
+        print(f"target table    = {CATALOG}.{SILVER_NS}.{args.table}")
 
         started = time.monotonic()
         lines = (
@@ -329,12 +331,12 @@ def main(argv: list[str] | None = None) -> int:
         elapsed = time.monotonic() - started
 
         after = spark.table(f"{CATALOG}.{SILVER_NS}.{args.table}").count()
-        print(f"Order Line trước dedup = {before:,}")
-        print(f"Order Line sau  dedup  = {after:,}")
-        print(f"bản trùng đã bỏ        = {before - after:,}")
+        print(f"Order Line before dedup = {before:,}")
+        print(f"Order Line after dedup  = {after:,}")
+        print(f"duplicates dropped      = {before - after:,}")
         if before:
-            print(f"tỉ lệ trùng            = {(before - after) / before:.6f}")
-        print(f"XONG sau               = {elapsed:.1f}s")
+            print(f"duplicate ratio         = {(before - after) / before:.6f}")
+        print(f"DONE in                 = {elapsed:.1f}s")
         return 0
     finally:
         spark.stop()

@@ -1,4 +1,4 @@
--- Warehouse v2, migration 001: giữ kiểu/cột từ Gold thật; timestamp được hiểu là UTC.
+-- Warehouse v2, migration 001: keeps the types/columns from the real Gold; timestamps are interpreted as UTC.
 CREATE SCHEMA IF NOT EXISTS warehouse_lifecycle;
 CREATE TABLE warehouse_lifecycle.fact_order_lines (
     dataset_version text NOT NULL,

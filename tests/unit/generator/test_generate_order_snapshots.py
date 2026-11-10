@@ -1,4 +1,4 @@
-"""Test chạy trọn một Batch nhỏ: file đầu ra, manifest và bảng nhãn."""
+"""Tests running a full small Batch: output files, manifest and label table."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from generator.generate_order_snapshots import BatchRun
 
 
 def test_batch_writes_expected_layout_and_manifest(tiny_config):
-    """Chứng minh Batch ghi đúng bố cục file (Amazon, Walmart) và `run_manifest.json` khớp số dòng, số file thật trên đĩa."""
+    """Prove the Batch writes the correct file layout (Amazon, Walmart) and `run_manifest.json` matches the actual row and file counts on disk."""
     manifest = BatchRun(tiny_config).run()
     root = Path(tiny_config.storage.output_root)
 
@@ -23,14 +23,14 @@ def test_batch_writes_expected_layout_and_manifest(tiny_config):
     assert amazon_parts and walmart_parts
     assert json.loads((root / "run_manifest.json").read_text()) == manifest
 
-    # Số dòng trong manifest khớp với số dòng thật trong file.
+    # Row counts in the manifest match the actual rows in the files.
     amazon_rows = sum(len(p.read_text().splitlines()) for p in amazon_parts)
     assert manifest["datasets"]["amazon.orders"]["rows"] == amazon_rows
     assert manifest["datasets"]["amazon.orders"]["files"] == len(amazon_parts)
 
 
 def test_amazon_partitions_before_switch_use_v0_and_after_use_new_schema(tiny_config):
-    """Chứng minh file Amazon trước ngày chuyển dùng khoá v0 (`AmazonOrderId`), từ ngày đó dùng khoá 2026 (`orderId`)."""
+    """Prove Amazon files before the switch day use the v0 key (`AmazonOrderId`), and from that day the 2026 key (`orderId`)."""
     BatchRun(tiny_config).run()
     root = Path(tiny_config.storage.output_root)
     switch_date = (
@@ -48,31 +48,31 @@ def test_amazon_partitions_before_switch_use_v0_and_after_use_new_schema(tiny_co
 
 
 def test_no_labels_yet_when_history_is_shorter_than_window(tiny_config):
-    """12 ngày lịch sử ngắn hơn cửa sổ 30 ngày, nên chưa dòng nào biết nhãn.
+    """12 history days is shorter than the 30-day window, so no line has a known label yet.
 
-    Ngày không có nhãn thì không tạo file Parquet nào, nên ở đây cả thư mục vắng.
-    Thứ nói "ngày đó đã xong" là tem, không phải sự có mặt của file.
+    Days without labels create no Parquet file, so here the whole directory is absent.
+    What says "that day is done" is the stamp, not the presence of a file.
     """
     BatchRun(tiny_config).run()
     assert not sorted(Path(tiny_config.storage.output_root).glob("ground-truth/labels/*.parquet"))
 
 
 def test_labels_only_include_lines_known_before_cutoff(tiny_config):
-    """Chứng minh bảng nhãn chỉ chứa Order Line đã biết nhãn trước cutoff, nhãn kiểu int8 và chỉ 0/1."""
+    """Prove the label table only holds Order Lines with a known label before the Cutoff, labels are int8 and only 0/1."""
     scale = dataclasses.replace(tiny_config.scale, days_history=40, orders_per_day=20)
     config = dataclasses.replace(tiny_config, scale=scale)
     BatchRun(config).run()
     table = pq.read_table(Path(config.storage.output_root) / "ground-truth/labels")
     assert table.num_rows > 0
-    # Kiểu int8 đến từ `LABELS_SCHEMA`; không truyền schema thì pyarrow đoán kiểu và
-    # một ngày không nhãn nào sẽ thành kiểu `null`, làm Spark đọc lệch kiểu cột.
+    # The int8 type comes from `LABELS_SCHEMA`; without a schema pyarrow infers types and
+    # a day with no labels would become type `null`, making Spark read mismatched column types.
     assert str(table.schema.field("label").type) == "int8"
     assert set(table.column("label").to_pylist()) <= {0, 1}
     assert max(table.column("label_available_at").to_pylist()) <= config.cutoff
 
 
 def test_same_config_produces_identical_files(tiny_config, tmp_path):
-    """Chứng minh cùng cấu hình sinh ra file giống y từng byte, kể cả khi ghi vào thư mục khác."""
+    """Prove the same config yields byte-identical files, even when written to a different directory."""
     other = dataclasses.replace(
         tiny_config,
         storage=dataclasses.replace(tiny_config.storage, output_root=str(tmp_path / "again")),
@@ -86,7 +86,7 @@ def test_same_config_produces_identical_files(tiny_config, tmp_path):
 
 
 def test_seller_skus_cover_catalog_without_hidden_propensity(tiny_config):
-    """Chứng minh bảng SKU phủ đủ catalog, và không lộ cột `defect_propensity` (giá trị ẩn của lõi)."""
+    """Prove the SKU table covers the whole catalog and does not expose `defect_propensity` (the core's hidden value)."""
     manifest = BatchRun(tiny_config).run()
     part = Path(tiny_config.storage.output_root) / "pg-load/seller.skus/part-00000.jsonl"
     rows = [json.loads(line) for line in part.read_text().splitlines()]
@@ -96,13 +96,13 @@ def test_seller_skus_cover_catalog_without_hidden_propensity(tiny_config):
 
 
 def test_unique_keys_equals_primary_placements_so_the_key_set_is_unneeded(tiny_config):
-    """Khóa bất biến cho phép `DatasetStats` đếm khóa duy nhất mà không giữ set khóa.
+    """Pin the invariant that lets `DatasetStats` count unique keys without holding a key set.
 
-    `BatchRun` không còn gom `rendered.key` vào một set (ở quy mô 100 GB là ~117
-    triệu string trong RAM) mà lấy `unique_keys` từ số placement `primary`. Test này
-    dựng lại tập khóa thật từ file đầu ra và đối chiếu, nên nếu một Channel sau này
-    sinh khóa phụ thuộc ngày export, hoặc `plan_exports` cho hơn một bản chính, thì
-    test đổ chứ không phải `duplicate_rate` trong manifest âm thầm sai.
+    `BatchRun` no longer collects `rendered.key` into a set (at 100 GB scale that is ~117
+    million strings in RAM) but takes `unique_keys` from the number of `primary` placements. This test
+    rebuilds the real key set from the output files and compares, so if a Channel later
+    generates keys that depend on the export day, or `plan_exports` yields more than one primary, the
+    test fails instead of `duplicate_rate` in the manifest being silently wrong.
     """
     manifest = BatchRun(tiny_config).run()
     root = Path(tiny_config.storage.output_root)
@@ -129,11 +129,11 @@ def test_unique_keys_equals_primary_placements_so_the_key_set_is_unneeded(tiny_c
 
 
 def test_ground_truth_is_one_parquet_file_per_simulated_day_with_rows(tiny_config):
-    """Nhãn và ánh xạ khóa ghi dần nên RAM theo một ngày, và mỗi ngày đóng file riêng.
+    """Labels and key mappings are written incrementally so RAM is per day, and each day closes its own file.
 
-    Một file cho cả lần chạy là thứ không thể chạy tiếp được: footer Parquet chỉ ghi
-    lúc đóng, nên bị cắt giữa đường là mất trắng cả file dù 90% dòng đã trên đĩa.
-    Một file mỗi ngày thì ngày nào đóng xong là đọc được ngay.
+    One file for the whole run cannot be resumed: the Parquet footer is only written
+    on close, so an interruption midway loses the entire file even with 90% of rows on disk.
+    With one file per day, every closed day is readable right away.
     """
     BatchRun(tiny_config).run()
     root = Path(tiny_config.storage.output_root)
@@ -147,11 +147,11 @@ def test_ground_truth_is_one_parquet_file_per_simulated_day_with_rows(tiny_confi
 
 
 def test_manifest_bytes_match_the_real_size_of_the_export_files(tiny_config):
-    """`datasets[*].bytes` là thước đo ngưỡng 100 GB, nên phải bằng byte thật trên đĩa.
+    """`datasets[*].bytes` is the measure for the 100 GB threshold, so it must equal the actual bytes on disk.
 
-    Số byte giờ đến từ `JsonlWriterPool.close()` lúc đóng file, không còn từ một lần
-    `write_jsonl` gom cả ngày. Test này là lý do dám dùng tổng đó làm bằng chứng
-    đạt ngưỡng thay vì `du`.
+    The byte count now comes from `JsonlWriterPool.close()` when the file closes, no longer from one
+    `write_jsonl` for the whole day. This test is why that total can be trusted as evidence
+    of reaching the threshold instead of `du`.
     """
     manifest = BatchRun(tiny_config).run()
     root = Path(tiny_config.storage.output_root)

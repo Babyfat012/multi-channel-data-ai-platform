@@ -1,4 +1,4 @@
-"""Kiểm cấu hình và hợp đồng receipt bằng stdlib, không khởi động hay import Spark."""
+"""Check config and the receipt contract with stdlib only, without starting or importing Spark."""
 
 import json
 
@@ -8,13 +8,13 @@ from scripts.run.run_order_lifecycle_local import empty_receipt, parse_args, sav
 
 
 def test_default_medium(tmp_path):
-    """Kiểm cấu hình mặc định dùng profile medium và seed cố định."""
+    """Check the default config uses the medium profile and a fixed seed."""
     args = parse_args(["--receipt", str(tmp_path / "receipt.json")])
     assert (args.profile, args.orders_per_day, args.days, args.seed) == ("medium", 500, 60, 7)
 
 
 def test_small_and_overrides(tmp_path):
-    """Kiểm profile small và giá trị override được áp dụng."""
+    """Check the small profile and override values are applied."""
     base = ["--receipt", str(tmp_path / "receipt.json"), "--profile", "small"]
     small = parse_args(base)
     assert (small.orders_per_day, small.days) == (50, 45)
@@ -46,13 +46,13 @@ def test_small_and_overrides(tmp_path):
     ],
 )
 def test_invalid_cli(flags, tmp_path):
-    """Kiểm CLI từ chối tham số không hợp lệ."""
+    """Check the CLI rejects invalid arguments."""
     with pytest.raises(SystemExit):
         parse_args(["--receipt", str(tmp_path / "r.json"), *flags])
 
 
 def test_empty_receipt_schema(tmp_path, monkeypatch):
-    """Kiểm cấu trúc receipt ban đầu trước khi pipeline chạy."""
+    """Check the initial receipt structure before the pipeline runs."""
     monkeypatch.setenv("WAREHOUSE_TEST_DSN", "secret-value")
     args = parse_args(["--receipt", str(tmp_path / "r.json"), "--run-id", "test"])
     receipt = empty_receipt(args)
@@ -81,7 +81,7 @@ def test_empty_receipt_schema(tmp_path, monkeypatch):
 
 
 def test_failed_stage_keeps_measurement(tmp_path):
-    """Kiểm stage lỗi vẫn lưu phép đo và trạng thái thất bại."""
+    """Check a failed stage still records measurements and the failed status."""
     args = parse_args(["--receipt", str(tmp_path / "r.json")])
     receipt = empty_receipt(args)
     with pytest.raises(ValueError), stage(receipt, args.receipt, "bronze") as item:

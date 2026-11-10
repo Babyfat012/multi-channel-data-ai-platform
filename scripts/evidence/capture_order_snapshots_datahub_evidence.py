@@ -24,8 +24,8 @@ DATASETS = {
     "dp2": "lakehouse.gold.fact_order_lines_dp2",
     "dp3": "lakehouse.gold.feat_order_line_return_dp3",
 }
-# Bộ ảnh cho hai check chạy lại bằng code 2026-10-18; ghi vào thư mục riêng để
-# không đè sáu ảnh lịch sử ở docs/images/datahub/.
+# Image set for the two checks re-run with the 2026-10-18 code; written to a separate directory so
+# the six historical images in docs/images/datahub/ are not overwritten.
 PROFILES = {
     "legacy": (DATASETS, OUTPUT),
     "v2": (
@@ -35,7 +35,7 @@ PROFILES = {
         },
         OUTPUT / "v2",
     ),
-    # DataHub trên EC2 (qua tunnel 9002), publish từ log DAG v1 chạy 100 GB ngày 27–28/10.
+    # DataHub on EC2 (via tunnel 9002), published from v1 DAG logs of the 100 GB run on 27–28/10.
     "aws": (DATASETS, ROOT / "docs" / "evidence" / "aws" / "datahub"),
 }
 
@@ -167,7 +167,7 @@ def main() -> None:
         "--profile",
         choices=sorted(PROFILES),
         default="legacy",
-        help="legacy = sáu ảnh lịch sử; v2 = CDC v2 và DP3 chạy lại, thư mục riêng",
+        help="legacy = the six historical images; v2 = CDC v2 and DP3 re-run, separate directory",
     )
     args = parser.parse_args()
     asyncio.run(capture(args.inspect_only, args.profile))

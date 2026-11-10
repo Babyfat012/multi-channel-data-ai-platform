@@ -1,6 +1,6 @@
-"""Đối chiếu độc lập 2 job PyFlink với file nguồn (không dùng Flink): S3 offline từng cửa sổ, Redis giá trị mới nhất.
+"""Independently reconcile the 2 PyFlink jobs against the source file (without Flink): S3 offline per window, Redis latest value.
 
-Chạy trong container Flink ML (có Feast + biến môi trường), khi job còn chạy cũng được: chỉ xét cửa sổ đã ghi ra.
+Run inside the Flink ML container (has Feast + environment variables), also fine while the jobs are running: only written windows are checked.
 docker cp scripts/evidence/stream_feature_reconcile.py platform-flink-ml-jobmanager-1:/tmp/r.py
 docker exec -i -e HOME=/tmp platform-flink-ml-jobmanager-1 python -W ignore /tmp/r.py < ~/return_events.jsonl
 """
@@ -16,7 +16,7 @@ SHOW = ("BEA-01708", "ELE-01084", "APP-00042")
 
 
 def main():
-    """Đếm lại cửa sổ HOP 24h/1h từ file nguồn rồi so với S3 và Redis."""
+    """Recount the HOP 24h/1h windows from the source file, then compare with S3 and Redis."""
     sys.path[:0] = ["/opt/flink/jobs/ml", "/opt/feature_repo"]
     import pyarrow.parquet as pq
     import sku_return_feature as job
@@ -48,11 +48,11 @@ def main():
     extra = sum(1 for k in got if k not in expected)
     closed = datetime.fromtimestamp(end / 1000, tz=UTC).isoformat()
     print(
-        f"nguon={total} duy_nhat={len(seen)} offline_dong_toi={closed} dong={len(rows)} "
-        f"cua_so={len(got)} ky_vong={len(expected)} sai_hoac_thieu={wrong} thua={extra}"
+        f"source={total} unique={len(seen)} offline_closed_through={closed} rows={len(rows)} "
+        f"windows={len(got)} expected={len(expected)} wrong_or_missing={wrong} extra={extra}"
     )
 
-    # Hai job chạy độc lập nên online có thể đi trước offline vài giờ: nhận mọi giá trị đúng từ mốc offline trở đi.
+    # The two jobs run independently, so online may be a few hours ahead of offline: accept any correct value from the offline mark onward.
     by_sku = {}
     for (sku, window_end), value in counts.items():
         by_sku.setdefault(sku, []).append((window_end, value))
@@ -70,9 +70,10 @@ def main():
     ).to_dict()["approved_returns_24h"]
     online = dict(zip(skus, values, strict=True))
     bad = [s for s in skus if online[s] not in allowed[s]]
-    print(f"redis sku={len(skus)} sai={len(bad)} mau={[(s, online[s]) for s in bad[:3]]}")
+    print(f"redis sku={len(skus)} wrong={len(bad)} sample={[(s, online[s]) for s in bad[:3]]}")
     print(
-        "SKU mẫu (Redis, cửa sổ offline cuối):", [(s, online.get(s), latest.get(s)) for s in SHOW]
+        "Sample SKUs (Redis, last offline window):",
+        [(s, online.get(s), latest.get(s)) for s in SHOW],
     )
 
 

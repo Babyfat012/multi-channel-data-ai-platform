@@ -1,4 +1,4 @@
-"""Test phần Stream: thứ tự đến, bản trùng, trễ, burst, nhịp phát."""
+"""Tests for the Stream part: arrival order, duplicates, delays, bursts, emit pace."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from generator.storage import OutputStore
 
 @pytest.fixture
 def stream_config(tmp_path):
-    """12 ngày lịch sử, 6 ngày Stream, livestream ngày 15, trùng và trễ phóng to để đo được ở quy mô nhỏ."""
+    """12 history days, 6 Stream days, livestream on day 15, duplicates and delays amplified to be measurable at small scale."""
     return parse_config(
         {
             "seed": 7,
@@ -42,7 +42,7 @@ def stream_config(tmp_path):
 
 
 def test_messages_arrive_in_order_and_inside_stream(stream_config):
-    """Chứng minh message đến đúng thứ tự thời gian, event nằm trong khoảng cutoff→stream_end, không đến trước khi xảy ra, và phủ đủ mọi topic."""
+    """Prove messages arrive in time order, events fall within cutoff→stream_end, never arrive before they happen, and cover every topic."""
     msgs = list(stream_messages(stream_config))
     assert [m.arrive_at for m in msgs] == sorted(m.arrive_at for m in msgs)
     assert all(stream_config.cutoff <= m.event_time < stream_config.stream_end for m in msgs)
@@ -51,7 +51,7 @@ def test_messages_arrive_in_order_and_inside_stream(stream_config):
 
 
 def test_tiktok_duplicates_keep_notification_id(stream_config):
-    """Chứng minh bản trùng TikTok giữ nguyên payload và đến muộn hơn bản gốc, và tỷ lệ trùng khớp cấu hình."""
+    """Prove TikTok duplicates keep the same payload and arrive after the original, and the duplicate rate matches the config."""
     tiktok = [m for m in stream_messages(stream_config) if m.topic == TOPICS["tiktok_shop"]]
     dups = [m for m in tiktok if m.is_duplicate]
     assert dups
@@ -64,18 +64,18 @@ def test_tiktok_duplicates_keep_notification_id(stream_config):
 
 
 def test_amazon_late_share_and_out_of_order(stream_config):
-    """Chứng minh Amazon không có bản trùng, tỷ lệ trễ quá 1 giờ khớp cấu hình, có message lệch thứ tự, và message mang `PublishTime`."""
+    """Prove Amazon has no duplicates, the share delayed over 1 hour matches the config, some messages are out of order, and messages carry `PublishTime`."""
     amazon = [m for m in stream_messages(stream_config) if m.topic == TOPICS["amazon"]]
     assert not any(m.is_duplicate for m in amazon)
     late = [m for m in amazon if m.arrive_at - m.event_time > timedelta(hours=1)]
     assert len(late) / len(amazon) == pytest.approx(0.2, abs=0.04)
-    # Message trễ đến sau message có event_time muộn hơn.
+    # Late messages arrive after messages with a later event_time.
     assert any(a.event_time > b.event_time for a, b in zip(amazon, amazon[1:]))
     assert amazon[0].value["NotificationMetadata"]["PublishTime"]
 
 
 def test_burst_matches_live_multiplier(stream_config, tmp_path):
-    """Chứng minh buổi livestream đẩy số Order TikTok mới lên đúng hệ số cấu hình, và sink ghi ra đúng dạng envelope."""
+    """Prove the livestream raises new TikTok Orders by the configured multiplier, and the sink writes the correct envelope shape."""
     manifest = run_stream(
         stream_config, FileSink(OutputStore(stream_config.storage.output_root)), speed=0
     )
@@ -91,16 +91,16 @@ def test_burst_matches_live_multiplier(stream_config, tmp_path):
 
 
 def test_same_seed_same_stream(stream_config):
-    """Chứng minh cùng seed sinh ra đúng cùng một luồng message (khóa và thời điểm đến)."""
+    """Prove the same seed yields the exact same message stream (keys and arrival times)."""
     first = [(m.dedup_key, m.arrive_at) for m in stream_messages(stream_config)]
     assert first == [(m.dedup_key, m.arrive_at) for m in stream_messages(stream_config)]
 
 
 def test_pacing_slows_down_live_day(stream_config):
-    """Chứng minh nhịp phát đúng: mốc đầu bằng 0, ngày thường 60 giây/ngày, ngày live chậm gấp 5 lần."""
+    """Prove the emit pace: the start is 0, normal days take 60 seconds/day, the livestream day is 5 times slower."""
     start = stream_config.cutoff
     assert wall_offset(stream_config, start) == 0
-    assert wall_offset(stream_config, stream_config.day_start(14)) == 60  # ngày 13 bình thường
+    assert wall_offset(stream_config, stream_config.day_start(14)) == 60  # day 13 is normal
     live_start = stream_config.day_start(15)
     assert (
         wall_offset(stream_config, live_start + timedelta(hours=12))
@@ -110,7 +110,7 @@ def test_pacing_slows_down_live_day(stream_config):
 
 
 def test_live_day_must_be_in_stream():
-    """Chứng minh cấu hình đặt ngày livestream ngoài phần Stream bị từ chối."""
+    """Prove a config placing the livestream day outside the Stream is rejected."""
     with pytest.raises(ValueError, match="tiktok_live.day"):
         parse_config(
             {

@@ -1,1 +1,1 @@
-"""ML Platform: train và đánh giá model return-risk (dùng trong Kubeflow Pipelines)."""
+"""ML Platform: train and evaluate the return-risk model (used in Kubeflow Pipelines)."""

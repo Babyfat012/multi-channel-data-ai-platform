@@ -1,4 +1,4 @@
-"""Render SQL v2 theo offset receipt: cô lập epoch trước watermark, kiểm header ở output."""
+"""Render v2 SQL from receipt offsets: isolate the epoch before the watermark, check headers in the output."""
 
 import argparse
 import json
@@ -14,7 +14,7 @@ FEEDS = (
 
 
 def offset_ranges(manifest, epoch, prefix):
-    """Kiểm partition/offset liên tục và khớp ledger, đổi stop inclusive thành exclusive."""
+    """Check partitions/offsets are contiguous and match the ledger; turn the inclusive stop into exclusive."""
     if type(manifest.get("epoch")) is not int or manifest["epoch"] != epoch:
         raise ValueError("manifest epoch mismatch")
     if set(manifest["topics"]) != {prefix + feed for feed in FEEDS}:
@@ -61,11 +61,11 @@ def offset_ranges(manifest, epoch, prefix):
 
 
 def expand_sources(sql, topics, ranges, proof):
-    """Tạo bảng riêng mỗi topic vì Kafka specific-offsets chỉ mang partition và offset."""
+    """Create one table per topic because Kafka specific-offsets only carry partition and offset."""
     pattern = r"CREATE TABLE (lifecycle_source|lifecycle_count_source) \(.*?\n\);"
 
     def expand(match):
-        """Thay một source bằng các source đơn topic cùng view UNION ALL."""
+        """Replace one source with single-topic sources plus a UNION ALL view."""
         name = match[1]
         tables = []
         for index, topic in enumerate(topics):
@@ -77,7 +77,7 @@ def expand_sources(sql, topics, ranges, proof):
                 "@@STOP_OFFSETS@@", ranges[topic][1]
             )
             if proof:
-                # Flink 1.20 watermark pushdown phát sau từng event, tránh sai số chu kỳ.
+                # Flink 1.20 watermark pushdown emits after each event, avoiding periodic-interval error.
                 table = table.replace(
                     "'format' = 'json'",
                     "'scan.watermark.emit.strategy' = 'on-event',\n  'format' = 'json'",
@@ -101,7 +101,7 @@ def render(
     late_topics=False,
     restart_mode=False,
 ):
-    """Kiểm config/receipt trước khi ghi; proof sinh bốn job 11 đơn topic, parallelism 1."""
+    """Check config/receipt before writing; the proof generates four jobs over 11 single topics, parallelism 1."""
     if any(type(x) is not int for x in (epoch, delay_seconds, watermark_ms, checkpoint_ms)):
         raise ValueError("configuration must be integer")
     if (
@@ -130,7 +130,7 @@ def render(
             sql = expand_sources(source.read_text(), topics, ranges, late_topics)
             if late_topics:
                 sql = sql.replace("/order_lifecycle/late/", "/order_lifecycle/late-proof/")
-            # Cú pháp INTERVAL này đã chạy được trên Flink 1.20.
+            # This INTERVAL syntax is known to work on Flink 1.20.
             hours, rest = divmod(delay_seconds, 3600)
             delay_interval = f"INTERVAL '{hours}:{rest // 60:02d}:{rest % 60:02d}' HOUR TO SECOND"
             for key, value in dict(
@@ -145,8 +145,10 @@ def render(
             if "@@" in sql:
                 raise ValueError("unresolved SQL placeholder")
             if restart_mode and source.stem == "dedup":
-                # Summary bounded phải chạy sau cancel; không nằm sau DML vô hạn.
-                streaming, summary = sql.split("-- DML sync chờ phần streaming hoàn tất;", 1)
+                # The bounded summary must run after cancel, not after the unbounded DML.
+                streaming, summary = sql.split(
+                    "-- Synchronous DML waits for the streaming part to finish;", 1
+                )
                 summary = summary[summary.index("SET 'execution.runtime-mode' = 'batch';") :]
                 preamble = sql[: sql.index("CREATE TABLE")]
                 rendered["dedup_counts.sql"] = (
@@ -160,7 +162,7 @@ def render(
                     "SET 'table.dml-sync' = 'true';",
                     "SET 'table.dml-sync' = 'false';\nSET 'execution.runtime-mode' = 'streaming';",
                 )
-                # JSON sink đóng part file theo processing time rồi commit ở checkpoint sau.
+                # The JSON sink closes part files by processing time, then commits at the next checkpoint.
                 sql = sql.replace(
                     "'format'='json'",
                     "'format'='json', "
@@ -175,7 +177,7 @@ def render(
 
 
 def main():
-    """CLI yêu cầu manifest đúng epoch, không đọc earliest/latest từ topic dùng chung."""
+    """The CLI requires the manifest for the right epoch; never reads earliest/latest from shared topics."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--epoch", required=True, type=int)
@@ -184,7 +186,7 @@ def main():
     parser.add_argument(
         "--restart-mode",
         action="store_true",
-        help="Dedup unbounded và summary bounded riêng sau REST cancel",
+        help="Unbounded dedup and a separate bounded summary after REST cancel",
     )
     parser.add_argument("--bootstrap", default="kafka:9092")
     parser.add_argument("--delay-seconds", type=int, default=3600)

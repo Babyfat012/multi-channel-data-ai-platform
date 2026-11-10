@@ -1,6 +1,6 @@
-"""DP2: Bronze -> Silver năm Channel -> Gold fact, validate từng chặng.
+"""DP2: Bronze -> five-Channel Silver -> Gold fact, validating each stage.
 
-Các Spark task chạy tuần tự để vừa RAM máy dev.
+Spark tasks run sequentially to fit the dev machine's RAM.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ SPARK_CONF = {
 
 with DAG(
     dag_id="dp2_silver",
-    description="Bronze 5 Channel -> Silver Order Line; kiểm đầu ra từng kênh",
+    description="Bronze 5 Channels -> Silver Order Line; check the output of each Channel",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule=None,
     catchup=False,

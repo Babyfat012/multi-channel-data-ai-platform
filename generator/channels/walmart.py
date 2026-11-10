@@ -1,16 +1,16 @@
-"""Renderer đơn hàng Walmart: một dòng bảng `walmart.orders` trong PostgreSQL.
+"""Walmart order renderer: one row of table `walmart.orders` in PostgreSQL.
 
-Mỗi dòng gồm ba cột, mô phỏng một hệ thống khác đã kéo dữ liệu từ Walmart về:
-- `purchase_order_id`: khóa đơn của Walmart.
-- `raw_payload`: JSON đơn hàng đúng như API "Get all orders" trả về (cột JSONB).
-- `fetched_at`: lúc hệ thống đó kéo bản ghi, cũng là cột dùng để chọn bản mới nhất khi dedup.
+Each row has three columns, simulating another system that pulled the data from Walmart:
+- `purchase_order_id`: Walmart's order key.
+- `raw_payload`: the order JSON exactly as the "Get all orders" API returns it (JSONB column).
+- `fetched_at`: when that system pulled the record, also the column used to pick the latest version when deduping.
 
-Nguồn field: docs/data-platform/reference/channel_sources.md, mục 4 (mức Cao). Giả định của dự án:
-`shippingInfo.estimatedDeliveryDate`, `trackingInfo` bên trong `orderLineStatus`,
-và giá trong `charges` là giá đã trừ giảm giá (Walmart không tách dòng giảm giá).
+Field source: docs/data-platform/reference/channel_sources.md, section 4 (High level). Project assumptions:
+`shippingInfo.estimatedDeliveryDate`, `trackingInfo` inside `orderLineStatus`,
+and prices in `charges` are net of discounts (Walmart does not split out a discount line).
 
-Walmart có trạng thái `Delivered` kèm `statusDate`, nên khác Amazon, Seller thấy
-được ngày giao thật.
+Walmart has a `Delivered` status with `statusDate`, so unlike Amazon, the Seller can see
+the actual delivery date.
 """
 
 from __future__ import annotations
@@ -50,27 +50,27 @@ CARRIERS = ("UPS", "FedEx", "USPS")
 
 
 class WalmartOrdersRenderer:
-    """Vẽ Order của Storefront Walmart US thành dòng của bảng `walmart.orders`."""
+    """Render Walmart US Storefront Orders as rows of table `walmart.orders`."""
 
     channel = "walmart"
     dataset = "orders"
     storage = POSTGRES
 
     def __init__(self, config: GeneratorConfig) -> None:
-        """Ghi nhớ seed để sinh mã gốc cố định."""
+        """Remember the seed to generate fixed native ids."""
         self.seed = config.seed
 
     def purchase_order_id(self, order: Order) -> str:
-        """Mã đơn 13 chữ số, không bắt đầu bằng 0."""
+        """13-digit order id, not starting with 0."""
         return "1" + native_digits(self.seed, "walmart_po", order.order_id, 12)
 
     def tracking_number(self, carrier: str, po_id: str) -> str:
-        """Mã vận đơn theo định dạng của từng hãng.
+        """Tracking number in each carrier's format.
 
-        UPS: `1Z` + 16 ký tự chữ và số. FedEx: 12 chữ số. USPS: `94` + 20 chữ số (22 số).
+        UPS: `1Z` + 16 alphanumeric characters. FedEx: 12 digits. USPS: `94` + 20 digits (22 digits).
         """
-        # Hàm băm chỉ cho 64 bit (khoảng 12 ký tự chữ và số, hoặc 19 chữ số), nên mã dài
-        # được ghép từ hai nửa băm với `kind` khác nhau.
+        # A hash gives only 64 bits (about 12 alphanumeric characters, or 19 digits), so long ids
+        # are built from two hash halves with different `kind`s.
         if carrier == "UPS":
             return (
                 "1Z"
@@ -86,7 +86,7 @@ class WalmartOrdersRenderer:
         )
 
     def render(self, order: Order, as_of: datetime, export_day: int) -> RenderedRecord:
-        """Vẽ `order` tại `as_of`. Mọi dòng của đơn cùng trạng thái (đơn giản hóa)."""
+        """Render `order` at `as_of`. All lines of an order share one status (simplification)."""
         change = order.status_at(as_of)
         decimals = CURRENCY_DECIMALS[order.currency]
         po_id = self.purchase_order_id(order)
@@ -157,7 +157,7 @@ class WalmartOrdersRenderer:
         return RenderedRecord(key=po_id, record=row)
 
     def line_keys(self, order: Order) -> list[dict[str, Any]]:
-        """Ánh xạ Order Line chuẩn sang `purchaseOrderId` và `lineNumber`."""
+        """Map canonical Order Lines to `purchaseOrderId` and `lineNumber`."""
         po_id = self.purchase_order_id(order)
         return [
             {

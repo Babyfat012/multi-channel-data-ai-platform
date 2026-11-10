@@ -56,7 +56,7 @@ def test_resolve_runtime_env_rejects_unknown_groups():
 
 @pytest.mark.parametrize("storage", ["s3"])
 def test_cloud_runtime_uses_machine_identity_without_minio(storage):
-    """Cloud không đọc Connection MinIO hoặc đưa placeholder key vào Spark."""
+    """Cloud does not read the MinIO Connection or pass placeholder keys to Spark."""
     variables = {
         "platform_warehouse_name": "cloud-lake",
         "platform_lakekeeper_catalog_uri": "http://lakekeeper:8181/catalog",
@@ -68,7 +68,7 @@ def test_cloud_runtime_uses_machine_identity_without_minio(storage):
 
 
 def test_runtime_rejects_unknown_storage():
-    """Lỗi chính tả không được âm thầm đổi cách xác thực."""
+    """A typo must not silently change the authentication method."""
     with pytest.raises(ValueError, match="storage"):
         resolve_runtime_env({}, {}, (), storage="typo")
 
@@ -76,7 +76,7 @@ def test_runtime_rejects_unknown_storage():
 @pytest.mark.parametrize("storage", ["s3"])
 @pytest.mark.parametrize("fails", [False, True])
 def test_cloud_operator_clears_inherited_keys_and_restores_state(monkeypatch, storage, fails):
-    """Thực thi operator thật với biên Airflow giả; giữ credential ngoài process Spark."""
+    """Execute the real operator with a fake Airflow boundary; keep credentials out of the Spark process."""
     keys = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")
     for key in keys:
         monkeypatch.setenv(key, "stale-local-credential")
@@ -87,16 +87,16 @@ def test_cloud_operator_clears_inherited_keys_and_restores_state(monkeypatch, st
     }
 
     class SparkStub:
-        """Thay spark-submit bằng kiểm tra môi trường ngay tại biên execute."""
+        """Replace spark-submit with an environment check right at the execute boundary."""
 
         template_fields = ("env_vars",)
 
         def __init__(self, **kwargs):
-            """Giữ env_vars để kiểm việc phục hồi object sau khi chạy."""
+            """Keep env_vars to check that the object is restored after the run."""
             self.env_vars = kwargs.get("env_vars")
 
         def execute(self, context):
-            """Đảm bảo không có key cũ trong env_vars lẫn môi trường kế thừa."""
+            """Ensure no old keys in env_vars or in the inherited environment."""
             assert not set(keys).intersection(self.env_vars)
             assert not set(keys).intersection(os.environ)
             assert self.env_vars["WAREHOUSE_NAME"] == "cloud-lake"
@@ -105,7 +105,7 @@ def test_cloud_operator_clears_inherited_keys_and_restores_state(monkeypatch, st
             return "submitted"
 
     def unexpected_connection(name):
-        """Không có dịch vụ MinIO trên Cloud nên không được tra connection đó."""
+        """There is no MinIO service on Cloud, so that connection must not be looked up."""
         raise AssertionError(f"Unexpected connection: {name}")
 
     source = Path(__file__).resolve().parents[3] / "dags/platform_spark_operator.py"
@@ -139,7 +139,7 @@ RAG_PG = {"host": "10.42.0.50", "port": 30432, "login": "u", "password": "p"}
 
 
 def test_rag_env_on_s3_uses_machine_identity_without_minio():
-    """AWS: không key, không endpoint MinIO; registry RAG cạnh registry Feast; pgvector từ connection."""
+    """AWS: no keys, no MinIO endpoint; RAG registry next to the Feast registry; pgvector from the connection."""
     env = resolve_rag_env({"platform_rag_pg": RAG_PG}, RAG_VARS, storage="s3")
     assert not {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "FEAST_S3_ENDPOINT_URL"} & env.keys()
     assert env["FEAST_RAG_REGISTRY"] == "s3://lake/feature-store/rag-registry.db"
@@ -148,7 +148,7 @@ def test_rag_env_on_s3_uses_machine_identity_without_minio():
 
 
 def test_rag_env_on_minio_adds_local_keys_and_endpoint():
-    """Local: giữ hành vi cũ (key + endpoint MinIO)."""
+    """Local: keep the old behavior (keys + MinIO endpoint)."""
     minio = {"login": "ak", "password": "sk"}
     env = resolve_rag_env({"platform_rag_pg": RAG_PG, "platform_minio": minio}, RAG_VARS)
     assert (env["AWS_ACCESS_KEY_ID"], env["FEAST_S3_ENDPOINT_URL"]) == ("ak", "http://minio:9000")
@@ -156,13 +156,13 @@ def test_rag_env_on_minio_adds_local_keys_and_endpoint():
 
 @pytest.mark.parametrize("host", ["", None])
 def test_rag_env_refuses_missing_pgvector_host(host):
-    """Quên -e rag_pg khi node EKS đổi IP ⇒ báo rõ, không chạy với host rỗng."""
+    """Forgetting -e rag_pg when the EKS node IP changes ⇒ clear error, never running with an empty host."""
     with pytest.raises(ValueError, match="rag_pg"):
         resolve_rag_env({"platform_rag_pg": RAG_PG | {"host": host}}, RAG_VARS, storage="s3")
 
 
 def test_rag_dag_skips_minio_lookups_on_s3():
-    """DAG chỉ tra connection/variable MinIO khi không phải s3 (AWS không có MinIO)."""
+    """The DAG looks up the MinIO connection/variable only when not on s3 (AWS has no MinIO)."""
     text = (Path(__file__).resolve().parents[3] / "dags/ml_rag_ingest.py").read_text()
     assert '(["platform_minio"] if storage != "s3" else [])' in text
     assert '["platform_minio_internal_endpoint"] if storage != "s3" else []' in text

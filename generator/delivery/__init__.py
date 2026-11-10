@@ -1,1 +1,1 @@
-"""Lớp giao hàng: quyết định bản ghi đến lúc nào, ở đâu, và chèn lỗi giao hàng."""
+"""Delivery layer: decides when and where records arrive, and injects delivery faults."""

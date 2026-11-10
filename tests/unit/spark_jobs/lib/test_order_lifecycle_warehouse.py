@@ -1,4 +1,4 @@
-"""Kiểm hợp đồng DDL, cổng publish và rollback bằng fake DB không cần service."""
+"""Check the DDL contract, publish gate and rollback with a fake DB, no services needed."""
 
 import ast
 import importlib.util
@@ -22,7 +22,7 @@ SQL = ROOT / "sql/warehouse_lifecycle"
 
 
 def test_ddl_primary_keys_and_real_gold_columns():
-    """Định nghĩa đủ ba bảng, PK và cột từ schema Gold đang có trong repo."""
+    """All three tables are defined, with PKs and columns from the Gold schema in the repo."""
     tables = ddl_tables(SQL)
     assert set(tables) == set(TABLES)
     for ddl in tables.values():
@@ -52,7 +52,7 @@ def test_ddl_primary_keys_and_real_gold_columns():
 
 
 def test_index_columns_exist_and_no_v1_drop():
-    """Mọi cột index/INCLUDE/predicate tồn tại trong bảng đích; migration không DROP."""
+    """Every index/INCLUDE/predicate column exists in the target table; migrations never DROP."""
     tables = ddl_tables(SQL)
     indexes = index_statements(SQL)
     assert len(indexes) == 4
@@ -85,33 +85,33 @@ def test_index_columns_exist_and_no_v1_drop():
     ],
 )
 def test_publish_gate(checks, expected):
-    """Không coi checks thiếu/không boolean hoặc tiền lệch là thành công."""
+    """Missing/non-boolean checks or mismatched money are never treated as success."""
     assert should_publish(checks) is expected
 
 
 def test_failed_check_never_executes_swap():
-    """Cổng fail dừng trước câu SQL đầu tiên, kể cả khi staging đã sẵn sàng."""
+    """A failed gate stops before the first SQL statement, even when staging is ready."""
 
     class NoSQL:
-        """Phát hiện mọi ý định chạm DB khi validation đã thất bại."""
+        """Detect any attempt to touch the DB after validation has failed."""
 
         def execute(self, *args):
-            """Cấm thực thi SQL ở ca kiểm fail."""
-            pytest.fail("Không được swap khi check fail")
+            """Forbid SQL execution in the failing-check case."""
+            pytest.fail("Must not swap when a check fails")
 
-    with pytest.raises(ValueError, match="không swap"):
+    with pytest.raises(ValueError, match="not swapping"):
         publish(NoSQL(), {"fact_order_lines": "staging"}, "test", SQL, {"money": False})
 
 
 def test_cutoff_requires_timezone():
-    """Giữ cùng instant UTC và từ chối timestamp không timezone."""
+    """Keep the same UTC instant and reject timestamps without a time zone."""
     assert cutoff_utc("2026-06-01T07:00:00+07:00") == cutoff_utc("2026-06-01T00:00:00Z")
     with pytest.raises(ValueError):
         cutoff_utc("2026-06-01T00:00:00")
 
 
 def test_explain_buffers_are_not_double_counted():
-    """Node gốc đã cộng buffers con; tóm tắt phải dùng tổng ở node gốc."""
+    """The root node already sums child buffers; the summary must use the root total."""
     spec = importlib.util.spec_from_file_location(
         "wv2_explain", ROOT / "scripts/evidence/measure_order_lifecycle_warehouse.py"
     )
@@ -135,7 +135,7 @@ def test_explain_buffers_are_not_double_counted():
 
 
 def test_dag_is_manual_and_validates_before_export():
-    """Kiểm cấu trúc DAG mới không cần import Airflow trong venv."""
+    """Check the new DAG structure without importing Airflow in the venv."""
     source = (ROOT / "dags/dp_order_lifecycle_warehouse.py").read_text()
     ast.parse(source)
     assert "schedule=None" in source
@@ -144,7 +144,7 @@ def test_dag_is_manual_and_validates_before_export():
 
 
 def test_channels_match_source_v2_names():
-    """Tên Channel của check five_channels phải đúng tên nguồn v2 (từng ghi nhầm 'tiktok')."""
+    """Channel names in the five_channels check must match the v2 source names (once mistakenly written 'tiktok')."""
     from generator.generate_order_lifecycle_fixture import CHANNELS as SOURCE_CHANNELS
     from spark_jobs.lib.order_lifecycle_warehouse import CHANNELS
 

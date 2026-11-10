@@ -1,4 +1,4 @@
-"""Tạo offline feature tại thời điểm đặt Order từ Gold fact năm Channel."""
+"""Build offline features at Order placement time from the five-Channel Gold fact."""
 
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 def main(argv: list[str] | None = None) -> int:
     """Build point-in-time return features from Gold Order Line history."""
-    parser = argparse.ArgumentParser(description="Feature offline: dự đoán lúc đặt Order")
+    parser = argparse.ArgumentParser(description="Offline features: prediction at Order placement")
     parser.add_argument("--source-table", default="fact_order_lines_dp2")
     parser.add_argument("--table", default="feat_order_line_return_dp3")
     parser.add_argument("--run-id", default=None)
     args = parser.parse_args(argv)
     for value in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(value):
-            parser.error(f"Tên bảng không hợp lệ: {value!r}")
+            parser.error(f"Invalid table name: {value!r}")
 
     spark = build_spark("feat-order-line-return", shuffle_partitions=32)
     try:
@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         target = f"{CATALOG}.gold.{args.table}"
         features.writeTo(target).partitionedBy(F.days("event_timestamp")).createOrReplace()
-        print(f"Feature offline đã ghi: {target}")
+        print(f"Offline features written: {target}")
         return 0
     finally:
         spark.stop()

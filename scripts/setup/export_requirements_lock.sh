@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Xuất requirements.lock từ uv.lock cho docker/Dockerfile.naive. Chạy lại mỗi khi uv.lock đổi,
-# nếu không image naive sẽ cài bộ thư viện khác image tối ưu.
+# Export requirements.lock from uv.lock for docker/Dockerfile.naive. Rerun whenever uv.lock changes,
+# otherwise the naive image installs a different library set than the optimized image.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
