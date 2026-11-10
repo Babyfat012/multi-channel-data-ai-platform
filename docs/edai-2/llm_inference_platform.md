@@ -2,7 +2,12 @@
 
 EDAI-2, dòng 3–6: inference, custom model, agentgateway và benchmark.
 
-llama.cpp trên EKS `platform-apps` tự host Qwen2.5-1.5B-Instruct GGUF Q4_K_M trên CPU, lưu model trên PVC. Đây là model có sẵn tự host, chưa có bằng chứng fine-tuning riêng. Agent gọi API OpenAI-compatible qua agentgateway.
+Trên cụm EKS `platform-apps`, llama.cpp (một server chạy LLM) tự host model Qwen2.5-1.5B-Instruct bằng CPU.
+Model ở định dạng GGUF, nén Q4_K_M (lượng tử hoá 4 bit), và được lưu trên PVC (ổ đĩa gắn cho pod).
+Đây là model có sẵn đem về tự host; chưa có bằng chứng fine-tuning riêng. Agent gọi model qua agentgateway bằng API tương thích OpenAI.
+
+**Kết luận:** model chạy ổn trên EKS. Đo bằng llm-d-benchmark ở 3 mức tải được 42 request, không lỗi.
+Một pod LLM với 3 luồng CPU phục vụ được khoảng 0,3 request/giây; trên mức đó hệ bị quá tải (chi tiết ở mục benchmark).
 
 Code: [`llm.yaml`](../../infra/k8s/agents/llm.yaml), [gateway](../../infra/k8s/agents/agentgateway.yaml), [benchmark](../../scripts/evidence/bench_llm.py).
 
@@ -24,18 +29,19 @@ kubectl --context "$KCTX" -n llm get pvc models
 kubectl --context "$KCTX" -n llm logs deployment/qwen --tail=50
 ```
 
-Manifest tạo namespace `llm`, PVC `models` **3 GiB**, Deployment và Service `qwen` cổng 8080.
-PVC dùng `ReadWriteOnce`; Deployment chọn `Recreate` để pod cũ nhả volume trước khi pod mới dùng.
-Với `gp3` dùng `WaitForFirstConsumer`, PVC chờ có pod sử dụng rồi mới bind.
+Manifest tạo namespace `llm`, PVC `models` **3 GiB**, Deployment và Service `qwen` ở cổng 8080.
+PVC dùng chế độ `ReadWriteOnce` (mỗi lúc chỉ một node gắn được), nên Deployment chọn chiến lược `Recreate`: pod cũ nhả volume xong thì pod mới mới dùng.
+StorageClass `gp3` dùng `WaitForFirstConsumer`, nghĩa là PVC chờ tới khi có pod dùng thì mới bind (gắn với ổ đĩa thật).
 
-Container llama.cpp được cố định bằng image digest. Tham số
-`-hf Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M` tự tải model GGUF có sẵn từ Hugging Face ở lần chạy đầu;
-`LLAMA_CACHE=/models` đặt cache trên PVC để dùng lại sau khi thay pod. Cần kết nối ra registry và nơi tải model.
-Startup probe cho phép tối đa khoảng 10 phút để tải và nạp model; readiness probe kiểm `/health` trước khi Service chuyển request.
+Image llama.cpp được ghim cố định bằng image digest.
+
+- Tham số `-hf Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M` tự tải model GGUF từ Hugging Face ở lần chạy đầu.
+- `LLAMA_CACHE=/models` đặt cache trên PVC, nên khi thay pod thì dùng lại file model đã tải. Pod cần kết nối ra ngoài tới registry và nơi tải model.
+- Startup probe cho tối đa khoảng 10 phút để tải và nạp model. Readiness probe kiểm `/health`; chỉ khi đạt thì Service mới chuyển request vào pod.
 
 | Cấu hình hiện hành | Mục đích |
 |---|---|
-| `--threads 3`, `--parallel 4` | Dùng 3 luồng CPU và 4 slot xử lý đồng thời; lựa chọn dựa trên benchmark EKS bên dưới |
+| `--threads 3`, `--parallel 4` | Dùng 3 luồng CPU và 4 slot (4 request được xử lý đồng thời). Con số chọn dựa trên benchmark EKS bên dưới |
 | `--ctx-size 16384` | Context tổng 16.384 token, tương ứng 4.096 token mỗi slot với cấu hình 4 slot |
 | `--flash-attn on`, KV cache `q8_0` | Giảm bộ nhớ KV cache so với cấu hình mặc định để phục vụ context đã chọn |
 | `--jinja`, `--alias qwen2.5-1.5b-instruct` | Bật chat template hỗ trợ tool calling và đặt tên model cho client/gateway |
@@ -79,8 +85,8 @@ kubectl --context "$KCTX" -n agentgateway rollout status deployment/agentgateway
 ```
 
 Agent gọi gateway tại `http://agentgateway.agentgateway.svc.cluster.local:3000/v1`, dùng cùng API key
-và tên model trên. Cấu hình gateway còn có route MCP, A2A và model nhỏ phục vụ A/B; các nhánh đó cần workload
-tương ứng. Bước setup này dựng đường gọi Qwen 1,5B; kiểm chứng policy xem [Gateway](agent_gateways.md).
+và tên model ở trên. Cấu hình gateway còn có route MCP, A2A và model nhỏ phục vụ A/B; các route đó chỉ chạy khi có workload
+tương ứng. Bước setup này chỉ dựng đường gọi tới Qwen 1,5B; phần kiểm chứng policy xem [Gateway](agent_gateways.md).
 
 Để kiểm tra đường gọi qua gateway, mở port-forward trong một terminal:
 
@@ -103,30 +109,40 @@ Các bước trên là hướng dẫn tái lập từ cấu hình repo. Số li�
 
 ## Kiểm tra triển khai trên EKS
 
-Namespace `llm` trên cluster `platform-apps`: Deployment `qwen` (1,5B) và `qwen-small` (0,5B, nhánh B của A/B), mỗi pod `1/1 Running`,
-PVC `models` 3 GiB và `models-small` 1 GiB `Bound` (gp3, model nằm trên PVC nên pod khởi động lại không phải tải lại), Service `ClusterIP` cổng 8080.
+Trong namespace `llm` trên cluster `platform-apps` có:
+
+- Deployment `qwen` (1,5B) và `qwen-small` (0,5B, nhánh B của A/B test); mỗi deployment có pod ở trạng thái `1/1 Running`.
+- PVC `models` 3 GiB và `models-small` 1 GiB, đều `Bound` (gp3). Model nằm trên PVC nên khi pod khởi động lại không phải tải lại.
+- Service kiểu `ClusterIP` (chỉ truy cập được trong cụm) ở cổng 8080.
 
 ![kubectl get pods,pvc,svc -n llm: qwen và qwen-small Running, PVC models và models-small Bound, Service qwen và qwen-small cổng 8080](../evidence/aws/llm-deploy-pods-pvc-svc.png)
 
-Log khởi động của llama.cpp: tải `Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M`, `n_threads = 3`, `n_slots = 4`, rồi `model loaded` và `listening on 0.0.0.0:8080`.
-Dòng cảnh báo `no API key is set` là của llama.cpp: server này không tự kiểm khóa, chỉ truy cập được trong cụm qua Service `ClusterIP`; khóa API do
-[agentgateway](agent_gateways.md) kiểm.
+Log khởi động của llama.cpp cho thấy: tải `Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M`, `n_threads = 3`, `n_slots = 4`, rồi `model loaded` và `listening on 0.0.0.0:8080`.
+Dòng cảnh báo `no API key is set` đến từ llama.cpp. Server này không tự kiểm API key, nhưng chỉ truy cập được từ trong cụm qua Service `ClusterIP`;
+việc kiểm API key do [agentgateway](agent_gateways.md) đảm nhận.
 
 ![Log qwen: nạp model Q4_K_M, 3 luồng, 4 slot, model loaded, listening 0.0.0.0:8080](../evidence/aws/llm-qwen-startup-log.png)
 
 ## Benchmark bằng llm-d-benchmark
 
-[llm-d-benchmark](https://github.com/llm-d/llm-d-benchmark) có chế độ `run` (run-only): benchmark một endpoint **đã chạy sẵn**,
-không dựng lại stack. Harness `inference-perf` chạy thành pod trong namespace `llm-bench` và gọi `/v1/completions`
-(streaming, nên có TTFT) vào Service `qwen.llm:8080`; llama.cpp server nói cùng giao thức OpenAI.
+Hai chỉ số chính khi đo LLM:
+
+- **TTFT** (time to first token): thời gian từ lúc gửi request tới khi nhận token đầu tiên.
+- **TPOT** (time per output token): thời gian trung bình để sinh mỗi token tiếp theo.
+
+[llm-d-benchmark](https://github.com/llm-d/llm-d-benchmark) có chế độ `run` (run-only): đo một endpoint **đã chạy sẵn**,
+không dựng lại cả stack. Bộ đo (harness) `inference-perf` chạy thành pod trong namespace `llm-bench` và gọi `/v1/completions`
+vào Service `qwen.llm:8080`. Request dùng streaming nên đo được TTFT. llama.cpp server dùng cùng giao thức OpenAI nên gọi được trực tiếp.
+
 Workload: [`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), lấy từ `sanity_random`
-của llm-d-benchmark, giảm cỡ cho CPU: ba mức 0,1 / 0,2 / 0,4 request/giây, mỗi mức 60 s, prompt ~128 token, sinh ~32 token.
+của llm-d-benchmark rồi giảm cỡ cho hợp với CPU: ba mức 0,1 / 0,2 / 0,4 request/giây, mỗi mức 60 s, prompt ~128 token, sinh ~32 token.
 Lệnh chạy và cách cài (Python 3.14, commit cố định): [`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh).
 
-**Kiểm tương thích với llama.cpp (local, trước khi chạy EKS).** Tài liệu llm-d-benchmark và inference-perf không nêu llama.cpp là
-engine được hỗ trợ (chỉ ghi vLLM, SGLang, TGI), nên đã thử thật: chạy container llama.cpp cùng image đã ghim như EKS
-(Qwen2.5-0.5B Q4_K_M thay cho 1,5B vì máy local, `--alias qwen2.5-1.5b-instruct`), rồi chạy `inference-perf` (harness lõi mà
-llm-d-benchmark triển khai) với workload của repo, một mức 0,5 request/giây trong 20 s.
+**Kiểm tương thích với llama.cpp (local, trước khi chạy EKS).** Tài liệu của llm-d-benchmark và inference-perf không ghi llama.cpp là
+engine được hỗ trợ (chỉ ghi vLLM, SGLang, TGI), nên đã thử thật trước ở local:
+
+1. Chạy container llama.cpp cùng image đã ghim như trên EKS. Dùng model Qwen2.5-0.5B Q4_K_M thay cho 1,5B vì chạy trên máy local, nhưng đặt `--alias qwen2.5-1.5b-instruct`.
+2. Chạy `inference-perf` (bộ đo lõi mà llm-d-benchmark dùng) với workload của repo, một mức 0,5 request/giây trong 20 s.
 
 | Điểm kiểm | Kết quả |
 |---|---|
@@ -137,12 +153,17 @@ llm-d-benchmark triển khai) với workload của repo, một mức 0,5 request
 | Chạy `inference-perf` | 10/10 thành công, 0 lỗi; TTFT TB 0,51 s, TPOT TB 26 ms, request TB 1,32 s; token đầu ra đếm phía client 31,7 so với phía server 32,7 |
 
 Kết quả đầy đủ: [`llmd-inference-perf-llamacpp-local-20261104.json`](../evidence/llmd-inference-perf-llamacpp-local-20261104.json).
-Số này đo trên model 0,5B ở máy local, **không phải số EKS** và không dùng để so với bảng đo bên dưới.
+Kết luận: llama.cpp đủ tương thích để chạy llm-d-benchmark. Các số trên đo bằng model 0,5B ở máy local, **không phải số EKS**, và không dùng để so với bảng đo bên dưới.
 
 **Chạy thật trên EKS bằng llm-d-benchmark.** Chế độ run-only trỏ vào Service `qwen.llm:8080` (llama.cpp, Qwen2.5-1.5B), harness `inference-perf`, workload
 [`llmd-inference-perf-qwen-cpu.yaml`](../../infra/k8s/benchmark/llmd-inference-perf-qwen-cpu.yaml), chạy từ máy quản trị bằng
-[`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh). Công cụ tạo pod kiểm tra model (`smoketest`, đọc `/v1/models` thành công) rồi pod harness; pod tải tokenizer từ Hugging Face,
-chạy ba mức tải và kết thúc với `harness_rc: 0` (3 phút 52 giây). Kết quả đầy đủ trong [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
+[`run_llmd_benchmark.sh`](../../scripts/evidence/run_llmd_benchmark.sh). Diễn biến:
+
+1. Công cụ tạo pod `smoketest` để kiểm model; pod đọc `/v1/models` thành công.
+2. Công cụ tạo pod harness. Pod tải tokenizer từ Hugging Face rồi chạy lần lượt ba mức tải.
+3. Pod kết thúc với `harness_rc: 0` (mã thoát thành công) sau 3 phút 52 giây.
+
+Kết quả đầy đủ trong [llmd-benchmark/](../evidence/aws/llmd-benchmark/summary_lifecycle_metrics.json)
 (`run_metadata.yaml`, báo cáo từng mức, `stdout.log`).
 
 | Mức tải (yêu cầu/giây, 60 s) | Thành công / lỗi | TTFT trung vị / p90 | TPOT trung vị | Request p50 / p90 | Đạt được (yêu cầu/giây) | Token sinh/giây |
@@ -151,18 +172,27 @@ chạy ba mức tải và kết thúc với `harness_rc: 0` (3 phút 52 giây). 
 | 0,2 | 12 / 0 | 1,96 s / 4,23 s | 135 ms | 7,22 s / 9,97 s | 0,232 | 7,08 |
 | 0,4 | 24 / 0 | 5,62 s / 15,0 s | 255 ms | 13,6 s / 20,6 s | 0,340 | 10,2 |
 
-Đọc kết quả: 42 request, không lỗi. Mức 0,1 và 0,2 request/giây được phục vụ ổn; ở mức 0,4 hệ **bão hòa**: TTFT trung vị tăng gần ba lần (1,96 → 5,62 s), p90 chạm 15 s, và
-chỉ đạt 0,34 request/giây so với yêu cầu 0,4. Với CPU 3 luồng và prompt ~128 token, giới hạn thực tế nằm quanh 0,3 request/giây mỗi pod LLM, khớp với việc chuỗi Agent nhiều lượt LLM bị chậm
-khi tải chồng ([Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026)). Số này là một lần chạy ngắn trên EKS, không có khoảng tin cậy.
+Đọc kết quả:
 
-Hai điều chỉnh bắt buộc để llm-d-benchmark chạy trên EKS này (đã đưa vào script): (1) dùng `--no-pvc`, vì công cụ tạo PVC `ReadWriteMany` 20 GiB còn EBS `gp3` chỉ hỗ trợ `ReadWriteOnce`
-(`Volume capabilities not supported`); (2) hạ tài nguyên pod harness từ mặc định 16 CPU / 32 GiB xuống 1 CPU / 2 GiB, nếu không pod kẹt `Pending` (`Insufficient cpu/memory`) trên node 4 vCPU.
-Số trong bảng đo ở mục dưới do [`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, đo trên cấu hình khác (số luồng, mức đồng thời), không so trực tiếp.
+- Tổng 42 request, không request nào lỗi.
+- Ở mức 0,1 và 0,2 request/giây, hệ phục vụ ổn.
+- Ở mức 0,4 request/giây, hệ **bão hòa** (quá tải): TTFT trung vị tăng gần ba lần (từ 1,96 s lên 5,62 s), p90 chạm 15 s, và
+  hệ chỉ xử lý được 0,34 request/giây trong khi tải gửi vào là 0,4.
+- Với CPU 3 luồng và prompt ~128 token, giới hạn thực tế vào khoảng 0,3 request/giây cho mỗi pod LLM. Điều này khớp với việc chuỗi Agent gọi LLM nhiều lượt bị chậm
+  khi các request chồng lên nhau ([Agent Evaluation](agent_evaluation.md#coordinator-trên-aws-04112026)).
+- Đây là một lần chạy ngắn trên EKS, không tính khoảng tin cậy.
+
+Hai điều chỉnh bắt buộc để llm-d-benchmark chạy được trên cụm EKS này (đã đưa vào script):
+
+1. Dùng `--no-pvc`. Mặc định công cụ tạo PVC `ReadWriteMany` 20 GiB, nhưng EBS `gp3` chỉ hỗ trợ `ReadWriteOnce`, nên báo lỗi `Volume capabilities not supported`.
+2. Hạ tài nguyên của pod harness từ mặc định 16 CPU / 32 GiB xuống 1 CPU / 2 GiB. Nếu không, pod bị kẹt ở `Pending` (`Insufficient cpu/memory`) vì node chỉ có 4 vCPU.
+
+Số trong bảng ở mục dưới do một công cụ khác là [`bench_llm.py`](../../scripts/evidence/bench_llm.py) tạo ra, đo với cấu hình khác (số luồng, mức đồng thời), nên không so trực tiếp với bảng trên.
 
 ## Đo lại trên EKS
 
-Node `r6i.xlarge` chỉ có 4 vCPU, nhưng cấu hình B đặt 6 luồng (theo laptop 6 nhân). Cùng script, gọi qua
-`kubectl port-forward svc/qwen`, chỉ đổi `--threads`:
+Mục đích: chọn số luồng CPU cho llama.cpp. Node `r6i.xlarge` chỉ có 4 vCPU, nhưng cấu hình B (cấu hình thắng trong [benchmark trên laptop](reference/llm_platform_agents.md), không phải nhánh B của A/B test) đặt 6 luồng, theo laptop 6 nhân.
+Chạy cùng một script, gọi qua `kubectl port-forward svc/qwen`, mỗi lần chỉ đổi `--threads`. Cột "Đồng thời" là số request gửi cùng lúc:
 
 | Luồng | Đồng thời | p50 (s) | p95 (s) | request/s | token ra/s |
 |---|---:|---:|---:|---:|---:|
@@ -176,11 +206,11 @@ Node `r6i.xlarge` chỉ có 4 vCPU, nhưng cấu hình B đặt 6 luồng (theo 
 | | 2 | 7,60 | 13,93 | 0,225 | 11,8 |
 | | 4 | 12,57 | 19,14 | 0,269 | 14,0 |
 
-- 6 luồng > 4 vCPU: các luồng tranh nhau CPU, thua hoặc hoà ở mọi mức.
-- 4 luồng nhanh nhất khi 1 request, nhưng ở 4 request p95 tăng lên 19,1 s và token/s giảm 21% so với 3 luồng:
-  llama.cpp chiếm hết 4 vCPU, tranh với Agent, KEDA, exporter trên cùng node.
-- Chọn **3 luồng**: Coordinator gọi 2 Agent song song nên tải thật là 2–4 request; chừa 1 vCPU cho pod khác.
-- 8 request mỗi mức ⇒ chênh dưới ~10% coi như hoà. Số liệu: [`evidence/aws/bench-llm-eks-t6-20261030.json`](../evidence/aws/bench-llm-eks-t6-20261030.json),
+- 6 luồng nhiều hơn 4 vCPU nên các luồng tranh nhau CPU; kết quả thua hoặc hoà ở mọi mức.
+- 4 luồng nhanh nhất khi chỉ có 1 request. Nhưng khi có 4 request, p95 tăng lên 19,1 s và token/s giảm 21% so với 3 luồng.
+  Lý do: llama.cpp chiếm hết 4 vCPU, tranh CPU với Agent, KEDA và exporter chạy trên cùng node.
+- Chọn **3 luồng**: Coordinator gọi 2 Agent song song nên tải thật là 2–4 request cùng lúc; chừa lại 1 vCPU cho các pod khác.
+- Mỗi mức chỉ có 8 request, nên chênh lệch dưới ~10% được coi như hoà. Số liệu: [`evidence/aws/bench-llm-eks-t6-20261030.json`](../evidence/aws/bench-llm-eks-t6-20261030.json),
   [`t3`](../evidence/aws/bench-llm-eks-t3-20261030.json), [`t4`](../evidence/aws/bench-llm-eks-t4-20261030.json).
 
 
