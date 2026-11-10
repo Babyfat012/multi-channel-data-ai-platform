@@ -1,22 +1,28 @@
 # Data Pipeline Orchestration trên AWS
 
-EDAI-1, dòng 22–27: ingest/validate của DP1, DP2 và DP3.
+Trang này ứng với EDAI-1, dòng 22–27 của rubric: cách Airflow điều phối các bước ingest (nạp) và validate (kiểm tra) của ba DAG:
+- **DP1**: nguồn sang Bronze.
+- **DP2**: Bronze sang Silver, rồi Gold và SCD2.
+- **DP3**: Gold sang feature offline.
 
 Code / cấu hình: [DP1](../../dags/dp1_bronze.py), [DP2](../../dags/dp2_silver.py), [DP3](../../dags/dp3_features.py).
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây lấy từ các lần chạy trên AWS. Chúng chứng minh lần chạy đó đã diễn ra, không có nghĩa dịch vụ hiện vẫn đang bật.
 
 ## Trên AWS
 
-Airflow và Spark chạy bằng Compose trên EC2 Sydney, đọc raw S3 và PostgreSQL EC2.
-[Receipt AWS](../evidence/aws/data-platform-aws-20261027.json) và
-[manifest validation](../evidence/aws/datahub-validation-aws-20261029.json) giữ run_id và số đo.
+Airflow và Spark chạy bằng Docker Compose trên một máy EC2 ở vùng Sydney. Dữ liệu nguồn được đọc từ S3 (file raw) và từ PostgreSQL trên EC2.
+Run_id và các số đo được lưu trong hai file: [receipt AWS](../evidence/aws/data-platform-aws-20261027.json) và
+[manifest validation](../evidence/aws/datahub-validation-aws-20261029.json).
 
 ### Connection và Variable trên AWS
 
-Connection giữ thông tin kết nối dịch vụ; Variable giữ tham số của pipeline để đổi nguồn, phạm vi ngày
-và bảng đích mà không sửa DAG. Các mục dưới đây mô tả cấu hình repo hiện hành và cách DAG sử dụng;
-chưa phải ảnh chụp cấu hình của các lần chạy AWS bên dưới.
+Airflow có hai chỗ giữ cấu hình:
+- **Connection** giữ thông tin kết nối tới một dịch vụ (host, cổng, user, mật khẩu).
+- **Variable** giữ tham số của pipeline, để đổi nguồn, phạm vi ngày hay bảng đích mà không phải sửa code DAG.
+
+Bảng dưới mô tả cấu hình hiện có trong repo và cách DAG dùng nó. Bảng này không phải ảnh chụp cấu hình
+của các lần chạy AWS bên dưới (ảnh chụp thật nằm ở phần "Bằng chứng trên AWS").
 
 | Cấu hình | Vai trò trong DP1–DP3 |
 |---|---|
@@ -28,21 +34,25 @@ chưa phải ảnh chụp cấu hình của các lần chạy AWS bên dưới.
 | Variable tên bảng `platform_dp1_*_table`, `platform_dp2_*_table`, `platform_dp3_gold_source_table`, `platform_dp3_feature_table` | Xác định bảng Bronze, Silver, Gold, SCD2 và feature cho các task ingest/build/validate tương ứng |
 | Variable `platform_warehouse_name`, `platform_lakekeeper_catalog_uri` | Operator đọc lúc thực thi, chuyển thành `WAREHOUSE_NAME` và `LAKEKEEPER_CATALOG_URI` để Spark truy cập catalog Iceberg |
 
-Trên AWS, `PLATFORM_STORAGE=s3`: operator bỏ qua Connection `platform_minio` và Variable
-`platform_minio_internal_endpoint`. Spark/Iceberg dùng credential tạm từ IAM role EC2 qua IMDSv2,
-theo [Compose AWS](../../docker-compose.aws.yml); không cần đặt access key MinIO cho đường S3 này.
-Connection `platform_kafka` phục vụ nhóm task Kafka/CDC, không phải nguồn của DP1–DP3 batch mô tả ở đây.
+Trên AWS đặt `PLATFORM_STORAGE=s3`, nên operator bỏ qua Connection `platform_minio` và Variable
+`platform_minio_internal_endpoint` (hai mục này chỉ dùng cho MinIO ở local).
+Spark và Iceberg lấy credential tạm thời từ IAM role của EC2 qua IMDSv2 (dịch vụ metadata của EC2),
+theo [Compose AWS](../../docker-compose.aws.yml). Vì vậy không cần đặt access key MinIO cho đường S3 này.
+Connection `platform_kafka` dùng cho nhóm task Kafka/CDC, không phải nguồn của các DAG batch DP1–DP3 mô tả ở đây.
 
-Airflow đọc Variable từ `AIRFLOW_VAR_<TÊN_VIẾT_HOA>` trước giá trị cùng tên trong metadata DB.
-Ví dụ, `AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS=0` của container AWS có thể ghi đè giá trị `10`
-đã lưu bằng script setup. Variable cấp qua môi trường không xuất hiện trong danh sách Admin → Variables;
-sửa giá trị trong UI cũng không thay giá trị môi trường đang được ưu tiên. Vì vậy cần đối chiếu cả
-Compose và giá trị được Airflow resolve khi kiểm tra cấu hình thực tế.
+**Thứ tự ưu tiên khi Airflow đọc Variable.** Airflow đọc biến môi trường `AIRFLOW_VAR_<TÊN_VIẾT_HOA>` trước,
+rồi mới đến giá trị cùng tên lưu trong metadata DB. Hệ quả:
+- `AIRFLOW_VAR_PLATFORM_DP1_AMAZON_WINDOW_DAYS=0` của container AWS có thể ghi đè giá trị `10` mà script setup đã lưu.
+- Variable cấp qua biến môi trường không hiện trong danh sách Admin → Variables.
+- Sửa giá trị trong UI không thay được giá trị từ biến môi trường, vì biến môi trường được ưu tiên.
 
-**Bằng chứng trên AWS (Airflow trên EC2, qua tunnel `127.0.0.1:8081`).**
+Vì vậy, khi kiểm tra cấu hình thực tế, cần xem cả file Compose lẫn giá trị mà Airflow thực sự đọc ra (resolve).
 
-Admin → Connections có `spark_default` (loại `spark`, `spark://spark-master`, cổng 7077) và `platform_postgres` (loại `postgres`, host `postgres`, cổng 5432);
-danh sách không hiện mật khẩu.
+**Bằng chứng trên AWS (Airflow trên EC2, mở qua tunnel `127.0.0.1:8081`).**
+
+Admin → Connections có hai kết nối chính, và danh sách không hiện mật khẩu:
+- `spark_default`: loại `spark`, `spark://spark-master`, cổng 7077.
+- `platform_postgres`: loại `postgres`, host `postgres`, cổng 5432.
 
 ![Airflow AWS Admin → Connections: spark_default, platform_postgres và các connection khác](../evidence/aws/airflow-admin-connections.png)
 
@@ -52,20 +62,26 @@ Admin → Variables có các biến của DP1–DP3 (`platform_dp1_*_table`, `pl
 
 ![Airflow AWS Admin → Variables (phần 2): platform_dp3_*, platform_feast_*, platform_ml_cutoff, platform_warehouse_name](../evidence/aws/airflow-admin-variables-2.png)
 
-Ví dụ biến môi trường ưu tiên hơn giá trị lưu trong DB: UI hiện `platform_feast_redis = platform-control-plane:30379` (giá trị cũ lưu từ script setup),
-nhưng container được cấp `AIRFLOW_VAR_PLATFORM_FEAST_REDIS=10.42.0.208:30379` (IP node EKS sau khi bật lại) từ `.env`/Compose, và `airflow variables get` trả giá trị này:
+Ví dụ thật cho thấy biến môi trường được ưu tiên hơn giá trị lưu trong DB:
+- UI hiện `platform_feast_redis = platform-control-plane:30379`. Đây là giá trị cũ do script setup lưu.
+- Container lại được cấp `AIRFLOW_VAR_PLATFORM_FEAST_REDIS=10.42.0.208:30379` (IP node EKS sau khi bật lại) từ `.env`/Compose.
+- Lệnh `airflow variables get` trả về giá trị thứ hai này, tức giá trị từ biến môi trường:
 
 ![Terminal EC2: airflow variables get platform_feast_redis = 10.42.0.208:30379, các container Airflow/Spark Healthy](../evidence/aws/airflow-variable-feast-redis-resolved.png)
 
-Kiểm chứng lookup Connection/Variable trong mục tham khảo là **local**.
+Phần kiểm tra việc tra cứu (lookup) Connection/Variable trong mục tham khảo bên dưới là chạy ở **local**.
 
 ### DP1: nguồn → Bronze
 
-Run `manual__2026-10-27T14:58:12+00:00`, 10/10 task success.
-Trong [DAG dp1_bronze](../../dags/dp1_bronze.py), `ingest_amazon` đọc JSONL S3;
-`ingest_walmart` đọc JDBC; `ingest_tiktok_shop`, `ingest_shopify`, `ingest_shopee` đọc export S3 của từng kênh.
-Mỗi `validate_<channel>` chạy sau ingest tương ứng, so số dòng nguồn/Bronze và kiểm payload, provenance.
-Amazon có 108.248.563 dòng ở cả hai phía, lỗi 0. Các task Spark chạy lần lượt để giới hạn RAM.
+**Kết quả:** run `manual__2026-10-27T14:58:12+00:00` thành công cả 10/10 task. Với Amazon, số dòng ở nguồn và ở Bronze đều là 108.248.563, không có dòng lỗi.
+
+Các task trong [DAG dp1_bronze](../../dags/dp1_bronze.py):
+- `ingest_amazon` đọc file JSONL trên S3.
+- `ingest_walmart` đọc từ PostgreSQL qua JDBC.
+- `ingest_tiktok_shop`, `ingest_shopify`, `ingest_shopee` đọc file export trên S3 của từng kênh.
+- Mỗi `validate_<channel>` chạy ngay sau task ingest của kênh đó. Nó so số dòng giữa nguồn và Bronze, rồi kiểm payload và các cột provenance (nguồn gốc dữ liệu).
+
+Các task Spark chạy lần lượt, không song song, để giới hạn lượng RAM dùng cùng lúc.
 
 ![Airflow DP1: danh sách 10 task màu xanh và cạnh ingest nối validate trong Graph](../evidence/aws/dp1-bronze-graph-20261027.png)
 
@@ -75,7 +91,9 @@ Amazon có 108.248.563 dòng ở cả hai phía, lỗi 0. Các task Spark chạy
 
 ### DP2: Bronze → Silver → Gold và SCD2
 
-Run `manual__2026-10-27T16:05:58+00:00`, 14/14 task success sau khi chạy lại validator Walmart.
+**Kết quả:** run `manual__2026-10-27T16:05:58+00:00` thành công cả 14/14 task, sau khi chạy lại validator của Walmart một lần.
+Gold có đúng số Order Line như Silver, và các bước kiểm tra không tìm thấy lỗi nào.
+
 [DAG dp2_silver](../../dags/dp2_silver.py) có các component sau:
 
 | Component | Vai trò |
@@ -87,13 +105,17 @@ Run `manual__2026-10-27T16:05:58+00:00`, 14/14 task success sau khi chạy lại
 | `validate_tiktok_shop_silver`, `validate_shopify_silver`, `validate_shopee_silver` | [Kiểm Silver của từng kênh nhỏ](../../spark_jobs/silver/validate_file_order_snapshots.py) |
 | `build_gold_order_lines` | [Hợp năm Silver thành fact chung](../../spark_jobs/gold/build_order_snapshot_lines.py) |
 | `build_amazon_order_dim` | [Tạo các phiên bản SCD2 từ snapshot Amazon Bronze](../../spark_jobs/gold/build_amazon_order_status_scd2.py) |
-| `validate_amazon_order_dim` | [Kiểm một bản hiện hành, khoảng hiệu lực và khóa fact → dim](../../spark_jobs/gold/validate_amazon_order_status_scd2.py) |
+| `validate_amazon_order_dim` | [Kiểm mỗi Order chỉ có một bản hiện hành, khoảng hiệu lực hợp lệ và khóa từ fact trỏ đúng sang dim](../../spark_jobs/gold/validate_amazon_order_status_scd2.py) |
 | `validate_gold_order_lines` | [So Gold với Silver từng kênh, kiểm lỗi và khóa trùng](../../spark_jobs/gold/validate_order_snapshot_lines.py) |
 
-Gold = Silver 227.200.303 Order Line, lỗi và trùng khóa 0. Amazon SCD2 có 106.109.637 bản hiện hành,
-1.062.966 bản lịch sử; các kiểm tra đều 0 lỗi. Gantt còn dấu đỏ của `validate_walmart_silver`:
-receipt ghi ổ gốc đầy, dọn ổ rồi Clear và chạy lại PASS. `01:58:43` là duration trên Summary;
-không dùng số đó làm thời gian đầu-cuối từ run_id đến validate cuối sau các lần Clear.
+Số liệu của lần chạy:
+- Gold và Silver cùng có 227.200.303 Order Line. Không có dòng lỗi, không có khóa trùng.
+- Amazon SCD2 có 106.109.637 bản hiện hành và 1.062.966 bản lịch sử. Mọi kiểm tra đều không có lỗi.
+
+Gantt vẫn còn một vạch đỏ của `validate_walmart_silver`. Theo receipt, lần đó ổ gốc của máy bị đầy;
+sau khi dọn ổ, task được Clear và chạy lại thì PASS.
+`01:58:43` là duration hiện trên trang Summary. Không nên dùng số này làm thời gian chạy từ đầu đến cuối
+(từ lúc tạo run_id đến lúc validate cuối xong), vì giữa chừng có các lần Clear.
 
 ![Summary DP2: Total success 1, Total Tasks 14 và danh sách task Silver, Gold, SCD2 màu xanh](../evidence/aws/dp2-silver-summary-20261028.png)
 
@@ -103,13 +125,14 @@ không dùng số đó làm thời gian đầu-cuối từ run_id đến validat
 
 ### DP3: Gold → feature offline
 
-Run `manual__2026-10-28T00:05:21.167441+00:00`, 2/2 task success.
-[DAG dp3_features](../../dags/dp3_features.py): `build_return_features` gọi
-[job build](../../spark_jobs/gold/build_order_snapshot_return_features.py), chỉ lấy thuộc tính biết lúc đặt Order;
-`validate_return_features` gọi [validator](../../spark_jobs/gold/validate_order_snapshot_return_features.py),
-so tập khóa với Gold, kiểm thiếu/thừa, trùng khóa và `event_timestamp = created_at`.
-Feature = Gold 227.200.303 dòng; mọi số lỗi nói trên bằng 0. Gantt cho thấy validate mất 01:03:55,
-lâu hơn build vì đối chiếu từng dòng; đây chưa phải chứng minh PIT join đầy đủ.
+**Kết quả:** run `manual__2026-10-28T00:05:21.167441+00:00` thành công cả 2/2 task. Bảng feature có đúng 227.200.303 dòng như Gold, và mọi bộ đếm lỗi đều bằng 0.
+
+Hai task trong [DAG dp3_features](../../dags/dp3_features.py):
+- `build_return_features` gọi [job build](../../spark_jobs/gold/build_order_snapshot_return_features.py). Job chỉ lấy những thuộc tính đã biết tại lúc đặt Order.
+- `validate_return_features` gọi [validator](../../spark_jobs/gold/validate_order_snapshot_return_features.py). Validator so tập khóa với Gold, kiểm có dòng nào bị thiếu hay thừa, có khóa trùng không, và kiểm `event_timestamp = created_at`.
+
+Gantt cho thấy bước validate mất 01:03:55, lâu hơn bước build, vì nó so từng dòng một.
+Kiểm tra này chưa phải là chứng minh đầy đủ cho PIT join (point-in-time join: ghép feature đúng theo mốc thời gian).
 
 ![Summary DP3: build_return_features và validate_return_features màu xanh, Total success 1](../evidence/aws/dp3-features-summary-20261028.png)
 
@@ -121,8 +144,6 @@ lâu hơn build vì đối chiếu từng dòng; đây chưa phải chứng minh
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
 
 Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng chứng cloud.
-
-## Airflow DP1 — nguồn sang Bronze, rồi Validate
 
 ## Xác minh Connection/Variable và Spark runtime
 
@@ -238,8 +259,8 @@ Không đưa mật khẩu vào ảnh hoặc tài liệu. Chụp Graph/Grid của
 
 Graph của lần chạy `manual__2026-10-13T10:03:29+00:00`: Spark nạp Amazon vào Bronze,
 Validate Amazon, nạp Walmart vào Bronze, rồi Validate Walmart. Cả bốn task đều
-`success`. Log Validate ghi Amazon **5.827.514 = 5.827.514** dòng nguồn/đích,
-Walmart **1.293.525 = 1.293.525**, và mỗi kênh **0 lỗi**.
+`success`. Log Validate ghi số dòng ở nguồn bằng số dòng ở đích: Amazon **5.827.514 = 5.827.514**,
+Walmart **1.293.525 = 1.293.525**, và kênh nào cũng **0 lỗi**.
 
 ![Airflow Grid của DP1, một lần chạy thành công](../images/airflow/dp1_bronze-grid.png)
 
@@ -434,13 +455,14 @@ phủ xem [`gold.md`](reference/gold.md).
 
 ## Nguồn bổ sung CDC của DP1
 
-`dp1_cdc` là DAG riêng cho thay đổi của bảng nguồn Walmart. Hai task
-`ingest_walmart_cdc → validate_walmart_cdc` đọc Kafka theo offset rồi ghi Iceberg
-Bronze; không thay thế đường nạp Batch của năm Channel. Hai lần chạy thành công
-đã đưa sáu sự kiện vào `lakehouse.bronze.raw_walmart_cdc`, log Validate ghi
-**Kafka 6 = Bronze 6, offset duy nhất 6, thiếu 0, lỗi 0**. Ảnh Graph/Grid và số
-đo commit → Bronze ở [`cdc.md`](reference/cdc.md).
+`dp1_cdc` là DAG riêng, nạp các thay đổi (CDC) của bảng nguồn Walmart. Task
+`ingest_walmart_cdc` đọc Kafka theo offset rồi ghi vào bảng Iceberg Bronze, sau đó
+`validate_walmart_cdc` kiểm tra. DAG này không thay thế đường nạp Batch của năm Channel.
+Hai lần chạy thành công đã đưa sáu sự kiện vào `lakehouse.bronze.raw_walmart_cdc`. Log Validate ghi
+**Kafka 6 = Bronze 6, offset duy nhất 6, thiếu 0, lỗi 0**: sáu sự kiện trong Kafka đều có mặt ở Bronze,
+mỗi sự kiện một offset riêng, không thiếu và không lỗi. Ảnh Graph/Grid và số
+đo chặng từ lúc commit ở nguồn đến lúc vào Bronze nằm ở [`cdc.md`](reference/cdc.md).
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
