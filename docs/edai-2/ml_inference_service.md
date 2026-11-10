@@ -8,14 +8,23 @@ Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận
 
 ## Trên EKS
 
-InferenceService [`return-risk`](../../infra/k8s/ml/return-risk.yaml) ở namespace `ml-serving` (model-inside-image: image
-ECR chứa model MLflow `return-risk` v1 `production`, build bằng [`deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh)). Gọi thẳng predictor qua
-port-forward, đơn APP-00042 Amazon US 1 cái 25 USD ⇒ `score` 0,1661, `abstain` false, `model_version` "1" — cùng số
-Feature API `/predict` và model-agent trả (xem [Web API](web_api_mcp.md#trên-eks)).
+InferenceService [`return-risk`](../../infra/k8s/ml/return-risk.yaml) chạy ở namespace `ml-serving`. Cách đóng gói là
+model-inside-image: file model nằm sẵn trong image, không tải lúc khởi động. Image ECR chứa model MLflow `return-risk`
+v1 (alias `production`), build bằng [`deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh).
+
+Kiểm thử: gọi thẳng predictor qua port-forward với một đơn APP-00042, Amazon US, 1 cái, 25 USD. Kết quả `score` 0,1661,
+`abstain` false, `model_version` "1". Đây cũng là số mà Feature API `/predict` và model-agent trả về
+(xem [Web API](web_api_mcp.md#trên-eks)).
 
 ![KServe trên EKS: inferenceservice return-risk READY True, pod predictor Running, POST :predict trả score 0.1661 model_version 1](../evidence/aws/kserve-pod-predict-20261031.png)
 
-**Multi-replica và autoscale.** `minReplicas: 2`, `maxReplicas: 3`, `autoscalerClass: external` (EKS không có metrics-server cho HPA CPU), KEDA scale theo `return_risk_predictions_total`, ngưỡng 5 dự đoán/giây mỗi pod. Tải `:predict` 150 giây: lên 3 pod sau ~48 s, về 2 sau ~495 s ([log](../evidence/aws/return-risk-autoscale.txt), [ảnh trong Agents](agents.md#model-agent-đủ-bộ-như-data-agent)).
+**Nhiều replica và tự scale.** Cấu hình:
+- `minReplicas: 2`, `maxReplicas: 3`.
+- `autoscalerClass: external`, vì EKS không có metrics-server để HPA scale theo CPU.
+- KEDA scale theo metric `return_risk_predictions_total`, ngưỡng 5 dự đoán/giây cho mỗi pod.
+
+Kết quả khi bắn tải vào `:predict` trong 150 giây: lên 3 pod sau khoảng 48 s, về lại 2 pod sau khoảng 495 s
+([log](../evidence/aws/return-risk-autoscale.txt), [ảnh trong Agents](agents.md#model-agent-đủ-bộ-như-data-agent)).
 
 <details>
 <summary>Tham khảo: thiết kế, hướng dẫn phát triển và ghi nhận trước triển khai AWS</summary>
@@ -25,7 +34,7 @@ Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng ch�
 <!-- Mục đích: phục vụ model return-risk bằng KServe (model-inside-image) -->
 ## Serve model return-risk — KServe
 
-KServe serve model vừa train, **model-inside-image**; có pod KServe + YAML +
+Mục tiêu: KServe phục vụ model vừa train theo kiểu **model-inside-image**. Kết quả cần có: pod KServe, file YAML và
 ảnh gọi thử thành công.
 
 ## Hợp đồng gọi
@@ -38,14 +47,17 @@ KServe serve model vừa train, **model-inside-image**; có pod KServe + YAML +
 ```
 
 Trả về `{"predictions": [{"seller_sku", "score", "abstain", "reason", "model_version"}]}`.
-`score` là tín hiệu **xếp hạng**, không phải xác suất (Q38). Người gọi chỉ gửi thuộc tính đơn:
-predictor **tự đọc** feature SKU từ Feast online (Redis), nên danh sách feature chỉ nằm một chỗ.
-SKU có < 20 line có nhãn trong 90 ngày ⇒ `abstain: true, reason: insufficient_history`.
-Điều này chỉ áp dụng khi `labeled_count_90d` có giá trị. Nếu count thiếu (`null`/NaN),
-predictor bỏ qua bước gọi LightGBM cho dòng đó và trả `score: null, abstain: true,
-reason: feature_data_unavailable`; không tự đổi count thiếu thành 0. Batch hỗn hợp chỉ
-chấm các dòng có count, giữ đúng thứ tự kết quả. Các feature nullable khác giữ cách xử lý
-hiện tại. Đây là thay đổi trong repo, chưa kiểm chứng triển khai trên AWS.
+
+- `score` là tín hiệu để **xếp hạng**, không phải xác suất (Q38).
+- Người gọi chỉ gửi thuộc tính của đơn. Predictor **tự đọc** feature SKU từ Feast online (Redis), nên danh sách
+  feature chỉ được khai ở một chỗ.
+- `abstain` nghĩa là model từ chối khẳng định. SKU có dưới 20 line có nhãn trong 90 ngày thì trả
+  `abstain: true, reason: insufficient_history`. Quy tắc này chỉ áp dụng khi `labeled_count_90d` có giá trị.
+- Nếu count bị thiếu (`null`/NaN), predictor không gọi LightGBM cho dòng đó mà trả `score: null, abstain: true,
+  reason: feature_data_unavailable`. Predictor không tự coi count thiếu là 0.
+- Trong một batch có cả dòng đủ và thiếu count, chỉ dòng có count được chấm; thứ tự kết quả giữ đúng như đầu vào.
+  Các feature nullable khác giữ cách xử lý hiện tại.
+- Cách xử lý count thiếu là thay đổi trong repo, chưa kiểm chứng khi triển khai trên AWS.
 
 | Thành phần | File |
 |---|---|
@@ -79,18 +91,19 @@ GET  /v1/models/return-risk          → {"name":"return-risk","ready":true}
 POST /v1/models/return-risk:predict  → sku-00002 0,346 · sku-00099 0,305 · sku-00003 0,254
 ```
 
-Thứ tự khớp tỷ lệ trả thật trong dữ liệu (sku-00002 ~54%, sku-00003 ~7%). Cả ba `abstain:
-insufficient_history` là **đúng**: Redis giữ ảnh chụp, còn đơn cuối đặt 2026-02-14 ⇒
-cửa sổ 90 ngày không còn line có nhãn. Model vẫn trả score để tham khảo nhưng không khẳng định.
+Thứ tự điểm khớp với tỷ lệ trả hàng thật trong dữ liệu (sku-00002 khoảng 54%, sku-00003 khoảng 7%).
+Cả ba đều `abstain: insufficient_history`, và điều đó là **đúng**: Redis giữ ảnh chụp mới nhất, còn đơn cuối cùng
+đặt ngày 2026-02-14, nên trong cửa sổ 90 ngày không còn line nào có nhãn. Model vẫn trả score để tham khảo nhưng
+không khẳng định.
 
-Lỗi gặp khi deploy: client MLflow tải artifact bằng presigned URL trỏ `minio:9000` (tên chỉ có trong
-mạng Docker) ⇒ script tải `model.lgb` thẳng qua endpoint proxy `/api/2.0/mlflow-artifacts/...`.
+Lỗi gặp khi deploy: client MLflow tải artifact bằng presigned URL trỏ tới `minio:9000`, nhưng tên này chỉ tồn tại
+trong mạng Docker. Cách sửa: script tải thẳng `model.lgb` qua endpoint proxy `/api/2.0/mlflow-artifacts/...`.
 
 ## Metric
 
-Pod khai `prometheus.io/scrape|port=8080|path=/metrics` (cờ `enable-prometheus-scraping` của KServe trỏ
-cổng 9091 của sidecar gộp metric — RawDeployment không có sidecar đó). Ngoài histogram độ trễ của KServe
-(`request_predict_seconds`…), predictor xuất metric nghiệp vụ:
+Pod tự khai annotation `prometheus.io/scrape|port=8080|path=/metrics`. Không dùng cờ `enable-prometheus-scraping`
+của KServe, vì cờ đó trỏ tới cổng 9091 của một sidecar gộp metric, mà chế độ RawDeployment không có sidecar này.
+Ngoài histogram độ trễ có sẵn của KServe (`request_predict_seconds`…), predictor xuất thêm metric nghiệp vụ:
 
 | Metric | Ý nghĩa |
 |---|---|
@@ -98,12 +111,12 @@ cổng 9091 của sidecar gộp metric — RawDeployment không có sidecar đó
 | `return_risk_errors_total{reason}` | request lỗi (vd `missing_field` → HTTP **400**, không phải 500) |
 | `return_risk_feast_lookup_seconds` | thời gian đọc feature online |
 
-Kiểm qua Prometheus (route `metrics.`): sau 5 request × 2 dòng + 1 request thiếu trường →
-`predictions{abstain="true"} = 10`, `errors{reason="missing_field"} = 1`, `feast_lookup_count = 5`.
+Kiểm qua Prometheus (route `metrics.`): gửi 5 request, mỗi request 2 dòng, và thêm 1 request thiếu trường.
+Prometheus đếm được `predictions{abstain="true"} = 10`, `errors{reason="missing_field"} = 1`, `feast_lookup_count = 5`.
 
-**Bẫy:** deploy lại cùng tag `v3` thì node kind giữ image cũ theo tag ⇒ pod chạy code cũ. Script giờ
-gắn tag `v<version>-<băm code+model>` (vd `v3-d18e5f42`), mỗi bản build một tag.
+**Bẫy:** nếu deploy lại với cùng tag `v3`, node kind vẫn giữ image cũ theo tag đó, nên pod chạy code cũ. Script
+giờ gắn tag dạng `v<version>-<băm code+model>` (ví dụ `v3-d18e5f42`), mỗi bản build có một tag riêng.
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
