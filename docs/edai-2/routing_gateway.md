@@ -2,28 +2,34 @@
 
 EDAI-2, dòng 37–43: ingress, UI, auth/rate limit, domain và HTTPS.
 
-Code / cấu hình: Cấu hình và ảnh từng route được dẫn trong kết quả EKS dưới đây.
+Code và cấu hình: file cấu hình và ảnh của từng route được dẫn trong phần kết quả EKS bên dưới.
 
-Các kết quả dưới đây thuộc các lần chạy AWS, không xác nhận dịch vụ đang bật.
+Các kết quả dưới đây là của những lần đã chạy trên AWS. Chúng không có nghĩa là dịch vụ đang bật lúc bạn đọc.
 
 ## Trên EKS (2026-10-30/31)
 
-F5 NGINX Ingress Controller (namespace `ingress`) sau một NLB AWS; cert-manager cấp cert Let's Encrypt thật (HTTP-01)
-cho mỗi host `<tên>.15-134-182-157.sslip.io`. Mọi UI đều sau gateway, route tạo bởi
-[`setup_ingress.sh`](../../scripts/setup/setup_ingress.sh), mật khẩu sinh một lần và cất ở Vault:
+Mọi request từ bên ngoài vào cụm đều đi qua một cổng vào (ingress) duy nhất:
+
+- **Cổng vào:** F5 NGINX Ingress Controller (namespace `ingress`), đứng sau một NLB (load balancer mạng) của AWS.
+- **HTTPS:** cert-manager xin chứng chỉ Let's Encrypt thật (xác minh kiểu HTTP-01) cho mỗi host dạng `<tên>.15-134-182-157.sslip.io`.
+- **Route:** mọi UI đều nằm sau cổng này. Route được tạo bởi [`setup_ingress.sh`](../../scripts/setup/setup_ingress.sh).
+- **Mật khẩu:** sinh một lần và cất trong Vault.
+
+Bảng route (cột "Host" là phần đầu tên miền):
 
 | Host | Service phía sau | Setting NGINX | Auth |
 |---|---|---|---|
 | `api.` | Feature API (Web API) | [`feature-api.yaml`](../../infra/k8s/ingress/feature-api.yaml): HTTPS, `limit-req-rate` 50r/s, burst 100 | không (API công khai, có rate limit) |
-| `agent.` | kagent UI (UI test agent) | [`agent-ui.yaml`](../../infra/k8s/ingress/agent-ui.yaml): HTTPS, basic auth, 5r/s burst 10, vượt ⇒ 429 | `seller` |
+| `agent.` | kagent UI (UI test agent) | [`agent-ui.yaml`](../../infra/k8s/ingress/agent-ui.yaml): HTTPS, basic auth, 5r/s burst 10, vượt mức thì trả 429 | `seller` |
 | `grafana.` | Grafana (metric + log Loki) | [`ops-ui.yaml`](../../infra/k8s/ingress/ops-ui.yaml) | `ops` + admin Grafana |
 | `traces.` | Jaeger UI | `ops-ui.yaml` | `ops` |
 | `metrics.` | Prometheus UI | `ops-ui.yaml` | `ops` |
 | `registry.` | agentregistry UI | `ops-ui.yaml` | `ops` |
 
-Basic auth + rate limit của UI agent, đo từ laptop không kèm mật khẩu: một request ⇒ `401` với
-`WWW-Authenticate: Basic realm="PLATFORM agent UI"`; 40 request cùng lúc ⇒ 12 × `401` (trong hạn mức, tới bước auth)
-và 28 × `429` (vượt 5r/s + burst 10, NGINX chặn trước cả bước auth).
+**Kiểm tra basic auth và rate limit của UI agent.** Gửi request từ laptop, không kèm mật khẩu:
+
+- Gửi một request: nhận `401` kèm header `WWW-Authenticate: Basic realm="PLATFORM agent UI"`, tức bị yêu cầu đăng nhập.
+- Gửi 40 request cùng lúc: 12 request nhận `401` (còn trong hạn mức nên đi tới bước kiểm tra mật khẩu), 28 request nhận `429` (vượt mức 5 request/giây cộng burst 10, nên NGINX chặn ngay, trước cả bước kiểm tra mật khẩu).
 
 ![agent. không mật khẩu: 401 Basic realm PLATFORM agent UI; 40 request song song: 12 × 401, 28 × 429](../evidence/aws/agent-ui-basic-auth-rate-limit-20261031.png)
 
@@ -48,14 +54,17 @@ Các ghi nhận local giữ nguyên môi trường, không dùng thay bằng ch�
 <!-- Mục đích: NGINX Ingress cho các service LLM Platform — HTTPS, basic auth, rate limit -->
 ## Gateway — NGINX Ingress, HTTPS, auth
 
-service đứng sau gateway (metric, log, trace, UI test agent, UI registry),
-basic auth + rate limit cho UI test agent, domain + HTTPS cho Web API kéo dữ liệu.
+Mục tiêu:
+
+- Các service (metric, log, trace, UI test agent, UI registry) đều đứng sau gateway.
+- UI test agent có basic auth và rate limit.
+- Web API kéo dữ liệu có tên miền và HTTPS.
 
 ## Chọn controller
 
-Dự án cộng đồng **ingress-nginx** đã ngừng bảo trì (bản chart cuối 4.15.1, 03/2026, không còn bản
-vá bảo mật). Dùng **F5 NGINX Ingress Controller** (mã nguồn mở, chart `nginx-ingress` 2.7.3 /
-app 5.6.3) — vẫn là "NGINX Ingress Controller" như thiết kế sử dụng, annotation dạng `nginx.org/*`.
+Dự án cộng đồng **ingress-nginx** đã ngừng bảo trì: bản chart cuối là 4.15.1 (03/2026), không còn bản
+vá bảo mật. Vì vậy dự án dùng **F5 NGINX Ingress Controller** (mã nguồn mở, chart `nginx-ingress` 2.7.3 /
+app 5.6.3). Đây vẫn là "NGINX Ingress Controller" như thiết kế yêu cầu; annotation có dạng `nginx.org/*`.
 
 ```bash
 helm --kube-context kind-platform install nginx-ingress oci://ghcr.io/nginx/charts/nginx-ingress \
@@ -73,12 +82,12 @@ scripts/setup/setup_ingress.sh
 | Grafana (metric + log qua Loki), Jaeger (trace) | `grafana.` / `traces.` | HTTPS + basic auth `ops` | cùng template |
 | Agent registry UI (agentregistry 0.4.0, không có auth riêng) | `registry.` | HTTPS + basic auth `ops` | cùng template |
 
-- **Domain**: sslip.io phân giải `api.172-25-0-2.sslip.io` → `172.25.0.2` (IP node kind) — có tên
-  miền thật mà không phải mua. Trên GKE: domain riêng trỏ IP tĩnh của load balancer.
-- **HTTPS**: cert-manager cấp cert từ CA nội bộ [`issuer.yaml`](../../infra/k8s/ingress/issuer.yaml)
-  (`platform-local-ca`; xuất ra `out/ingress/platform-local-ca.crt` để client tin). Trên GKE: ACME/Let's Encrypt.
-- **Mật khẩu UI** sinh ngẫu nhiên, cất ở Vault `secret/platform/agent-ui` (UI agent) và `secret/platform/ops-ui` (UI vận hành); secret htpasswd trong k8s tạo
-  từ đó (`setup_ingress.sh`), không nằm trong repo.
+- **Domain**: sslip.io là dịch vụ DNS tự đổi tên thành IP, ví dụ `api.172-25-0-2.sslip.io` trỏ tới `172.25.0.2` (IP node kind).
+  Nhờ vậy có tên miền thật mà không phải mua. Trên GKE thì dùng domain riêng, trỏ tới IP tĩnh của load balancer.
+- **HTTPS**: cert-manager cấp chứng chỉ từ CA nội bộ [`issuer.yaml`](../../infra/k8s/ingress/issuer.yaml)
+  (tên `platform-local-ca`; chứng chỉ CA được xuất ra `out/ingress/platform-local-ca.crt` để client cài và tin). Trên GKE thì dùng ACME/Let's Encrypt.
+- **Mật khẩu UI** được sinh ngẫu nhiên và cất ở Vault: `secret/platform/agent-ui` (UI agent) và `secret/platform/ops-ui` (UI vận hành).
+  `setup_ingress.sh` tạo secret htpasswd trong k8s từ các mật khẩu này; mật khẩu không nằm trong repo.
 
 ## Bằng chứng (từ máy host)
 
@@ -93,8 +102,12 @@ GET https://traces.172-25-0-2.sslip.io:30443/         → 401 không mật khẩ
 GET https://registry.172-25-0-2.sslip.io:30443/       → 401 không mật khẩu, 200 có mật khẩu (agent registry)
 ```
 
-Giới hạn local: redirect trả cổng 443 thay vì NodePort 30443; IP node đổi khi tạo lại cluster thì
-chạy lại `setup_ingress.sh`.
+Đọc kết quả: HTTP được chuyển hướng sang HTTPS; chứng chỉ hợp lệ; mọi UI trả `401` khi thiếu mật khẩu và truy cập được khi có mật khẩu; gửi cùng lúc 40 request có mật khẩu vào UI agent thì 11 request qua (`200`), 29 request bị rate limit chặn (`429`).
+
+Giới hạn ở local:
+
+- Lệnh chuyển hướng trả về cổng 443 thay vì NodePort 30443.
+- IP node đổi mỗi khi tạo lại cluster; khi đó phải chạy lại `setup_ingress.sh`.
 
 ## Let's Encrypt với DuckDNS (tùy chọn, mặc định tắt)
 
@@ -102,14 +115,20 @@ chạy lại `setup_ingress.sh`.
 scripts/setup/setup_letsencrypt.sh   # chưa đặt DUCKDNS_DOMAIN: hướng dẫn rồi exit 0, giữ CA nội bộ
 ```
 
-DNS-01 dùng webhook cộng đồng [ebrianne/cert-manager-webhook-duckdns](https://github.com/ebrianne/cert-manager-webhook-duckdns).
-Script nhận **thư mục chart local** qua `DUCKDNS_WEBHOOK_CHART`, kiểm pin chart **1.0.0** trước cài.
-**Chưa kiểm chứng: kiểm pin này thực sự tồn tại và schema `groupName`, `apiTokenSecretRef`
-trùng chart nguồn trước khi bật**; chart này chưa được tải và kiểm chứng trong các kết quả đính kèm repo.
-Không coi nhánh tùy chọn này là proof cert Let's Encrypt đã cấp.
+Cách xác minh tên miền ở đây là DNS-01 (chứng minh quyền sở hữu domain bằng bản ghi DNS), dùng webhook cộng đồng [ebrianne/cert-manager-webhook-duckdns](https://github.com/ebrianne/cert-manager-webhook-duckdns).
+Script nhận **thư mục chart local** qua biến `DUCKDNS_WEBHOOK_CHART`, và kiểm chart có đúng phiên bản ghim (pin) **1.0.0** trước khi cài.
 
-người vận hành chuẩn bị chart đã kiểm, cert-manager đang chạy và Vault `secret/platform/duckdns` có trường
-`token`. Token chỉ đọc qua `vault_env.sh duckdns`, nạp Secret `cert-manager/duckdns-token` qua
+**Chưa kiểm chứng:** bước kiểm pin này có thực sự tồn tại không, và schema `groupName`, `apiTokenSecretRef`
+có trùng với chart gốc không; cần kiểm trước khi bật. Chart này chưa được tải về và kiểm trong các kết quả đính kèm repo.
+Không coi nhánh tùy chọn này là bằng chứng cert Let's Encrypt đã được cấp.
+
+Trước khi chạy, người vận hành cần chuẩn bị:
+
+- chart đã kiểm;
+- cert-manager đang chạy;
+- Vault `secret/platform/duckdns` có trường `token`.
+
+Token chỉ được đọc qua `vault_env.sh duckdns` và nạp vào Secret `cert-manager/duckdns-token` qua
 stdin; không ghi vào repo. Dùng tên gốc `<tên>.duckdns.org`, không thêm `api.` phía trước.
 
 ```bash
@@ -123,12 +142,14 @@ kubectl --context kind-platform -n feature-store get certificate
 LE_ENV=production scripts/setup/setup_letsencrypt.sh
 ```
 
-Staging dùng ACME staging (cert chưa được trình duyệt tin), production dùng ACME production,
-account/TLS Secret khác nhau. Script tạo Ingress riêng `feature-api-duckdns` tới Feature API,
-giữ nguyên route sslip.io/CA nội bộ. Cần DNS A trỏ nơi client truy cập được và đường vào
-NodePort 30443 (hoặc NAT 443→30443 nếu muốn URL HTTPS không ghi cổng). DNS-01 chỉ chứng minh
-quyền domain; không tự dựng NAT, không cập nhật bản ghi A của DuckDNS.
+Staging dùng ACME staging (cert chưa được trình duyệt tin); production dùng ACME production.
+Hai môi trường dùng account và TLS Secret khác nhau.
+
+Script tạo một Ingress riêng `feature-api-duckdns` tới Feature API, và giữ nguyên route sslip.io dùng CA nội bộ.
+Để client vào được, cần bản ghi DNS A trỏ tới địa chỉ client truy cập được, và một đường vào
+NodePort 30443 (hoặc NAT chuyển cổng 443 sang 30443 nếu muốn URL HTTPS không ghi số cổng).
+DNS-01 chỉ chứng minh quyền sở hữu domain. Script không tự dựng NAT và không cập nhật bản ghi A của DuckDNS.
 
 </details>
 
-[Mục lục phần này](../README.md) · [Mục lục chung](../../README.md)
+[Mục lục phần này](README.md) · [Mục lục chung](../README.md)
