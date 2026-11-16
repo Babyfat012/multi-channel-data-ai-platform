@@ -37,7 +37,7 @@ The four tasks do the following:
 1. `export_sku_daily` calls [export SKU features](../../spark_jobs/gold/export_sku_daily_features.py).
 2. `export_training_lines` calls [export training set](../../spark_jobs/gold/export_training_lines.py), keeping only labels available before the 2026-06-30 Cutoff.
 3. `feast_apply` registers the [feature repo](../../feature_repo/feature_store.yaml). This task's log shows credentials are taken from the EC2 IAM role.
-4. `materialize_incremental` loads the new time range of `sku_return_daily` into Redis.
+4. `materialize_incremental` loads the new time range of `sku_return_daily` into Redis. (Task name at the time of this run; the DAG now runs `publish_batch` instead, see [Data path](#data-path).)
 
 ![Airflow ml_feature_materialize: export_sku_daily, export_training_lines, feast_apply, materialize_incremental all success](../evidence/aws/ml-feature-materialize-graph-20261029.png)
 
@@ -126,7 +126,8 @@ Iceberg Gold (lifecycle_fact_order_lines + lifecycle_label_segments)
    ▼
 Parquet  s3://platform/feature-store/sku_daily/          ← OFFLINE store (MinIO locally; AWS: S3)
    │ ② feast apply — writes definitions to the registry s3://platform/feature-store/registry.db
-   │ ③ feast materialize-incremental <end> — loads only snapshots in (previous run, end]
+   │ ③ publish_batch <end> — snapshot sku_daily into publications/releases/<id>/, load the FULL
+   │   snapshot (≤ end) into the inactive Redis DB (1/2), reconcile every SKU, then flip the pointer
    ▼
 Redis in the kind platform cluster, NodePort 30379     ← ONLINE store
 ```
