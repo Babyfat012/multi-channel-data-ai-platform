@@ -10,7 +10,7 @@ The Data Platform normalizes multi-Channel sales data and provides quality-check
 | Orchestration and governance | `dags/` | [Airflow](../pipeline_orchestration.md), [DataHub](../data_governance.md) |
 | Deployment | `docker-compose.yml`, `infra/aws/` | [Docker](../docker.md), [AWS](../../shared/aws_deploy.md) |
 
-[Data Platform and ML Platform architecture](../../diagrams/data-platform-system-architecture-excalidraw.png) · [Evidence](../evidence.md) · [Progress](data_platform_order_lifecycle_status.md).
+[Data Platform and ML Platform architecture](../../diagrams/system-architecture.png) · [Evidence](../evidence.md) · [Progress](data_platform_order_lifecycle_status.md).
 
 Gold data and the offline feature tables are inputs to the [ML Platform](../../ml-llm-platform/reference/ml_platform.md). The [LLM Platform](../../ml-llm-platform/reference/llm_platform.md) uses the data through tool APIs and reviewed document sources.
 
