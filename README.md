@@ -35,26 +35,19 @@ The agent retrieves features, calls the prediction model and looks up the return
 
 ## Architecture
 
-The system architecture is split into exactly two scopes: **Data Platform** and **ML + LLM Platform**.
-Each block is one deployment unit; arrows follow the direction of data and are numbered and colored per flow.
-Reference AWS deployment in ap-southeast-2: EC2 Data Platform + EKS `platform-apps`, with S3 and ECR outside the VPC.
+One diagram covers the whole platform: the data platform on EC2 (Docker Compose), the AWS managed services (S3 lakehouse, ECR), the ML + LLM platform on EKS, and CI/CD. All marketplace source data is simulated.
 
-### Data Platform
+[![System architecture](docs/diagrams/system-architecture.png)](docs/diagrams/system-architecture.png)
 
-[![Data Platform — system architecture](docs/diagrams/data-platform-system-architecture.svg)](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)
+[PNG](docs/diagrams/system-architecture.png) · [Editable Excalidraw](docs/diagrams/system-architecture.excalidraw) · [Blocks mapped to configuration and docs](docs/diagrams/README.md)
 
-All flows run at the same time. **[Open the zoomable version](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html)** (click a legend entry to show a single flow) · [Zoomable static image](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html?static) · [PNG](docs/diagrams/data-platform-system-architecture-excalidraw.png) · [Excalidraw source](docs/diagrams/data-platform-system-architecture.excalidraw)
+How to read it: each arrow goes from sender to receiver, its colour is the business flow, and its number gives the order inside that flow —
+(B) batch, (S) CDC + streaming, (M) features + training, (R) return-policy RAG, (A) prediction API call, (C) AI chat, (K) control, (O) observability, (D) CI/CD.
+A red "security" tag marks a security control. Grey dashed strips are pipelines and their steps.
 
-### ML + LLM Platform
-
-[![ML + LLM Platform — system architecture](docs/diagrams/ml-llm-platform-system-architecture.svg)](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)
-
-All flows run at the same time. **[Open the zoomable version](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html)** (click a legend entry to show a single flow) · [Zoomable static image](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html?static) · [PNG](docs/diagrams/ml-llm-platform-system-architecture-excalidraw.png) · [Excalidraw source](docs/diagrams/ml-llm-platform-system-architecture.excalidraw)
-
-Stream features run as two PyFlink jobs (online → Redis via Feast, offline → Parquet on S3). The MCP server is a separate pod, `feature-mcp`; `feature-api`, `feature-mcp` and KServe `return-risk` autoscale with KEDA.
-
-The two diagrams connect through Gold / features / training data, Return replay over Kafka, and DataHub governance.
-[Architecture blocks mapped to configuration and docs](docs/diagrams/README.md).
+The diagram shows the target operating model: pipelines run on schedules and a newly trained model is registered as a challenger that an ML engineer approves.
+In the current code the Airflow DAGs are triggered manually and the training pipeline sets the `production` alias when the model beats the baseline.
+Deployment evidence is in [AWS validation](docs/shared/aws_validation.md).
 
 ## Getting started
 

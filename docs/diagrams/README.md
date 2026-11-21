@@ -1,13 +1,12 @@
 # System architecture
 
-The project's two main diagrams:
+[System architecture (PNG)](system-architecture.png) · [Editable Excalidraw](system-architecture.excalidraw)
 
-- **Data Platform**: [Zoomable view](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html) ([static image](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/data-platform-system-architecture.html?static)) · [Animated SVG](data-platform-system-architecture.svg) · [Static PNG](data-platform-system-architecture-excalidraw.png) · [Excalidraw](data-platform-system-architecture.excalidraw).
-- **ML + LLM Platform**: [Zoomable view](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html) ([static image](https://babyfat012.github.io/multi-channel-data-ai-platform/docs/diagrams/ml-llm-platform-system-architecture.html?static)) · [Animated SVG](ml-llm-platform-system-architecture.svg) · [Static PNG](ml-llm-platform-system-architecture-excalidraw.png) · [Excalidraw](ml-llm-platform-system-architecture.excalidraw).
+One diagram covers Data + ML + LLM + CI/CD with the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams. Sources are simulated.
 
-Each white block is one deployment unit (Compose container, Deployment / Pod, Job or managed service); colored frames are functional groups. Arrows follow the direction of data, are labeled, numbered and colored per flow; dashed lines are used only for secondary flows (orchestration, CI/CD, observability, provisioning). The flow legend is at the bottom of each diagram.
+Each box is one service (Compose container, Deployment / Pod, Job or managed service); dashed coloured frames are Kubernetes namespaces or the S3 bucket, grey dashed strips are pipelines and their steps. Each arrow goes from sender to receiver; its colour is the business flow and its number, e.g. (B1), gives the order inside that flow. Dotted arrows start or control something without moving data; dashed arrows are CI/CD. The legend is in the Excalidraw file, above the drawing.
 
-The diagrams describe the architecture as configured in the repo; deployment status and evidence are in the [AWS validation status](../shared/aws_validation.md).
+The diagram shows the target operating model: pipelines run on schedules and a new model is registered as a challenger that an ML engineer approves. In the current code the DAGs are triggered manually and training sets the `production` alias when the model beats the baseline. Deployment status and evidence are in the [AWS validation status](../shared/aws_validation.md).
 
 ## Data Platform
 
@@ -46,6 +45,6 @@ The diagrams describe the architecture as configured in the repo; deployment sta
 
 Configuration sources: `infra/k8s/`, `infra/helm/feature-api/`, `ci/jenkins/`, `scripts/setup/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
 
-Limitations are noted directly below the ML + LLM diagram: the Model Agent's RAG eval is below threshold (3/5); the Coordinator gate only scores routing; stream features use replayed data; drift runs as an on-demand Job and does not retrain automatically. A/B, sandbox and DataHub are enabled by phase. See the validation status page for per-item evidence.
+Current limitations: the Model Agent's RAG eval is below threshold (3/5); the Coordinator gate only scores routing; stream features use replayed data; drift runs as an on-demand Job and does not yet start training automatically. A/B, sandbox and DataHub are enabled by phase. See the validation status page for per-item evidence.
 
-Open and edit `.excalidraw` files with excalidraw.com (File → Open) or the Excalidraw extension in VS Code; re-export the PNG when the diagram changes.
+Open and edit `.excalidraw` files with excalidraw.com (File → Open) or the Excalidraw extension in VS Code; re-export the PNG (Export image, without the title and legend) when the diagram changes.

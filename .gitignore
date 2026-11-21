@@ -53,3 +53,7 @@ notebooks/data/train_set.parquet
 
 # Upstream llm-d-benchmark clone used for benchmarking (not vendored)
 llm-d-benchmark/
+
+# Local diagram tooling (builder, renderer, logo cache) and personal study notes: not part of the repo
+scripts/diagrams/
+docs/learning/
