@@ -154,7 +154,7 @@ Data sources:
 | Agent & MCP | calls per Agent (A2A through the gateway); calls per MCP tool; total Agent / tool calls |
 | LLM: TTFT, PII | TTFT p50/p95; time per output token; guardrail by phase/action; total requests blocked for PII; block rate |
 | MCP tool | calls by tool + outcome; total errors per tool |
-| Gateway / Web API | requests/second by route; failed requests by status; Feature API requests/second + 5xx; p95 latency by handler |
+| Gateway / Web API | requests/second by route; failed requests by status; serving API (ns `serving-api`) requests/second + 5xx; p95 latency by handler (`/features`, `/chunks`, `/mcp` tell the three services apart) |
 
 ## Verification
 
