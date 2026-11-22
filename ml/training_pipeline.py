@@ -1,4 +1,7 @@
-"""Kubeflow Pipelines: load (Feast offline) → split → train → evaluate → register (MLflow).
+"""Kubeflow Pipelines: load (Feast offline) → split → train → evaluate → register challenger (MLflow).
+
+The pipeline never touches the `production` alias: a human approves the challenger in the return-risk
+Jenkins pipeline (`scripts/ml/promote_return_risk.py`), which then deploys it.
 
 Every step runs in the `platform-train` image (infra/docker/Dockerfile.train), calling functions from `ml/train_lib.py`.
 Compile + submit: `scripts/ml/run_training_pipeline.py`.
@@ -93,15 +96,20 @@ def evaluate(
     train_set: dsl.Input[dsl.Dataset],
     test_set: dsl.Input[dsl.Dataset],
     model: dsl.Input[dsl.Model],
+    tracking_uri: str,
+    model_name: str,
     metrics: dsl.Output[dsl.Metrics],
 ) -> str:
-    """PR-AUC of model vs baseline on the same test; return metrics as JSON for the register step."""
+    """PR-AUC of model vs baseline vs the current production model (champion), all on THIS test set;
+    return metrics as JSON for the register step."""
     import json
 
     import lightgbm as lgb
+    import mlflow
     import pandas as pd
+    from mlflow import MlflowClient
 
-    from ml.train_lib import FEATURES, add_order_features, baseline_scores
+    from ml.train_lib import FEATURES, add_order_features, baseline_scores, champion_scores
     from ml.train_lib import evaluate as score
 
     train, test = (
@@ -109,7 +117,18 @@ def evaluate(
         add_order_features(pd.read_parquet(test_set.path)),
     )
     booster = lgb.Booster(model_file=model.path)
-    result = score(test, booster.predict(test[FEATURES]), baseline_scores(train, test))
+    # Champion = the version holding alias `production` (none on the very first run). Load it by VERSION, not by
+    # alias, so a promotion between the lookup and the load cannot mix two versions.
+    mlflow.set_tracking_uri(tracking_uri)
+    found = MlflowClient().search_registered_models(filter_string=f"name='{model_name}'")
+    champion_version = found[0].aliases.get("production") if found else None
+    champion = None
+    if champion_version is not None:
+        champion_booster = mlflow.lightgbm.load_model(f"models:/{model_name}/{champion_version}")
+        champion = champion_scores(champion_booster, test)
+    result = score(test, booster.predict(test[FEATURES]), baseline_scores(train, test), champion)
+    if champion is not None:
+        result["champion_version"] = int(champion_version)
     for key, value in result.items():
         metrics.log_metric(key, float(value))
     print(result)
@@ -127,7 +146,7 @@ def register(
     model_name: str,
 ):
     """Log the MLflow run (params, metrics, model, data), register the version; always tag `latest`,
-    alias + tag `production` only when it beats the baseline."""
+    alias `challenger` only when it beats the baseline. `production` is set only by a human approval."""
     import hashlib
     import json
 
@@ -174,13 +193,14 @@ def register(
         if older.version != version and older.tags.get("latest") == "true":
             client.set_model_version_tag(model_name, older.version, "latest", "false")
     client.set_model_version_tag(model_name, version, "latest", "true")
-    client.set_model_version_tag(
-        model_name, version, "production", str(metrics["beats_baseline"]).lower()
-    )
+    for gate in ("beats_baseline", "beats_champion"):
+        if gate in metrics:
+            client.set_model_version_tag(model_name, version, gate, str(metrics[gate]).lower())
+    # Below the baseline ⇒ not even a candidate; an older challenger (if any) keeps the alias.
     if metrics["beats_baseline"]:
-        client.set_registered_model_alias(model_name, "production", version)
+        client.set_registered_model_alias(model_name, "challenger", version)
     print(
-        f"run {run.info.run_id} → {model_name} v{version}, production={metrics['beats_baseline']}"
+        f"run {run.info.run_id} → {model_name} v{version}, challenger={metrics['beats_baseline']}"
     )
 
 
@@ -199,6 +219,8 @@ def return_risk_training(
         train_set=parts.outputs["train_set"],
         test_set=parts.outputs["test_set"],
         model=trained.outputs["model"],
+        tracking_uri=tracking_uri,
+        model_name=model_name,
     )
     reg = register(
         model=trained.outputs["model"],

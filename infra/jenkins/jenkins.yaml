@@ -33,7 +33,7 @@ jobs:
   # Each infra/jenkins/<name>.Jenkinsfile becomes a pipeline job, pulling code from the git repo (main branch) ⇒ CI
   # runs exactly the committed code, not the working tree.
   - script: |
-      ['stream-features', 'feature-api-agents', 'coordinator', 'rag-pipeline'].each { name ->
+      ['stream-features', 'feature-api-agents', 'coordinator', 'rag-pipeline', 'return-risk'].each { name ->
         pipelineJob(name) {
           definition {
             cpsScm {

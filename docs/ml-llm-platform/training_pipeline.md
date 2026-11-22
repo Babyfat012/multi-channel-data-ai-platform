@@ -19,8 +19,11 @@ The [AWS receipt](../evidence/aws/data-platform-aws-20261027.json) (entry `ml_ek
 | `load-features` | Reads training_lines from the S3 offline store, calls Feast historical features by event time; Pod Identity `kubeflow/pipeline-runner` grants S3 access |
 | `split` | Splits train/test by Order date; outputs train_set and test_set |
 | `train` | LightGBM on train_set, outputs the model |
-| `evaluate` | Compares the model's PR-AUC with the baseline on the same test_set |
-| `register` | Writes the model, metrics, metadata and dataset to MLflow; sets production only if it beats the baseline |
+| `evaluate` | PR-AUC of the model, the baseline and the current `production` model (champion), all on the same test_set |
+| `register` | Writes the model, metrics, metadata and dataset to MLflow; alias `challenger` only if it beats the baseline |
+
+Training never sets `production`. An ML engineer approves the challenger in the Jenkins pipeline
+[`return-risk`](../../infra/jenkins/return-risk.Jenkinsfile), which moves the alias and deploys KServe (see [CI/CD](cicd.md#return-risk-model-approval)).
 
 ![KFP Runs: train-aws-3 succeeded in 0:10:42, with four failed runs below](../evidence/aws/kfp-runs-20261029.png)
 
@@ -31,7 +34,8 @@ MLflow run `mysterious-flea-253` is linked to model `return-risk` v1 and dataset
   from this rounded chart (the exact numbers are in the table below).
 - `beats_baseline=1` (the model beats the baseline), lift 2.25, prevalence (share of positive labels) 0.11, test set of 16,411 rows.
 
-The Registry gives v1 the tags `latest=true`, `production=true` and the alias `production`.
+The Registry gives v1 the tags `latest=true`, `production=true` and the alias `production` (recorded before the approval gate,
+when training still set `production` itself).
 
 ![MLflow return-risk: run mysterious-flea-253 linked to dataset train (a1f3e3b9) and model return-risk v1](../evidence/aws/mlflow-runs-20261029.png)
 
@@ -120,7 +124,7 @@ The local records keep their original environment and are not a substitute for c
 ## Training the return-risk model — Kubeflow Pipelines + MLflow
 
 The Kubeflow pipeline has these steps: load from the offline feature store, split, train, evaluate.
-Each run saves the model, data and metadata to MLflow, then automatically sets the `latest` / `production` tags.
+Each run saves the model, data and metadata to MLflow, sets the `latest` tag and, if it beats the baseline, the `challenger` alias.
 
 ## Path
 
@@ -129,9 +133,10 @@ s3://platform/feature-store/training_lines   (Spark export_training_lines.py: la
    │ ① load_features: Feast get_historical_features — PIT join sku_return_daily + sku_return_24h
    ▼ ② split: test = the last `test_days` order days (no random split)
    ▼ ③ train: LightGBM, fixed seed
-   ▼ ④ evaluate: model PR-AUC vs baseline (the SKU's 90-day return rate) on the SAME test set
+   ▼ ④ evaluate: model PR-AUC vs baseline (the SKU's 90-day return rate) vs champion (alias production) on the SAME test set
    ▼ ⑤ register: MLflow run (params, metrics, model, train/test files + sha256, dataset_version)
-        → new "return-risk" model version: tag latest=true; alias + tag production ONLY if it beats the baseline
+        → new "return-risk" model version: tag latest=true, tags beats_baseline / beats_champion;
+          alias challenger ONLY if it beats the baseline. production = human approval (Jenkins return-risk)
 ```
 
 | Component | File |
@@ -148,9 +153,14 @@ s3://platform/feature-store/training_lines   (Spark export_training_lines.py: la
 - **Only use features known at order time**: taken from `fact_order_lines` (Channel, account, quantity, amount, unit price),
   plus SKU features from Feast. Drop every column known only after ordering (delivery, cancellation, return, refund), because using them is leakage
   (leaking the answer into the training data).
-- **Production gate**: the model must beat the baseline on PR-AUC. If it loses, the version is still saved (tag `latest`) but
-  is not deployed. MLflow forbids an alias named `latest` (since `models:/return-risk/latest` already carries that meaning), so
-  `latest` is a **tag**; `production` is both an alias (used for deployment) and a tag.
+- **Challenger gate**: the model must beat the baseline on PR-AUC to get alias `challenger`. If it loses, the version is still
+  saved (tag `latest`) but nobody is asked to approve it. MLflow forbids an alias named `latest` (since
+  `models:/return-risk/latest` already carries that meaning), so `latest` is a **tag**.
+- **Champion on the same test set**: a PR-AUC from another run's test window is not comparable (more returns in the window
+  ⇒ higher PR-AUC with no better model), so `evaluate` rescores the current `production` version on this run's test set
+  with its own feature list. A changed feature set ⇒ no `pr_auc_champion` (not comparable), not a crash.
+- **Human approval**: only the `return-risk` Jenkins pipeline writes `production`. Before, training set it directly, and any
+  later code-only deploy silently shipped whatever model the alias had moved to.
 - **Disable MLflow job execution** (`MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false`): this feature runs 7 huey processes
   using about 1 GB of RAM and once got the container OOM-killed. Tracking and the registry do not need it.
 

@@ -4,7 +4,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ml.train_lib import add_order_features, baseline_scores, evaluate, temporal_split
+from ml.train_lib import (
+    add_order_features,
+    baseline_scores,
+    champion_scores,
+    evaluate,
+    temporal_split,
+)
 
 
 def frame(days=20, per_day=10):
@@ -76,3 +82,36 @@ def test_evaluate_perfect_vs_random():
     test = pd.DataFrame({"label": [1, 0, 1, 0]})
     m = evaluate(test, np.array([0.9, 0.1, 0.8, 0.2]), np.array([0.1, 0.9, 0.2, 0.8]))
     assert m["pr_auc_model"] == 1.0 and m["beats_baseline"] and m["prevalence"] == 0.5
+
+
+def test_evaluate_scores_champion_on_the_same_test_set():
+    """Champion given ⇒ its PR-AUC on THIS test set; the challenger wins only when it ranks better."""
+    test = pd.DataFrame({"label": [1, 0, 1, 0]})
+    perfect, inverted = np.array([0.9, 0.1, 0.8, 0.2]), np.array([0.1, 0.9, 0.2, 0.8])
+    m = evaluate(test, perfect, inverted, champion_scores=inverted)
+    assert m["pr_auc_champion"] < 1.0 and m["beats_champion"]
+    # Equal ranking is not "better": the champion stays unless the challenger strictly wins.
+    assert not evaluate(test, perfect, inverted, champion_scores=perfect)["beats_champion"]
+    assert "pr_auc_champion" not in evaluate(test, perfect, inverted)
+
+
+class Booster:
+    """Stand-in for lgb.Booster: records which columns it was asked to score."""
+
+    def __init__(self, names):
+        self.names, self.seen = names, None
+
+    def feature_name(self):
+        return self.names
+
+    def predict(self, frame):
+        self.seen = list(frame.columns)
+        return np.zeros(len(frame))
+
+
+def test_champion_scores_uses_its_own_features_or_none():
+    """The champion scores with the features IT was trained on; a missing one ⇒ None (not comparable)."""
+    test = pd.DataFrame({"a": [1.0], "b": [2.0], "label": [1]})
+    booster = Booster(["b", "a"])
+    assert champion_scores(booster, test) is not None and booster.seen == ["b", "a"]
+    assert champion_scores(Booster(["a", "gone"]), test) is None
