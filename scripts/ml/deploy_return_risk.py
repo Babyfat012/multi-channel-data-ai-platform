@@ -88,6 +88,7 @@ def apply(kubectl: list[str], *objects: dict) -> None:
 
 
 def main() -> None:
+    """Resolve the model in MLflow, build + push the code image, then apply the InferenceService."""
     os.chdir(ROOT)
     load_dotenv(ROOT / ".env")  # values already exported in the shell win over .env
 
