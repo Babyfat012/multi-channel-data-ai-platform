@@ -76,10 +76,10 @@ DEBEZIUM_URL=http://127.0.0.1:$CONNECT_PORT
 ENV
 "$PYTHON" tests/harness/control_order_lifecycle_cdc.py services --env-file "$WORK/harness.env"
 "$PYTHON" -m generator.generate_order_lifecycle_fixture --output "$WORK/fixture"
-"$PYTHON" scripts/setup/load_order_lifecycle_walmart.py --root "$WORK/fixture" --env-file "$WORK/harness.env"
-"$PYTHON" scripts/setup/setup_order_lifecycle_debezium.py --env-file "$WORK/harness.env"
+"$PYTHON" scripts/data/load_order_lifecycle_walmart.py --root "$WORK/fixture" --env-file "$WORK/harness.env"
+"$PYTHON" scripts/data/setup_order_lifecycle_debezium.py --env-file "$WORK/harness.env"
 "$PYTHON" tests/harness/control_order_lifecycle_cdc.py connector --env-file "$WORK/harness.env"
-"$PYTHON" scripts/run/mutate_order_lifecycle_cdc.py --env-file "$WORK/harness.env" --seed 11 --output "$WORK/order_lifecycle_cdc_expected.json"
+"$PYTHON" scripts/data/mutate_order_lifecycle_cdc.py --env-file "$WORK/harness.env" --seed 11 --output "$WORK/order_lifecycle_cdc_expected.json"
 "$PYTHON" tests/harness/control_order_lifecycle_cdc.py events --env-file "$WORK/harness.env" \
   --oracle "$WORK/order_lifecycle_cdc_expected.json" --receipt "$WORK/poll.json"
 spark_job() {

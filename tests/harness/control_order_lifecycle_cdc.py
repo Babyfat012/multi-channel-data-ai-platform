@@ -10,8 +10,8 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.setup.setup_order_lifecycle_debezium import CONNECTOR_NAME, SLOT, TOPIC
-from scripts.setup.setup_order_snapshots_debezium import load_settings
+from scripts.data.setup_order_lifecycle_debezium import CONNECTOR_NAME, SLOT, TOPIC
+from scripts.data.setup_order_snapshots_debezium import load_settings
 from spark_jobs.lib.order_lifecycle_cdc import compare_events, payload_sha256, write_json
 
 

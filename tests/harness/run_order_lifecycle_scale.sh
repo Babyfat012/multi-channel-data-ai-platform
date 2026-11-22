@@ -59,7 +59,7 @@ docker run --rm --pull never --name "$PREFIX-spark" --network "$NETWORK" \
     jars=$(find /ivy/.ivy2/jars -maxdepth 1 \( -name "*iceberg-spark-runtime-3.5_2.12-*.jar" -o -name "*postgresql-*.jar" \) -printf "%p,")
     "$SPARK_HOME/bin/spark-submit" --master "local[*]" --driver-memory "$1" \
       --conf spark.jars.ivy=/tmp/.ivy2 --jars "${jars%,}" \
-      /workspace/scripts/run/run_order_lifecycle_local.py "${@:2}"
+      /workspace/scripts/data/run_order_lifecycle_local.py "${@:2}"
   ' spark-submit "$DRIVER_MEMORY" --profile "$PROFILE" --receipt /proof/receipt.json "${ARGS[@]}" \
   2>&1 | tee "$WORK/spark.log"
 printf 'E2E v2 PASS\n'

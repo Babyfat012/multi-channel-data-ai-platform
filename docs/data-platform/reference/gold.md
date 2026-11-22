@@ -105,13 +105,13 @@ known at Order placement, so the new status version key does not enter the featu
 
 ## Separate Walmart labels
 
-`scripts/run/prepare_walmart_label_keys.py` reads the ground-truth mapping in batches,
+`scripts/data/prepare_walmart_label_keys.py` reads the ground-truth mapping in batches,
 using seed 42 from the manifest and the generator's `native_digits` function to add
 `customer_order_id`. The prepared Parquet file has **15,562,675** rows; this step must be
 rerun if the source or seed changes:
 
 ```bash
-.venv/bin/python scripts/run/prepare_walmart_label_keys.py
+.venv/bin/python scripts/data/prepare_walmart_label_keys.py
 ```
 
 DAG `dp3_walmart_labels`, run `manual__2026-10-14T04:15:18+00:00`, wrote the table

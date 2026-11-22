@@ -2,7 +2,7 @@
 
 KServe with model-inside-image.
 
-Code / config: [InferenceService](../../infra/k8s/ml/return-risk.yaml), [deployment script](../../scripts/run/deploy_return_risk.sh).
+Code / config: [InferenceService](../../infra/k8s/ml/return-risk.yaml), [deployment script](../../scripts/ml/deploy_return_risk.sh).
 
 The results below come from runs on AWS and do not confirm the service is up.
 
@@ -10,7 +10,7 @@ The results below come from runs on AWS and do not confirm the service is up.
 
 The InferenceService [`return-risk`](../../infra/k8s/ml/return-risk.yaml) runs in namespace `ml-serving`. It is packaged as
 model-inside-image: the model file is baked into the image, not downloaded at startup. The ECR image contains the MLflow model `return-risk`
-v1 (alias `production`), built with [`deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh).
+v1 (alias `production`), built with [`deploy_return_risk.sh`](../../scripts/ml/deploy_return_risk.sh).
 
 Test: call the predictor directly through port-forward with one order of APP-00042, Amazon US, 1 unit, 25 USD. Result `score` 0.1661,
 `abstain` false, `model_version` "1". This is also the number the Feature API `/predict` and model-agent return
@@ -62,9 +62,9 @@ Returns `{"predictions": [{"seller_sku", "score", "abstain", "reason", "model_ve
 | Component | File |
 |---|---|
 | Predictor | [`ml/serve.py`](../../ml/serve.py), test [`tests/unit/test_serve.py`](../../tests/unit/test_serve.py) |
-| Image (model inside the image) | [`docker/Dockerfile.serve`](../../docker/Dockerfile.serve) |
+| Image (model inside the image) | [`infra/docker/Dockerfile.serve`](../../infra/docker/Dockerfile.serve) |
 | InferenceService (RawDeployment) | [`infra/k8s/ml/return-risk.yaml`](../../infra/k8s/ml/return-risk.yaml) |
-| Deploy: MLflow alias `production` → image → kind → apply | [`scripts/run/deploy_return_risk.sh`](../../scripts/run/deploy_return_risk.sh) |
+| Deploy: MLflow alias `production` → image → kind → apply | [`scripts/ml/deploy_return_risk.sh`](../../scripts/ml/deploy_return_risk.sh) |
 
 ## Installing KServe (local)
 
@@ -77,7 +77,7 @@ $K -n cert-manager wait --for=condition=Available deploy --all --timeout=300s
 helm --kube-context kind-platform install kserve-crd oci://ghcr.io/kserve/charts/kserve-crd --version v0.21.0
 helm --kube-context kind-platform install kserve oci://ghcr.io/kserve/charts/kserve-resources --version v0.21.0 \
   -n kserve --create-namespace --set kserve.controller.deploymentMode=RawDeployment
-scripts/run/deploy_return_risk.sh
+scripts/ml/deploy_return_risk.sh
 ```
 
 ## Evidence

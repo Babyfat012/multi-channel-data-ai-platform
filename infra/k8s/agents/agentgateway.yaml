@@ -1,5 +1,5 @@
 # agentgateway: the single gateway for Agents calling the LLM (/v1/...) and MCP tools (/mcp). Policy lives in one place:
-# API key (Secret agentgateway-keys, created by scripts/setup/deploy_kind_agents.sh), rate limit, only approved tools callable.
+# API key (Secret agentgateway-keys, created by scripts/llm/deploy_kind_agents.sh), rate limit, only approved tools callable.
 apiVersion: v1
 kind: Namespace
 metadata:

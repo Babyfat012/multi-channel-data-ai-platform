@@ -298,14 +298,14 @@ curl -s -X POST http://platform-control-plane:30800/mcp/ -H 'Content-Type: appli
 ## Running in k8s with helm (kind `platform`)
 
 ```bash
-bash scripts/setup/deploy_kind_feature_api.sh [tag]
+bash scripts/ml/deploy_kind_feature_api.sh [tag]
 ```
 
 | Part | File |
 |---|---|
-| Image (built on `platform-feast:0.66.0`, 1.02 GB, mostly the shared Feast layer) | [`docker/Dockerfile.serving`](../../docker/Dockerfile.serving) |
+| Image (built on `platform-feast:0.66.0`, 1.02 GB, mostly the shared Feast layer) | [`infra/docker/Dockerfile.serving`](../../infra/docker/Dockerfile.serving) |
 | Helm chart: Deployment with 2 replicas + NodePort Service 30800 | [`infra/helm/feature-api/`](../../infra/helm/feature-api/Chart.yaml) |
-| Build → `kind load` → Secret from `.env` → `helm upgrade --install --atomic` | [`scripts/setup/deploy_kind_feature_api.sh`](../../scripts/setup/deploy_kind_feature_api.sh) |
+| Build → `kind load` → Secret from `.env` → `helm upgrade --install --atomic` | [`scripts/ml/deploy_kind_feature_api.sh`](../../scripts/ml/deploy_kind_feature_api.sh) |
 
 - **Rolling update**: `maxUnavailable: 0, maxSurge: 1`, i.e. add 1 new pod and only remove an old pod once the new pod is Ready.
   `preStop: sleep 5s` is added so kube-proxy has time to remove the old pod from the Service before that pod shuts down. Without this step, the first

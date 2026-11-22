@@ -27,7 +27,7 @@ spec:
   declarative:
     modelConfig: default-model-config
     stream: false
-    # System prompt managed in Langfuse (prompt platform-data-agent, label production); scripts/setup/sync_agent_prompts.py
+    # System prompt managed in Langfuse (prompt platform-data-agent, label production); scripts/llm/sync_agent_prompts.py
     # pushes the production version into ConfigMap agent-prompts. Initial seed: infra/k8s/agents/prompts/data-agent.txt.
     systemMessageFrom: {type: ConfigMap, name: agent-prompts, key: data-agent}
     tools:

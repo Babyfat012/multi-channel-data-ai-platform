@@ -87,7 +87,7 @@
 # Code is mounted into the container and the image holds only Java + libraries: rebuild when the Dockerfile changes, not when code changes.
 - name: Read the airflow Dockerfile checksum
   ansible.builtin.stat:
-    path: '{{ app_dir }}/docker/Dockerfile.airflow'
+    path: '{{ app_dir }}/infra/docker/Dockerfile.airflow'
   register: airflow_dockerfile
 - name: Compare the checksum with the previous build
   ansible.builtin.copy:
@@ -152,7 +152,7 @@
   retries: 60
   delay: 5
 - name: Bootstrap Lakekeeper S3 and check the warehouse config on reruns
-  ansible.builtin.command: bash scripts/setup/setup_lakekeeper_s3.sh
+  ansible.builtin.command: bash scripts/data/setup_lakekeeper_s3.sh
   args:
     chdir: '{{ app_dir }}'
   register: warehouse_setup
@@ -162,7 +162,7 @@
     set -a
     source .env
     set +a
-    bash scripts/setup/setup_airflow.sh
+    bash scripts/data/setup_airflow.sh
   args:
     executable: /bin/bash
     chdir: '{{ app_dir }}'

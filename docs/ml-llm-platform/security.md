@@ -2,7 +2,7 @@
 
 Centralized secret management with Vault.
 
-Code and configuration: [Vault setup](../../scripts/setup/setup_vault.sh); secrets are used by CI and the ingress.
+Code and configuration: [Vault setup](../../scripts/shared/setup_vault.sh); secrets are used by CI and the ingress.
 
 The results below come from runs on AWS. They do not mean the service is up while you read this.
 
@@ -15,12 +15,12 @@ How Vault runs on AWS:
 - Vault 2.1.1 runs on EC2 with Docker Compose.
 - Data is stored on the EBS volume at `/mnt/platform-data/vault`.
 - Vault only listens on loopback (port 8200, reachable only from the machine itself); operators reach the machine through SSM.
-- Vault was re-initialized after an incident that required replacing the EC2 instance ([`setup_vault.sh`](../../scripts/setup/setup_vault.sh)).
+- Vault was re-initialized after an incident that required replacing the EC2 instance ([`setup_vault.sh`](../../scripts/shared/setup_vault.sh)).
 
 | Secret | Who reads it |
 |---|---|
-| `agent-ui`, `ops-ui` | [`setup_ingress.sh`](../../scripts/setup/setup_ingress.sh) generates them once, then reads them to create the htpasswd files for NGINX basic auth |
-| `postgres` | [`vault_env.sh`](../../scripts/setup/vault_env.sh), used by jobs and CI (Flink, Jenkins); never written to the repo |
+| `agent-ui`, `ops-ui` | [`setup_ingress.sh`](../../scripts/shared/setup_ingress.sh) generates them once, then reads them to create the htpasswd files for NGINX basic auth |
+| `postgres` | [`vault_env.sh`](../../scripts/shared/vault_env.sh), used by jobs and CI (Flink, Jenkins); never written to the repo |
 | `minio` | only used in the local setup (AWS uses an IAM role, there is no MinIO) |
 
 The screenshot below only prints the status, secret names and version information, **not the secret values**. It shows:
@@ -52,15 +52,15 @@ Secret flow: `setup_vault.sh` loads secrets from `.env` and the agentgateway k8s
                                                     ▼
                                read-only CI token ──► Jenkins (only credential: vault-ci-token)
                                                     ▼
-                         scripts/setup/vault_env.sh ──► run_sku_return_feature.sh, feast-pusher, …
+                         scripts/shared/vault_env.sh ──► run_sku_return_feature.sh, feast-pusher, …
 ```
 
 | Component | File |
 |---|---|
 | Vault 2.1.1 service, server mode, file storage in volume `vault-data` | `vault` in [`docker-compose.yml`](../../docker-compose.yml) (profile `security`) |
-| One-time init + unseal + enable KV v2 + load secrets + policy + CI token | [`scripts/setup/setup_vault.sh`](../../scripts/setup/setup_vault.sh) |
-| Read secrets into environment variables | [`scripts/setup/vault_env.sh`](../../scripts/setup/vault_env.sh) |
-| Where secrets are used: Flink job submission, stream Jenkinsfile | [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh), [`stream-features.Jenkinsfile`](../../ci/jenkins/stream-features.Jenkinsfile) |
+| One-time init + unseal + enable KV v2 + load secrets + policy + CI token | [`scripts/shared/setup_vault.sh`](../../scripts/shared/setup_vault.sh) |
+| Read secrets into environment variables | [`scripts/shared/vault_env.sh`](../../scripts/shared/vault_env.sh) |
+| Where secrets are used: Flink job submission, stream Jenkinsfile | [`run_sku_return_feature.sh`](../../scripts/ml/run_sku_return_feature.sh), [`stream-features.Jenkinsfile`](../../infra/jenkins/stream-features.Jenkinsfile) |
 
 ## Decisions
 
@@ -73,7 +73,7 @@ Secret flow: `setup_vault.sh` loads secrets from `.env` and the agentgateway k8s
 
 ## After a machine restart
 
-`scripts/setup/up_ml_base.sh` rebuilds the shared base with one command: MinIO + PostgreSQL + Lakekeeper,
+`scripts/shared/up_ml_base.sh` rebuilds the shared base with one command: MinIO + PostgreSQL + Lakekeeper,
 Vault unseal, Jenkins, and reloading (materializing) Redis if Redis is empty. Reason: Redis in kind does not persist to disk; on EKS, Redis has a PVC and AOF, see [Feature Store](feature_store.md#verification-on-eks).
 This script does not start the LLM or the agents.
 
@@ -83,7 +83,7 @@ name also stops MinIO/PostgreSQL, which Feast, MLflow and Vault depend on.
 ## Evidence
 
 ```text
-eval "$(scripts/setup/vault_env.sh postgres)"  → POSTGRES_USER=platform POSTGRES_DB=sources (password 18 characters)
+eval "$(scripts/shared/vault_env.sh postgres)"  → POSTGRES_USER=platform POSTGRES_DB=sources (password 18 characters)
 POST secret/data/platform/postgres with the CI token → HTTP 403 (read-only)
 vault_env.sh agentgateway                        → AGW_AGENT_KEY 36 characters, matches the k8s Secret
 restart vault container                          → sealed=true; setup_vault.sh → sealed=false

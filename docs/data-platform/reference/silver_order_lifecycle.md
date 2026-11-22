@@ -46,7 +46,7 @@ Shared rules (code in [`spark_jobs/lib/order_lifecycle_lakehouse.py`](../../../s
 The manifest declares Walmart as another department's DB (**JDBC** boundary); the JSONL file is only
 a bootstrap for loading the DB. Therefore:
 
-1. [`scripts/setup/load_order_lifecycle_walmart.py`](../../../scripts/setup/load_order_lifecycle_walmart.py) loads the bootstrap
+1. [`scripts/data/load_order_lifecycle_walmart.py`](../../../scripts/data/load_order_lifecycle_walmart.py) loads the bootstrap
    file into the new table `walmart_lifecycle.orders` (key `dataset_version` +
    `purchase_order_id`). `raw_payload` is **TEXT**, not JSONB, so the DB does not reorder
    the keys of the original string. Reloading the same `dataset_version` deletes then inserts within
@@ -117,10 +117,10 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile catalog up -d postgres minio lakekeeper
 export FIXTURE=out/source-v2-b-final-20261018-051930425055/default
-env -u POSTGRES_PASSWORD .venv/bin/python scripts/setup/load_order_lifecycle_walmart.py --root $FIXTURE
-scripts/run/run_order_lifecycle_spark.sh /opt/spark_jobs/bronze/ingest_order_lifecycle.py --root /data/order_lifecycle \
+env -u POSTGRES_PASSWORD .venv/bin/python scripts/data/load_order_lifecycle_walmart.py --root $FIXTURE
+scripts/data/run_order_lifecycle_spark.sh /opt/spark_jobs/bronze/ingest_order_lifecycle.py --root /data/order_lifecycle \
   --run-id bronze-v2-20261018-jdbc --walmart-jdbc walmart_lifecycle.orders
-scripts/run/run_order_lifecycle_spark.sh /opt/spark_jobs/silver/build_order_lifecycle.py --run-id silver-v2-20261018-jdbc \
+scripts/data/run_order_lifecycle_spark.sh /opt/spark_jobs/silver/build_order_lifecycle.py --run-id silver-v2-20261018-jdbc \
   --receipt /receipts/silver-v2-receipt-20261018.json
 ```
 

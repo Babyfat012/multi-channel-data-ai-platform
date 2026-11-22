@@ -7,8 +7,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 out=${1:-out/docker-compare}
 mkdir -p "$out"
-docker build -q -t platform-generator:naive -f docker/Dockerfile.naive . >/dev/null
-docker build -q -t platform-generator:opt -f Dockerfile . >/dev/null
+docker build -q -t platform-generator:naive -f infra/docker/Dockerfile.naive . >/dev/null
+docker build -q -t platform-generator:opt -f infra/docker/Dockerfile . >/dev/null
 # The optimized image has no pip/uv in the final stage; read dist-info metadata with importlib.metadata of
 # the venv's own Python. Skip the project and installer tools (pip/setuptools/wheel) since they belong to the base image.
 freeze='import importlib.metadata as m

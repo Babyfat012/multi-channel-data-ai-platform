@@ -6,7 +6,7 @@ fixed when the job starts (`scan.startup.mode=earliest-offset`,
 output. If the Stream is replayed into the same topic, a new run also reads the earlier
 replays; counts must be reconciled against the actual offsets before drawing conclusions.
 
-`docker/Dockerfile.flink` uses Flink 1.20.3 and the Kafka SQL connector
+`infra/docker/Dockerfile.flink` uses Flink 1.20.3 and the Kafka SQL connector
 3.4.0-1.20. The two Compose services are the JobManager (UI on port 8082) and the
 TaskManager. Configured following [Flink Docker](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/resource-providers/standalone/docker/)
 and the [Kafka Table connector](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/table/kafka/).

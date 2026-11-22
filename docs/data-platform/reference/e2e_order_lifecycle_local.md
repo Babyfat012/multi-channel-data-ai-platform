@@ -2,7 +2,7 @@
 
 > **Pipeline v2 (order lifecycle) — designed and tested locally; not the pipeline deployed on AWS.** The pipeline running on AWS is v1 (DP1 → DP4 + ML); see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-The runner `scripts/run/run_order_lifecycle_local.py` checks the whole chain scale source → Bronze → Silver → Gold →
+The runner `scripts/data/run_order_lifecycle_local.py` checks the whole chain scale source → Bronze → Silver → Gold →
 PostgreSQL → EXPLAIN before/after indexing. One Spark session `local[*]`, an Iceberg Hadoop
 catalog in `/tmp`, no Lakekeeper/MinIO needed. Truth is never read as input.
 This is a runnability check before GCP, not GCP evidence and not 100 GB.
@@ -32,7 +32,7 @@ To run directly in a runtime that already has Spark/JARs, set `WAREHOUSE_TEST_DS
 
 ```bash
 spark-submit --master 'local[*]' --driver-memory 6g --jars /cache/iceberg-runtime.jar,/cache/postgresql.jar \
-  scripts/run/run_order_lifecycle_local.py --profile small --receipt out/e2e-manual/receipt.json
+  scripts/data/run_order_lifecycle_local.py --profile small --receipt out/e2e-manual/receipt.json
 .venv/bin/pytest -q
 ```
 

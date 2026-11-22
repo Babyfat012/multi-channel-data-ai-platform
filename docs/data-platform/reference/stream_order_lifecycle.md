@@ -135,7 +135,7 @@ not yet benchmarked on the maximum scale set of 20 million records.
 ## Kafka/Flink harness — run by the operator
 
 Prepare the images `apache/kafka:3.9.1` and `platform-flink:1.20.3-kafka3.4.0` (built from
-`docker/Dockerfile.flink`) first. The harness uses `--pull never`, does not change Compose,
+`infra/docker/Dockerfile.flink`) first. The harness uses `--pull never`, does not change Compose,
 does not touch existing services, and creates its own network/containers by PID. The KRaft broker
 has three partitions per topic; the host port is a random localhost port. Scale source
 200 orders/day × 10 days, seed 7; plus four single-partition `v2.late.*` topics.
@@ -159,11 +159,11 @@ recovery; it does not prove JobManager HA or recovery from a disk-loss disaster.
 To run individual jobs in an environment you prepared yourself:
 
 ```bash
-.venv/bin/python scripts/run/render_order_lifecycle_stream.py --output /tmp/v2-sql-new \
+.venv/bin/python scripts/data/render_order_lifecycle_stream.py --output /tmp/v2-sql-new \
   --epoch 1 --manifest /tmp/stream_manifest.json \
   --bootstrap kafka:9092 --delay-seconds 3600 --checkpoint-ms 1000
 # Proof: the producer emits --late-topics; compute the oracle from the *-late.json manifest, then:
-.venv/bin/python scripts/run/render_order_lifecycle_stream.py --output /tmp/v2-proof-sql-new \
+.venv/bin/python scripts/data/render_order_lifecycle_stream.py --output /tmp/v2-proof-sql-new \
   --epoch 1 --manifest /tmp/stream_manifest-late.json --late-topics
 # Mount the SQL, output and checkpoints at the matching paths, then run sql-client.sh -f.
 .venv/bin/python scripts/evidence/compare_order_lifecycle_stream.py --flink-output out/flink/v2 \

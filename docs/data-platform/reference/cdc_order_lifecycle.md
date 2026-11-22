@@ -16,7 +16,7 @@ it is not the `sim-native-v2` source CDC described in this document.
 | Contract | `sim-native-v2/walmart/1` |
 | DAG | `dp_order_lifecycle_cdc`, paused, manual trigger |
 
-The real DDL in `scripts/setup/load_order_lifecycle_walmart.py` has **PRIMARY KEY
+The real DDL in `scripts/data/load_order_lifecycle_walmart.py` has **PRIMARY KEY
 (dataset_version, purchase_order_id)**. Setup checks for exactly this key and then selects
 `REPLICA IDENTITY DEFAULT`: UPDATE/DELETE keep the old key, so FULL is not needed as it was for
 v1, which has no PK. `raw_payload` is TEXT. With DEFAULT, the before image of an update/delete
@@ -29,7 +29,7 @@ deletes/inserts the dataset, which creates additional real CDC events, and the v
 
 ## Oracle and reconciliation
 
-`scripts/run/mutate_order_lifecycle_cdc.py` checks that the connector and task are RUNNING and the slot is active, picks a sample
+`scripts/data/mutate_order_lifecycle_cdc.py` checks that the connector and task are RUNNING and the slot is active, picks a sample
 in a deterministic order and copies it to a probe key derived from the seed. Each operation is a
 separately committed transaction: insert (Created), update raw_payload (Shipped), delete.
 Bootstrap orders are not modified. C/u are checked with `Registry` and `validate_record` from
@@ -89,16 +89,16 @@ Configure `.env` as for the existing loader; setup/mutate also accept
 `127.0.0.1` to call the DB/Kafka/REST, and the connector reaches PostgreSQL through the DNS name `postgres`.
 
 ```bash
-.venv/bin/python scripts/setup/load_order_lifecycle_walmart.py --root <fixture> --env-file <env>
-.venv/bin/python scripts/setup/setup_order_lifecycle_debezium.py --env-file <env>
+.venv/bin/python scripts/data/load_order_lifecycle_walmart.py --root <fixture> --env-file <env>
+.venv/bin/python scripts/data/setup_order_lifecycle_debezium.py --env-file <env>
 # Wait for the connector/task to be RUNNING and the slot to be active (the harness polls this itself).
-.venv/bin/python scripts/run/mutate_order_lifecycle_cdc.py --env-file <env> --seed 11 \
+.venv/bin/python scripts/data/mutate_order_lifecycle_cdc.py --env-file <env> --seed 11 \
   --output <control-dir>/order_lifecycle_cdc_expected.json
 # Wait until Kafka has all three events and pin the range afterwards, or use the harness below.
 ```
 
 The DAG only runs `ingest_cdc` → `validate_cdc` and never mutates the source itself.
-`scripts/setup/setup_airflow.sh` adds the Variables `platform_order_lifecycle_cdc_control_dir`,
+`scripts/data/setup_airflow.sh` adds the Variables `platform_order_lifecycle_cdc_control_dir`,
 `platform_order_lifecycle_cdc_oracle` and `platform_order_lifecycle_cdc_spark_packages`. RAM/cores reuse
 `platform_order_lifecycle_driver_memory`, `platform_order_lifecycle_executor_memory` and `platform_order_lifecycle_executor_cores`.
 The subclass adds all three to `template_fields`. The new script/helper and the

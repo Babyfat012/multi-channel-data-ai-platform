@@ -3,7 +3,7 @@
 
 > **Pipeline v2 (order lifecycle) — designed and tested locally; not the pipeline deployed on AWS.** The pipeline running on AWS is v1 (DP1 → DP4 + ML); see [Data Platform evidence](../evidence.md). Mentions of GCP below are an old plan that was never run; the current cloud target is [AWS](../../shared/aws_deploy.md).
 
-[`scripts/run/publish_order_lifecycle_datahub.py`](../../../scripts/run/publish_order_lifecycle_datahub.py) builds JSON
+[`scripts/data/publish_order_lifecycle_datahub.py`](../../../scripts/data/publish_order_lifecycle_datahub.py) builds JSON
 MetadataChangeProposals (MCPs) with the standard library. By default it only prints offline;
 `--dry-run` also prints **every MCP that would be sent**, including schema, lineage and FAIL results.
 Only `--publish` loads the DataHub SDK and sends the MCPs to GMS. The v1 script is unchanged.
@@ -104,12 +104,12 @@ re-raise the error. A failure receipt does not confirm the Bronze schema or nume
 Dry-run with the Silver receipt already in the repo; no GMS/SDK needed:
 
 ```bash
-.venv/bin/python scripts/run/publish_order_lifecycle_datahub.py --dry-run \
+.venv/bin/python scripts/data/publish_order_lifecycle_datahub.py --dry-run \
   --receipt build_silver=docs/evidence/silver-v2-receipt-20261018.json \
   --source-root /data/order_lifecycle --walmart-jdbc walmart_lifecycle.orders > /tmp/datahub-v2-mcps.json
 
 # After the operator has run the DAG and copied the receipts to the host:
-.venv/bin/python scripts/run/publish_order_lifecycle_datahub.py --dry-run \
+.venv/bin/python scripts/data/publish_order_lifecycle_datahub.py --dry-run \
   --receipt-dir out/receipts-v2-run/REPLACE_RUN_ID --source-root /data/order_lifecycle \
   --walmart-jdbc walmart_lifecycle.orders > /tmp/datahub-v2-run-mcps.json
 ```
@@ -118,14 +118,14 @@ The operator checks the JSON and then publishes for real with the existing SDK e
 `DATAHUB_GMS_TOKEN`, never written into the args):
 
 ```bash
-"$HOME/.local/share/uv/tools/acryl-datahub/bin/python" scripts/run/publish_order_lifecycle_datahub.py \
+"$HOME/.local/share/uv/tools/acryl-datahub/bin/python" scripts/data/publish_order_lifecycle_datahub.py \
   --publish --server http://127.0.0.1:8089 --receipt-dir out/receipts-v2-run/REPLACE_RUN_ID \
   --source-root /data/order_lifecycle --walmart-jdbc walmart_lifecycle.orders
 ```
 
 Use the same arguments for dry-run/publish and keep the receipts unchanged so the MCPs correspond.
 The real publish command **has not been run**. **Not measured yet — measure on GCP:**
-`bash scripts/run/run_order_lifecycle_live.sh --phase datahub` after the airflow phase
+`bash scripts/data/run_order_lifecycle_live.sh --phase datahub` after the airflow phase
 succeeds on a host prepared following the runbook below and the GCP checklist.
 There is no confirmation yet of MCP ingestion, UI/Lineage/Quality or the actual assertion count;
 these steps have no runtime receipt attached to the repo.
@@ -137,7 +137,7 @@ MCP ingestion/display on GMS is not proven yet. See the operational limits in [A
 
 ## Running for real
 
-The operator runs [`scripts/run/run_order_lifecycle_live.sh`](../../../scripts/run/run_order_lifecycle_live.sh) on a host that has
+The operator runs [`scripts/data/run_order_lifecycle_live.sh`](../../../scripts/data/run_order_lifecycle_live.sh) on a host that has
 `.env`, Docker Compose, the Spark/Airflow images, DataHub quickstart and the SDK prepared
 as for [DataHub v1](../data_governance.md#how-to-reproduce-on-a-machine-with-datahub-quickstart-set-up).
 The Python `.venv/bin/python` needs the generator and `aiohttp`; capture needs `google-chrome`.
@@ -146,12 +146,12 @@ to load JDBC; dry-run/publish both use the source `/data/order_lifecycle`, like 
 
 ```bash
 # Optionally export PLATFORM_ORDER_LIFECYCLE_DIR=/path/to/fixture before all four commands.
-bash scripts/run/run_order_lifecycle_live.sh --phase source
-bash scripts/run/run_order_lifecycle_live.sh --phase airflow
-bash scripts/run/run_order_lifecycle_live.sh --phase datahub
-bash scripts/run/run_order_lifecycle_live.sh --phase capture
+bash scripts/data/run_order_lifecycle_live.sh --phase source
+bash scripts/data/run_order_lifecycle_live.sh --phase airflow
+bash scripts/data/run_order_lifecycle_live.sh --phase datahub
+bash scripts/data/run_order_lifecycle_live.sh --phase capture
 # Or run the four phases in order:
-# bash scripts/run/run_order_lifecycle_live.sh --phase all
+# bash scripts/data/run_order_lifecycle_live.sh --phase all
 ```
 
 The source phase keeps the fixture if a manifest already exists; it refuses to overwrite a non-empty directory
@@ -188,9 +188,9 @@ waiting for the dataset, job Lineage and Passing assertions (the number of check
 | `lakehouse.silver.lifecycle_stg_line_lifecycle` | `images/datahub/v2/dp-order-lifecycle-silver-lineage.png` | `images/datahub/v2/dp-order-lifecycle-silver-validation.png` |
 
 Offline route check: `.venv/bin/python scripts/evidence/capture_order_lifecycle_datahub_evidence.py --print-urls`.
-**Not measured yet — measure on GCP:** `bash scripts/run/run_order_lifecycle_live.sh --phase capture`
+**Not measured yet — measure on GCP:** `bash scripts/data/run_order_lifecycle_live.sh --phase capture`
 after the source → airflow → datahub phases above; or run everything with
-`bash scripts/run/run_order_lifecycle_live.sh --phase all` on a prepared host.
+`bash scripts/data/run_order_lifecycle_live.sh --phase all` on a prepared host.
 There is no run_id, timing or real Lineage/Quality screenshot yet; the image paths in the table
 are the expected outputs. No fake screenshots are created before the real UI has been run.
 

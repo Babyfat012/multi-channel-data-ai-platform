@@ -8,7 +8,7 @@ The LLM Platform provides conversation for the Seller through an LLM, RAG and ag
 | Documents, embeddings and retrieval | `rag/`, `dags/ml_rag_ingest.py` | [RAG](../rag_pipeline.md) |
 | Gateway and tool access | `infra/k8s/agents/`, `serving/` | [Gateway](../routing_gateway.md), [API](../web_api_mcp.md) |
 | Evaluation and A/B | `ml/`, `infra/k8s/agents/` | [Eval](../agent_evaluation.md), [A/B](../ab_testing.md) |
-| Shared operations | `infra/k8s/observability/`, `ci/jenkins/` | [Observability](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
+| Shared operations | `infra/k8s/observability/`, `infra/jenkins/` | [Observability](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
 
 [ML + LLM Platform architecture](../../diagrams/system-architecture.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).
 

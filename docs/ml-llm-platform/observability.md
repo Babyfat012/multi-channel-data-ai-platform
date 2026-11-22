@@ -116,7 +116,7 @@ The local records keep their original environment and are not a substitute for c
 <!-- Purpose: observability stack (metrics, logs, traces, LLM/agent telemetry) in kind, -->
 ## Observability — ML Platform / LLM Platform
 
-Deployed with `bash scripts/setup/deploy_kind_observability.sh` (namespace `observability`). Viewed over HTTPS + basic auth
+Deployed with `bash scripts/shared/deploy_kind_observability.sh` (namespace `observability`). Viewed over HTTPS + basic auth
 (the ingress from [`docs/ml-llm-platform/cicd.md`](cicd.md)) at the hosts `grafana.`, `traces.`, `metrics.` on `172-25-0-2.sslip.io:30443`.
 
 | Component | Chart / version | Role | File |

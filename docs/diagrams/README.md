@@ -43,7 +43,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | `ate-system` / `kagent` | Substrate controllers / SandboxAgent + WorkerPool | Sandbox / gVisor / shared warm worker / golden snapshot |
 | EC2 · Jenkins / Vault + IaC | CI pipelines, secret KV, Terraform / Ansible | Test / build / deploy / eval; coverage / EP-BVA / mutation / property-based / Locust; security |
 
-Configuration sources: `infra/k8s/`, `infra/helm/feature-api/`, `ci/jenkins/`, `scripts/setup/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
+Configuration sources: `infra/k8s/`, `infra/helm/feature-api/`, `infra/jenkins/`, `scripts/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
 
 Current limitations: the Model Agent's RAG eval is below threshold (3/5); the Coordinator gate only scores routing; stream features use replayed data; drift runs as an on-demand Job and does not yet start training automatically. A/B, sandbox and DataHub are enabled by phase. See the validation status page for per-item evidence.
 

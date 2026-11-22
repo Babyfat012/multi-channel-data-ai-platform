@@ -57,3 +57,6 @@ llm-d-benchmark/
 # Local diagram tooling (builder, renderer, logo cache) and personal study notes: not part of the repo
 scripts/diagrams/
 docs/learning/
+
+# Per-service component diagrams: local until the user decides to publish them
+docs/diagrams/components/

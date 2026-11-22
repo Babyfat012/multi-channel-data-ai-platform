@@ -8,8 +8,8 @@ Amazon/Walmart in `/data/raw`. The `out/` directory is not committed; regenerate
 
 ```bash
 .venv/bin/python -m generator batch --config configs/small.yaml --output ./out/channels-small
-env -u POSTGRES_PASSWORD bash scripts/setup/setup_dp1_file_channels.sh
-env -u POSTGRES_PASSWORD bash scripts/setup/setup_dp2_file_channels.sh
+env -u POSTGRES_PASSWORD bash scripts/data/setup_dp1_file_channels.sh
+env -u POSTGRES_PASSWORD bash scripts/data/setup_dp2_file_channels.sh
 ```
 
 | Channel | Order key | Order Line key | Source time | Source amount |

@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from generator.generate_order_lifecycle_fixture import generate_fixture
-from scripts.run.mutate_order_lifecycle_cdc import mutation_plan
-from scripts.setup.load_order_lifecycle_walmart import bootstrap_rows
+from scripts.data.load_order_lifecycle_walmart import bootstrap_rows
+from scripts.data.mutate_order_lifecycle_cdc import mutation_plan
 from spark_jobs.lib.data_contracts.registry import Registry
 from spark_jobs.lib.data_contracts.schema import validate_record
 from spark_jobs.lib.order_lifecycle_cdc import compare_events, payload_sha256
@@ -163,7 +163,7 @@ def test_dag_ast_and_setup():
         and n.func.id == "OrderLifecycleCdcSparkSubmitOperator"
     ]
     assert len(calls) == 2
-    setup = (ROOT / "scripts/setup/setup_airflow.sh").read_text()
+    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
     for variable in (
         "platform_order_lifecycle_driver_memory",
         "platform_order_lifecycle_executor_memory",
@@ -183,8 +183,8 @@ def test_dag_ast_and_setup():
 def test_all_new_python_functions_have_docstrings():
     """All new functions have docstrings; parsing needs no Airflow/Spark."""
     files = [
-        "scripts/setup/setup_order_lifecycle_debezium.py",
-        "scripts/run/mutate_order_lifecycle_cdc.py",
+        "scripts/data/setup_order_lifecycle_debezium.py",
+        "scripts/data/mutate_order_lifecycle_cdc.py",
         "spark_jobs/lib/order_lifecycle_cdc.py",
         "spark_jobs/cdc/ingest_order_lifecycle_changes.py",
         "spark_jobs/cdc/validate_order_lifecycle_changes.py",

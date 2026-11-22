@@ -1,6 +1,6 @@
 # Langfuse v2 (prompt management): Agent system prompts live here, versioned + `production` label.
 # v2 only needs Postgres (uses the `langfuse` database on pgvector, ns rag); v3+ also needs ClickHouse/Redis/S3.
-# Secret langfuse-env (DATABASE_URL, keys, initial account) is created by scripts/setup/deploy_kind_langfuse.sh.
+# Secret langfuse-env (DATABASE_URL, keys, initial account) is created by scripts/llm/deploy_kind_langfuse.sh.
 apiVersion: v1
 kind: Namespace
 metadata:

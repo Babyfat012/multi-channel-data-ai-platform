@@ -212,7 +212,7 @@ def test_datahub_is_prepared_without_starting_and_all_ports_are_loopback():
     secret = next(t for t in tasks if t.get("no_log"))
     assert secret["ansible.builtin.command"]["creates"].endswith(".local-secrets.env")
     services = yaml.load(
-        (ROOT / "docker/datahub-compose.override.yml").read_text(), Loader=ComposeLoader
+        (ROOT / "infra/docker/datahub-compose.override.yml").read_text(), Loader=ComposeLoader
     )["services"]
     for name in (
         "datahub-gms-quickstart",
@@ -315,7 +315,7 @@ def test_cdc_on_aws_enables_debezium_and_loads_dp1_cdc_variables():
     assert "cdc" in services["kafka"]["profiles"]
     assert services["debezium-connect"]["profiles"] == ["cdc"]
     assert services["debezium-connect"]["scale"] == 1
-    setup = (ROOT / "scripts/setup/setup_airflow.sh").read_text()
+    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
     s3_branch = setup[setup.index("= s3 ]; then") :]
     assert "dp1_cdc" in s3_branch.split("done")[0]
     assert "spark-sql-kafka-0-10" in s3_branch and "PLATFORM_SPARK_PACKAGES_AWS" in s3_branch
@@ -393,7 +393,7 @@ def test_aws_maintenance_targets_a_configured_real_table():
 
     from spark_jobs.lib.maintenance_policy import validated_config
 
-    setup = (ROOT / "scripts/setup/setup_airflow.sh").read_text()
+    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
     s3_branch = setup[setup.index("= s3 ]; then") :].split("\nfi\n")[0]
     assert "< configs/iceberg_maintenance_aws.json" in s3_branch
     tables = json.loads(re.search(r"platform_maintenance_tables '(\[.*?\])'", s3_branch).group(1))
@@ -453,7 +453,7 @@ def test_mlflow_on_aws_uses_s3_iam_and_private_listener():
 
 def test_kfp_on_eks_reads_s3_by_pod_identity_without_minio():
     """The train image does not hardcode MinIO; pipeline-runner only reads feature-store/*; the aws variant drops the Secret."""
-    dockerfile = (ROOT / "docker/Dockerfile.train").read_text()
+    dockerfile = (ROOT / "infra/docker/Dockerfile.train").read_text()
     assert "minio:9000" not in dockerfile and "s3://platform/" not in dockerfile
     identity = (ROOT / "infra/aws/kubernetes/identity.tf").read_text()
     assert (
@@ -467,7 +467,7 @@ def test_kfp_on_eks_reads_s3_by_pod_identity_without_minio():
     assert '"s3:GetObject"' in reader and "Put" not in reader and "Delete" not in reader
     pipeline = (ROOT / "ml/training_pipeline.py").read_text()
     assert 'SECRET = "platform-minio" if TARGET == "kind" else None' in pipeline
-    script = (ROOT / "scripts/run/run_training_pipeline.sh").read_text()
+    script = (ROOT / "scripts/ml/run_training_pipeline.sh").read_text()
     assert 'if [[ "$PIPELINE_TARGET" == aws ]]' in script and "REGISTRY must be ECR" in script
 
 
@@ -489,7 +489,7 @@ def test_kserve_on_eks_reads_registry_by_pod_identity():
     )
     block = identity[identity.index('resource "aws_iam_role_policy" "model_reader"') :]
     assert "data.aws_iam_policy_document.feature_reader.json" in block.split("}")[0]
-    script = (ROOT / "scripts/run/deploy_return_risk.sh").read_text()
+    script = (ROOT / "scripts/ml/deploy_return_risk.sh").read_text()
     s3 = script[script.index("== s3 ]]; then") : script.index("\nelse\n")]
     assert "platform-minio" not in s3 and "REGISTRY must be ECR" in s3
 
@@ -553,7 +553,7 @@ def test_wave2_vault_ingress_and_letsencrypt_for_eks():
     assert issuer["spec"]["acme"]["solvers"] == [
         {"http01": {"ingress": {"ingressClassName": "nginx"}}}
     ]
-    script = (ROOT / "scripts/setup/setup_ingress.sh").read_text()
+    script = (ROOT / "scripts/shared/setup_ingress.sh").read_text()
     assert script.count('-e "s/cluster-issuer: platform-local-ca/cluster-issuer: $issuer/"') == 2
     assert ': "${LE_EMAIL:?' in script and "ROOT=${VAULT_TOKEN:-" in script
 
@@ -581,7 +581,7 @@ def test_wave2_prometheus_pulls_ec2_exporters_with_alerts():
     assert 'mountpoint="/mnt/platform-data"' in rules["EC2DataDiskAlmostFull"]
     assert "> 0.8" in rules["EC2DataDiskAlmostFull"]
     assert "confirmed_flush_lsn > 1073741824" in rules["PostgresSlotWalRetained"]
-    script = (ROOT / "scripts/setup/deploy_kind_observability.sh").read_text()
+    script = (ROOT / "scripts/shared/deploy_kind_observability.sh").read_text()
     assert (
         '[[ "${KCTX:-kind-platform}" == kind-* ]] || prom_aws=(-f $V/prometheus-values-aws.yaml)'
         in script
@@ -596,7 +596,7 @@ def test_letsencrypt_first_issue_opens_then_closes_each_route():
         assert (
             doc["metadata"]["annotations"]["acme.cert-manager.io/http01-edit-in-place"] == "true"
         ), f
-    script = (ROOT / "scripts/setup/setup_ingress.sh").read_text()
+    script = (ROOT / "scripts/shared/setup_ingress.sh").read_text()
     fn = script[
         script.index("apply_ing() {") : script.index("\n}\n", script.index("apply_ing() {"))
     ]
@@ -660,7 +660,7 @@ def test_wave4_flink_a_reads_replayed_topic_without_postgres_lookup():
     assert "jdbc" not in sql.lower() and "@@PG_" not in sql
     pusher = (ROOT / "feature_repo/push_stream_features.py").read_text()
     assert '"FEAST_PUSH_TOPIC", "ml.sku_return_24h"' in pusher
-    run = (ROOT / "scripts/run/run_sku_return_feature.sh").read_text()
+    run = (ROOT / "scripts/ml/run_sku_return_feature.sh").read_text()
     assert "sql_file=${FEATURE_SQL:-flink_jobs/ml/sku_return_feature.sql}" in run
     assert "if grep -q '@@PG_' \"$sql_file\"; then" in run
     replay_sql = (ROOT / "sql/ml/return_events_replay.sql").read_text()

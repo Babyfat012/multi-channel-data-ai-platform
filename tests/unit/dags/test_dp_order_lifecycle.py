@@ -93,7 +93,7 @@ def test_dag_contract_and_real_job_flags():
 
     assert flatten(chain) == ORDER
     used = set(re.findall(r"var\.value\.(platform_\w+)", source))
-    setup = (ROOT / "scripts/setup/setup_airflow.sh").read_text()
+    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
     declared = set(re.findall(r"variables set (platform_\w+)", setup))
     assert used <= declared
     assert {
@@ -107,7 +107,7 @@ def test_dag_contract_and_real_job_flags():
 def test_v2_resource_variables_and_templates():
     """Every v2 Spark task takes its three resources from Variables, including the inherited Bronze."""
     resources = {"driver_memory": "3g", "executor_memory": "4g", "executor_cores": "2"}
-    setup = (ROOT / "scripts/setup/setup_airflow.sh").read_text()
+    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
     for field, default in resources.items():
         assert f"variables set platform_order_lifecycle_{field} '{default}'" in setup
     for path in (DAG, ROOT / "dags/dp_order_lifecycle_warehouse.py"):

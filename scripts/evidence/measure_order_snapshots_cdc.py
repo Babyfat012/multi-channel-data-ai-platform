@@ -19,7 +19,7 @@ import psycopg
 from confluent_kafka import Consumer
 from psycopg.types.json import Jsonb
 
-from scripts.setup.setup_order_snapshots_debezium import TOPIC, load_settings
+from scripts.data.setup_order_snapshots_debezium import TOPIC, load_settings
 
 
 def utc_now() -> str:

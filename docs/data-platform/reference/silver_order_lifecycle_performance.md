@@ -35,7 +35,7 @@ two data points do not prove the whole pipeline has quadratic complexity, and th
 
 ## How the phase is delimited and timings are read
 
-The runner `scripts/run/run_order_lifecycle_local.py:160–167` writes Bronze, then calls `build_silver`, writing in turn
+The runner `scripts/data/run_order_lifecycle_local.py:160–167` writes Bronze, then calls `build_silver`, writing in turn
 `line_lifecycle`, `native_order_lines`, `observed_evidence`, `coverage_validity`; each write
 is counted **from the materialized Iceberg table** (`:94–105`), and only at the end of Silver is `clearCache()` called.
 
@@ -52,7 +52,7 @@ The Spark callsites actually logged are only `NativeMethodAccessorImpl.java:0` f
 distinguishes the raw callsite from the Python location inferred from action order/code structure:
 
 - `D`: `_dedup`, `spark_jobs/lib/order_lifecycle_lakehouse.py:426–441`; count `:437–438`, collect `:439`.
-- `L`: `build_silver:522–523`, `line_lifecycle:646–668`, write `scripts/run/run_order_lifecycle_local.py:100`.
+- `L`: `build_silver:522–523`, `line_lifecycle:646–668`, write `scripts/data/run_order_lifecycle_local.py:100`.
 - `N`: `native_order_lines:147–243`, write runner `:100`.
 - `E`: `observed_evidence:317–353`, write runner `:100`.
 - `V`: `coverage_validity:356–412`, write runner `:100`. V includes the parent branches
@@ -223,7 +223,7 @@ groups, an action writing `receipt_status`, and a two-way result comparison.
 
 ### C — Runner uses the written evidence as the coverage_validity source
 
-Second in time budget. Location `scripts/run/run_order_lifecycle_local.py:94–105`.
+Second in time budget. Location `scripts/data/run_order_lifecycle_local.py:94–105`.
 Precondition: keep the current SILVER order, E before V. Check this order during review;
 do not move all the data to a driver-side collect.
 

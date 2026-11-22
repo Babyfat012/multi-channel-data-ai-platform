@@ -81,4 +81,4 @@ screenshots and receipts in `evidence/aws/`.
 EC2 Data Platform `r6i.xlarge` (4 vCPU/32 GB) + EKS `platform-apps` with 2 `r6i.xlarge` nodes: 12/16 vCPU quota.
 ~1.1 USD/hour with both running, ~0.18 USD/hour with everything stopped (EKS control plane + EBS); run in sessions, shut down when idle.
 The sandbox uses Agent Substrate 0.0.9 (matching kagent 0.10.3), which sets up the gVisor runtime itself through its node agent
-([kagent example](https://www.kagent.dev/docs/kagent/examples/agent-substrate)); code in `scripts/setup/deploy_substrate.sh` + `infra/k8s/agents/sandbox/`.
+([kagent example](https://www.kagent.dev/docs/kagent/examples/agent-substrate)); code in `scripts/llm/deploy_substrate.sh` + `infra/k8s/agents/sandbox/`.

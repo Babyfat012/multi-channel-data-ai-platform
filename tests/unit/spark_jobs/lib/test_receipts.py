@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.run.publish_order_lifecycle_datahub import build_mcps, load_receipts, schema_fields
+from scripts.data.publish_order_lifecycle_datahub import build_mcps, load_receipts, schema_fields
 from spark_jobs.lib import receipts as receipt_schemas
 
 TABLE = "lakehouse.gold.lifecycle_fact_order_lines"

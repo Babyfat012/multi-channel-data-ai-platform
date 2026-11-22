@@ -10,8 +10,8 @@ import pytest
 from generator.build_order_lifecycle_stream_oracle import expected
 from generator.generate_order_lifecycle_fixture import generate_fixture
 from generator.publish_order_lifecycle_events import FileSink, encoded, run_stream
+from scripts.data.render_order_lifecycle_stream import render
 from scripts.evidence.compare_order_lifecycle_stream import compare
-from scripts.run.render_order_lifecycle_stream import render
 
 
 @pytest.fixture(scope="module")

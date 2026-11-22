@@ -61,8 +61,8 @@ for epoch in 1 2; do
  "$py" -m generator.build_order_lifecycle_stream_oracle --source "$run_dir/source" --manifest "$run_dir/stream-$epoch-late.json" --output "$run_dir/oracle-$epoch-late.json"
  restart_flags=()
  if [[ "$epoch" == 2 ]]; then restart_flags=(--restart-mode); fi
- "$py" scripts/run/render_order_lifecycle_stream.py "${restart_flags[@]}" --output "$run_dir/sql-$epoch" --epoch "$epoch" --manifest "$run_dir/stream-$epoch.json" --checkpoint-ms 100
- "$py" scripts/run/render_order_lifecycle_stream.py --output "$run_dir/sql-$epoch-late" --epoch "$epoch" --manifest "$run_dir/stream-$epoch-late.json" --late-topics --checkpoint-ms 100
+ "$py" scripts/data/render_order_lifecycle_stream.py "${restart_flags[@]}" --output "$run_dir/sql-$epoch" --epoch "$epoch" --manifest "$run_dir/stream-$epoch.json" --checkpoint-ms 100
+ "$py" scripts/data/render_order_lifecycle_stream.py --output "$run_dir/sql-$epoch-late" --epoch "$epoch" --manifest "$run_dir/stream-$epoch-late.json" --late-topics --checkpoint-ms 100
  done
 props=$'jobmanager.rpc.address: flink-jobmanager\nrest.address: flink-jobmanager\njobmanager.memory.process.size: 1024m\ntaskmanager.memory.process.size: 1536m\ntaskmanager.numberOfTaskSlots: 2\nrestart-strategy.type: fixed-delay\nrestart-strategy.fixed-delay.attempts: 5\nrestart-strategy.fixed-delay.delay: 1s\nheartbeat.timeout: 10000'
 mounts=(--mount "type=bind,src=$run_dir/output,dst=/opt/flink/output" --mount "type=bind,src=$run_dir/checkpoints,dst=/opt/flink/checkpoints" --mount "type=bind,src=$run_dir,dst=/harness,readonly")

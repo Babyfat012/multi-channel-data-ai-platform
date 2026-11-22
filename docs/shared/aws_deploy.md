@@ -146,14 +146,14 @@ eval "$(terraform -chdir=infra/aws/terraform output -raw ssm_command)"
 # In the EC2 session
 sudo -iu ubuntu
 cd /opt/platform
-bash scripts/run/run_order_lifecycle_live.sh --phase source    # only checks the manifest on S3
-bash scripts/run/run_order_lifecycle_live.sh --phase airflow   # DAG dp_order_lifecycle, receipts, then stops phase A
+bash scripts/data/run_order_lifecycle_live.sh --phase source    # only checks the manifest on S3
+bash scripts/data/run_order_lifecycle_live.sh --phase airflow   # DAG dp_order_lifecycle, receipts, then stops phase A
 ```
 
 Next run section [5. Measure](#do), **and only then** start DataHub (phase B reuses the RAM of Spark/Airflow):
 
 ```bash
-bash scripts/run/run_order_lifecycle_live.sh --phase datahub   # start DataHub, publish lineage + assertions
+bash scripts/data/run_order_lifecycle_live.sh --phase datahub   # start DataHub, publish lineage + assertions
 ```
 
 Do not use `--phase all` before measuring. Capture runs on the **laptop** through a tunnel: terminal 2 keeps the tunnel open,
@@ -175,7 +175,7 @@ DATAHUB_VERSION=v1.7.0.1 UI_INGESTION_DEFAULT_CLI_VERSION=1.7.0.14 \
 DATAHUB_MAPPED_GMS_PORT=8089 DATAHUB_MAPPED_FRONTEND_PORT=9002 \
 docker compose --env-file "$HOME/.datahub/quickstart/.local-secrets.env" \
   --profile quickstart -f "$HOME/.datahub/quickstart/docker-compose.yml" \
-  -f docker/datahub-compose.override.yml -p datahub stop
+  -f infra/docker/datahub-compose.override.yml -p datahub stop
 ```
 
 Evidence on EC2: `out/receipts-v2-run/<run_id>/` (five receipts + `datahub-mcps.json`) and
@@ -194,9 +194,9 @@ Run on EC2 **after** the airflow phase and **before** the datahub phase (the run
 
 ```bash
 cd /opt/platform
-bash scripts/run/run_aws_measurements.sh --what skew          # baseline vs salted
-bash scripts/run/run_aws_measurements.sh --what maintenance   # compact/z-order real tables
-bash scripts/run/run_aws_measurements.sh --what warehouse     # EXPLAIN before/after index n=5
+bash scripts/data/run_aws_measurements.sh --what skew          # baseline vs salted
+bash scripts/data/run_aws_measurements.sh --what maintenance   # compact/z-order real tables
+bash scripts/data/run_aws_measurements.sh --what warehouse     # EXPLAIN before/after index n=5
 ```
 
 Results: `out/aws-evidence/<UTC date>/{skew,maintenance,warehouse}-<timestamp>-<pid>/` (JSON, image ID, logs, event logs;
@@ -307,4 +307,4 @@ After scaling the node group back to 2, do the following in order before deployi
    ```
 2. **Node IPs change:** re-run Ansible with `-e feast_redis=<node IP>:30379 -e rag_pg=<node IP>:30432`, otherwise the EC2 `.env` still points to the old IP. A NodePort is reachable through any node.
 3. **LLM:** `kubectl --context platform-apps -n llm scale deploy/qwen --replicas=1`, then wait for the rollout before running eval; without the LLM, eval scores 0.
-4. **Jenkins:** use `scripts/setup/setup_jenkins.sh` instead of `docker compose up jenkins` (which lacks `DOCKER_GID` and the kubeconfig); run `setup_vault.sh` first to unseal Vault. The jobs' code comes from `/repo/out/platform.bundle`: recreate it with `git bundle create out/platform.bundle main` and copy it to EC2.
+4. **Jenkins:** use `scripts/shared/setup_jenkins.sh` instead of `docker compose up jenkins` (which lacks `DOCKER_GID` and the kubeconfig); run `setup_vault.sh` first to unseal Vault. The jobs' code comes from `/repo/out/platform.bundle`: recreate it with `git bundle create out/platform.bundle main` and copy it to EC2.
