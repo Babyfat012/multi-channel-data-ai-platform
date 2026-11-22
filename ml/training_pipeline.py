@@ -1,10 +1,14 @@
-"""Kubeflow Pipelines: load (Feast offline) → split → train → evaluate → register challenger (MLflow).
+"""Kubeflow Pipelines for return-risk, both scheduled as KFP recurring runs (`scripts/ml/run_training_pipeline.py`):
 
-The pipeline never touches the `production` alias: a human approves the challenger in the return-risk
-Jenkins pipeline (`scripts/ml/promote_return_risk.py`), which then deploys it.
+- `return-risk-training` (weekly): load (Feast offline) → split → train → evaluate → register challenger (MLflow).
+- `return-risk-monitor` (daily): load → check_drift vs the production model's train set → the same training
+  steps only if drift and no challenger awaits approval (`ml/drift.py` decide).
 
-Every step runs in the `platform-train` image (infra/docker/Dockerfile.train), calling functions from `ml/train_lib.py`.
-Compile + submit: `scripts/ml/run_training_pipeline.py`.
+Neither touches the `production` alias: a human approves the challenger in the return-risk Jenkins pipeline
+(`scripts/ml/promote_return_risk.py`), which then deploys it.
+
+Steps run in `platform-train` (infra/docker/Dockerfile.train, logic in `ml/train_lib.py`), except check_drift in
+`platform-drift` (infra/docker/Dockerfile.drift): Evidently 0.7 needs pandas 2 and is kept out of the Feast image.
 """
 
 import os
@@ -12,6 +16,7 @@ import os
 from kfp import dsl, kubernetes
 
 IMAGE = f"{os.environ.get('REGISTRY', 'localhost:5001')}/platform-train:{os.environ.get('TAG', '0.1.0')}"
+DRIFT_IMAGE = f"{os.environ.get('REGISTRY', 'localhost:5001')}/platform-drift:{os.environ.get('TAG', '0.1.0')}"
 # Target chosen at compile time. aws: real S3 via the kubeflow/pipeline-runner Pod Identity (no keys),
 # MLflow on EC2 via private IP. kind: MinIO, credentials from a Secret created at submit time (not in the YAML).
 TARGET = os.environ.get("PIPELINE_TARGET", "kind")
@@ -204,16 +209,82 @@ def register(
     )
 
 
-@dsl.pipeline(name="return-risk-training", description="Feast offline → LightGBM → MLflow")
-def return_risk_training(
-    entity_path: str = f"{FEAST_ROOT}/training_lines",
-    test_days: int = 10,
-    tracking_uri: str = TRACKING_URI,
-    model_name: str = "return-risk",
-):
-    """Five steps; each step takes exactly the artifacts of the previous one."""
-    loaded = load_features(entity_path=entity_path)
-    parts = split(features=loaded.outputs["features"], test_days=test_days)
+@dsl.component(base_image=DRIFT_IMAGE)
+def check_drift(
+    features: dsl.Input[dsl.Dataset],
+    tracking_uri: str,
+    model_name: str,
+    min_rows: int,
+    report: dsl.Output[dsl.HTML],
+    metrics: dsl.Output[dsl.Metrics],
+) -> str:
+    """Compare lines the production model never saw with its train set; return "train" or "skip"."""
+    import json
+    from pathlib import Path
+
+    import mlflow
+    import pandas as pd
+    from mlflow import MlflowClient
+
+    from ml.drift import check, decide, unseen
+    from ml.train_lib import CATEGORICAL, NUMERIC, add_order_features
+
+    def logged(run_id, part):
+        """The train/test set the register step logged with the run (MLflow proxies the S3 read)."""
+        folder = Path(
+            mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=f"data/{part}")
+        )
+        return pd.concat(pd.read_parquet(f) for f in sorted(folder.iterdir()))
+
+    mlflow.set_tracking_uri(tracking_uri)
+    client = MlflowClient()
+    found = client.search_registered_models(filter_string=f"name='{model_name}'")
+    aliases = {k: str(v) for k, v in found[0].aliases.items()} if found else {}
+    summary, rows = {}, 0
+    if "production" not in aliases:
+        decision, reason = (
+            "skip",
+            "no production model to compare with (the weekly training covers it)",
+        )
+    else:
+        run_id = client.get_model_version(model_name, aliases["production"]).run_id
+        reference, tested = logged(run_id, "train"), logged(run_id, "test")
+        current = unseen(pd.read_parquet(features.path), reference, tested)
+        rows = len(current)
+        if rows >= min_rows:
+            summary = check(
+                add_order_features(reference),
+                add_order_features(current),
+                Path(report.path),
+                categorical=[*CATEGORICAL, "label"],
+                numeric=NUMERIC,
+            )
+        decision, reason = decide(
+            summary.get("alert", False), rows, min_rows, aliases.get("challenger")
+        )
+    if not Path(report.path).exists():
+        Path(report.path).write_text(f"<p>No drift report: {reason}</p>")
+    metrics.log_metric("current_rows", float(rows))
+    metrics.log_metric("drifted_columns", float(len(summary.get("drifted", []))))
+    # Empty columns are a data break, not drift: visible here, never a reason to train.
+    metrics.log_metric("empty_columns", float(len(summary.get("empty", []))))
+    metrics.log_metric("train", float(decision == "train"))
+    print(
+        json.dumps(
+            {
+                "decision": decision,
+                "reason": reason,
+                "production": aliases.get("production"),
+                **summary,
+            }
+        )
+    )
+    return decision
+
+
+def train_and_register(features, entity_path, test_days, tracking_uri, model_name) -> list:
+    """split → train → evaluate → register on already-loaded features; shared by both pipelines."""
+    parts = split(features=features, test_days=test_days)
     trained = train(train_set=parts.outputs["train_set"])
     scored = evaluate(
         train_set=parts.outputs["train_set"],
@@ -231,11 +302,15 @@ def return_risk_training(
         tracking_uri=tracking_uri,
         model_name=model_name,
     )
-    # Declare RAM so a shortage fails clearly at the pod instead of starving the whole node: load holds entity + PIT features in pandas.
-    loaded.set_memory_request("2G").set_memory_limit("4G")
-    for task in (parts, trained, scored, reg):
+    tasks = [parts, trained, scored, reg]
+    for task in tasks:
         task.set_memory_request("1G").set_memory_limit("3G")
-    for task in (loaded, parts, trained, scored, reg):
+    return tasks
+
+
+def configure(tasks) -> None:
+    """Same runtime for every step: no cache, local image first, Feast/S3 env, MinIO keys on kind."""
+    for task in tasks:
         task.set_caching_options(False)
         kubernetes.set_image_pull_policy(task, "IfNotPresent")
         for name, value in FEAST_ENV.items():
@@ -249,3 +324,50 @@ def return_risk_training(
                     "AWS_SECRET_ACCESS_KEY": "AWS_SECRET_ACCESS_KEY",
                 },
             )
+
+
+@dsl.pipeline(
+    name="return-risk-training", description="Feast offline → LightGBM → MLflow challenger"
+)
+def return_risk_training(
+    entity_path: str = f"{FEAST_ROOT}/training_lines",
+    test_days: int = 10,
+    tracking_uri: str = TRACKING_URI,
+    model_name: str = "return-risk",
+):
+    """Five steps; each step takes exactly the artifacts of the previous one."""
+    loaded = load_features(entity_path=entity_path)
+    # Declare RAM so a shortage fails clearly at the pod instead of starving the whole node: load holds entity + PIT features in pandas.
+    loaded.set_memory_request("2G").set_memory_limit("4G")
+    steps = train_and_register(
+        loaded.outputs["features"], entity_path, test_days, tracking_uri, model_name
+    )
+    configure([loaded, *steps])
+
+
+@dsl.pipeline(
+    name="return-risk-monitor",
+    description="Feast offline → drift vs the production model's train set → train if drift",
+)
+def return_risk_monitor(
+    entity_path: str = f"{FEAST_ROOT}/training_lines",
+    test_days: int = 10,
+    tracking_uri: str = TRACKING_URI,
+    model_name: str = "return-risk",
+    min_rows: int = 1000,
+):
+    """Load once; the drift check and (if it says so) the training both use these features."""
+    loaded = load_features(entity_path=entity_path)
+    loaded.set_memory_request("2G").set_memory_limit("4G")
+    drift = check_drift(
+        features=loaded.outputs["features"],
+        tracking_uri=tracking_uri,
+        model_name=model_name,
+        min_rows=min_rows,
+    )
+    drift.set_memory_request("1G").set_memory_limit("3G")
+    with dsl.If(drift.outputs["Output"] == "train", name="drift-detected"):
+        steps = train_and_register(
+            loaded.outputs["features"], entity_path, test_days, tracking_uri, model_name
+        )
+    configure([loaded, drift, *steps])

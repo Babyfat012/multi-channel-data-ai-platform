@@ -4,9 +4,39 @@ Per-Channel drift detection.
 
 Drift is when new data has a different distribution from the data the model was trained on. When that happens, the model's prediction scores may no longer be reliable.
 Here an Evidently Job running on EKS compares new data against reference data and raises an alert when the shift exceeds a threshold.
-The Job is run on demand when a check is needed; it does not yet retrain the model automatically when drift is found.
-
 The results below come from runs on AWS; the docs do not claim the services are still up.
+
+## Daily monitor → training (diagram M4–M5)
+
+KFP pipeline `return-risk-monitor` ([`ml/training_pipeline.py`](../../ml/training_pipeline.py)), a recurring run every day at
+02:00 UTC; `return-risk-training` runs every Sunday at 03:00 UTC. Both are (re)created by
+`python3 -m scripts.ml.run_training_pipeline --schedule`; a schedule pins the image tag it was compiled with.
+
+```
+load_features (Feast PIT join of training_lines)
+  → check_drift (image platform-drift)
+      reference = MLflow artifact data/train of the version holding alias `production`
+      current   = lines newer than that version's train AND test windows (ml.drift.unseen)
+      columns   = model inputs (train_lib.CATEGORICAL + NUMERIC) + label
+  → if "train": split → train → evaluate → register challenger   (same steps as the training pipeline)
+```
+
+| Decision ([`ml.drift.decide`](../../ml/drift.py)) | Why |
+|---|---|
+| skip: fewer than `min_rows` (1,000) new lines | A score on a handful of lines is noise. Labels lag the Order by ~30 days, so new lines arrive late. |
+| skip: no drift | Nothing changed. |
+| skip: drift, but a challenger awaits approval | Otherwise drift that persists retrains every day, the `challenger` alias moves daily and the reviewer's version is refused by `promote_return_risk`. |
+| train | Drift, enough lines, nothing pending. The result is only a challenger: production still needs approval. |
+
+Limits:
+
+- Labeled lines only ⇒ drift is seen ~30 days after it starts. Earlier detection needs unlabeled recent Orders with features (not built).
+- A numeric column empty on either side (e.g. `approved_returns_24h`, gap M4) cannot be scored by Evidently. It is left out and
+  reported as `empty` / metric `empty_columns`, never a reason to train: training on broken data would make it worse. Nothing alerts on it yet (gap D1).
+- Checked: both pipelines compile with KFP 2.17 (the training steps sit under the `drift-detected` condition) and `ml.drift.check`
+  ran with Evidently 0.7.23 on synthetic data (no drift / price +50% / Shopee only). The monitor has not run on kind or EKS yet.
+
+The Job below is the earlier on-demand demo. Its columns (`seller_sku`, `label`) are not model inputs; it is kept to reproduce the evidence.
 
 <a id="on-aws-pipeline-a-2026-10-31"></a>
 ## Drift on EKS

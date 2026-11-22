@@ -31,7 +31,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | S3 | Offline features, training_lines, registry, RAG raw / chunk / embedding, `mlflow/` model files | Offline feature store, dataset / model versioning; KServe loads the production model from `mlflow/` |
 | `feature-store` | Redis | Online features (Feast online store) |
 | `serving-api` | `feature-api`, `policy-api`, `mcp-server`: one image, three Helm releases, each 2–3 pods with KEDA and its own Pod Identity | Async FastAPI / Pydantic, health, one API per data owner, MCP as a client of the APIs, rolling update, autoscaling |
-| `kubeflow` | KFP pipeline, `mle-drift` | PIT join → split → train → evaluate → register; per-Channel drift monitoring |
+| `kubeflow` | KFP `return-risk-training` (weekly), `return-risk-monitor` (daily) | PIT join → split → train → evaluate → register challenger; drift vs the production model's train set → train if drift |
 | EC2 · MLflow / CLI + ECR | `return-risk` registry, `scripts/ml/deploy_return_risk.py`, code-only predictor image | Tracking / versioning / production gate; deploy points KServe at the `production` model's S3 files |
 | `ml-serving` / `kserve` | `return-risk` InferenceService 2–3 pods with KEDA / KServe controller | ML inference behind public `/predict`; storage-initializer loads the model (`STORAGE_URI`), predictor validates order lines, reads Feast online, autoscaling |
 | `rag` | pgvector, PVC `pgdata` | Feast vector search / top-k policy chunks |
@@ -46,6 +46,6 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 
 Configuration sources: `infra/k8s/`, `infra/helm/serving-api/`, `infra/jenkins/`, `scripts/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
 
-Current limitations: the Model Agent's RAG eval is below threshold (3/5); the Coordinator gate only scores routing; stream features use replayed data; drift runs as an on-demand Job and does not yet start training automatically. A/B, sandbox and DataHub are enabled by phase. See the validation status page for per-item evidence.
+Current limitations: the Model Agent's RAG eval is below threshold (3/5); the Coordinator gate only scores routing; stream features use replayed data; drift sees labeled lines only, so it lags the calendar by ~30 days, and the monitor has not run on EKS yet. A/B, sandbox and DataHub are enabled by phase. See the validation status page for per-item evidence.
 
 Open and edit `.excalidraw` files with excalidraw.com (File → Open) or the Excalidraw extension in VS Code; re-export the PNG (Export image, without the title and legend) when the diagram changes.

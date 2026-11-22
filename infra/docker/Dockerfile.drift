@@ -1,0 +1,9 @@
+# Image for the KFP check_drift step (ml/training_pipeline.py): Evidently + MLflow client + the `ml` package.
+# Separate from platform-train: Evidently 0.7 needs pandas 2 (pandas 3 breaks its import) and must not pin the Feast image.
+# kfp is installed so the KFP launcher does not pip-install it at pod start.
+FROM python:3.12-slim
+RUN pip install --no-cache-dir "evidently==0.7.23" "pandas==2.3.3" "pyarrow==25.0.1" \
+    "mlflow-skinny==3.17.0" "kfp==2.17.0"
+COPY ml /opt/ml/ml
+ENV PYTHONPATH=/opt/ml
+USER 65534

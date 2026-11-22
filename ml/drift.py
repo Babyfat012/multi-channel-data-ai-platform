@@ -1,7 +1,12 @@
-"""Monitor data drift of the return-risk model inputs with Evidently.
+"""Data drift of the return-risk model with Evidently.
 
-Compare a "current" batch with a reference batch (the training period) on the input columns, using
-Jensen-Shannon distance. Any drifted column ⇒ `alert` ⇒ re-check the model before trusting the score.
+Monitor (KFP `return-risk-monitor`, ml/training_pipeline.py): reference = the train set of the model holding
+alias `production` (MLflow artifact `data/train`); current = labeled lines newer than everything that model saw
+(its train + test windows); columns = the model inputs (train_lib.FEATURES) + label. Labels arrive ~30 days
+after the Order, so "current" lags the calendar by that much. Drift ⇒ train, unless a challenger awaits approval.
+
+Demo CLI (AWS evidence 2026-10-31, Job infra/k8s/ml/drift-job.yaml): slices of one training_lines file on
+DEMO_COLUMNS, which are NOT model inputs (seller_sku is not a feature, label is the target).
 Run: `python -m ml.drift --reference <parquet> [--sale-truth <_truth/lines.jsonl>] --out out/drift`.
 """
 
@@ -13,7 +18,12 @@ from pathlib import Path
 
 import pandas as pd
 
-COLUMNS = ["seller_sku", "label"]
+# Standalone on purpose (no ml.train_lib import): the demo Job mounts only this file. The monitor passes
+# train_lib.CATEGORICAL + ["label"] and train_lib.NUMERIC itself.
+DEMO_COLUMNS = ["seller_sku", "label"]
+# Jensen-Shannon thresholds for categoricals; others keep Evidently's default (0.1, or its numeric method's).
+# seller_sku has ~100 values: sampling noise of ~1,000 rows alone gives a distance of ~0.14, hence 0.2.
+THRESHOLDS = {"seller_sku": 0.2, "label": 0.1}
 
 
 def summarize(snapshot: dict) -> dict:
@@ -44,25 +54,69 @@ def summarize(snapshot: dict) -> dict:
     }
 
 
-def check(reference: pd.DataFrame, current: pd.DataFrame, html: Path) -> dict:
-    """Run DataDriftPreset on COLUMNS (all categorical), save HTML, return the summary."""
+def empty_columns(reference: pd.DataFrame, current: pd.DataFrame, columns) -> list[str]:
+    """Columns with no value at all on either side (e.g. approved_returns_24h, gap M4)."""
+    return sorted(c for c in columns if reference[c].isna().all() or current[c].isna().all())
+
+
+def check(
+    reference: pd.DataFrame,
+    current: pd.DataFrame,
+    html: Path,
+    categorical: list[str] = DEMO_COLUMNS,
+    numeric: list[str] = (),
+) -> dict:
+    """Run DataDriftPreset (Jensen-Shannon for categoricals, Evidently's default for numerics), save HTML,
+    return the summary. A numeric column empty on either side cannot be scored (Evidently raises): it is left
+    out and listed under `empty`. That is a data break, not drift: it must not trigger training on broken data."""
     from evidently import DataDefinition, Dataset, Report
     from evidently.presets import DataDriftPreset
 
-    definition = DataDefinition(categorical_columns=COLUMNS)
-    data = [
-        Dataset.from_pandas(f[COLUMNS].astype(str), data_definition=definition)
-        for f in (current, reference)
-    ]
-    # Jensen-Shannon for every categorical column. seller_sku has ~100 values: sampling noise of ~1,000 rows
-    # alone gives a distance of ~0.14, hence threshold 0.2; label has 2 values and keeps the default 0.1.
+    empty = empty_columns(reference, current, numeric)
+    numeric = [c for c in numeric if c not in empty]
+    definition = DataDefinition(
+        categorical_columns=list(categorical), numerical_columns=list(numeric)
+    )
+
+    def typed(frame):
+        """Categoricals as text, numerics as float (NaN stays missing), only the checked columns."""
+        out = frame[list(categorical)].astype(str)
+        for col in numeric:
+            out[col] = pd.to_numeric(frame[col], errors="coerce").astype("float64")
+        return out
+
+    data = [Dataset.from_pandas(typed(f), data_definition=definition) for f in (current, reference)]
     preset = DataDriftPreset(
-        cat_method="jensenshannon", per_column_threshold={"seller_sku": 0.2, "label": 0.1}
+        cat_method="jensenshannon",
+        per_column_threshold={c: t for c, t in THRESHOLDS.items() if c in categorical},
     )
     snapshot = Report([preset]).run(*data)
     html.parent.mkdir(parents=True, exist_ok=True)
     snapshot.save_html(str(html))
-    return summarize(snapshot.dict())
+    return summarize(snapshot.dict()) | {"empty": empty}
+
+
+def unseen(frame: pd.DataFrame, *seen: pd.DataFrame) -> pd.DataFrame:
+    """Lines newer than everything the production model saw: comparing it with its own test window
+    would only re-measure data it was already judged on."""
+    cutoff = max(pd.to_datetime(f["event_timestamp"], utc=True).max() for f in seen)
+    return frame[pd.to_datetime(frame["event_timestamp"], utc=True) > cutoff]
+
+
+def decide(alert: bool, current_rows: int, min_rows: int, pending: str | None) -> tuple[str, str]:
+    """("train" | "skip", reason). Too few rows is checked first: a drift score on a handful of lines is noise.
+    A pending challenger blocks training: otherwise persistent drift retrains every day, the challenger alias
+    moves daily and promote_return_risk refuses the version the reviewer was looking at."""
+    if current_rows < min_rows:
+        return (
+            "skip",
+            f"{current_rows} new labeled lines < {min_rows} (labels lag the Order ~30 days)",
+        )
+    if not alert:
+        return "skip", "no drift"
+    if pending is not None:
+        return "skip", f"drift, but challenger v{pending} is still awaiting approval"
+    return "train", "drift"
 
 
 def sale_batch(truth_path: str) -> pd.DataFrame:
