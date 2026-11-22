@@ -1,34 +1,35 @@
 """Agent Substrate: pinned version matches the running kagent, wiring flags follow the docs, every SandboxAgent runs Go on 1 pool."""
 
-import re
 from pathlib import Path
 
 import yaml
 
+from scripts.llm import deploy_agents, deploy_substrate
+
 ROOT = Path(__file__).resolve().parents[4]
-SCRIPT = (ROOT / "scripts/llm/deploy_substrate.sh").read_text()
 
 
 def test_versions_are_pinned_and_match_running_kagent():
-    """Substrate 0.0.9 is the version the docs pair with kagent 0.10.3; kagent must not drift from deploy_kind_agents."""
-    agents = (ROOT / "scripts/llm/deploy_kind_agents.sh").read_text()
-    running = re.search(r"KAGENT_VERSION=(\S+)", agents).group(1)
-    assert re.search(r"KAGENT_VERSION=(\S+)", SCRIPT).group(1) == running == "0.10.3"
-    assert "SUBSTRATE_VERSION=0.0.9" in SCRIPT
-    assert 'ateom-gvisor:v"$SUBSTRATE_VERSION"' in SCRIPT
+    """Substrate 0.0.9 is the version the docs pair with kagent 0.10.3; one kagent version for both scripts."""
+    assert deploy_substrate.KAGENT_VERSION == deploy_agents.KAGENT_VERSION == "0.10.3"
+    assert deploy_substrate.SUBSTRATE_VERSION == "0.0.9"
+    upgrade = deploy_substrate.kagent_upgrade("1")
+    assert (
+        "substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.0.9" in upgrade
+    )
 
 
 def test_kagent_upgrade_keeps_values_and_wires_substrate():
     """--reuse-values keeps the model behind the gateway; missing any flag leaves SandboxAgent nowhere to run."""
-    upgrade = SCRIPT[SCRIPT.index("upgrade kagent ") :].split("--wait")[0]
+    upgrade = deploy_substrate.kagent_upgrade("3")
     assert "--reuse-values" in upgrade
     for flag in (
         "controller.substrate.enabled=true",
         "controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443",
         "substrateWorkerPool.create=true",
-        'substrateWorkerPool.replicas="${SUBSTRATE_WORKERS:-1}"',
+        "substrateWorkerPool.replicas=3",
     ):
-        assert f"--set {flag}" in upgrade, flag
+        assert upgrade[upgrade.index(flag) - 1] == "--set", flag
 
 
 def test_every_sandbox_agent_runs_go_on_the_shared_pool():
@@ -50,6 +51,10 @@ def test_every_sandbox_agent_runs_go_on_the_shared_pool():
 
 def test_substrate_jwt_issuer_comes_from_the_cluster():
     """The chart default = kind issuer; EKS signs SA tokens with its own OIDC issuer ⇒ ateapi rejects every worker unless changed."""
-    install = SCRIPT[SCRIPT.index("upgrade --install substrate ") :].split("--timeout")[0]
-    assert '--set-string auth.jwt.issuer="$ISSUER"' in install
-    assert "get --raw /.well-known/openid-configuration" in SCRIPT
+    install = deploy_substrate.substrate_install("https://oidc.eks.example/id/X")
+    assert (
+        install[install.index("auth.jwt.issuer=https://oidc.eks.example/id/X") - 1]
+        == "--set-string"
+    )
+    source = (ROOT / "scripts/llm/deploy_substrate.py").read_text()
+    assert '"get", "--raw", "/.well-known/openid-configuration"' in source

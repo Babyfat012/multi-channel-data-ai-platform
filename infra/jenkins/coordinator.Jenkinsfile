@@ -45,7 +45,7 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN'),
                          file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
-          sh 'EVAL_AGENT=coordinator bash scripts/llm/eval_agent_ci.sh'
+          sh 'EVAL_AGENT=coordinator python3 -m scripts.llm.eval_agent_ci'
         }
       }
     }

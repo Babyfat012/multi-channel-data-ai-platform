@@ -81,15 +81,18 @@ def env(key: str, default: str | None = None) -> str:
     return value
 
 
-def tee(cmd: list[str], log: Path, stdin: str | None = None) -> None:
-    """Run a command, print its output live and also save it to a log file (bash `cmd 2>&1 | tee log`)."""
+def tee(cmd: list[str], log: Path, stdin: str | None = None, merge_stderr: bool = True) -> None:
+    """Run a command, print its output live and also save it to a file.
+
+    merge_stderr=True is bash `cmd 2>&1 | tee log`; False keeps stderr on the terminal (`cmd | tee out.json`).
+    """
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("w") as out:
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE if stdin is not None else None,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT if merge_stderr else None,
             text=True,
         )
         if stdin is not None:
@@ -105,6 +108,28 @@ def tee(cmd: list[str], log: Path, stdin: str | None = None) -> None:
 def kubectl(context: str | None = None) -> list[str]:
     """Base kubectl command for the selected context (default KCTX or kind-platform)."""
     return ["kubectl", "--context", context or os.environ.get("KCTX", "kind-platform")]
+
+
+def secret_value(kc: list[str], namespace: str, name: str, key: str) -> str:
+    """One decoded key of a k8s Secret; "" when the Secret or key does not exist yet."""
+    import base64
+
+    encoded = run(
+        [*kc, "-n", namespace, "get", "secret", name, "-o", f"jsonpath={{.data.{key}}}"],
+        capture=True,
+        check=False,
+    )
+    return base64.b64decode(encoded).decode() if encoded else ""
+
+
+def secret_manifest(namespace: str, name: str, data: dict[str, str]) -> dict:
+    """A generic Secret object to pass to apply() (values travel via stdin, never argv)."""
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name, "namespace": namespace},
+        "stringData": data,
+    }
 
 
 def apply(kc: list[str], manifest: str | dict) -> None:

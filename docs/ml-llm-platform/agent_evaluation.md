@@ -50,7 +50,7 @@ What is known for certain: one Qwen 1.5B model running on CPU, shared by every A
 - `ml/agent_eval.py --task predict`: asks for the risk score of a new order, then compares it with the result of the Feature API's `POST /predict`. A question passes when the difference is at most 0.005, or when the agent says "abstain" for a SKU without history.
 - `--task policy`: asks 5 questions about return windows and deadlines in the policy, then checks whether the numbers match the documents in `rag/corpus`.
 
-`feature-api-agents.Jenkinsfile` runs all three tests (selected with the `EVAL_AGENT`, `EVAL_TASK` variables in `eval_agent_ci.sh`; the result file is `out/agent-eval-<agent>-<task>.jsonl`).
+`feature-api-agents.Jenkinsfile` runs all three tests (selected with the `EVAL_AGENT`, `EVAL_TASK` variables in `scripts/llm/eval_agent_ci.py`; the result file is `out/agent-eval-<agent>-<task>.jsonl`).
 
 Tried locally (kind cluster, a fake Feature API with fixed data, not real Redis/pgvector, not run on AWS): predict passed 4/4; policy passed 4/5 after tightening the prompt (3/5 before).
 The remaining failure is because Qwen 1.5B writes the tool call out as text instead of actually calling the tool (the tool does not run). So the 0.95 policy gate may be red on AWS until the model calls tools more reliably.
@@ -131,9 +131,9 @@ Both call the same wrapper. Command run in the Jenkins workspace:
 
 ```bash
 ## Needs VAULT_ADDR/VAULT_TOKEN + KUBECONFIG; Jenkins binds them from credentials.
-bash scripts/llm/eval_agent_ci.sh
+python3 -m scripts.llm.eval_agent_ci
 ## The Coordinator uses the same harness through its own A2A route:
-EVAL_AGENT=coordinator bash scripts/llm/eval_agent_ci.sh
+EVAL_AGENT=coordinator python3 -m scripts.llm.eval_agent_ci
 ```
 
 For `coordinator`, the gate only scores **routing**, not numbers. A question passes when the conversation history contains a call to `data_agent` or `model_agent` and a final answer.

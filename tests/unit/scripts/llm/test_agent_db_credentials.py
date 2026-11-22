@@ -10,8 +10,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[4]
 
 
-@pytest.mark.parametrize("script", ["deploy_kind_langfuse.sh", "deploy_kind_agentregistry.sh"])
-def test_db_credentials_come_from_pgvector_secret(tmp_path, script):
+@pytest.mark.parametrize("module", ["deploy_langfuse", "deploy_agentregistry"])
+def test_db_credentials_come_from_pgvector_secret(tmp_path, module):
     """30/10: .env drifted from Vault ⇒ Langfuse/agentregistry wrote a wrong DB URL. Stale shell variables must not beat the Secret either."""
     log = tmp_path / "calls.log"
     fake = tmp_path / "kubectl"
@@ -38,7 +38,11 @@ def test_db_credentials_come_from_pgvector_secret(tmp_path, script):
         "POSTGRES_PASSWORD": "stale-pass",
     }
     subprocess.run(
-        ["bash", str(ROOT / "scripts/llm" / script)], env=env, capture_output=True, cwd=tmp_path
+        [sys.executable, "-m", f"scripts.llm.{module}"],
+        env=env,
+        capture_output=True,
+        cwd=ROOT,
+        stdin=subprocess.DEVNULL,
     )
     calls = log.read_text()
     assert "secret-POSTGRES_PASSWORD@pgvector" in calls

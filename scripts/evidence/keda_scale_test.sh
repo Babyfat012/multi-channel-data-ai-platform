@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Measure KEDA scaling of one Agent on a real cluster: generate A2A load into agentgateway, record target/pods over time.
 # Run: KCTX=<kube-context> scripts/evidence/keda_scale_test.sh <coordinator|model-agent|data-agent> [rps=3] [load seconds=150]
-# Needs VAULT_ADDR + VAULT_TOKEN (fetches the gateway API key like eval_agent_ci.sh) or a preset AGW_AGENT_KEY.
+# Needs VAULT_ADDR + VAULT_TOKEN (fetches the gateway API key like scripts/llm/eval_agent_ci.py) or a preset AGW_AGENT_KEY.
 # Writes docs/evidence/aws/keda-<agent>.txt, same format as keda-data-agent-20261030.txt.
 # No xtrace: do not print secrets to the log.
 set -euo pipefail

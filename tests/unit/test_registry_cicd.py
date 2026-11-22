@@ -49,7 +49,7 @@ def test_build_pipelines_publish_before_deploy():
         text = read(f"infra/jenkins/{name}.Jenkinsfile")
         stages = re.findall(r"stage\('([^']+)'\)", text)
         assert stages.index("Eval agent") > stages.index(deploy)
-        assert "eval_agent_ci.sh" in text
+        assert "python3 -m scripts.llm.eval_agent_ci" in text
         assert "archiveArtifacts" in text and "out/agent-eval*.json*" in text
 
 
@@ -76,10 +76,8 @@ def test_registry_and_pull_configuration():
 
 @pytest.mark.parametrize(
     "script",
-    [
-        "scripts/llm/eval_agent_ci.sh",
-        "scripts/shared/vault_env.sh",
-    ],
+    # The bash scripts that remain (eval'd helpers, one-liners, historical evidence).
+    sorted(str(path.relative_to(ROOT)) for path in (ROOT / "scripts").rglob("*.sh")),
 )
 def test_shell_syntax(script):
     """Parse bash without running infrastructure or network."""
@@ -163,10 +161,13 @@ def test_compose_release_matches_published_tag():
 
 def test_eval_gate_propagates_failure_and_archives_summary_contract():
     """pipefail keeps the harness exit 1 through tee; the CI threshold is stated explicitly."""
-    text = read("scripts/llm/eval_agent_ci.sh")
-    assert "set -euo pipefail" in text
-    assert "--min-accuracy 0.95" in text
-    assert 'tee "out/agent-eval-$tag-summary.json"' in text
+    from scripts.llm import eval_agent_ci
+
+    text = read("scripts/llm/eval_agent_ci.py")
+    flat = " ".join(text.split())
+    assert eval_agent_ci.MIN_ACCURACY == "0.95" and '"--min-accuracy", MIN_ACCURACY' in flat
+    # tee() exits non-zero when ml.agent_eval fails; the summary keeps stdout only (valid JSON).
+    assert 'out/agent-eval-{tag}-summary.json"' in text and "merge_stderr=False" in text
     assert "flushall" not in text
 
 
@@ -364,4 +365,6 @@ def test_agent_pipelines_pass_eval_skus_for_pipeline_a():
     for name in ("feature-api-agents", "coordinator"):
         text = (ROOT / f"infra/jenkins/{name}.Jenkinsfile").read_text()
         assert "string(name: 'EVAL_SKUS'" in text and 'EVAL_SKUS = "${params.EVAL_SKUS}"' in text
-    assert '--skus "${EVAL_SKUS:-sku-00001,' in (ROOT / "scripts/llm/eval_agent_ci.sh").read_text()
+    from scripts.llm.eval_agent_ci import DEFAULT_SKUS
+
+    assert DEFAULT_SKUS.startswith("sku-00001,") and DEFAULT_SKUS.endswith(",sku-00012")
