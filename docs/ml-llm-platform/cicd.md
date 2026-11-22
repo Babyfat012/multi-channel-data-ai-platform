@@ -59,6 +59,12 @@ Local records keep their original environment and are not a substitute for cloud
 CI/CD (test, build and automated deploy) for the RAG pipeline, the MCP server with agents,
 the coordinator and the stream feature jobs. Secrets must live in Jenkins or a similar tool, not in code.
 
+Current agent pipelines (runs recorded above used the earlier stage list): `feature-api-agents` = Test → Build → Push →
+Deploy serving API → **Register candidate** → **Gateway allowlist** → Sync prompts → Deploy Agent → Eval agent →
+**Promote to stable** → Smoke; `coordinator` = Validate → Sync prompts → **Register candidate** → Deploy → Eval agent →
+**Promote to stable** → Smoke A2A. The agentregistry stages version agents and the MCP server per commit and gate the
+gateway config: [Agent Registry](agent_registry.md#versioning-in-ci-and-the-gateway-gate).
+
 ## Setup
 
 | Component | File |
@@ -119,7 +125,7 @@ curl -fsS http://localhost:5001/v2/_catalog
 REGISTRY=localhost:5001 python3 -m scripts.ml.deploy_serving_api "$(git rev-parse HEAD)"
 ## KFP: the script builds/pushes the train image with the same TAG before compile/submit.
 REGISTRY=localhost:5001 python3 -m scripts.ml.run_training_pipeline
-## KServe: takes the production model, builds/pushes an image tagged version+git SHA+content hash, then applies.
+## KServe: builds/pushes the code-only image (git SHA + code hash), points STORAGE_URI at the production model in MLflow, then applies.
 REGISTRY=localhost:5001 uv run --no-project --with mlflow-skinny==3.17.0 python -m scripts.ml.deploy_return_risk
 ```
 

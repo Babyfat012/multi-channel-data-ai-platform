@@ -17,6 +17,10 @@ RUN curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/v1.37.2/bin/lin
     && curl -fsSL https://github.com/astral-sh/uv/releases/download/0.9.5/uv-x86_64-unknown-linux-gnu.tar.gz \
        | tar -xz --strip-components=1 -C /usr/local/bin uv-x86_64-unknown-linux-gnu/uv \
     && chmod +x /usr/local/bin/kubectl /usr/local/bin/kind
+# arctl (agentregistry CLI, matches the server v0.4.0): CI publishes agent/MCP versions and checks the gateway allowlist.
+RUN curl -fsSLo /usr/local/bin/arctl https://github.com/agentregistry-dev/agentregistry/releases/download/v0.4.0/arctl-linux-amd64 \
+    && echo "e564334357731c59faa3482f2978c21a205a60ad3bcc63a44465607cc74fa343  /usr/local/bin/arctl" | sha256sum -c - \
+    && chmod +x /usr/local/bin/arctl
 # AWS CLI: EKS token (kubeconfig exec plugin) and ECR login, credentials from the EC2 IAM role (IMDS).
 RUN apt-get update && apt-get install --no-install-recommends -y unzip && rm -rf /var/lib/apt/lists/* \
     && curl -fsSLo /tmp/awscli.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.31.0.zip \

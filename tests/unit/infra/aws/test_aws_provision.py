@@ -749,6 +749,7 @@ def test_wave5_ci_role_is_namespace_scoped_and_ecr_limited():
         "serving-api",
         "agentgateway",
         "observability",
+        "agentregistry",
     }
     # Langfuse lives in observability with Prometheus/Grafana: CI may only port-forward to read prompts, never write.
     observability = next(

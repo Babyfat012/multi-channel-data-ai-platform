@@ -1,9 +1,15 @@
 # agentregistry catalog: MCP server (mcp-server release, ns serving-api, 4 tools) — declared as remote because it already runs behind agentgateway /mcp.
-# Publish: arctl apply -f infra/k8s/agents/registry/ (scripts/llm/publish_agentregistry.py).
+# Published by CI with a version tag (scripts/llm/publish_agentregistry.py): commit SHA as candidate, `stable` after the
+# agent eval. The tool labels are what the gateway may allow on /mcp (scripts/llm/check_gateway_allowlist.py).
 apiVersion: ar.dev/v1alpha1
 kind: MCPServer
 metadata:
   name: feature-tools
+  labels:
+    tool.platform.dev/get_sku_features: allowed
+    tool.platform.dev/get_policy_chunks: allowed
+    tool.platform.dev/search_policy_chunks: allowed
+    tool.platform.dev/predict_return_risk: allowed
 spec:
   title: PLATFORM Feature Tools
   description: >-
