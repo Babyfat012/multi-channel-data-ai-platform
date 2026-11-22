@@ -28,19 +28,19 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | Namespace / runtime | Workload / resources | Function |
 |---|---|---|
 | EC2 · Airflow / stream | `ml_feature_materialize`, `ml_rag_ingest`, Kafka / Flink, 2 PyFlink stream-feature jobs (Flink ML 2.2) | Batch materialization, streaming push to online + offline, RAG pipeline / governance |
-| S3 | Offline features, training_lines, registry, RAG raw / chunk / embedding, MLflow artifacts | Offline feature store, dataset / model versioning |
+| S3 | Offline features, training_lines, registry, RAG raw / chunk / embedding, `mlflow/` model files | Offline feature store, dataset / model versioning; KServe loads the production model from `mlflow/` |
 | `feature-store` | Redis | Online features (Feast online store) |
 | `serving-api` | `feature-api`, `policy-api`, `mcp-server`: one image, three Helm releases, each 2–3 pods with KEDA and its own Pod Identity | Async FastAPI / Pydantic, health, one API per data owner, MCP as a client of the APIs, rolling update, autoscaling |
 | `kubeflow` | KFP pipeline, `mle-drift` | PIT join → split → train → evaluate → register; per-Channel drift monitoring |
-| EC2 · MLflow / CLI + ECR | `return-risk` registry, `scripts/ml/deploy_return_risk.py`, image containing the model | Tracking / versioning / production gate / deploy |
-| `ml-serving` / `kserve` | `return-risk` InferenceService 2–3 pods with KEDA / KServe controller | ML inference; predictor reads Feast online, autoscaling |
+| EC2 · MLflow / CLI + ECR | `return-risk` registry, `scripts/ml/deploy_return_risk.py`, code-only predictor image | Tracking / versioning / production gate; deploy points KServe at the `production` model's S3 files |
+| `ml-serving` / `kserve` | `return-risk` InferenceService 2–3 pods with KEDA / KServe controller | ML inference behind public `/predict`; storage-initializer loads the model (`STORAGE_URI`), predictor validates order lines, reads Feast online, autoscaling |
 | `rag` | pgvector, PVC `pgdata` | Feast vector search / top-k policy chunks |
 | `llm` | `qwen`, `qwen-small`, model PVC | Custom self-hosted GGUF, benchmark, LLM A/B |
 | `kagent` | UI, coordinator, data-agent, model-agent, ModelConfig / RemoteMCPServer | Agent tools, A2A orchestration, global model config; KEDA for data-agent / model-agent / coordinator |
-| `agentgateway` | agentgateway | LLM / MCP / A2A gateway, API key / PII / A/B routing |
+| `agentgateway` | agentgateway | LLM / MCP / A2A gateway, API key / PII / A/B routing; CI applies it only when every agent/tool is registered |
 | `ingress` / `cert-manager` | NGINX controller / certificate controller | NLB / HTTPS / basic auth / rate limit, API / UI / ops routes |
 | `observability` / `keda` | Prometheus, Grafana, Fluent Bit / Loki, Jaeger, Langfuse / KEDA controller | Metrics / logs / traces, LLM / agent telemetry, prompt versions / production sync, autoscaling |
-| `agentregistry` | Agent registry | Publish agents + MCP |
+| `agentregistry` | Agent registry | Agent + MCP versions (tag = commit, `stable` after eval); the source of what the gateway may expose |
 | `ate-system` / `kagent` | Substrate controllers / SandboxAgent + WorkerPool | Sandbox / gVisor / shared warm worker / golden snapshot |
 | EC2 · Jenkins / Vault + IaC | CI pipelines, secret KV, Terraform / Ansible | Test / build / deploy / eval; coverage / EP-BVA / mutation / property-based / Locust; security |
 
