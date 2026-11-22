@@ -748,8 +748,17 @@ def test_wave5_ci_role_is_namespace_scoped_and_ecr_limited():
         "kagent",
         "serving-api",
         "agentgateway",
-        "langfuse",
+        "observability",
     }
+    # Langfuse lives in observability with Prometheus/Grafana: CI may only port-forward to read prompts, never write.
+    observability = next(
+        d for d in docs if d["kind"] == "Role" and d["metadata"]["namespace"] == "observability"
+    )
+    verbs = {v for rule in observability["rules"] for v in rule["verbs"]}
+    assert verbs == {"get", "list", "create"} and "*" not in str(observability["rules"])
+    assert {"apiGroups": [""], "resources": ["pods/portforward"], "verbs": ["create"]} in (
+        observability["rules"]
+    )
     iam = (ROOT / "infra/aws/terraform/iam.tf").read_text()
     ecr = iam[iam.index('data "aws_iam_policy_document" "ci_ecr"') :]
     assert "resources = [for repo in aws_ecr_repository.application : repo.arn]" in ecr

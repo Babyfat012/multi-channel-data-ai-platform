@@ -39,8 +39,8 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | `kagent` | UI, coordinator, data-agent, model-agent, ModelConfig / RemoteMCPServer | Agent tools, A2A orchestration, global model config; KEDA for data-agent / model-agent / coordinator |
 | `agentgateway` | agentgateway | LLM / MCP / A2A gateway, API key / PII / A/B routing |
 | `ingress` / `cert-manager` | NGINX controller / certificate controller | NLB / HTTPS / basic auth / rate limit, API / UI / ops routes |
-| `observability` / `keda` | Prometheus, Grafana, Fluent Bit / Loki, Jaeger / KEDA controller | Metrics / logs / traces, LLM / agent telemetry, autoscaling |
-| `agentregistry` / `langfuse` | Agent registry / Langfuse | Publish agents + MCP, prompt versions / production sync |
+| `observability` / `keda` | Prometheus, Grafana, Fluent Bit / Loki, Jaeger, Langfuse / KEDA controller | Metrics / logs / traces, LLM / agent telemetry, prompt versions / production sync, autoscaling |
+| `agentregistry` | Agent registry | Publish agents + MCP |
 | `ate-system` / `kagent` | Substrate controllers / SandboxAgent + WorkerPool | Sandbox / gVisor / shared warm worker / golden snapshot |
 | EC2 · Jenkins / Vault + IaC | CI pipelines, secret KV, Terraform / Ansible | Test / build / deploy / eval; coverage / EP-BVA / mutation / property-based / Locust; security |
 

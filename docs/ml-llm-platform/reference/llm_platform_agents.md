@@ -216,7 +216,7 @@ Agent/LLM monitoring: [`docs/ml-llm-platform/observability.md`](../observability
 ## System prompts from Langfuse
 
 Agents take their system prompts from a prompt management tool. Langfuse **v2.95.11**
-([`langfuse.yaml`](../../../infra/k8s/agents/langfuse.yaml), ns `langfuse`) needs only Postgres ⇒ it uses the database `langfuse` on
+([`langfuse.yaml`](../../../infra/k8s/observability/langfuse.yaml), ns `observability`, next to Prometheus/Loki/Jaeger/Grafana) needs only Postgres ⇒ it uses the database `langfuse` on
 pgvector; v3+ also needs ClickHouse/Redis/S3, too heavy for a local machine.
 
 ```
@@ -231,7 +231,7 @@ kagent rebuilds the Agent config (Secret <agent>/config.json)
 
 - Deploy + initial load: `python3 -m scripts.llm.deploy_langfuse` (source prompts in
   [`infra/k8s/agents/prompts/`](../../../infra/k8s/agents/prompts/README.md), only created when Langfuse does not have them yet). The API key is in
-  the Secret `kagent/langfuse-api`; the admin UI password is in the Secret `langfuse/langfuse-env`.
+  the Secret `kagent/langfuse-api`; the admin UI password is in the Secret `observability/langfuse-env` (moved from ns `langfuse`; the deploy script carries the old keys and SALT over).
 - Checked loading 3 prompts (version 1, production). Created `platform-coordinator` **version 2** in Langfuse (adding
   "Always answer in English.") → ran sync → the coordinator's `config.json` contains the new sentence after ~20 s, with no redeploy.
 - Error encountered: 2 Langfuse pods ran the Prisma migration at the same time ⇒ the migration broke (P3009). Fix: `strategy: Recreate`,

@@ -67,7 +67,7 @@ def main():
         f"{secret('langfuse-api', 'LANGFUSE_PUBLIC_KEY')}:{secret('langfuse-api', 'LANGFUSE_SECRET_KEY')}".encode()
     ).decode()
     forward = subprocess.Popen(
-        [*KC, "-n", "langfuse", "port-forward", "svc/langfuse", "13000:3000"],
+        [*KC, "-n", "observability", "port-forward", "svc/langfuse", "13000:3000"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

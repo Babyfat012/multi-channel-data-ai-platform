@@ -126,6 +126,7 @@ Deployed with `python3 -m scripts.shared.deploy_observability` (namespace `obser
 | Fluent Bit | fluent/fluent-bit 0.58.3 | reads container logs on the node, attaches namespace/pod/app labels, pushes to Loki | [`fluent-bit-values.yaml`](../../infra/k8s/observability/fluent-bit-values.yaml) |
 | Jaeger | jaegertracing/jaeger 4.16.1, image **2.10.0** | traces (OTLP :4317), stored in RAM | [`jaeger-values.yaml`](../../infra/k8s/observability/jaeger-values.yaml) |
 | Grafana | grafana/grafana 10.5.15 | views all three; Data & AI Platform dashboard | [`grafana-values.yaml`](../../infra/k8s/observability/grafana-values.yaml), [`dashboards/`](../../infra/k8s/observability/dashboards/platform-agents.json) |
+| Langfuse | langfuse/langfuse 2.95.11 (Deployment, DB `langfuse` on pgvector) | LLM prompt versions: system prompts of the three agents, `production` label synced to ConfigMap `kagent/agent-prompts`; deployed by [`deploy_langfuse`](../../scripts/llm/deploy_langfuse.py) | [`langfuse.yaml`](../../infra/k8s/observability/langfuse.yaml) |
 
 Data sources:
 - **Web API** (Feature API, from v7): `/metrics` with `http_requests_total{method,handler,status}` and
