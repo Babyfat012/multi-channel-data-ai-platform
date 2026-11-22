@@ -290,7 +290,7 @@ services:
     mem_limit: 1280m
 
   # ML Platform: reads stream features Flink writes to Kafka and pushes them into Feast (Redis in kind + Parquet on MinIO).
-  # Run scripts/ml/setup_kind_feature_store.sh first so Redis exists.
+  # Run scripts/ml/setup_kind_feature_store.py first so Redis exists.
   feast-pusher:
     build: {context: ., dockerfile: infra/docker/Dockerfile.feast}
     image: platform-feast:0.66.0

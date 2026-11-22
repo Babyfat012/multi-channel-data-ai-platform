@@ -474,8 +474,8 @@ def test_kfp_on_eks_reads_s3_by_pod_identity_without_minio():
     assert '"s3:GetObject"' in reader and "Put" not in reader and "Delete" not in reader
     pipeline = (ROOT / "ml/training_pipeline.py").read_text()
     assert 'SECRET = "platform-minio" if TARGET == "kind" else None' in pipeline
-    script = (ROOT / "scripts/ml/run_training_pipeline.sh").read_text()
-    assert 'if [[ "$PIPELINE_TARGET" == aws ]]' in script and "REGISTRY must be ECR" in script
+    script = (ROOT / "scripts/ml/run_training_pipeline.py").read_text()
+    assert 'if target == "aws":' in script and "aws: REGISTRY must be ECR" in script
 
 
 def test_kserve_on_eks_reads_registry_by_pod_identity():
@@ -496,9 +496,14 @@ def test_kserve_on_eks_reads_registry_by_pod_identity():
     )
     block = identity[identity.index('resource "aws_iam_role_policy" "model_reader"') :]
     assert "data.aws_iam_policy_document.feature_reader.json" in block.split("}")[0]
-    script = (ROOT / "scripts/ml/deploy_return_risk.sh").read_text()
-    s3 = script[script.index("== s3 ]]; then") : script.index("\nelse\n")]
-    assert "platform-minio" not in s3 and "REGISTRY must be ECR" in s3
+    from scripts.ml.deploy_return_risk import cluster_objects
+
+    # EKS: Pod Identity only, no MinIO Secret; kind: the MinIO Secret is attached to the ServiceAccount.
+    assert [o["kind"] for o in cluster_objects("s3", "ap-southeast-2")] == [
+        "Namespace",
+        "ServiceAccount",
+    ]
+    assert "REGISTRY must be ECR" in (ROOT / "scripts/ml/deploy_return_risk.py").read_text()
 
 
 def test_training_sample_and_kfp_memory_fit_eks_nodes():
@@ -683,9 +688,10 @@ def test_wave4_flink_a_reads_replayed_topic_without_postgres_lookup():
     assert "jdbc" not in sql.lower() and "@@PG_" not in sql
     pusher = (ROOT / "feature_repo/push_stream_features.py").read_text()
     assert '"FEAST_PUSH_TOPIC", "ml.sku_return_24h"' in pusher
-    run = (ROOT / "scripts/ml/run_sku_return_feature.sh").read_text()
-    assert "sql_file=${FEATURE_SQL:-flink_jobs/ml/sku_return_feature.sql}" in run
-    assert "if grep -q '@@PG_' \"$sql_file\"; then" in run
+    from scripts.ml.run_sku_return_feature import DEFAULT_SQL, render
+
+    assert DEFAULT_SQL == "flink_jobs/ml/sku_return_feature.sql"
+    assert render(sql) == sql  # variant A has no @@PG_ placeholders ⇒ no credentials needed
     replay_sql = (ROOT / "sql/ml/return_events_replay.sql").read_text()
     assert "l.label = 1" in replay_sql and "ORDER BY l.label_available_at" in replay_sql
 

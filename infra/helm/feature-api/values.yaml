@@ -13,7 +13,7 @@ autoscaling:
   maxReplicas: 3
   threshold: 10   # requests/s per pod
   prometheus: http://prometheus-server.observability.svc.cluster.local
-# Secret holding AWS_*, FEAST_*; created outside the chart from .env (scripts/ml/deploy_kind_feature_api.sh).
+# Secret holding AWS_*, FEAST_*; created outside the chart from .env (scripts/ml/deploy_feature_api.py).
 envSecret: feature-api-env
 nodePort: 30800
 service:

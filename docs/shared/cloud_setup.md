@@ -105,7 +105,7 @@ export PLATFORM_STORAGE=s3
 export KCTX=platform-apps
 export LAKEHOUSE_BUCKET=$(terraform -chdir=infra/aws/terraform output -raw lakehouse_bucket)
 # POSTGRES_USER / POSTGRES_PASSWORD come from the environment's secret source, never written to Git.
-SKIP_BUILD_PUSH=1 bash scripts/ml/deploy_feature_api.sh "$TAG"
+SKIP_BUILD_PUSH=1 python3 -m scripts.ml.deploy_feature_api "$TAG"
 kubectl --context "$KCTX" -n feature-store rollout status deployment/feature-api --timeout=180s
 ```
 

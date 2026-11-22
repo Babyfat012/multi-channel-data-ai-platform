@@ -141,7 +141,7 @@ s3://platform/feature-store/training_lines   (Spark export_training_lines.py: la
 | Image for the steps | [`infra/docker/Dockerfile.train`](../../infra/docker/Dockerfile.train) (built on `platform-feast`) |
 | Training set export | [`spark_jobs/gold/export_training_lines.py`](../../spark_jobs/gold/export_training_lines.py), task `export_training_lines` of DAG `ml_feature_materialize` |
 | MLflow server | service `mlflow` (profile `ml`), [`infra/docker/Dockerfile.mlflow`](../../infra/docker/Dockerfile.mlflow) |
-| Submit | [`scripts/ml/run_training_pipeline.sh`](../../scripts/ml/run_training_pipeline.sh) |
+| Submit | [`scripts/ml/run_training_pipeline.py`](../../scripts/ml/run_training_pipeline.py) |
 
 ## Decisions
 
@@ -176,7 +176,7 @@ kubectl --context kind-platform apply -k "github.com/kubeflow/pipelines/manifest
 kubectl --context kind-platform apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/platform-agnostic?ref=2.17.2"
 ## The submit script builds/pushes platform-train:<git-SHA> itself, then compiles KFP with the same image.
 python3 -m scripts.shared.setup_kind_registry
-scripts/ml/run_training_pipeline.sh train-N                 # KFP UI: kubectl port-forward svc/ml-pipeline-ui 8888:80
+python3 -m scripts.ml.run_training_pipeline train-N                 # KFP UI: kubectl port-forward svc/ml-pipeline-ui 8888:80
 ```
 
 ## Evidence

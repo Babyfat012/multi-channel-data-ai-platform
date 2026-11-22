@@ -47,7 +47,7 @@ STAGES = {
             "/opt/airflow/platform-control/order_lifecycle_cdc/order_lifecycle_cdc_expected.json"
         ),
         "platform_order_lifecycle_cdc_spark_packages": f"{ICEBERG},{KAFKA}",
-        # ML Platform feature store; Redis lives in the kind cluster (scripts/ml/setup_kind_feature_store.sh).
+        # ML Platform feature store; Redis lives in the kind cluster (scripts/ml/setup_kind_feature_store.py).
         "platform_feast_root": "s3://platform/feature-store",
         "platform_feast_redis": "platform-control-plane:30379",
     },

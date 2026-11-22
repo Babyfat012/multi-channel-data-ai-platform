@@ -51,7 +51,7 @@ pipeline {
               # D3 not migrated yet (no publications/ on S3 yet): empty = legacy reader. Remove this line after the first publication.
               export FEAST_PUBLICATION_ROOT=
             fi
-            SKIP_BUILD_PUSH=1 REPLICAS=2 bash scripts/ml/deploy_kind_feature_api.sh "$TAG"
+            SKIP_BUILD_PUSH=1 REPLICAS=2 python3 -m scripts.ml.deploy_feature_api "$TAG"
             # Point the gateway's MCP backend at the feature-mcp pod (deployed above) then reload the ConfigMap; no Secrets in the file.
             kubectl --context $KCTX apply -f infra/k8s/agents/agentgateway.yaml
             kubectl --context $KCTX -n agentgateway rollout restart deploy/agentgateway

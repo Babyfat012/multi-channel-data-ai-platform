@@ -42,7 +42,7 @@ In the run in this screenshot, `publish` was skipped because the Variable `platf
 
 ### Feature API serving RAG on EKS
 
-Running `deploy_feature_api.sh` with `FEAST_RAG_REGISTRY=s3://…/feature-store/rag-registry.db` enables the `/chunks` endpoint and the MCP tool
+Running `scripts/ml/deploy_feature_api.py` with `FEAST_RAG_REGISTRY=s3://…/feature-store/rag-registry.db` enables the `/chunks` endpoint and the MCP tool
 `search_policy_chunks`. Sending the question "What is Amazon's return window for apparel?" through the HTTPS ingress returns HTTP 200; the closest
 chunk is the "Return window" section of the `amazon-returns` document (30 days).
 

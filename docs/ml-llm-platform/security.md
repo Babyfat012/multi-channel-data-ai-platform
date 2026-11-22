@@ -52,7 +52,7 @@ Secret flow: `scripts.shared.setup_vault` loads secrets from `.env` and the agen
                                                     ▼
                                read-only CI token ──► Jenkins (only credential: vault-ci-token)
                                                     ▼
-                         scripts/shared/vault_env.sh ──► run_sku_return_feature.sh, feast-pusher, …
+                         scripts/shared/vault_env.sh ──► scripts/ml/run_sku_return_feature.py, feast-pusher, …
 ```
 
 | Component | File |
@@ -60,7 +60,7 @@ Secret flow: `scripts.shared.setup_vault` loads secrets from `.env` and the agen
 | Vault 2.1.1 service, server mode, file storage in volume `vault-data` | `vault` in [`docker-compose.yml`](../../docker-compose.yml) (profile `security`) |
 | One-time init + unseal + enable KV v2 + load secrets + policy + CI token | [`scripts/shared/setup_vault.py`](../../scripts/shared/setup_vault.py) |
 | Read secrets into environment variables | [`scripts/shared/vault_env.sh`](../../scripts/shared/vault_env.sh) |
-| Where secrets are used: Flink job submission, stream Jenkinsfile | [`run_sku_return_feature.sh`](../../scripts/ml/run_sku_return_feature.sh), [`stream-features.Jenkinsfile`](../../infra/jenkins/stream-features.Jenkinsfile) |
+| Where secrets are used: Flink job submission, stream Jenkinsfile | [`scripts/ml/run_sku_return_feature.py`](../../scripts/ml/run_sku_return_feature.py), [`stream-features.Jenkinsfile`](../../infra/jenkins/stream-features.Jenkinsfile) |
 
 ## Decisions
 

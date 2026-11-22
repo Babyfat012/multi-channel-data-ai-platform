@@ -55,7 +55,7 @@ pipeline {
             sh '''if [ "$DATA_STORAGE" = s3 ]; then
                     # AWS: Flink ML 2.2 cluster, two PyFlink jobs (online → EKS Redis, offline → S3 Parquet); no pusher.
                     $COMPOSE up --no-build --pull always -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
-                    COMPOSE="$COMPOSE" scripts/ml/run_stream_feature_jobs.sh
+                    COMPOSE="$COMPOSE" python3 -m scripts.ml.run_stream_feature_jobs
                   else
                     $COMPOSE up --no-build --pull always -d --wait kafka flink-jobmanager flink-taskmanager
                     set +x; eval "$(scripts/shared/vault_env.sh minio)"
@@ -63,7 +63,7 @@ pipeline {
                     $COMPOSE run --rm --no-deps feast-pusher feast apply
                     $COMPOSE up --no-build --pull always -d --force-recreate feast-pusher
                     # Cancel any job with the same name then resubmit ⇒ never two jobs running in parallel.
-                    scripts/ml/run_sku_return_feature.sh
+                    python3 -m scripts.ml.run_sku_return_feature
                   fi'''
           }
         }

@@ -78,9 +78,6 @@ def test_registry_and_pull_configuration():
     "script",
     [
         "scripts/llm/eval_agent_ci.sh",
-        "scripts/ml/deploy_kind_feature_api.sh",
-        "scripts/ml/deploy_return_risk.sh",
-        "scripts/ml/run_training_pipeline.sh",
         "scripts/shared/vault_env.sh",
     ],
 )
@@ -355,7 +352,7 @@ def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
         assert "always { sh 'rm -f .env' }" in text
     assert 'if [ "$DATA_STORAGE" != s3 ]; then python3 -m scripts.data.setup_airflow' in rag
     # AWS: two PyFlink jobs on the Flink ML cluster, verify exactly 2 jobs RUNNING.
-    assert 'COMPOSE="$COMPOSE" scripts/ml/run_stream_feature_jobs.sh' in stream
+    assert 'COMPOSE="$COMPOSE" python3 -m scripts.ml.run_stream_feature_jobs' in stream
     assert 'want="ml-sku-return-24h-online ml-sku-return-24h-offline"' in stream
     # Only the local branch fetches MinIO keys from Vault; AWS goes through the IAM role.
     local_branch = stream.split("else\n", 1)[1].split("fi", 1)[0]

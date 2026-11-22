@@ -55,11 +55,14 @@ def read_env_file(path: Path = ROOT / ".env") -> dict[str, str]:
     return values
 
 
-def load_env(path: Path = ROOT / ".env", required: bool = True) -> None:
-    """Load .env into os.environ, overriding existing values (same as bash `set -a; . ./.env`)."""
+def load_env(path: Path = ROOT / ".env", required: bool = True, override: bool = True) -> None:
+    """Load .env into os.environ. override=True matches bash `set -a; . ./.env` (the file wins);
+    override=False keeps values already exported in the shell."""
     if required and not path.exists():
         sys.exit(f"{path} not found")
-    os.environ.update(read_env_file(path))
+    for key, value in read_env_file(path).items():
+        if override or key not in os.environ:
+            os.environ[key] = value
 
 
 def env_defaults(keys: list[str], path: Path = ROOT / ".env") -> None:

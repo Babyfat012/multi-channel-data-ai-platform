@@ -116,11 +116,11 @@ python3 -m scripts.shared.setup_kind_registry
 curl -fsS http://localhost:5001/v2/_catalog
 
 ## Feature API: build → tag/push → helm upgrade --atomic, IfNotPresent.
-REGISTRY=localhost:5001 scripts/ml/deploy_kind_feature_api.sh "$(git rev-parse HEAD)"
+REGISTRY=localhost:5001 python3 -m scripts.ml.deploy_feature_api "$(git rev-parse HEAD)"
 ## KFP: the script builds/pushes the train image with the same TAG before compile/submit.
-REGISTRY=localhost:5001 scripts/ml/run_training_pipeline.sh
+REGISTRY=localhost:5001 python3 -m scripts.ml.run_training_pipeline
 ## KServe: takes the production model, builds/pushes an image tagged version+git SHA+content hash, then applies.
-REGISTRY=localhost:5001 scripts/ml/deploy_return_risk.sh
+REGISTRY=localhost:5001 uv run --no-project --with mlflow-skinny==3.17.0 python -m scripts.ml.deploy_return_risk
 ```
 
 `REGISTRY` defaults to `localhost:5001`; switch to ECR/Artifact Registry with this variable, and log in to
