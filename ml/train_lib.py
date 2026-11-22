@@ -75,15 +75,22 @@ def train_model(train: pd.DataFrame, seed: int = 7):
     return model
 
 
-def evaluate(test: pd.DataFrame, model_scores: np.ndarray, base_scores: np.ndarray) -> dict:
-    """PR-AUC (average precision) of the model and baseline on the SAME test set, same prevalence."""
+def evaluate(
+    test: pd.DataFrame,
+    model_scores: np.ndarray,
+    base_scores: np.ndarray,
+    champion_scores: np.ndarray | None = None,
+) -> dict:
+    """PR-AUC (average precision) of the model, baseline and (if any) the current production model
+    (champion), all on the SAME test set, so the same prevalence. A PR-AUC from another run's test set
+    is not comparable: a test window with more returns scores higher with no better model."""
     from sklearn.metrics import average_precision_score
 
     y = test["label"].to_numpy()
     prevalence = float(y.mean())
     model_ap = float(average_precision_score(y, model_scores))
     base_ap = float(average_precision_score(y, base_scores))
-    return {
+    result = {
         "test_rows": int(len(y)),
         "prevalence": prevalence,
         "pr_auc_model": model_ap,
@@ -91,3 +98,16 @@ def evaluate(test: pd.DataFrame, model_scores: np.ndarray, base_scores: np.ndarr
         "lift_model": model_ap / prevalence,
         "beats_baseline": model_ap > base_ap,
     }
+    if champion_scores is not None:
+        champion_ap = float(average_precision_score(y, champion_scores))
+        result |= {"pr_auc_champion": champion_ap, "beats_champion": model_ap > champion_ap}
+    return result
+
+
+def champion_scores(booster, test: pd.DataFrame) -> np.ndarray | None:
+    """Scores of the production model on this test set, using the features IT was trained with.
+    None when the test set lacks one of them (feature set changed): not comparable, not a crash."""
+    needed = booster.feature_name()
+    if not set(needed) <= set(test.columns):
+        return None
+    return booster.predict(test[needed])

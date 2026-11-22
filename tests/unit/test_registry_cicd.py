@@ -368,3 +368,18 @@ def test_agent_pipelines_pass_eval_skus_for_pipeline_a():
     from scripts.llm.eval_agent_ci import DEFAULT_SKUS
 
     assert DEFAULT_SKUS.startswith("sku-00001,") and DEFAULT_SKUS.endswith(",sku-00012")
+
+
+def test_only_the_approval_pipeline_sets_production():
+    """Training only nominates a challenger; production moves after a human input, before the deploy,
+    and the wait holds no executor (jenkins.yaml has one)."""
+    pipeline = read("ml/training_pipeline.py")
+    assert '"challenger", version' in pipeline and '"production", version' not in pipeline
+    text = read("infra/jenkins/return-risk.Jenkinsfile")
+    stages = re.findall(r"stage\('([^']+)'\)", text)
+    assert stages == ["Show challenger", "Approve", "Promote", "Deploy model"]
+    approve = text.split("stage('Approve')")[1].split("stage('Promote')")[0]
+    assert "input(" in approve and "agent any" not in approve
+    assert re.search(r"pipeline \{\s*(//[^\n]*\n\s*)*agent none", text)
+    assert '--version "$CHALLENGER"' in text and "disableConcurrentBuilds()" in text
+    assert "'return-risk'" in read("infra/jenkins/jenkins.yaml")

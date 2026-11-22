@@ -72,7 +72,7 @@ gateway config: [Agent Registry](agent_registry.md#versioning-in-ci-and-the-gate
 | Jenkins 2.580.1 LTS image + pinned plugins + docker/compose/kubectl/helm/kind/uv | [`infra/docker/Dockerfile.jenkins`](../../infra/docker/Dockerfile.jenkins) |
 | Configuration as code (JCasC): users, credentials, 4 jobs | [`infra/jenkins/jenkins.yaml`](../../infra/jenkins/jenkins.yaml) |
 | Startup (fetches secrets from Vault) | [`scripts/shared/setup_jenkins.py`](../../scripts/shared/setup_jenkins.py), service `jenkins` (profile `ci`) |
-| Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline` |
+| Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline`, `return-risk` |
 
 ```bash
 python3 -m scripts.shared.setup_vault      # first: Vault + read-only token
@@ -143,6 +143,22 @@ Every Jenkinsfile that builds images has a **Push** stage before the deploy step
 SHA tags are only correct when the working tree is clean. If you run by hand with uncommitted code, set a separate `TAG` and do not reuse it.
 
 The **Eval agent** stage has been wired into the Feature API and coordinator pipelines, see the [eval gate](agent_evaluation.md#use-in-ci).
+
+### return-risk model approval
+
+[`return-risk.Jenkinsfile`](../../infra/jenkins/return-risk.Jenkinsfile) is the diagram's D12 → D14: Show challenger → Approve →
+Promote → Deploy model, with [`scripts/ml/promote_return_risk.py`](../../scripts/ml/promote_return_risk.py).
+
+- **Show challenger** prints the challenger's metrics next to the champion's (same test set) and warns when the champion it was
+  scored against is no longer `production`.
+- **Approve** is a Jenkins `input`, up to 24 h. It runs with no agent so it does not hold the only executor; the approver's id is recorded.
+- **Promote** re-checks that the shown version is still the challenger (a training run during the wait must not slip through),
+  then tags `approved_by` / `approved_at` / `previous_production` and moves alias `production`.
+- **Deploy model** runs `deploy_return_risk`, which reads the alias. This job is the only writer of `production` and
+  `disableConcurrentBuilds` keeps it single, so the alias read here is the version just approved.
+
+Limits: any logged-in Jenkins user may approve (`loggedInUsersCanDoAnything`); rolling a model back = rerun training or set the
+alias by hand to `previous_production`. Not run on Jenkins yet: structure checked by `tests/unit/test_registry_cicd.py`.
 If the score is below the threshold or there is no data to score, the build is red; this gate does not yet roll back the applied agent.
 Local record: **no evidence yet of a real Jenkins run** for the new registry/eval gate changes.
 This state has been superseded by the AWS results below.

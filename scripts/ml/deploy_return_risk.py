@@ -37,15 +37,19 @@ def code_digest() -> str:
     return hasher.hexdigest()[:8]
 
 
+def mlflow_uri() -> str:
+    """MLflow server: MLFLOW_TRACKING_URI, else the loopback port Compose publishes."""
+    return (
+        os.environ.get("MLFLOW_TRACKING_URI")
+        or f"http://localhost:{os.environ.get('MLFLOW_PORT', '5050')}"
+    )
+
+
 def resolve_model(bucket: str) -> tuple[str, str]:
     """(version, storage URI) of the model to deploy; the URI is where MLflow stored model.lgb."""
     from mlflow import MlflowClient  # imported here: only this step needs MLflow
 
-    uri = (
-        os.environ.get("MLFLOW_TRACKING_URI")
-        or f"http://localhost:{os.environ.get('MLFLOW_PORT', '5050')}"
-    )
-    client = MlflowClient(uri)
+    client = MlflowClient(mlflow_uri())
     pinned = os.environ.get("MODEL_VERSION")
     if pinned:
         print(
