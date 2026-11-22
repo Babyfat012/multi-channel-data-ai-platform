@@ -65,12 +65,12 @@ the coordinator and the stream feature jobs. Secrets must live in Jenkins or a s
 |---|---|
 | Jenkins 2.580.1 LTS image + pinned plugins + docker/compose/kubectl/helm/kind/uv | [`infra/docker/Dockerfile.jenkins`](../../infra/docker/Dockerfile.jenkins) |
 | Configuration as code (JCasC): users, credentials, 4 jobs | [`infra/jenkins/jenkins.yaml`](../../infra/jenkins/jenkins.yaml) |
-| Startup (fetches secrets from Vault) | [`scripts/shared/setup_jenkins.sh`](../../scripts/shared/setup_jenkins.sh), service `jenkins` (profile `ci`) |
+| Startup (fetches secrets from Vault) | [`scripts/shared/setup_jenkins.py`](../../scripts/shared/setup_jenkins.py), service `jenkins` (profile `ci`) |
 | Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline` |
 
 ```bash
-scripts/shared/setup_vault.sh      # first: Vault + read-only token
-scripts/shared/setup_jenkins.sh    # UI http://localhost:8090, user admin, password in Vault secret/platform/jenkins
+python3 -m scripts.shared.setup_vault      # first: Vault + read-only token
+python3 -m scripts.shared.setup_jenkins    # UI http://localhost:8090, user admin, password in Vault secret/platform/jenkins
 ```
 
 ## Decisions
@@ -88,7 +88,7 @@ scripts/shared/setup_jenkins.sh    # UI http://localhost:8090, user admin, passw
 
 - The Jenkins container is `Up`, and the `/login` page returns 200. The Jenkins API lists all the jobs `coordinator`,
   `feature-api-agents`, `rag-pipeline`, `stream-features` and the two credentials `vault-ci-token`, `kind-kubeconfig`; all are created by JCasC.
-- Changing the admin password: delete `secret/platform/jenkins` and rerun `setup_jenkins.sh` (done once, login
+- Changing the admin password: delete `secret/platform/jenkins` and rerun `scripts.shared.setup_jenkins` (done once, login
   with the new password OK).
 - **Not built yet** (local record): the Jenkinsfiles had not been committed to `main`. This state has been superseded by the AWS results in the section below.
 
@@ -111,20 +111,20 @@ The script checks that `config_path` is enabled, and writes `hosts.toml` and the
 It does not recreate the cluster or restart nodes. When `config_path` is missing, the script stops and reports that the node needs registry configuration.
 
 ```bash
-## Existing platform cluster; setup does not delete data. up_ml_base.sh also calls this step.
-scripts/shared/setup_kind_registry.sh
+## Existing platform cluster; setup does not delete data. scripts.shared.up_ml_base also calls this step.
+python3 -m scripts.shared.setup_kind_registry
 curl -fsS http://localhost:5001/v2/_catalog
 
 ## Feature API: build → tag/push → helm upgrade --atomic, IfNotPresent.
-REGISTRY=localhost:5001 scripts/ml/deploy_kind_feature_api.sh "$(git rev-parse HEAD)"
+REGISTRY=localhost:5001 python3 -m scripts.ml.deploy_feature_api "$(git rev-parse HEAD)"
 ## KFP: the script builds/pushes the train image with the same TAG before compile/submit.
-REGISTRY=localhost:5001 scripts/ml/run_training_pipeline.sh
+REGISTRY=localhost:5001 python3 -m scripts.ml.run_training_pipeline
 ## KServe: takes the production model, builds/pushes an image tagged version+git SHA+content hash, then applies.
-REGISTRY=localhost:5001 scripts/ml/deploy_return_risk.sh
+REGISTRY=localhost:5001 uv run --no-project --with mlflow-skinny==3.17.0 python -m scripts.ml.deploy_return_risk
 ```
 
 `REGISTRY` defaults to `localhost:5001`; switch to ECR/Artifact Registry with this variable, and log in to
-Docker along with the target cluster's pull credential configuration. The shared script `scripts/shared/push_images.sh`
+Docker along with the target cluster's pull credential configuration. The shared script `python3 -m scripts.shared.push_images`
 takes a list of images with source tags; if `TAG` is set, it retags them to that SHA. `latest` is never published.
 The old name `push_images_gke.sh` is only a compatibility wrapper for `REGISTRY_URL`, and also needs the image list.
 

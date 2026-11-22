@@ -2,6 +2,6 @@
 # Agent system prompts
 
 The source of truth is **Langfuse** (prompt `platform-<agent>`, label `production`). The `.txt` files here are only for the initial load
-(`scripts/llm/deploy_kind_langfuse.sh`, which creates a prompt only when Langfuse does not have it yet). Edit prompts in Langfuse, then run
+(`python3 -m scripts.llm.deploy_langfuse`, which creates a prompt only when Langfuse does not have it yet). Edit prompts in Langfuse, then run
 `scripts/llm/sync_agent_prompts.py` (or the Jenkins job) to push the `production` version into ConfigMap `agent-prompts`, which
 Agents read via `systemMessageFrom`. See [`docs/ml-llm-platform/reference/llm_platform_agents.md`](../../../../docs/ml-llm-platform/reference/llm_platform_agents.md).

@@ -382,7 +382,7 @@ check `docker ps` to see whether MinIO is running; **do not** go fixing Lakekeep
 cd /path/to/checkout
 docker compose up -d minio minio-init                                        # REQUIRED
 docker compose --profile spark up -d spark-master spark-worker-1 spark-worker-2
-bash scripts/data/setup_lakekeeper.sh                                             # rerunnable, skips what already exists
+python3 -m scripts.data.setup_lakekeeper                                             # rerunnable, skips what already exists
 ```
 
 **Run the job** (the script runs all three runs or one at a time):
@@ -436,9 +436,9 @@ passes `--window-days`, `--window-start`, the table name and `--run-id` from Air
 Variables / the current run, so a Bronze table can be traced back to the exact log of its run.
 The tasks share the Airflow Connection `spark_default` (Spark standalone) and the
 Variable `platform_spark_packages`, loaded by
-[`scripts/data/setup_airflow.sh`](../../../scripts/data/setup_airflow.sh). The tables/parameters for the three
+[`scripts/data/setup_airflow.py`](../../../scripts/data/setup_airflow.py). The tables/parameters for the three
 new Channels are loaded separately by
-[`scripts/data/setup_dp1_file_channels.sh`](../../../scripts/data/setup_dp1_file_channels.sh).
+[`scripts/data/setup_airflow.py`](../../../scripts/data/setup_airflow.py).
 
 | DAG | Main Spark job | Quality gate | Run evidence |
 |---|---|---|---|

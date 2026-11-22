@@ -15,12 +15,24 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
-RUNBOOK = ROOT / "scripts/data/run_order_lifecycle_live.sh"
+PLANNER = "scripts.data.run_order_lifecycle_live"
+# Files the planner needs, copied into a throwaway project so receipts/out/ land there, not in the repo.
+PROJECT_FILES = (
+    "scripts/common.py",
+    "scripts/data/__init__.py",
+    "scripts/data/run_order_lifecycle_live.py",
+    "scripts/data/run_aws_measurements.py",
+    "scripts/data/setup_airflow.py",
+    "configs/iceberg_maintenance.json",
+    "configs/iceberg_maintenance_aws.json",
+)
 
 
-def test_bash_syntax():
-    """Check the runbook's Bash syntax."""
-    subprocess.run(["bash", "-n", str(RUNBOOK)], check=True)
+def run_script(module, *args, cwd=ROOT, env=None):
+    """Run `python -m <module>` from a project root (the real repo or the throwaway copy)."""
+    return subprocess.run(
+        [sys.executable, "-m", module, *args], cwd=cwd, env=env, capture_output=True, text=True
+    )
 
 
 @pytest.mark.parametrize(
@@ -28,13 +40,13 @@ def test_bash_syntax():
     [
         (["--help"], 0, "--phase"),
         (["--phase"], 2, "--phase"),
-        (["--phase", "wrong"], 2, "Invalid phase"),
-        (["--unknown"], 2, "Invalid flag"),
+        (["--phase", "wrong"], 2, "invalid choice"),
+        (["--unknown"], 2, "unrecognized arguments"),
     ],
 )
 def test_cli_flags_without_docker(args, code, token):
     """Check help and CLI argument errors without starting Docker."""
-    result = subprocess.run(["bash", str(RUNBOOK), *args], capture_output=True, text=True)
+    result = run_script(PLANNER, *args)
     assert result.returncode == code
     assert token in result.stdout + result.stderr
 
@@ -144,22 +156,9 @@ elif "cp" in args:
         "PLATFORM_PYTHON": sys.executable,
     }
     project = tmp_path / "project"
-    (project / "scripts").mkdir(parents=True)
-    (project / "configs").mkdir()
-    for script in (
-        "data/run_order_lifecycle_live.sh",
-        "data/run_aws_measurements.sh",
-        "data/setup_airflow.sh",
-        "data/setup_dp1_file_channels.sh",
-        "data/setup_dp1_cdc.sh",
-        "data/setup_dp2_silver.sh",
-        "data/setup_dp2_file_channels.sh",
-        "data/setup_dp3_features.sh",
-    ):
-        (project / "scripts" / script).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(ROOT / "scripts" / script, project / "scripts" / script)
-    for config in ("iceberg_maintenance.json", "iceberg_maintenance_aws.json"):
-        shutil.copy(ROOT / "configs" / config, project / "configs")
+    for name in PROJECT_FILES:
+        (project / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / name, project / name)
     env["FAKE_PROJECT"] = str(project)
     yield env, log, run_id
 
@@ -171,17 +170,7 @@ def test_all_phase_flags_parse(fake_runtime, phase):
     env, _, _ = fake_runtime
     if phase != "source":
         env["PLATFORM_V2_TIMEOUT"] = "invalid"
-    result = subprocess.run(
-        [
-            "bash",
-            str(Path(env["FAKE_PROJECT"]) / "scripts/data/run_order_lifecycle_live.sh"),
-            "--phase",
-            phase,
-        ],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    result = run_script(PLANNER, "--phase", phase, cwd=env["FAKE_PROJECT"], env=env)
     assert "Invalid phase" not in result.stderr
     assert result.returncode == (0 if phase == "source" else 2)
 
@@ -191,17 +180,7 @@ def test_airflow_copies_run_receipts_before_stop(fake_runtime, state):
     """Check Airflow copies the run's receipts before stopping services."""
     env, log, run_id = fake_runtime
     env["FAKE_RUN_STATE"] = state
-    result = subprocess.run(
-        [
-            "bash",
-            str(Path(env["FAKE_PROJECT"]) / "scripts/data/run_order_lifecycle_live.sh"),
-            "--phase",
-            "airflow",
-        ],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    result = run_script(PLANNER, "--phase", "airflow", cwd=env["FAKE_PROJECT"], env=env)
     assert result.returncode == (0 if state == "success" else 1), result.stderr
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     trigger = next(c for c in calls if "trigger" in c)
@@ -227,9 +206,7 @@ def test_source_refuses_partial_directory(fake_runtime):
     source = Path(env["PLATFORM_ORDER_LIFECYCLE_DIR"])
     (source / "manifest.json").unlink()
     (source / "partial.jsonl").write_text("keep")
-    result = subprocess.run(
-        ["bash", str(RUNBOOK), "--phase", "source"], env=env, capture_output=True, text=True
-    )
+    result = run_script(PLANNER, "--phase", "source", env=env)
     assert result.returncode == 1
     assert (source / "partial.jsonl").read_text() == "keep"
 
@@ -259,12 +236,7 @@ print("[]")
     curl.chmod(0o755)
     env["DATAHUB_PYTHON"] = str(publisher)
     env.update(PLATFORM_STORAGE=storage, RAW_BUCKET="test-raw", AWS_REGION="ap-southeast-1")
-    result = subprocess.run(
-        ["bash", str(project / "scripts/data/run_order_lifecycle_live.sh"), "--phase", "datahub"],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    result = run_script(PLANNER, "--phase", "datahub", cwd=project, env=env)
     assert result.returncode == (1 if invalid else 0), result.stderr
     if invalid:
         assert "Wrong run_id" in result.stderr
@@ -287,7 +259,7 @@ print("[]")
 
 @pytest.mark.parametrize("from_dotenv", [False, True])
 def test_s3_airflow_uses_remote_source_without_minio(fake_runtime, from_dotenv):
-    """Run real Bash with fake Docker/aws: S3 conf, receipts and environment precedence."""
+    """Run the planner with fake Docker/aws: S3 conf, receipts and environment precedence."""
     env, log, run_id = fake_runtime
     project = Path(env["FAKE_PROJECT"])
     aws = project.parent / "aws"
@@ -310,12 +282,7 @@ def test_s3_airflow_uses_remote_source_without_minio(fake_runtime, from_dotenv):
         (project / ".env").write_text("PLATFORM_STORAGE=minio\nRAW_BUCKET=wrong\n")
     # No host fixture: the AWS branch must check the S3 manifest, not generate locally.
     shutil.rmtree(env["PLATFORM_ORDER_LIFECYCLE_DIR"])
-    result = subprocess.run(
-        ["bash", str(project / "scripts/data/run_order_lifecycle_live.sh"), "--phase", "airflow"],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    result = run_script(PLANNER, "--phase", "airflow", cwd=project, env=env)
     assert result.returncode == 0, result.stderr
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     assert not any("minio" in arg for call in calls for arg in call)
@@ -342,12 +309,7 @@ def test_aws_measurement_invocations_use_cluster_and_collect_evidence(fake_runti
         PLATFORM_DATASET_NAME="scale90",
     )
     project = Path(env["FAKE_PROJECT"])
-    result = subprocess.run(
-        ["bash", str(project / "scripts/data/run_aws_measurements.sh"), "--what", what],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    result = run_script("scripts.data.run_aws_measurements", "--what", what, cwd=project, env=env)
     assert result.returncode == 0, result.stderr
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     submits = [c for c in calls if "spark-submit" in c]

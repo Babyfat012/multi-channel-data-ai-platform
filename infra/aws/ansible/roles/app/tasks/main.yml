@@ -152,7 +152,7 @@
   retries: 60
   delay: 5
 - name: Bootstrap Lakekeeper S3 and check the warehouse config on reruns
-  ansible.builtin.command: bash scripts/data/setup_lakekeeper_s3.sh
+  ansible.builtin.command: python3 -m scripts.data.setup_lakekeeper_s3
   args:
     chdir: '{{ app_dir }}'
   register: warehouse_setup
@@ -162,7 +162,7 @@
     set -a
     source .env
     set +a
-    bash scripts/data/setup_airflow.sh
+    python3 -m scripts.data.setup_airflow
   args:
     executable: /bin/bash
     chdir: '{{ app_dir }}'

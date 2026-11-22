@@ -91,7 +91,7 @@ aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS 
 export TAG="$(git rev-parse HEAD)-BUILD_ID"  # replace BUILD_ID for each new build
 # Example: build/push the Feature API; other images use the same helper and namespace.
 docker build -f infra/docker/Dockerfile.serving -t "platform-feature-api:$TAG" .
-scripts/shared/push_images.sh "platform-feature-api:$TAG"
+python3 -m scripts.shared.push_images "platform-feature-api:$TAG"
 ```
 
 ECR tags are immutable: do not overwrite a published tag. Record the commit SHA, build ID and digest when collecting evidence. The deploy scripts take `KCTX`; the `setup_kind_*` bootstrap scripts are still for local use and do not run against EKS. Jenkins has registry/context/kubeconfig credential parameters, but the Compose pipelines for RAG/stream still need their own AWS configuration before running end to end.
@@ -105,11 +105,11 @@ export PLATFORM_STORAGE=s3
 export KCTX=platform-apps
 export LAKEHOUSE_BUCKET=$(terraform -chdir=infra/aws/terraform output -raw lakehouse_bucket)
 # POSTGRES_USER / POSTGRES_PASSWORD come from the environment's secret source, never written to Git.
-SKIP_BUILD_PUSH=1 bash scripts/ml/deploy_feature_api.sh "$TAG"
+SKIP_BUILD_PUSH=1 python3 -m scripts.ml.deploy_feature_api "$TAG"
 kubectl --context "$KCTX" -n feature-store rollout status deployment/feature-api --timeout=180s
 ```
 
-The AWS chart uses ClusterIP and the `feature-api` ServiceAccount in the `feature-store` namespace, matching Pod Identity. The Secret contains no static MinIO/AWS keys. Helm `--atomic` rolls back if the pods do not become Ready. The gateway/ingress is deployed separately; `setup_ingress.sh` needs `INGRESS_DOMAIN` in a cloud context and does not infer the IP from the kind container. The internal CA in the script does not replace a real ACME/domain configuration.
+The AWS chart uses ClusterIP and the `feature-api` ServiceAccount in the `feature-store` namespace, matching Pod Identity. The Secret contains no static MinIO/AWS keys. Helm `--atomic` rolls back if the pods do not become Ready. The gateway/ingress is deployed separately; `scripts.shared.setup_ingress` needs `INGRESS_DOMAIN` in a cloud context and does not infer the IP from the kind container. The internal CA in the script does not replace a real ACME/domain configuration.
 
 ## 6. Gate before moving on to running pipelines
 

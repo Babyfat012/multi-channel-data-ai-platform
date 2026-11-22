@@ -33,7 +33,7 @@ pipeline {
       steps { sh 'docker build -f infra/docker/Dockerfile.serving -t platform-feature-api:$TAG .' }
     }
     stage('Push') {
-      steps { sh 'scripts/shared/push_images.sh platform-feature-api:$TAG' }
+      steps { sh 'python3 -m scripts.shared.push_images platform-feature-api:$TAG' }
     }
     stage('Deploy MCP server') {
       steps {
@@ -51,7 +51,7 @@ pipeline {
               # D3 not migrated yet (no publications/ on S3 yet): empty = legacy reader. Remove this line after the first publication.
               export FEAST_PUBLICATION_ROOT=
             fi
-            SKIP_BUILD_PUSH=1 REPLICAS=2 bash scripts/ml/deploy_kind_feature_api.sh "$TAG"
+            SKIP_BUILD_PUSH=1 REPLICAS=2 python3 -m scripts.ml.deploy_feature_api "$TAG"
             # Point the gateway's MCP backend at the feature-mcp pod (deployed above) then reload the ConfigMap; no Secrets in the file.
             kubectl --context $KCTX apply -f infra/k8s/agents/agentgateway.yaml
             kubectl --context $KCTX -n agentgateway rollout restart deploy/agentgateway
@@ -84,9 +84,9 @@ pipeline {
                          file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
           // Agent 1 is evaluated on features; Agent 2 on two tools: prediction (vs Feature API /predict) and RAG (vs rag/corpus).
           sh '''
-            bash scripts/llm/eval_agent_ci.sh
-            EVAL_AGENT=model-agent EVAL_TASK=predict bash scripts/llm/eval_agent_ci.sh
-            EVAL_AGENT=model-agent EVAL_TASK=policy bash scripts/llm/eval_agent_ci.sh
+            python3 -m scripts.llm.eval_agent_ci
+            EVAL_AGENT=model-agent EVAL_TASK=predict python3 -m scripts.llm.eval_agent_ci
+            EVAL_AGENT=model-agent EVAL_TASK=policy python3 -m scripts.llm.eval_agent_ci
           '''
         }
       }

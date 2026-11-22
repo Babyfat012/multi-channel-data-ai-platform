@@ -112,7 +112,7 @@ expectation after the fix**, not a new run measurement.
 
 ## Remeasured Python results
 
-Running `scripts/data/run_data_contracts_demo.sh`, without Docker:
+Running `uv run python -m scripts.data.run_data_contracts_demo`, without Docker:
 
 | Fixture | Accepted | Quarantined | Reason |
 |---|---:|---:|---|

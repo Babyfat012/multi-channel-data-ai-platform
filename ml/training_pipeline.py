@@ -1,7 +1,7 @@
 """Kubeflow Pipelines: load (Feast offline) → split → train → evaluate → register (MLflow).
 
 Every step runs in the `platform-train` image (infra/docker/Dockerfile.train), calling functions from `ml/train_lib.py`.
-Compile + submit: `scripts/ml/run_training_pipeline.sh`.
+Compile + submit: `scripts/ml/run_training_pipeline.py`.
 """
 
 import os

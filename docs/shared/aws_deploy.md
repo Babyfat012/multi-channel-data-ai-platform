@@ -146,14 +146,14 @@ eval "$(terraform -chdir=infra/aws/terraform output -raw ssm_command)"
 # In the EC2 session
 sudo -iu ubuntu
 cd /opt/platform
-bash scripts/data/run_order_lifecycle_live.sh --phase source    # only checks the manifest on S3
-bash scripts/data/run_order_lifecycle_live.sh --phase airflow   # DAG dp_order_lifecycle, receipts, then stops phase A
+python3 -m scripts.data.run_order_lifecycle_live --phase source    # only checks the manifest on S3
+python3 -m scripts.data.run_order_lifecycle_live --phase airflow   # DAG dp_order_lifecycle, receipts, then stops phase A
 ```
 
 Next run section [5. Measure](#do), **and only then** start DataHub (phase B reuses the RAM of Spark/Airflow):
 
 ```bash
-bash scripts/data/run_order_lifecycle_live.sh --phase datahub   # start DataHub, publish lineage + assertions
+python3 -m scripts.data.run_order_lifecycle_live --phase datahub   # start DataHub, publish lineage + assertions
 ```
 
 Do not use `--phase all` before measuring. Capture runs on the **laptop** through a tunnel: terminal 2 keeps the tunnel open,
@@ -194,9 +194,9 @@ Run on EC2 **after** the airflow phase and **before** the datahub phase (the run
 
 ```bash
 cd /opt/platform
-bash scripts/data/run_aws_measurements.sh --what skew          # baseline vs salted
-bash scripts/data/run_aws_measurements.sh --what maintenance   # compact/z-order real tables
-bash scripts/data/run_aws_measurements.sh --what warehouse     # EXPLAIN before/after index n=5
+python3 -m scripts.data.run_aws_measurements --what skew          # baseline vs salted
+python3 -m scripts.data.run_aws_measurements --what maintenance   # compact/z-order real tables
+python3 -m scripts.data.run_aws_measurements --what warehouse     # EXPLAIN before/after index n=5
 ```
 
 Results: `out/aws-evidence/<UTC date>/{skew,maintenance,warehouse}-<timestamp>-<pid>/` (JSON, image ID, logs, event logs;
@@ -307,4 +307,4 @@ After scaling the node group back to 2, do the following in order before deployi
    ```
 2. **Node IPs change:** re-run Ansible with `-e feast_redis=<node IP>:30379 -e rag_pg=<node IP>:30432`, otherwise the EC2 `.env` still points to the old IP. A NodePort is reachable through any node.
 3. **LLM:** `kubectl --context platform-apps -n llm scale deploy/qwen --replicas=1`, then wait for the rollout before running eval; without the LLM, eval scores 0.
-4. **Jenkins:** use `scripts/shared/setup_jenkins.sh` instead of `docker compose up jenkins` (which lacks `DOCKER_GID` and the kubeconfig); run `setup_vault.sh` first to unseal Vault. The jobs' code comes from `/repo/out/platform.bundle`: recreate it with `git bundle create out/platform.bundle main` and copy it to EC2.
+4. **Jenkins:** use `python3 -m scripts.shared.setup_jenkins` instead of `docker compose up jenkins` (which lacks `DOCKER_GID` and the kubeconfig); run `scripts.shared.setup_vault` first to unseal Vault. The jobs' code comes from `/repo/out/platform.bundle`: recreate it with `git bundle create out/platform.bundle main` and copy it to EC2.

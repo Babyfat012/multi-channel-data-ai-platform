@@ -98,7 +98,7 @@ Quality on DataHub are in [DataHub](../data_governance.md#rerun-evidence).
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile spark up -d spark-master spark-worker-1 spark-worker-2
 env -u POSTGRES_PASSWORD docker compose --profile airflow up -d airflow
-env -u POSTGRES_PASSWORD bash scripts/data/setup_dp1_cdc.sh
+env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow --stage dp1-cdc
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflow dags trigger dp1_cdc
 ```
 

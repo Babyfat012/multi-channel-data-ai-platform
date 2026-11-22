@@ -1,5 +1,5 @@
 # KServe InferenceService return-risk (RawDeployment, model-inside-image).
-# Image and version filled in by scripts/ml/deploy_return_risk.sh (@@IMAGE@@, @@VERSION@@).
+# Image and version filled in by scripts/ml/deploy_return_risk.py (@@IMAGE@@, @@VERSION@@).
 apiVersion: v1
 kind: Namespace
 metadata:

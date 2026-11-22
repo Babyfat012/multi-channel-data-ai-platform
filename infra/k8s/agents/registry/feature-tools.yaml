@@ -1,5 +1,5 @@
 # agentregistry catalog: MCP server (feature-mcp pod, 4 tools) — declared as remote because it already runs behind agentgateway /mcp.
-# Publish: arctl apply -f infra/k8s/agents/registry/ (scripts/llm/publish_agentregistry.sh).
+# Publish: arctl apply -f infra/k8s/agents/registry/ (scripts/llm/publish_agentregistry.py).
 apiVersion: ar.dev/v1alpha1
 kind: MCPServer
 metadata:

@@ -26,7 +26,7 @@ Receipts, logs and original screenshots keep the identifiers of the environment 
 | MCP tool helm + rolling + fallback | Recorded | helm `--atomic` — [web-api](../web_api_mcp.md) | Within the scope of the linked doc |
 | Agent multi-replica + KEDA | Recorded | data-agent 2→3→2 — [evidence](../../evidence/keda-data-agent-20261021.txt) | Within the scope of the linked doc |
 | Agent in a Sandbox | **On AWS** | kagent 0.10 runs Agents in a sandbox through Agent Substrate (gVisor, valkey ×6, rustfs) — too heavy for 14 GB kind; what exists locally: an Agent cannot call the LLM, tools or other Agents except through agentgateway with an API key + `mcpAuthorization` — [agents](llm_platform_agents.md) | AWS Agent Substrate on EKS — [screenshot](../../evidence/aws/substrate-sandbox-agent-ui-20261031.png) |
-| Publish agent to the registry | Recorded | `publish_agentregistry.sh` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
+| Publish agent to the registry | Recorded | `scripts/llm/publish_agentregistry.py` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
 | Agent 2: online features + predict + RAG | Recorded | model-agent calls KServe `return-risk` + RAG — [agents](llm_platform_agents.md), [serving](../ml_inference_service.md) | chat screenshot |
 | MCP gateway + policy | Recorded | agentgateway `/mcp` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
 | A2A gateway + policy | Recorded | routing by `x-kagent-host` — [agents](llm_platform_agents.md) | Within the scope of the linked doc |
@@ -48,7 +48,7 @@ Receipts, logs and original screenshots keep the identifiers of the environment 
 | Agent test UI | Recorded | `agent.` (kagent UI) | Within the scope of the linked doc |
 | Agent registry UI | Recorded | `registry.` | Within the scope of the linked doc |
 | Basic auth + rate limit | Recorded | 401/200/429 — [gateway](../routing_gateway.md) | Within the scope of the linked doc |
-| Domain + HTTPS Web API | **On AWS** | sslip.io + internal CA; Let's Encrypt DNS-01 via DuckDNS is prepared but off by default (`scripts/shared/setup_letsencrypt.sh`) — [gateway](../routing_gateway.md) | AWS: `api.*.sslip.io`, Let's Encrypt cert (HTTP-01) — [gateway](../routing_gateway.md) |
+| Domain + HTTPS Web API | **On AWS** | sslip.io + internal CA; Let's Encrypt DNS-01 via DuckDNS is prepared but off by default (`python3 -m scripts.shared.setup_letsencrypt`) — [gateway](../routing_gateway.md) | AWS: `api.*.sslip.io`, Let's Encrypt cert (HTTP-01) — [gateway](../routing_gateway.md) |
 | Terraform cloud services | **On AWS** | [Terraform AWS](../../../infra/aws/terraform/README.md): EC2/VPC/S3/IAM; [IaC](../iac.md) | AWS: EC2/VPC/S3/IAM + EKS, `terraform plan` screenshot — [IaC](../iac.md) |
 | Ansible VM deploy | **On AWS** | [Ansible AWS](../../../infra/aws/ansible/README.md), [IaC](../iac.md) (Data Platform part) | AWS: `PLAY RECAP` screenshot on EC2 — [IaC](../iac.md) |
 | Web API metrics | Recorded | feature-api `/metrics`; KServe `return_risk_*` — [serving](../ml_inference_service.md) | Within the scope of the linked doc |
@@ -60,7 +60,7 @@ Receipts, logs and original screenshots keep the identifiers of the environment 
 | A/B agents with different model configs | Recorded | data-agent vs data-agent-b — [ab-test](../ab_testing.md) | Within the scope of the linked doc |
 | A/B of two LLM variants | Recorded | `platform-chat` 1:1 — [ab-test](../ab_testing.md) | Within the scope of the linked doc |
 | Vault | Recorded | [vault](../security.md) | Within the scope of the linked doc |
-| Agent eval harness | Recorded | A 100% vs B 91.7%; the gate runs in Jenkins (stage `Eval agent`, `scripts/llm/eval_agent_ci.sh`) — [agent-eval](../agent_evaluation.md) | Stage View screenshot with the Eval stage |
+| Agent eval harness | Recorded | A 100% vs B 91.7%; the gate runs in Jenkins (stage `Eval agent`, `python3 -m scripts.llm.eval_agent_ci`) — [agent-eval](../agent_evaluation.md) | Stage View screenshot with the Eval stage |
 | Drift monitoring | Recorded | Evidently, Sale Event alert — [drift](../drift_monitoring.md) | Within the scope of the linked doc |
 
 Rows marked "Recorded" point to a report or receipt at the time of the run; they do not confirm the service is running. The component docs contain reproduction commands and note missing screenshots/logs; do not use the status in this table in place of a fresh run.

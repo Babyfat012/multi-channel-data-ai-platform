@@ -163,7 +163,9 @@ def test_dag_ast_and_setup():
         and n.func.id == "OrderLifecycleCdcSparkSubmitOperator"
     ]
     assert len(calls) == 2
-    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
+    from scripts.data.setup_airflow import variables
+
+    setup = variables("base", "minio")
     for variable in (
         "platform_order_lifecycle_driver_memory",
         "platform_order_lifecycle_executor_memory",
@@ -172,7 +174,7 @@ def test_dag_ast_and_setup():
         "platform_order_lifecycle_cdc_oracle",
         "platform_order_lifecycle_cdc_control_dir",
     ):
-        assert variable in source and f"variables set {variable}" in setup
+        assert variable in source and variable in setup
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
     assert all(
         f'"_{field}"' in ast.get_source_segment(source, cls)

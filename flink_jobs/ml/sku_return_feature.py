@@ -9,7 +9,7 @@ Event time = Kafka record timestamp (replay_return_events.py sets it to effectiv
 partition. Generating them after merging partitions lets a fast partition push the watermark past a slow one ⇒ messages are treated as late and
 silently dropped (rehearsal with 401,129 messages on 3 partitions, 09/11: 37,284 wrong windows). PyFlink from_source ignores a Python TimestampAssigner.
 
-Submit: scripts/ml/run_stream_feature_jobs.sh (runs both). Replaces sku_return_feature_a.sql + feast-pusher.
+Submit: scripts/ml/run_stream_feature_jobs.py (runs both). Replaces sku_return_feature_a.sql + feast-pusher.
 """
 
 import argparse

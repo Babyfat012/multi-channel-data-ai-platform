@@ -26,7 +26,7 @@ of the AWS runs below (the real screenshots are in the "Evidence on AWS" part).
 
 | Configuration | Role in DP1–DP3 |
 |---|---|
-| Connection `spark_default` | Spark-submitting tasks use `conn_id="spark_default"`; the [setup script](../../scripts/data/setup_airflow.sh) sets master `spark://spark-master:7077`, deploy mode `client` |
+| Connection `spark_default` | Spark-submitting tasks use `conn_id="spark_default"`; the [setup script](../../scripts/data/setup_airflow.py) sets master `spark://spark-master:7077`, deploy mode `client` |
 | Connection `platform_postgres` | DP1 takes host, port, database, user and password for the Walmart source over JDBC; the [operator](../../dags/platform_spark_operator.py) reads the Connection at execution time and passes it to the job as environment variables |
 | Variable `platform_spark_packages` | Selects the Spark packages to load; Compose AWS provides the value through `AIRFLOW_VAR_PLATFORM_SPARK_PACKAGES` |
 | Variables `platform_dp1_amazon_source`, `platform_dp1_extra_source_root` | Point to the exports on S3; [Compose AWS](../../docker-compose.aws.yml) sets `s3a://${RAW_BUCKET}/order_snapshots/source-exports/channel=amazon/dataset=orders` and `s3a://${RAW_BUCKET}/order_snapshots/source-exports` respectively |
@@ -149,7 +149,7 @@ Local records keep their original environment and do not replace cloud evidence.
 
 The DAG `platform_runtime_config_check`, run `de_runtime_20261015`, completed **2/2
 tasks success** from 14:41:51 to 14:42:02 UTC after reloading the configuration with
-`scripts/data/setup_airflow.sh`. `airflow dags list-import-errors --output json`
+`python3 -m scripts.data.setup_airflow`. `airflow dags list-import-errors --output json`
 returned `[]`. The [runtime manifest](../evidence/airflow-runtime-20261015.json) stores the state,
 the timing of each task and two confirming log lines; it contains no credentials.
 
@@ -172,7 +172,7 @@ configuration, then trigger the DAG; neither the generator nor DataHub is needed
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile airflow up -d postgres airflow
 env -u POSTGRES_PASSWORD docker compose --profile spark up -d spark-master spark-worker-1
-env -u POSTGRES_PASSWORD bash scripts/data/setup_airflow.sh
+env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflow dags list-import-errors --output json
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflow dags trigger platform_runtime_config_check
 ```
@@ -231,8 +231,8 @@ env -u POSTGRES_PASSWORD docker compose up -d minio minio-init postgres
 env -u POSTGRES_PASSWORD docker compose --profile spark up -d spark-master spark-worker-1 spark-worker-2
 env -u POSTGRES_PASSWORD docker compose --profile airflow build airflow
 env -u POSTGRES_PASSWORD docker compose --profile airflow up -d airflow
-env -u POSTGRES_PASSWORD bash scripts/data/setup_airflow.sh
-env -u POSTGRES_PASSWORD bash scripts/data/setup_dp1_file_channels.sh
+env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow
+env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow --stage dp1-files
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec airflow airflow dags list-import-errors
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec airflow airflow dags trigger dp1_bronze
 ```
@@ -268,7 +268,7 @@ The Grid shows the same run with all four tasks green; Duration about 2 minutes 
 
 ## Trial tables and next steps
 
-`scripts/data/setup_airflow.sh` creates the Connection `spark_default`, the shared Connections
+`python3 -m scripts.data.setup_airflow` creates the Connection `spark_default`, the shared Connections
 `platform_postgres`/`platform_minio`/`platform_kafka`, and the `platform_*` Variables.
 `PlatformSparkSubmitOperator` reads the needed groups from the metadata DB at runtime;
 credentials are not rendered into template fields or passed in application args.
@@ -311,7 +311,7 @@ The two trial target tables are `lakehouse.silver.stg_amazon_order_lines_dp2` an
 After DP1 succeeds, load the separate Variables and run the DAG:
 
 ```bash
-env -u POSTGRES_PASSWORD bash scripts/data/setup_dp2_silver.sh
+env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow --stage dp2-silver
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec airflow airflow dags trigger dp2_silver
 ```
 

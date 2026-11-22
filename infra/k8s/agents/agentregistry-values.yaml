@@ -1,6 +1,6 @@
 # agentregistry 0.4.0 (governance for Agents/MCP servers). Local: reuses the pgvector Postgres (ns rag) with a dedicated
 # `agentregistry` database instead of the chart's bundled Postgres (saves ~450 MB disk, 256 MB RAM). The URL is in Secret
-# agentregistry-db (created by scripts/llm/deploy_kind_agentregistry.sh, not in Git).
+# agentregistry-db (created by scripts/llm/deploy_agentregistry.py, not in Git).
 database:
   postgres:
     type: external

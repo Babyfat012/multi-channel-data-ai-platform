@@ -115,7 +115,7 @@ Kubernetes has no RuntimeClass (`No resources found`). Substrate applies gVisor 
 
 ![eks_runtime_proof.sh output part 2: ScaledObject/HPA, each Agent's pods by node, WorkerPool, six SandboxAgents Ready, Substrate pods](../evidence/aws/eks-runtime-proof-part2.png)
 
-Sandbox code: [deploy_substrate.sh](../../scripts/llm/deploy_substrate.sh), [manifest](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
+Sandbox code: [scripts/llm/deploy_substrate.py](../../scripts/llm/deploy_substrate.py), [manifest](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
 
 ## Additional evidence for Model Agent (EKS `platform-apps`)
 

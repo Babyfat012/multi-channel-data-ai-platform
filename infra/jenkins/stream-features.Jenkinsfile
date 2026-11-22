@@ -1,7 +1,7 @@
 // CI/CD for the stream feature job: test → build → deploy → verify.
 // AWS (s3): TWO PyFlink jobs `ml-sku-return-24h-online` / `-offline` on the Flink ML 2.2 cluster (Compose).
 // Local (minio): variant B Flink SQL `ml-sku-return-24h` + feast-pusher. Secrets live in Vault (secret/platform/*); Jenkins
-// only holds the READ-ONLY token `vault-ci-token` (policy platform-read, created by scripts/shared/setup_vault.sh).
+// only holds the READ-ONLY token `vault-ci-token` (policy platform-read, created by scripts/shared/setup_vault.py).
 // The agent needs Docker, docker compose, uv; runs on a machine with the stack (local or a GCE VM).
 pipeline {
   agent any
@@ -38,12 +38,12 @@ pipeline {
       }
     }
     stage('Push') {
-      steps { sh 'scripts/shared/push_images.sh platform-flink:1.20.3-kafka3.4.0 platform-feast:0.66.0 platform-flink-ml:2.2.1' }
+      steps { sh 'python3 -m scripts.shared.push_images platform-flink:1.20.3-kafka3.4.0 platform-feast:0.66.0 platform-flink-ml:2.2.1' }
     }
     stage('Release config') {
       steps {
         sh 'mkdir -p out'
-        sh 'scripts/shared/compose_release_images.sh flink-jobmanager=platform-flink flink-taskmanager=platform-flink feast-pusher=platform-feast flink-ml-jobmanager=platform-flink-ml flink-ml-taskmanager=platform-flink-ml > out/ci-compose-images.yaml'
+        sh 'python3 -m scripts.shared.compose_release_images flink-jobmanager=platform-flink flink-taskmanager=platform-flink feast-pusher=platform-feast flink-ml-jobmanager=platform-flink-ml flink-ml-taskmanager=platform-flink-ml > out/ci-compose-images.yaml'
       }
     }
     stage('Deploy') {
@@ -55,7 +55,7 @@ pipeline {
             sh '''if [ "$DATA_STORAGE" = s3 ]; then
                     # AWS: Flink ML 2.2 cluster, two PyFlink jobs (online → EKS Redis, offline → S3 Parquet); no pusher.
                     $COMPOSE up --no-build --pull always -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
-                    COMPOSE="$COMPOSE" scripts/ml/run_stream_feature_jobs.sh
+                    COMPOSE="$COMPOSE" python3 -m scripts.ml.run_stream_feature_jobs
                   else
                     $COMPOSE up --no-build --pull always -d --wait kafka flink-jobmanager flink-taskmanager
                     set +x; eval "$(scripts/shared/vault_env.sh minio)"
@@ -63,7 +63,7 @@ pipeline {
                     $COMPOSE run --rm --no-deps feast-pusher feast apply
                     $COMPOSE up --no-build --pull always -d --force-recreate feast-pusher
                     # Cancel any job with the same name then resubmit ⇒ never two jobs running in parallel.
-                    scripts/ml/run_sku_return_feature.sh
+                    python3 -m scripts.ml.run_sku_return_feature
                   fi'''
           }
         }

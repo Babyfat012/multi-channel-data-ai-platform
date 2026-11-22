@@ -3,7 +3,7 @@
 # Run: KCTX=<kube-context> scripts/evidence/helm_rollout_fallback_test.sh
 # 1) good rolling update  2) broken release (envSecret does not exist) ⇒ helm rolls back automatically  3) helm history + probe HTTP code counts.
 # The probe runs INSIDE the cluster (no port-forward: a forward is bound to one pod, so it drops when that pod is replaced).
-# Writes docs/evidence/aws/feature-api-helm-rollout.txt. The release was deployed with scripts/ml/deploy_feature_api.sh.
+# Writes docs/evidence/aws/feature-api-helm-rollout.txt. The release was deployed with scripts/ml/deploy_feature_api.py.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ns=${FEATURE_API_NAMESPACE:-feature-store}

@@ -1,6 +1,6 @@
 -- ML Platform stream feature: count of "approved" Returns per SKU over the last 24h (HOP sliding 1h).
 -- Kafka return_events → drop duplicate retries → look up line_id→SKU in PostgreSQL → Kafka ml.sku_return_24h.
--- Runs continuously (streaming). @@PG_*@@ is filled by scripts/ml/run_sku_return_feature.sh at submit time.
+-- Runs continuously (streaming). @@PG_*@@ is filled by scripts/ml/run_sku_return_feature.py at submit time.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'ml-sku-return-24h';

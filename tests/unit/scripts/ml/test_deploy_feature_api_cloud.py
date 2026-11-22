@@ -10,7 +10,17 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
-SCRIPT = ROOT / "scripts/ml/deploy_feature_api.sh"
+
+
+def run_deploy(env, tag="revision-123", check=True):
+    """Run the deploy module from the repo root with fake kubectl/helm on PATH."""
+    return subprocess.run(
+        [sys.executable, "-m", "scripts.ml.deploy_feature_api", tag],
+        cwd=ROOT,
+        env=env,
+        check=check,
+        capture_output=True,
+    )
 
 
 @pytest.fixture
@@ -49,9 +59,7 @@ def cloud(tmp_path):
 
 def test_cloud_uses_selected_context_and_pod_identity_without_static_keys(cloud):
     """S3 registry, ClusterIP values and service account replace local networking and keys."""
-    subprocess.run(
-        ["bash", str(SCRIPT), "revision-123"], env=cloud, check=True, capture_output=True
-    )
+    run_deploy(cloud)
     calls = [json.loads(line) for line in Path(cloud["CALL_LOG"]).read_text().splitlines()]
     assert all("platform-apps" in args for _, args, _ in calls)
     secret = next(body for _, args, body in calls if "--from-env-file=/dev/stdin" in args)
@@ -72,7 +80,7 @@ def test_cloud_uses_selected_context_and_pod_identity_without_static_keys(cloud)
 def test_cloud_target_is_required_before_any_mutation(cloud, bad_value):
     """A missing/local kubecontext fails before touching namespaces or secrets."""
     cloud["KCTX"] = bad_value
-    result = subprocess.run(["bash", str(SCRIPT), "revision-123"], env=cloud, capture_output=True)
+    result = run_deploy(cloud, check=False)
     assert result.returncode != 0
     assert not Path(cloud["CALL_LOG"]).exists()
 
@@ -80,7 +88,7 @@ def test_cloud_target_is_required_before_any_mutation(cloud, bad_value):
 def test_multiline_secret_fails_before_any_mutation(cloud):
     """Invalid env serialization cannot overwrite an existing Secret with partial data."""
     cloud["POSTGRES_PASSWORD"] = "line1\nAWS_ACCESS_KEY_ID=injected"
-    result = subprocess.run(["bash", str(SCRIPT), "revision-123"], env=cloud, capture_output=True)
+    result = run_deploy(cloud, check=False)
     assert result.returncode != 0
     assert not Path(cloud["CALL_LOG"]).exists()
 
@@ -127,9 +135,7 @@ def test_cloud_rag_is_opt_in(cloud, given, expected):
     cloud.pop("FEAST_RAG_REGISTRY", None)
     if given:
         cloud["FEAST_RAG_REGISTRY"] = given
-    subprocess.run(
-        ["bash", str(SCRIPT), "revision-123"], env=cloud, check=True, capture_output=True
-    )
+    run_deploy(cloud)
     calls = [json.loads(line) for line in Path(cloud["CALL_LOG"]).read_text().splitlines()]
     secret = next(body for _, args, body in calls if "--from-env-file=/dev/stdin" in args)
     rag = [line for line in secret.splitlines() if line.startswith("FEAST_RAG_REGISTRY=")]
@@ -141,7 +147,7 @@ def test_changed_secret_env_rolls_the_pods(cloud):
 
     def checksum(env):
         Path(env["CALL_LOG"]).unlink(missing_ok=True)
-        subprocess.run(["bash", str(SCRIPT), "rev"], env=env, check=True, capture_output=True)
+        run_deploy(env, "rev")
         calls = [json.loads(line) for line in Path(env["CALL_LOG"]).read_text().splitlines()]
         deploy = next(args for tool, args, _ in calls if tool == "helm" and "upgrade" in args)
         value = next(a for a in deploy if a.startswith("envChecksum="))

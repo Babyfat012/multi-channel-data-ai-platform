@@ -466,7 +466,7 @@ version (`amazon.py:48` `SCHEMA_2026 = "orders-2026-01-01"`), **not the switch d
 The size drop 475 -> 418 MB exactly at 04-10 is independent evidence for that switch point.
 
 ```bash
-bash scripts/data/run_order_snapshots_silver.sh dup        # run both steps; or one step at a time:
+python3 -m scripts.data.run_order_snapshots_silver dup        # run both steps; or one step at a time:
 spark-submit ... bronze/ingest_amazon_order_snapshots.py --window-days 10 --window-start 2026-04-05 \
     --aqe on --table raw_amazon_orders_dup
 spark-submit ... silver/build_amazon_order_snapshots.py \

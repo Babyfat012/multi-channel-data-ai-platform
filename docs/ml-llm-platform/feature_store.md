@@ -233,16 +233,16 @@ RAM: enable only what you need. Do not run alongside DataHub.
 
 ```bash
 ## 1. Needs Gold order_lifecycle in the catalog. If missing, run the Data Platform pipeline (~5 minutes with fixtures):
-bash scripts/data/run_order_lifecycle_live.sh --phase source
-bash scripts/data/run_order_lifecycle_live.sh --phase airflow     # stops the stack automatically when done
+python3 -m scripts.data.run_order_lifecycle_live --phase source
+python3 -m scripts.data.run_order_lifecycle_live --phase airflow     # stops the stack automatically when done
 
 ## 2. kind cluster + Redis, attached to the Compose network
-scripts/ml/setup_kind_feature_store.sh
+python3 -m scripts.ml.setup_kind_feature_store
 
 ## 3. Bring the stack back up, load Variables (including platform_feast_root / platform_feast_redis)
 docker compose --profile airflow --profile spark up -d minio-init
 docker compose --profile airflow --profile spark up -d --wait airflow spark-master spark-worker-1 spark-worker-2
-scripts/data/setup_airflow.sh
+python3 -m scripts.data.setup_airflow
 
 ## 4. Run the DAG twice with different simulated watermarks (or UI http://localhost:8081 → Trigger w/ config)
 docker compose --profile airflow exec airflow airflow dags trigger ml_feature_materialize \

@@ -7,7 +7,7 @@ kagent UI ─► Data Agent (kagent) ──/v1 (API key)──► agentgateway �
                                                            └ /metrics :15020
 ```
 
-Deploy everything: `bash scripts/llm/deploy_kind_agents.sh` (requires the cluster and the Feature API to be running:
+Deploy everything: `python3 -m scripts.llm.deploy_agents` (requires the cluster and the Feature API to be running:
 [`docs/ml-llm-platform/web_api_mcp.md`](../web_api_mcp.md)).
 
 | Part | File | Namespace |
@@ -197,8 +197,8 @@ deployments back to 1, `kubectl -n llm scale deploy/qwen --replicas=1`.
 ## Agent registry (governance)
 
 agentregistry 0.4.0 ([`agentregistry-values.yaml`](../../../infra/k8s/agents/agentregistry-values.yaml),
-`scripts/llm/deploy_kind_agentregistry.sh`), DB = database `agentregistry` on the pgvector Postgres (saves one Postgres
-image). Published with `arctl apply` ([`scripts/llm/publish_agentregistry.sh`](../../../scripts/llm/publish_agentregistry.sh),
+`python3 -m scripts.llm.deploy_agentregistry`), DB = database `agentregistry` on the pgvector Postgres (saves one Postgres
+image). Published with `arctl apply` ([`scripts/llm/publish_agentregistry.py`](../../../scripts/llm/publish_agentregistry.py),
 declared in [`infra/k8s/agents/registry/`](../../../infra/k8s/agents/registry/feature-tools.yaml)):
 
 | Kind | Name | Notes |
@@ -229,7 +229,7 @@ ConfigMap kagent/agent-prompts (key = Agent name, annotation = Langfuse version)
 kagent rebuilds the Agent config (Secret <agent>/config.json)
 ```
 
-- Deploy + initial load: `bash scripts/llm/deploy_kind_langfuse.sh` (source prompts in
+- Deploy + initial load: `python3 -m scripts.llm.deploy_langfuse` (source prompts in
   [`infra/k8s/agents/prompts/`](../../../infra/k8s/agents/prompts/README.md), only created when Langfuse does not have them yet). The API key is in
   the Secret `kagent/langfuse-api`; the admin UI password is in the Secret `langfuse/langfuse-env`.
 - Checked loading 3 prompts (version 1, production). Created `platform-coordinator` **version 2** in Langfuse (adding

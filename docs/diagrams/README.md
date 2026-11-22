@@ -31,7 +31,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | S3 | Offline features, training_lines, registry, RAG raw / chunk / embedding, MLflow artifacts | Offline feature store, dataset / model versioning |
 | `feature-store` | Redis, `feature-api` (REST) and `feature-mcp` (MCP), each release 2–3 pods with KEDA, Helm | Online features, async FastAPI / Pydantic, health, REST / MCP in separate pods, rolling update, autoscaling |
 | `kubeflow` | KFP pipeline, `mle-drift` | PIT join → split → train → evaluate → register; per-Channel drift monitoring |
-| EC2 · MLflow / CLI + ECR | `return-risk` registry, `deploy_return_risk.sh`, image containing the model | Tracking / versioning / production gate / deploy |
+| EC2 · MLflow / CLI + ECR | `return-risk` registry, `scripts/ml/deploy_return_risk.py`, image containing the model | Tracking / versioning / production gate / deploy |
 | `ml-serving` / `kserve` | `return-risk` InferenceService 2–3 pods with KEDA / KServe controller | ML inference; predictor reads Feast online, autoscaling |
 | `rag` | pgvector, PVC `pgdata` | Feast vector search / top-k policy chunks |
 | `llm` | `qwen`, `qwen-small`, model PVC | Custom self-hosted GGUF, benchmark, LLM A/B |
