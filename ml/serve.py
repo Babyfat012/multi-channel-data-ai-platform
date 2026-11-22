@@ -1,11 +1,13 @@
-"""KServe return-risk predictor: the model is baked into the image and reads SKU features from Feast online.
+"""KServe return-risk predictor: KServe downloads the model via STORAGE_URI into /mnt/models; features come from Feast.
 
-Callers (agent/Web API) send only the order attributes; the predictor joins SKU features from Redis and scores.
+Callers (MCP server, or clients through the ingress `/predict`) send only the order attributes; the predictor
+validates them, joins SKU features from Redis and scores. This is the trust boundary for prediction input.
 A SKU with fewer than MIN_HISTORY labeled lines in 90 days ⇒ `abstain` (Q38), score still included for reference.
 Missing labeled_count_90d ⇒ no scoring, score=null and reason=feature_data_unavailable.
 """
 
 import os
+import re
 import time
 
 import lightgbm as lgb
@@ -31,6 +33,50 @@ ORDER_FIELDS = [
     "ordered_basis_qty",
     "ordered_product_net_minor",
 ]
+MAX_INSTANCES = 100  # requests now reach KServe directly through the ingress: cap the batch size
+CHANNELS = ("amazon", "walmart", "shopify", "tiktok_shop", "shopee")
+# Same limits the Web API enforced before it handed /predict to KServe. Plain checks, no pydantic: the
+# image has it, but the unit-test environment and CI do not.
+TEXT_RULES = {
+    # The real form is `sku-00001`; wider so other Channels still pass, but odd characters are blocked.
+    "seller_sku": re.compile(r"[A-Za-z0-9_.-]{1,64}"),
+    # Ship-to country (ISO-2): present in the source files of all five Channels; required, never imputed.
+    "country": re.compile(r"[A-Z]{2}"),
+}
+INT_RULES = {"ordered_basis_qty": (1, 1000), "ordered_product_net_minor": (0, 1_000_000_000)}
+
+
+def order_error(row) -> str | None:
+    """First problem in one order line, or None when it is valid."""
+    if not isinstance(row, dict):
+        return "instance: must be an object"
+    missing = [field for field in ORDER_FIELDS if field not in row]
+    if missing:
+        return f"missing fields {missing}"
+    for field, pattern in TEXT_RULES.items():
+        if not isinstance(row[field], str) or not pattern.fullmatch(row[field]):
+            return f"invalid {field}: must match {pattern.pattern}"
+    if row["channel"] not in CHANNELS:
+        return f"invalid channel: must be one of {', '.join(CHANNELS)}"
+    for field, (low, high) in INT_RULES.items():
+        value = row[field]
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            return f"invalid {field}: must be an integer in [{low}, {high}]"
+    return None
+
+
+def validated_orders(instances) -> pd.DataFrame:
+    """Validate every instance; any bad one rejects the whole request with KServe's 400 and the first error."""
+    if not isinstance(instances, list) or not 1 <= len(instances) <= MAX_INSTANCES:
+        ERRORS.labels("invalid_input").inc()
+        raise InvalidInput(f"instances must be a list of 1-{MAX_INSTANCES} order lines")
+    for row in instances:
+        error = order_error(row)
+        if error:
+            ERRORS.labels("invalid_input").inc()
+            raise InvalidInput(error)
+    # Only the known order fields go on; anything extra a client sends is dropped.
+    return pd.DataFrame([{field: row[field] for field in ORDER_FIELDS} for row in instances])
 
 
 class ReturnRisk(Model):
@@ -45,10 +91,10 @@ class ReturnRisk(Model):
         self.store = None
 
     def load(self):
-        """Load the booster from the image and open the Feast connection (S3 registry + Redis)."""
+        """Load the booster downloaded by the storage-initializer and open Feast (S3 registry + Redis)."""
         from feast import FeatureStore
 
-        self.booster = lgb.Booster(model_file=os.environ.get("MODEL_PATH", "/opt/model/model.lgb"))
+        self.booster = lgb.Booster(model_file=os.environ.get("MODEL_PATH", "/mnt/models/model.lgb"))
         repo = os.environ.get("FEAST_REPO", "/opt/feature_repo")
         self.store = (
             load_published_store(repo)
@@ -59,12 +105,8 @@ class ReturnRisk(Model):
         return self.ready
 
     def score(self, instances: list[dict]) -> list[dict]:
-        """Join online features by SKU, score, set the abstain flag."""
-        orders = pd.DataFrame(instances)
-        missing = [c for c in ORDER_FIELDS if c not in orders]
-        if missing:
-            ERRORS.labels("missing_field").inc()
-            raise InvalidInput(f"missing fields {missing}")  # KServe returns 400, not 500
+        """Validate, join online features by SKU, score, set the abstain flag."""
+        orders = validated_orders(instances)
         started = time.perf_counter()
         release = None
         try:
@@ -104,7 +146,8 @@ class ReturnRisk(Model):
             predictions.append(
                 {
                     "seller_sku": sku,
-                    "score": None if unavailable else float(score),
+                    # 4 digits: long decimals get masked as <PHONE_NUMBER> by the agentgateway guardrail.
+                    "score": None if unavailable else round(float(score), 4),
                     "abstain": reason is not None,
                     "reason": reason,
                     "model_version": self.version,
@@ -116,7 +159,7 @@ class ReturnRisk(Model):
 
     def predict(self, payload: dict, headers: dict | None = None) -> dict:
         """KServe entry point."""
-        return {"predictions": self.score(payload["instances"])}
+        return {"predictions": self.score(payload.get("instances"))}
 
 
 if __name__ == "__main__":

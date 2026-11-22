@@ -1,5 +1,5 @@
-# Web API that fetches features + RAG chunks (serving/app.py). Built on the existing Feast image to share the feast layer
-# (saves ~1 GB of disk); build platform-feast:0.66.0 first (infra/docker/Dockerfile.feast).
+# Serving image for the Feature API, Policy API and MCP server (serving/; API_SURFACE picks the service).
+# Built on the existing Feast image to share the feast layer (saves ~1 GB of disk); build platform-feast:0.66.0 first (infra/docker/Dockerfile.feast).
 FROM platform-feast:0.66.0
 USER root
 RUN pip install --no-cache-dir "fastapi==0.156.4" "uvicorn==0.54.0" "mcp==2.3.0" \
@@ -10,7 +10,7 @@ RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-smal
     && chmod -R a+rX /opt/models
 COPY rag/__init__.py rag/chunking.py rag/pipeline.py /opt/rag/
 COPY rag/feature_repo /opt/rag/feature_repo
-COPY serving/app.py /opt/serving/app.py
+COPY serving/app.py serving/schemas.py serving/features.py serving/policy.py serving/mcp_server.py /opt/serving/
 COPY feature_repo /opt/feature_repo
 WORKDIR /opt
 ENV FEAST_REPO_PATH=/opt/feature_repo

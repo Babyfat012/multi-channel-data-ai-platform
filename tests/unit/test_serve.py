@@ -61,7 +61,7 @@ def model(history):
 
 ORDER = {
     "channel": "amazon",
-    "country": "a",
+    "country": "US",
     "ordered_basis_qty": 3,
     "ordered_product_net_minor": 30000,
 }
@@ -145,7 +145,7 @@ def test_missing_order_field_is_rejected():
                 "instances": [
                     {
                         "seller_sku": "sku-1",
-                        "country": "a",
+                        "country": "US",
                         "ordered_basis_qty": 1,
                         "ordered_product_net_minor": 1,
                     }
@@ -172,3 +172,42 @@ def test_publication_failure_returns_unavailable_without_scoring():
     result = m.predict({"instances": [{"seller_sku": "sku-1", **ORDER}]})["predictions"][0]
     assert result["score"] is None and result["reason"] == "feature_data_unavailable"
     m.booster.predict.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("change", "field"),
+    [
+        ({"channel": "ebay"}, "channel"),
+        ({"country": "usa"}, "country"),
+        ({"country": "us"}, "country"),
+        ({"ordered_basis_qty": 0}, "ordered_basis_qty"),
+        ({"ordered_basis_qty": 1001}, "ordered_basis_qty"),
+        ({"ordered_product_net_minor": -1}, "ordered_product_net_minor"),
+        ({"seller_sku": "sku 1;drop"}, "seller_sku"),
+    ],
+)
+def test_invalid_order_line_is_rejected_before_scoring(change, field):
+    """KServe is now the trust boundary for /predict: the old Web API limits apply here, nothing reaches Feast."""
+    from kserve.errors import InvalidInput
+
+    m = model({"sku-1": 1000})
+    m.store.get_online_features = Mock(side_effect=AssertionError("must not query Feast"))
+    with pytest.raises(InvalidInput, match=field):
+        m.predict({"instances": [{"seller_sku": "sku-1", **ORDER} | change]})
+
+
+@pytest.mark.parametrize("instances", [None, [], "sku-1", [{"seller_sku": "s", **ORDER}] * 101])
+def test_batch_shape_and_size_are_bounded(instances):
+    """instances must be a list of 1-100 order lines."""
+    from kserve.errors import InvalidInput
+
+    with pytest.raises(InvalidInput, match="1-100"):
+        model({}).predict({"instances": instances} if instances is not None else {})
+
+
+def test_score_is_rounded_to_four_digits():
+    """Long decimals would be masked by the gateway PII guardrail; 0.16980269175486737 → 0.1698."""
+    m = model({"sku-1": 1000})
+    m.booster.predict = Mock(return_value=np.array([0.16980269175486737]))
+    score = m.predict({"instances": [{"seller_sku": "sku-1", **ORDER}]})["predictions"][0]["score"]
+    assert score == 0.1698

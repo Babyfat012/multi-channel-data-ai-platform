@@ -108,7 +108,7 @@ Besides KServe's built-in latency histograms (`request_predict_seconds`…), the
 | Metric | Meaning |
 |---|---|
 | `return_risk_predictions_total{abstain}` | number of rows scored, split by abstain or not |
-| `return_risk_errors_total{reason}` | failed requests (e.g. `missing_field` → HTTP **400**, not 500) |
+| `return_risk_errors_total{reason}` | failed requests (e.g. `invalid_input`: missing or out-of-range order field → HTTP **400**, not 500; recorded runs before the API split used `missing_field`) |
 | `return_risk_feast_lookup_seconds` | time to read online features |
 
 Checked through Prometheus (route `metrics.`): sent 5 requests of 2 rows each, plus 1 request with a missing field.
