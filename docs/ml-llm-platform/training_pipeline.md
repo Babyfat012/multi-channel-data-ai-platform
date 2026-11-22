@@ -146,7 +146,7 @@ s3://platform/feature-store/training_lines   (Spark export_training_lines.py: la
 | Image for the steps | [`infra/docker/Dockerfile.train`](../../infra/docker/Dockerfile.train) (built on `platform-feast`) |
 | Training set export | [`spark_jobs/gold/export_training_lines.py`](../../spark_jobs/gold/export_training_lines.py), task `export_training_lines` of DAG `ml_feature_materialize` |
 | MLflow server | service `mlflow` (profile `ml`), [`infra/docker/Dockerfile.mlflow`](../../infra/docker/Dockerfile.mlflow) |
-| Submit | [`scripts/ml/run_training_pipeline.py`](../../scripts/ml/run_training_pipeline.py) |
+| Submit / schedule | [`scripts/ml/run_training_pipeline.py`](../../scripts/ml/run_training_pipeline.py) (`--schedule`: monitor daily, training weekly, see [Drift Monitoring](drift_monitoring.md#daily-monitor--training-diagram-m4m5)) |
 
 ## Decisions
 

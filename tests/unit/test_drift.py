@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from ml.drift import comparisons, summarize
+from ml.drift import comparisons, decide, empty_columns, summarize, unseen
 
 
 def snapshot(*metrics):
@@ -59,3 +59,38 @@ def test_comparisons_split_by_reference_window_and_channel():
     assert "channel_shift" not in comparisons(frame, 30)
     with pytest.raises(ValueError, match="walmart"):
         comparisons(frame, 30, shift_channel="walmart")
+
+
+def lines(*days):
+    """Lines with only an Order timestamp per day given."""
+    return pd.DataFrame({"event_timestamp": pd.to_datetime(list(days), utc=True)})
+
+
+def test_unseen_keeps_only_lines_after_everything_the_model_saw():
+    """Cutoff = the latest of train AND test: the test window was already used to judge the model."""
+    frame = lines("2026-01-05", "2026-01-20", "2026-01-21", "2026-02-01")
+    current = unseen(frame, lines("2026-01-01", "2026-01-10"), lines("2026-01-11", "2026-01-20"))
+    assert current["event_timestamp"].dt.day.tolist() == [21, 1]
+    assert unseen(frame, lines("2026-02-01")).empty
+
+
+@pytest.mark.parametrize(
+    ("alert", "rows", "pending", "decision", "reason"),
+    [
+        (True, 999, None, "skip", "999 new labeled lines < 1000"),  # rows checked before drift
+        (False, 1000, None, "skip", "no drift"),
+        (True, 1000, "7", "skip", "challenger v7"),  # no daily retrain while waiting for approval
+        (True, 1000, None, "train", "drift"),
+    ],
+)
+def test_decide(alert, rows, pending, decision, reason):
+    """Train only on drift, with enough new lines, and no challenger waiting for approval."""
+    got = decide(alert, rows, 1000, pending)
+    assert got[0] == decision and reason in got[1]
+
+
+def test_empty_columns_on_either_side():
+    """A column with no value on one side cannot be scored and is reported, not silently dropped."""
+    ref = pd.DataFrame({"a": [1.0, None], "b": [None, None], "c": [1.0, 2.0]})
+    cur = pd.DataFrame({"a": [None, None], "b": [None, None], "c": [None, 3.0]})
+    assert empty_columns(ref, cur, ["a", "b", "c"]) == ["a", "b"]

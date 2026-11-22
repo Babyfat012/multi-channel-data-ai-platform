@@ -383,3 +383,20 @@ def test_only_the_approval_pipeline_sets_production():
     assert re.search(r"pipeline \{\s*(//[^\n]*\n\s*)*agent none", text)
     assert '--version "$CHALLENGER"' in text and "disableConcurrentBuilds()" in text
     assert "'return-risk'" in read("infra/jenkins/jenkins.yaml")
+
+
+def test_monitor_trains_only_on_drift_and_schedules_do_not_pile_up():
+    """Diagram M5: drift daily → train on drift; training weekly. Training steps sit only under the drift
+    condition; schedules never overlap or replay missed days; the drift image keeps pandas 2 for Evidently."""
+    pipeline = read("ml/training_pipeline.py")
+    monitor = pipeline.split("def return_risk_monitor(")[1]
+    condition = 'with dsl.If(drift.outputs["Output"] == "train"'
+    assert condition in monitor
+    assert monitor.index(condition) < monitor.index("train_and_register(")
+    assert "check_drift(" in monitor and "@dsl.component(base_image=DRIFT_IMAGE)" in pipeline
+    submit = read("scripts/ml/run_training_pipeline.py")
+    assert '"return-risk-monitor-daily", return_risk_monitor, "0 0 2 * * *"' in submit
+    assert '"return-risk-training-weekly", return_risk_training, "0 0 3 * * 0"' in submit
+    assert "max_concurrency=1" in submit and "no_catchup=True" in submit
+    assert "delete_recurring_run" in submit
+    assert '"pandas==2.3.3"' in read("infra/docker/Dockerfile.drift")

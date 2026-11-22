@@ -36,7 +36,7 @@ The last column summarizes what has been demonstrated and what is still missing.
 | [Observability](observability.md) | Metric/log/trace dashboards and telemetry from EKS. |
 | [A/B Testing](ab_testing.md) | Traffic split, dashboard and eval results on AWS. |
 | [Security](security.md) | Vault on EC2; it must be unsealed by hand after every restart. |
-| [Agent Evaluation and Drift Monitoring](agent_eval_and_drift.md) | Agent eval harness and drift Job on AWS; no automatic model retraining yet. |
+| [Agent Evaluation and Drift Monitoring](agent_eval_and_drift.md) | Agent eval harness, drift Job on AWS, daily KFP drift monitor that starts training on drift. |
 
 Each page has code/config, results and screenshots with explanations. Per-capability status and the parts still missing AWS evidence: see [AWS validation status](../shared/aws_validation.md).
 
