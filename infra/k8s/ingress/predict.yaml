@@ -1,0 +1,20 @@
+# Minion of the serving-api master (serving-api.yaml): public POST /predict goes straight to KServe, which validates
+# the order lines itself (ml/serve.py). Body is KServe protocol v1: {"instances": [...]} → {"predictions": [...]}.
+# Applied by scripts/shared/setup_ingress.py only once the predictor Service exists (KServe RawDeployment, port 80).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: serving-api-predict
+  namespace: ml-serving
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/rewrites: "serviceName=return-risk-predictor rewrite=/v1/models/return-risk:predict"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.@@NODE_IP_DASH@@.sslip.io
+      http:
+        paths:
+          - path: /predict
+            pathType: Exact
+            backend: {service: {name: return-risk-predictor, port: {number: 80}}}

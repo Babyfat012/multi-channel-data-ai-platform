@@ -1,0 +1,5 @@
+# Release policy-api: policy chunks from Feast RAG/pgvector (serving/policy.py); not Ready without FEAST_RAG_REGISTRY.
+surface: policy
+resources:
+  requests: {cpu: 50m, memory: 256Mi}
+  limits: {memory: 768Mi}   # + ONNX embedding model (~200 MB when loaded)

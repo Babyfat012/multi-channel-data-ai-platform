@@ -1,0 +1,58 @@
+# Public API host api.<suffix>: one mergeable Ingress master + one minion per service (F5 NGINX mergeable Ingress).
+# The master holds host-level config (TLS, HTTPS redirect, rate limit); minions only hold paths, and may live in other
+# namespaces (/predict is in predict.yaml, ns ml-serving). Public paths stay /features, /chunks, /predict.
+# @@NODE_IP_DASH@@ is filled in by scripts/shared/setup_ingress.py (kind node IP, or INGRESS_DOMAIN in the cloud).
+# Certificate: internal CA. Let's Encrypt HTTP-01 is not wired for this host yet (the master has no path to attach
+# the challenge to); agent/ops UIs still support it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: serving-api
+  namespace: serving-api
+  annotations:
+    nginx.org/mergeable-ingress-type: master
+    cert-manager.io/cluster-issuer: platform-local-ca
+    nginx.org/redirect-to-https: "true"
+    nginx.org/limit-req-rate: "50r/s"
+    nginx.org/limit-req-burst: "100"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["api.@@NODE_IP_DASH@@.sslip.io"]
+      secretName: serving-api-tls
+  rules:
+    - host: api.@@NODE_IP_DASH@@.sslip.io
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: serving-api-features
+  namespace: serving-api
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.@@NODE_IP_DASH@@.sslip.io
+      http:
+        paths:
+          - path: /features
+            pathType: Exact
+            backend: {service: {name: feature-api, port: {number: 8000}}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: serving-api-policy
+  namespace: serving-api
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.@@NODE_IP_DASH@@.sslip.io
+      http:
+        paths:
+          - path: /chunks   # also /chunks/by-id
+            pathType: Prefix
+            backend: {service: {name: policy-api, port: {number: 8000}}}

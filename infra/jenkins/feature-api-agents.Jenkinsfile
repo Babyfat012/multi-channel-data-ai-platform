@@ -30,12 +30,12 @@ pipeline {
       }
     }
     stage('Build') {
-      steps { sh 'docker build -f infra/docker/Dockerfile.serving -t platform-feature-api:$TAG .' }
+      steps { sh 'docker build -f infra/docker/Dockerfile.serving -t platform-serving-api:$TAG .' }
     }
     stage('Push') {
-      steps { sh 'python3 -m scripts.shared.push_images platform-feature-api:$TAG' }
+      steps { sh 'python3 -m scripts.shared.push_images platform-serving-api:$TAG' }
     }
-    stage('Deploy MCP server') {
+    stage('Deploy serving API') {
       steps {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN'),
                          file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
@@ -46,13 +46,13 @@ pipeline {
             set +x
             eval "$(scripts/shared/vault_env.sh postgres)"
             if [ "$PLATFORM_STORAGE" = s3 ]; then
-              # Enable RAG (registry already on S3; without this variable /chunks returns 503 and model-agent's RAG tool breaks).
+              # Enable RAG (registry already on S3); without it policy-api never gets Ready and the release rolls back.
               export FEAST_RAG_REGISTRY="s3://$LAKEHOUSE_BUCKET/feature-store/rag-registry.db"
               # D3 not migrated yet (no publications/ on S3 yet): empty = legacy reader. Remove this line after the first publication.
               export FEAST_PUBLICATION_ROOT=
             fi
-            SKIP_BUILD_PUSH=1 REPLICAS=2 python3 -m scripts.ml.deploy_feature_api "$TAG"
-            # Point the gateway's MCP backend at the feature-mcp pod (deployed above) then reload the ConfigMap; no Secrets in the file.
+            SKIP_BUILD_PUSH=1 REPLICAS=2 python3 -m scripts.ml.deploy_serving_api "$TAG"
+            # Point the gateway's MCP backend at mcp-server (ns serving-api, deployed above) then reload the ConfigMap; no Secrets in the file.
             kubectl --context $KCTX apply -f infra/k8s/agents/agentgateway.yaml
             kubectl --context $KCTX -n agentgateway rollout restart deploy/agentgateway
             kubectl --context $KCTX -n agentgateway rollout status deploy/agentgateway --timeout=180s

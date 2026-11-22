@@ -2,7 +2,7 @@
 resource "aws_ecr_repository" "application" {
   for_each = var.enable_ecr ? toset([
     "platform-generator", "platform-airflow", "platform-flink", "platform-flink-ml", "platform-feast",
-    "platform-mlflow", "platform-train", "platform-return-risk", "platform-feature-api",
+    "platform-mlflow", "platform-train", "platform-return-risk", "platform-serving-api",
     "platform-jenkins",
   ]) : toset([])
 

@@ -61,8 +61,8 @@ def test_registry_and_pull_configuration():
     assert registry["ports"] == ["127.0.0.1:5001:5000"]
     assert "registry-data:/var/lib/registry" in registry["volumes"]
     assert compose["networks"]["kind"]["external"] is True
-    values = yaml.safe_load(read("infra/helm/feature-api/values.yaml"))
-    assert values["image"]["repository"] == "localhost:5001/platform-feature-api"
+    values = yaml.safe_load(read("infra/helm/serving-api/values.yaml"))
+    assert values["image"]["repository"] == "localhost:5001/platform-serving-api"
     assert values["image"]["pullPolicy"] == "IfNotPresent"
     assert "localhost:5001" in read("ml/training_pipeline.py")
     assert 'set_image_pull_policy(task, "IfNotPresent")' in read("ml/training_pipeline.py")

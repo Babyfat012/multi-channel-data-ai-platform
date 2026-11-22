@@ -1,7 +1,0 @@
-# Release feature-mcp: dedicated MCP server pod, same image/code as the Feature API, exposes only /mcp/ (+ probes, /metrics).
-# Place AFTER values-aws.yaml: reuses the feature-api ServiceAccount (Pod Identity reads S3) instead of creating a duplicate name.
-surface: mcp
-service:
-  type: ClusterIP   # only agentgateway calls it inside the cluster; no NodePort/ingress
-serviceAccount:
-  create: false

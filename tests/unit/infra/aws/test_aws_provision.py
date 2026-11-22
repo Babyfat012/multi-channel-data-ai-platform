@@ -637,7 +637,7 @@ def test_wave2_prometheus_pulls_ec2_exporters_with_alerts():
 
 def test_letsencrypt_first_issue_opens_then_closes_each_route():
     """HTTP-01 on F5 NGINX: edit-in-place every Ingress; first apply the open version, wait for Ready, then the full one."""
-    for f in ("feature-api", "agent-ui", "ops-ui"):
+    for f in ("agent-ui", "ops-ui"):
         doc = yaml.safe_load((ROOT / f"infra/k8s/ingress/{f}.yaml").read_text().replace("@@", "x"))
         assert (
             doc["metadata"]["annotations"]["acme.cert-manager.io/http01-edit-in-place"] == "true"
@@ -661,7 +661,10 @@ def test_letsencrypt_first_issue_opens_then_closes_each_route():
     assert '(@.type=="Ready")].status}' in fn and 'ready != "True"' in fn
     assert '"secret"' not in fn
     main = inspect.getsource(setup_ingress.main)
-    assert main.count('apply_ingress(kc, issuer, namespace, f"{name}-tls", manifest)') == 2
+    # agent UI + every ops route go through apply_ingress; the api host (mergeable) stays on the internal CA.
+    assert 'apply_ingress(kc, issuer, "kagent", "agent-ui-tls", manifest)' in main
+    assert 'apply_ingress(kc, issuer, namespace, f"{name}-tls", manifest)' in main
+    assert '"platform-local-ca"' in inspect.getsource(setup_ingress.serving_api_routes)
 
 
 def test_wave4_rag_reaches_pgvector_nodeport_with_iam_s3():
@@ -743,7 +746,7 @@ def test_wave5_ci_role_is_namespace_scoped_and_ecr_limited():
     ]
     assert {d["metadata"]["namespace"] for d in docs if d["kind"] == "Role"} == {
         "kagent",
-        "feature-store",
+        "serving-api",
         "agentgateway",
         "langfuse",
     }
@@ -795,3 +798,45 @@ def test_fresh_pgvector_volume_enables_vector_extension():
         "volumeMounts"
     ]
     assert {"name": "init", "configMap": {"name": init["metadata"]["name"]}} in pod["volumes"]
+
+
+def test_api_host_is_one_mergeable_master_with_a_minion_per_service():
+    """F5 NGINX mergeable Ingress: TLS + host config only on the master, paths only on minions; /predict is a minion
+    in ml-serving that rewrites to KServe protocol v1, so the public paths stay /features, /chunks, /predict."""
+    docs = [
+        d
+        for f in ("serving-api", "predict")
+        for d in yaml.safe_load_all((ROOT / f"infra/k8s/ingress/{f}.yaml").read_text())
+        if d
+    ]
+    kinds = {
+        d["metadata"]["name"]: d["metadata"]["annotations"]["nginx.org/mergeable-ingress-type"]
+        for d in docs
+    }
+    assert kinds == {
+        "serving-api": "master",
+        "serving-api-features": "minion",
+        "serving-api-policy": "minion",
+        "serving-api-predict": "minion",
+    }
+    master = docs[0]
+    assert master["spec"]["tls"] and "http" not in master["spec"]["rules"][0]
+    routes = {}
+    for minion in docs[1:]:
+        assert (
+            "tls" not in minion["spec"]
+            and "nginx.org/redirect-to-https" not in minion["metadata"]["annotations"]
+        )
+        for path in minion["spec"]["rules"][0]["http"]["paths"]:
+            routes[path["path"]] = (
+                minion["metadata"]["namespace"],
+                path["backend"]["service"]["name"],
+            )
+    assert routes == {
+        "/features": ("serving-api", "feature-api"),
+        "/chunks": ("serving-api", "policy-api"),
+        "/predict": ("ml-serving", "return-risk-predictor"),
+    }
+    assert docs[-1]["metadata"]["annotations"]["nginx.org/rewrites"] == (
+        "serviceName=return-risk-predictor rewrite=/v1/models/return-risk:predict"
+    )

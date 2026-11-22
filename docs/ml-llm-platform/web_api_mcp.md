@@ -2,7 +2,7 @@
 
 This page covers FastAPI/Pydantic, health checks, async, MCP and Helm rolling update/fallback.
 
-Code / configuration: [API](../../serving/app.py), [Helm values](../../infra/helm/feature-api/values.yaml). [API tests and EKS load](validation_verification.md).
+Code / configuration: [API](../../serving/app.py), [Helm values](../../infra/helm/serving-api/values.yaml). [API tests and EKS load](validation_verification.md).
 
 The results below come from AWS runs; they do not confirm that the service is currently running.
 
@@ -56,9 +56,9 @@ Ingress api.…     ──► Service feature-api ──► pod feature-api-*  (
 ```
 
 How the split works:
-- Two Helm releases (`feature-api`, `feature-mcp`) share the chart [`infra/helm/feature-api`](../../infra/helm/feature-api/Chart.yaml), the image and the code
+- Two Helm releases (`feature-api`, `feature-mcp`) share the chart [`infra/helm/feature-api`](../../infra/helm/serving-api/Chart.yaml), the image and the code
   [`serving/app.py`](../../serving/app.py) (`create_app(surface=…)` selects which part is enabled).
-- [`values-mcp.yaml`](../../infra/helm/feature-api/values-mcp.yaml) sets `surface: mcp` and a ClusterIP Service (reachable only inside the cluster).
+- [`values-mcp.yaml`](../../infra/helm/serving-api/values-mcp.yaml) sets `surface: mcp` and a ClusterIP Service (reachable only inside the cluster).
 - Each release has its own Deployment, probes, Helm `--atomic` and ScaledObject, so MCP scales and rolls back independently of REST.
 - Test `test_surface_splits_rest_and_mcp_pods`: the REST pod returns 404 at `/mcp/`, the MCP pod returns 404 at `/features`.
 
@@ -117,8 +117,8 @@ The older record of the local run (583/583 requests, rollback revision 12 → 13
 
 #### Feature API and MCP server autoscaling (KEDA)
 
-Each Helm release has its own [ScaledObject](../../infra/helm/feature-api/templates/scaledobject.yaml) (KEDA scaling configuration),
-enabled in [`values-aws.yaml`](../../infra/helm/feature-api/values-aws.yaml):
+Each Helm release has its own [ScaledObject](../../infra/helm/serving-api/templates/scaledobject.yaml) (KEDA scaling configuration),
+enabled in [`values-aws.yaml`](../../infra/helm/serving-api/values-aws.yaml):
 - Minimum 2 pods, maximum 3 pods.
 - Scales on requests/second over the last 1 minute:
   `sum(rate(http_requests_total{pod=~"<release>-.*", handler!~"/healthz|/readyz|/metrics"}[1m]))`, threshold 10 requests/second per pod.
@@ -304,8 +304,8 @@ python3 -m scripts.ml.deploy_feature_api [tag]
 | Part | File |
 |---|---|
 | Image (built on `platform-feast:0.66.0`, 1.02 GB, mostly the shared Feast layer) | [`infra/docker/Dockerfile.serving`](../../infra/docker/Dockerfile.serving) |
-| Helm chart: Deployment with 2 replicas + NodePort Service 30800 | [`infra/helm/feature-api/`](../../infra/helm/feature-api/Chart.yaml) |
-| Build → `kind load` → Secret from `.env` → `helm upgrade --install --atomic` | [`scripts/ml/deploy_feature_api.py`](../../scripts/ml/deploy_feature_api.py) |
+| Helm chart: Deployment with 2 replicas + NodePort Service 30800 | [`infra/helm/feature-api/`](../../infra/helm/serving-api/Chart.yaml) |
+| Build → `kind load` → Secret from `.env` → `helm upgrade --install --atomic` | [`scripts/ml/deploy_feature_api.py`](../../scripts/ml/deploy_serving_api.py) |
 
 - **Rolling update**: `maxUnavailable: 0, maxSurge: 1`, i.e. add 1 new pod and only remove an old pod once the new pod is Ready.
   `preStop: sleep 5s` is added so kube-proxy has time to remove the old pod from the Service before that pod shuts down. Without this step, the first

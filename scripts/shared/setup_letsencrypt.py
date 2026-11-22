@@ -21,13 +21,16 @@ ACME_SERVERS = {
 
 
 def duckdns_ingress(domain: str, le_env: str) -> dict:
-    """Separate Ingress on the DuckDNS host: leaves the existing host and its internal-CA certificate alone."""
+    """Separate Ingress on the DuckDNS host: leaves the existing host and its internal-CA certificate alone.
+
+    Only the Feature API is routed here; the full API host (all services, mergeable Ingress) is api.<suffix>.
+    """
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "Ingress",
         "metadata": {
             "name": "feature-api-duckdns",
-            "namespace": "feature-store",
+            "namespace": "serving-api",
             "annotations": {
                 "cert-manager.io/cluster-issuer": f"platform-letsencrypt-{le_env}",
                 "nginx.org/redirect-to-https": "true",

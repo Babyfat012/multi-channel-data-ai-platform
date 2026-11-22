@@ -19,7 +19,7 @@ Route table (the "Host" column is the first part of the domain name):
 
 | Host | Backend service | NGINX setting | Auth |
 |---|---|---|---|
-| `api.` | Feature API (Web API) | [`feature-api.yaml`](../../infra/k8s/ingress/feature-api.yaml): HTTPS, `limit-req-rate` 50r/s, burst 100 | none (public API, rate limited) |
+| `api.` | Feature API (Web API) | [`feature-api.yaml`](../../infra/k8s/ingress/serving-api.yaml): HTTPS, `limit-req-rate` 50r/s, burst 100 | none (public API, rate limited) |
 | `agent.` | kagent UI (agent test UI) | [`agent-ui.yaml`](../../infra/k8s/ingress/agent-ui.yaml): HTTPS, basic auth, 5r/s burst 10, returns 429 when exceeded | `seller` |
 | `grafana.` | Grafana (metrics + Loki logs) | [`ops-ui.yaml`](../../infra/k8s/ingress/ops-ui.yaml) | `ops` + Grafana admin |
 | `traces.` | Jaeger UI | `ops-ui.yaml` | `ops` |
@@ -76,7 +76,7 @@ python3 -m scripts.shared.setup_ingress
 
 | Route | Host (local) | Protection | File |
 |---|---|---|---|
-| Feature API (data-pulling Web API) | `api.<node-ip>.sslip.io` | HTTPS, HTTP→HTTPS redirect, 50 r/s | [`feature-api.yaml`](../../infra/k8s/ingress/feature-api.yaml) |
+| Feature API (data-pulling Web API) | `api.<node-ip>.sslip.io` | HTTPS, HTTP→HTTPS redirect, 50 r/s | [`feature-api.yaml`](../../infra/k8s/ingress/serving-api.yaml) |
 | kagent UI (agent test chat) | `agent.<node-ip>.sslip.io` | HTTPS + **basic auth** + **5 r/s, burst 10, 429** | [`agent-ui.yaml`](../../infra/k8s/ingress/agent-ui.yaml) |
 | Prometheus (metrics) | `metrics.<node-ip>.sslip.io` | HTTPS + basic auth `ops` | [`ops-ui.yaml`](../../infra/k8s/ingress/ops-ui.yaml) |
 | Grafana (metrics + logs via Loki), Jaeger (traces) | `grafana.` / `traces.` | HTTPS + basic auth `ops` | same template |

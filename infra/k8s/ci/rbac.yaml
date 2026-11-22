@@ -1,5 +1,5 @@
 # RBAC for Jenkins on EC2 (group `platform-ci` from the EKS access entry, infra/aws/kubernetes/cluster.tf).
-# Full access ONLY in the namespaces CI deploys to (kagent: Agent/ModelConfig are CRDs; feature-store: Feature API helm;
+# Full access ONLY in the namespaces CI deploys to (kagent: Agent/ModelConfig are CRDs; serving-api: feature-api/policy-api/mcp-server helm;
 # agentgateway: smoke pod; langfuse: port-forward to read prompts). Outside those, only Namespace read (the deploy script's kubectl apply
 # reads the namespace first). Admin applies once: kubectl --context platform-apps apply -f infra/k8s/ci/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -44,13 +44,13 @@ subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: platform-ci}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: feature-store
+  name: serving-api
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: platform-ci-deployer
-  namespace: feature-store
+  namespace: serving-api
 rules:
   - apiGroups: ["*"]
     resources: ["*"]
@@ -60,7 +60,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: platform-ci-deployer
-  namespace: feature-store
+  namespace: serving-api
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-ci-deployer}
 subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: platform-ci}]
 ---

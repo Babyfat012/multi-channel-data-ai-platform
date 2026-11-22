@@ -1,0 +1,5 @@
+# Release mcp-server: agent tools over HTTP to feature-api, policy-api and KServe (serving/mcp_server.py); owns no data.
+surface: mcp
+resources:
+  requests: {cpu: 50m, memory: 96Mi}
+  limits: {memory: 256Mi}

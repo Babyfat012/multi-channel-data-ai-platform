@@ -114,7 +114,7 @@ Top-level folders grouped by platform. Python packages keep their names (they ar
 | **LLM Platform** | `rag/` | Document chunking, embedding and retrieval |
 | **Infrastructure** | `infra/docker/` | All Dockerfiles (the generator image is `infra/docker/Dockerfile`) |
 | | `infra/aws/` | Terraform (EC2, S3, ECR, EKS) and Ansible roles for EC2 |
-| | `infra/k8s/`, `infra/helm/` | Kubernetes manifests and the Feature API Helm chart |
+| | `infra/k8s/`, `infra/helm/` | Kubernetes manifests and the serving-api Helm chart (Feature API, Policy API, MCP server) |
 | | `infra/jenkins/` | Jenkinsfiles and Jenkins configuration (JCasC) |
 | | `docker-compose*.yml` | Compose stacks; kept at the root so `docker compose` finds them |
 | **Scripts** | `scripts/data/` | Set up and run the Data Platform (Airflow, Lakekeeper, Debezium, order lifecycle) |
