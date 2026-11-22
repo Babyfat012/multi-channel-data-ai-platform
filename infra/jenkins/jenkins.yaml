@@ -1,5 +1,5 @@
 # Jenkins configuration as code (JCasC). Secrets are NOT here: they come from environment variables that
-# scripts/setup/setup_jenkins.sh reads from Vault at startup.
+# scripts/shared/setup_jenkins.sh reads from Vault at startup.
 jenkins:
   systemMessage: "Platform CI/CD (local). Application secrets live in Vault; Jenkins only holds a read-only token."
   numExecutors: 1
@@ -30,7 +30,7 @@ unclassified:
   location:
     url: "http://localhost:8090/"
 jobs:
-  # Each ci/jenkins/<name>.Jenkinsfile becomes a pipeline job, pulling code from the git repo (main branch) ⇒ CI
+  # Each infra/jenkins/<name>.Jenkinsfile becomes a pipeline job, pulling code from the git repo (main branch) ⇒ CI
   # runs exactly the committed code, not the working tree.
   - script: |
       ['stream-features', 'feature-api-agents', 'coordinator', 'rag-pipeline'].each { name ->
@@ -38,7 +38,7 @@ jobs:
           definition {
             cpsScm {
               scm { git { remote { url('${CI_GIT_REMOTE:-file:///repo}') }; branch('*/main') } }
-              scriptPath('ci/jenkins/' + name + '.Jenkinsfile')  // string concatenation: JCasC substitutes every dollar-brace variable before Groovy ⇒ empty
+              scriptPath('infra/jenkins/' + name + '.Jenkinsfile')  // string concatenation: JCasC substitutes every dollar-brace variable before Groovy ⇒ empty
             }
           }
         }

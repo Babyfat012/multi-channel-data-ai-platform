@@ -67,7 +67,7 @@ DAG [dp1_cdc](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00
 2. [validate_walmart_cdc](../../spark_jobs/cdc/validate_walmart_order_changes.py) compares Kafka with Bronze, only within the exact
    source epoch of that run.
 
-Connector configuration: [setup_order_snapshots_debezium.py](../../scripts/setup/setup_order_snapshots_debezium.py).
+Connector configuration: [setup_order_snapshots_debezium.py](../../scripts/data/setup_order_snapshots_debezium.py).
 
 Results of the [AWS probe](../evidence/aws/cdc-probe-20261028.json) `CDC-DEMO-fb4b96588a6d` (the probe is three test events written
 to the source):

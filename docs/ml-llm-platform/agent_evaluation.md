@@ -131,9 +131,9 @@ Both call the same wrapper. Command run in the Jenkins workspace:
 
 ```bash
 ## Needs VAULT_ADDR/VAULT_TOKEN + KUBECONFIG; Jenkins binds them from credentials.
-bash scripts/run/eval_agent_ci.sh
+bash scripts/llm/eval_agent_ci.sh
 ## The Coordinator uses the same harness through its own A2A route:
-EVAL_AGENT=coordinator bash scripts/run/eval_agent_ci.sh
+EVAL_AGENT=coordinator bash scripts/llm/eval_agent_ci.sh
 ```
 
 For `coordinator`, the gate only scores **routing**, not numbers. A question passes when the conversation history contains a call to `data_agent` or `model_agent` and a final answer.

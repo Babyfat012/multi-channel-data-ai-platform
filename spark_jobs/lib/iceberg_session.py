@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
-# Matches the catalog name in scripts/setup/setup_lakekeeper.sh.
+# Matches the catalog name in scripts/data/setup_lakekeeper.sh.
 CATALOG = "lakehouse"
 
 

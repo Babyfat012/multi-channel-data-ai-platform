@@ -7,7 +7,7 @@ kagent UI ─► Data Agent (kagent) ──/v1 (API key)──► agentgateway �
                                                            └ /metrics :15020
 ```
 
-Deploy everything: `bash scripts/setup/deploy_kind_agents.sh` (requires the cluster and the Feature API to be running:
+Deploy everything: `bash scripts/llm/deploy_kind_agents.sh` (requires the cluster and the Feature API to be running:
 [`docs/ml-llm-platform/web_api_mcp.md`](../web_api_mcp.md)).
 
 | Part | File | Namespace |
@@ -197,8 +197,8 @@ deployments back to 1, `kubectl -n llm scale deploy/qwen --replicas=1`.
 ## Agent registry (governance)
 
 agentregistry 0.4.0 ([`agentregistry-values.yaml`](../../../infra/k8s/agents/agentregistry-values.yaml),
-`scripts/setup/deploy_kind_agentregistry.sh`), DB = database `agentregistry` on the pgvector Postgres (saves one Postgres
-image). Published with `arctl apply` ([`scripts/setup/publish_agentregistry.sh`](../../../scripts/setup/publish_agentregistry.sh),
+`scripts/llm/deploy_kind_agentregistry.sh`), DB = database `agentregistry` on the pgvector Postgres (saves one Postgres
+image). Published with `arctl apply` ([`scripts/llm/publish_agentregistry.sh`](../../../scripts/llm/publish_agentregistry.sh),
 declared in [`infra/k8s/agents/registry/`](../../../infra/k8s/agents/registry/feature-tools.yaml)):
 
 | Kind | Name | Notes |
@@ -221,7 +221,7 @@ pgvector; v3+ also needs ClickHouse/Redis/S3, too heavy for a local machine.
 
 ```
 Langfuse prompt platform-<agent> (version, label production)
-   │ scripts/setup/sync_agent_prompts.py  (Jenkins: stage "Sync prompts from Langfuse")
+   │ scripts/llm/sync_agent_prompts.py  (Jenkins: stage "Sync prompts from Langfuse")
    ▼
 ConfigMap kagent/agent-prompts (key = Agent name, annotation = Langfuse version)
    │ Agent.spec.declarative.systemMessageFrom
@@ -229,7 +229,7 @@ ConfigMap kagent/agent-prompts (key = Agent name, annotation = Langfuse version)
 kagent rebuilds the Agent config (Secret <agent>/config.json)
 ```
 
-- Deploy + initial load: `bash scripts/setup/deploy_kind_langfuse.sh` (source prompts in
+- Deploy + initial load: `bash scripts/llm/deploy_kind_langfuse.sh` (source prompts in
   [`infra/k8s/agents/prompts/`](../../../infra/k8s/agents/prompts/README.md), only created when Langfuse does not have them yet). The API key is in
   the Secret `kagent/langfuse-api`; the admin UI password is in the Secret `langfuse/langfuse-env`.
 - Checked loading 3 prompts (version 1, production). Created `platform-coordinator` **version 2** in Langfuse (adding

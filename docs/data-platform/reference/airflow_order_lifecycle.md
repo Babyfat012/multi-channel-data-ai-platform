@@ -39,7 +39,7 @@ metadata DB at DAG import. Null is a deliberate default; do not nest Jinja
 inside a Param. Silver receives **the same cutoff** via `--as-of`, because Gold re-checks the
 published Silver against the snapshot at the cutoff before writing.
 
-The v2 Variables are loaded by [`scripts/setup/setup_airflow.sh`](../../../scripts/setup/setup_airflow.sh):
+The v2 Variables are loaded by [`scripts/data/setup_airflow.sh`](../../../scripts/data/setup_airflow.sh):
 
 | Variable | Setup value |
 |---|---|
@@ -72,19 +72,19 @@ Check that the workers have a Python compatible with the driver if Gold runs Pyt
 in the sandbox.
 
 The runbook splits phases on a 14 GB machine: see [Running DataHub v2 for real](datahub_order_lifecycle.md#running-for-real).
-`bash scripts/run/run_order_lifecycle_live.sh --phase source`, then `--phase airflow`, starts the
+`bash scripts/data/run_order_lifecycle_live.sh --phase source`, then `--phase airflow`, starts the
 required services, waits for the scheduler/worker, runs setup, unpauses/triggers, polls until the final
 state, copies the receipts by `run_id` and then stops the dependencies to free RAM.
 After setup the runbook sets `platform_order_lifecycle_executor_memory=2g` for the small fixture to match the default
 2g worker; use `PLATFORM_V2_EXECUTOR_MEMORY` and enlarge the workers accordingly if needed.
 The shared setup value of 4g in the table above still applies to environments with enough RAM.
 
-If JDBC is enabled, load the data first with `scripts/setup/load_order_lifecycle_walmart.py --root <fixture>`;
+If JDBC is enabled, load the data first with `scripts/data/load_order_lifecycle_walmart.py --root <fixture>`;
 the DAG does not create data or load the DB itself. Lakekeeper, MinIO, PostgreSQL, Spark and
 Airflow must be ready. The commands below do not start/stop services:
 
 ```bash
-bash scripts/setup/setup_airflow.sh
+bash scripts/data/setup_airflow.sh
 # Setup also reloads the existing v1 values; the operator chooses a suitable time.
 docker compose --profile airflow exec -T airflow airflow dags list-import-errors --output json
 docker compose --profile airflow exec -T airflow airflow dags unpause dp_order_lifecycle
@@ -145,8 +145,8 @@ can still be read, and the publisher states explicitly that the schema fields ar
 Bronze/Silver/fact/feature tables are replaced per run; many tables have no shared publication
 transaction yet. A small fixture does not prove scale or production refresh.
 
-**Not measured yet — measure on GCP:** `bash scripts/run/run_order_lifecycle_live.sh --phase source`
-then `bash scripts/run/run_order_lifecycle_live.sh --phase airflow` on a host prepared
+**Not measured yet — measure on GCP:** `bash scripts/data/run_order_lifecycle_live.sh --phase source`
+then `bash scripts/data/run_order_lifecycle_live.sh --phase airflow` on a host prepared
 following the [runbook](datahub_order_lifecycle.md#running-for-real) and the GCP checklist.
 The operator chose to skip the long steps locally; there is no run_id, real DAG-run receipt,
 Graph/Grid screenshot or run time yet. The local e2e small result, PASS in 92 s, in

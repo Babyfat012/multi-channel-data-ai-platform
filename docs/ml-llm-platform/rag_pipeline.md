@@ -150,7 +150,7 @@ Problems hit and fixed:
 ## Running through Airflow
 
 The Airflow image was rebuilt: feast-venv adds `feast[postgres]` and `fastembed==0.8.1` (installed with uv, because pip took more than 10 minutes just to resolve
-dependencies). Python stays at 3.10 for Spark compatibility. `scripts/setup/setup_airflow.sh` loads the Connection `platform_rag_pg` and the Variable `platform_rag_root`.
+dependencies). Python stays at 3.10 for Spark compatibility. `scripts/data/setup_airflow.sh` loads the Connection `platform_rag_pg` and the Variable `platform_rag_root`.
 Run `rag_local_202610211739`:
 
 | Task | Status | Duration |
@@ -163,7 +163,7 @@ Run `rag_local_202610211739`:
 | publish | skipped | Variable `platform_datahub_gms_url` not set (this local run had no DataHub; the publish step has run on AWS, see above) |
 
 Receipt: [`evidence/rag-validate-airflow-20261021.json`](../evidence/rag-validate-airflow-20261021.json). CI/CD:
-[`ci/jenkins/rag-pipeline.Jenkinsfile`](../../ci/jenkins/rag-pipeline.Jenkinsfile).
+[`infra/jenkins/rag-pipeline.Jenkinsfile`](../../infra/jenkins/rag-pipeline.Jenkinsfile).
 
 </details>
 

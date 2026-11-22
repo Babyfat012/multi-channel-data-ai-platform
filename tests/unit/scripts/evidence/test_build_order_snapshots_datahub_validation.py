@@ -20,7 +20,7 @@ def load(name: str):
 
 
 builder = load("scripts.evidence.build_order_snapshots_datahub_validation")
-publisher = load("scripts.run.publish_order_snapshots_datahub")
+publisher = load("scripts.data.publish_order_snapshots_datahub")
 
 CDC_V1_LOG = "Kafka=6, Bronze=6, unique offsets=6, missing=0, invalid=0\n"
 CDC_V2_LOG = (

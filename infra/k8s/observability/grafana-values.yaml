@@ -1,5 +1,5 @@
 # Grafana (chart grafana/grafana 10.5.15): one place to view metrics (Prometheus), logs (Loki) and traces (Jaeger).
-# Admin password in Secret grafana-admin (created by scripts/setup/deploy_kind_observability.sh, not in Git).
+# Admin password in Secret grafana-admin (created by scripts/shared/deploy_kind_observability.sh, not in Git).
 admin:
   existingSecret: grafana-admin
   userKey: admin-user

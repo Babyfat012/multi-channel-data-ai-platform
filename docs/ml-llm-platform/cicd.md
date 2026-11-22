@@ -2,7 +2,7 @@
 
 CI/CD (automated test, build and deploy) for the RAG pipeline, MCP server/Agents, the Coordinator and stream features.
 
-Code / config: [RAG Jenkinsfile](../../ci/jenkins/rag-pipeline.Jenkinsfile), [Agent Jenkinsfile](../../ci/jenkins/feature-api-agents.Jenkinsfile).
+Code / config: [RAG Jenkinsfile](../../infra/jenkins/rag-pipeline.Jenkinsfile), [Agent Jenkinsfile](../../infra/jenkins/feature-api-agents.Jenkinsfile).
 
 The results below come from runs on AWS; the docs do not claim the services are still up.
 
@@ -22,12 +22,12 @@ Each row in the table is one build. The "Stages" column lists the steps in the o
 
 | Pipeline / code | Stages | Result |
 |---|---|---|
-| [feature-api-agents](../../ci/jenkins/feature-api-agents.Jenkinsfile) #8 | Test, Build, Push ECR, Deploy MCP server, Sync prompts from Langfuse, Deploy Agent, Eval agent, Smoke | Green. The eval gate reached **12/12 = 1.00 ≥ 0.95**. See the [JSONL and PII limitation](agent_evaluation.md#on-aws). |
-| [rag-pipeline](../../ci/jenkins/rag-pipeline.Jenkinsfile) #2 | Test, Build, Push, Release config, Deploy, DAG import, Run DAG | Green. The DataHub lineage screenshot on AWS is in [RAG Pipeline](rag_pipeline.md). |
-| [feature-api-agents](../../ci/jenkins/feature-api-agents.Jenkinsfile) #13 | Ran after splitting MCP into its own pod: Test, Build, Push, Deploy MCP server (2 releases and the gateway), Sync prompts, Deploy Agent, Eval agent | Steps up to Deploy Agent green. **Eval agent red**: Data 12/12, predict 12/12, policy 3/5 ([details](agent_evaluation.md)). |
-| [stream-features](../../ci/jenkins/stream-features.Jenkinsfile) #7 | 2 PyFlink jobs version: Test, Build (image includes the `tests/flink` directory), Push, Release config, Deploy, Verify | Green. The Verify step checks that exactly 2 jobs are RUNNING ([screenshot](../evidence/aws/jenkins-stream-features-7-20261109.png)). |
-| [stream-features](../../ci/jenkins/stream-features.Jenkinsfile) #2 (Flink SQL version) | Test, Build, Push, Release config, Deploy, Verify | Green. |
-| [coordinator](../../ci/jenkins/coordinator.Jenkinsfile) | Validate, Sync, Deploy, Eval agent | #2: first three steps green, **Eval agent red** after 15 minutes 6 seconds. #4: first three steps green, **Eval agent ran more than 20 minutes without finishing**, so it did not pass the gate. #9: Eval agent passed 12/12, but the gate only scores routing. Details and LLM numbers: [Agent Evaluation](agent_evaluation.md#coordinator-on-aws-2026-11-04). |
+| [feature-api-agents](../../infra/jenkins/feature-api-agents.Jenkinsfile) #8 | Test, Build, Push ECR, Deploy MCP server, Sync prompts from Langfuse, Deploy Agent, Eval agent, Smoke | Green. The eval gate reached **12/12 = 1.00 ≥ 0.95**. See the [JSONL and PII limitation](agent_evaluation.md#on-aws). |
+| [rag-pipeline](../../infra/jenkins/rag-pipeline.Jenkinsfile) #2 | Test, Build, Push, Release config, Deploy, DAG import, Run DAG | Green. The DataHub lineage screenshot on AWS is in [RAG Pipeline](rag_pipeline.md). |
+| [feature-api-agents](../../infra/jenkins/feature-api-agents.Jenkinsfile) #13 | Ran after splitting MCP into its own pod: Test, Build, Push, Deploy MCP server (2 releases and the gateway), Sync prompts, Deploy Agent, Eval agent | Steps up to Deploy Agent green. **Eval agent red**: Data 12/12, predict 12/12, policy 3/5 ([details](agent_evaluation.md)). |
+| [stream-features](../../infra/jenkins/stream-features.Jenkinsfile) #7 | 2 PyFlink jobs version: Test, Build (image includes the `tests/flink` directory), Push, Release config, Deploy, Verify | Green. The Verify step checks that exactly 2 jobs are RUNNING ([screenshot](../evidence/aws/jenkins-stream-features-7-20261109.png)). |
+| [stream-features](../../infra/jenkins/stream-features.Jenkinsfile) #2 (Flink SQL version) | Test, Build, Push, Release config, Deploy, Verify | Green. |
+| [coordinator](../../infra/jenkins/coordinator.Jenkinsfile) | Validate, Sync, Deploy, Eval agent | #2: first three steps green, **Eval agent red** after 15 minutes 6 seconds. #4: first three steps green, **Eval agent ran more than 20 minutes without finishing**, so it did not pass the gate. #9: Eval agent passed 12/12, but the gate only scores routing. Details and LLM numbers: [Agent Evaluation](agent_evaluation.md#coordinator-on-aws-2026-11-04). |
 
 ![Jenkins EC2 feature-api-agents #8: green stages, including Push, Sync prompts and Eval agent](../evidence/aws/jenkins-feature-api-agents-20261031.png)
 
@@ -63,23 +63,23 @@ the coordinator and the stream feature jobs. Secrets must live in Jenkins or a s
 
 | Component | File |
 |---|---|
-| Jenkins 2.580.1 LTS image + pinned plugins + docker/compose/kubectl/helm/kind/uv | [`docker/Dockerfile.jenkins`](../../docker/Dockerfile.jenkins) |
+| Jenkins 2.580.1 LTS image + pinned plugins + docker/compose/kubectl/helm/kind/uv | [`infra/docker/Dockerfile.jenkins`](../../infra/docker/Dockerfile.jenkins) |
 | Configuration as code (JCasC): users, credentials, 4 jobs | [`infra/jenkins/jenkins.yaml`](../../infra/jenkins/jenkins.yaml) |
-| Startup (fetches secrets from Vault) | [`scripts/setup/setup_jenkins.sh`](../../scripts/setup/setup_jenkins.sh), service `jenkins` (profile `ci`) |
-| Pipelines | [`ci/jenkins/`](../../ci/jenkins/stream-features.Jenkinsfile): `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline` |
+| Startup (fetches secrets from Vault) | [`scripts/shared/setup_jenkins.sh`](../../scripts/shared/setup_jenkins.sh), service `jenkins` (profile `ci`) |
+| Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline` |
 
 ```bash
-scripts/setup/setup_vault.sh      # first: Vault + read-only token
-scripts/setup/setup_jenkins.sh    # UI http://localhost:8090, user admin, password in Vault secret/platform/jenkins
+scripts/shared/setup_vault.sh      # first: Vault + read-only token
+scripts/shared/setup_jenkins.sh    # UI http://localhost:8090, user admin, password in Vault secret/platform/jenkins
 ```
 
 ## Decisions
 
 - **Secrets**: Jenkins only holds 2 credentials — `vault-ci-token` (read-only Vault token) and
-  `kind-kubeconfig`. DB/MinIO passwords are fetched from Vault at build time (`scripts/setup/vault_env.sh`).
+  `kind-kubeconfig`. DB/MinIO passwords are fetched from Vault at build time (`scripts/shared/vault_env.sh`).
   The Jenkins admin password is randomly generated, stored in Vault, and loaded through an environment variable at every startup.
 - **Jobs take code from git `main`** (`file:///repo`): CI runs exactly the committed code, not the version being edited in the
-  working tree. So the `ci/jenkins/*` files must be committed before the first build.
+  working tree. So the `infra/jenkins/*` files must be committed before the first build.
 - **Use `network_mode: host` and put JENKINS_HOME at the same path as on the host**: builds call `docker compose` through
   the host's Docker socket, so every relative bind mount in the workspace must exist on the host at that exact path.
 - Builds run directly on the controller (1 executor). That is enough locally; on GKE, split them out to a separate agent.
@@ -112,19 +112,19 @@ It does not recreate the cluster or restart nodes. When `config_path` is missing
 
 ```bash
 ## Existing platform cluster; setup does not delete data. up_ml_base.sh also calls this step.
-scripts/setup/setup_kind_registry.sh
+scripts/shared/setup_kind_registry.sh
 curl -fsS http://localhost:5001/v2/_catalog
 
 ## Feature API: build → tag/push → helm upgrade --atomic, IfNotPresent.
-REGISTRY=localhost:5001 scripts/setup/deploy_kind_feature_api.sh "$(git rev-parse HEAD)"
+REGISTRY=localhost:5001 scripts/ml/deploy_kind_feature_api.sh "$(git rev-parse HEAD)"
 ## KFP: the script builds/pushes the train image with the same TAG before compile/submit.
-REGISTRY=localhost:5001 scripts/run/run_training_pipeline.sh
+REGISTRY=localhost:5001 scripts/ml/run_training_pipeline.sh
 ## KServe: takes the production model, builds/pushes an image tagged version+git SHA+content hash, then applies.
-REGISTRY=localhost:5001 scripts/run/deploy_return_risk.sh
+REGISTRY=localhost:5001 scripts/ml/deploy_return_risk.sh
 ```
 
 `REGISTRY` defaults to `localhost:5001`; switch to ECR/Artifact Registry with this variable, and log in to
-Docker along with the target cluster's pull credential configuration. The shared script `scripts/run/push_images.sh`
+Docker along with the target cluster's pull credential configuration. The shared script `scripts/shared/push_images.sh`
 takes a list of images with source tags; if `TAG` is set, it retags them to that SHA. `latest` is never published.
 The old name `push_images_gke.sh` is only a compatibility wrapper for `REGISTRY_URL`, and also needs the image list.
 

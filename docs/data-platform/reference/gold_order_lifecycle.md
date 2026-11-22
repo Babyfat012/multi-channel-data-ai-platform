@@ -216,10 +216,10 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
   platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_lifecycle_gold.py
 
 # First publish Silver at the right observation snapshot with spark_jobs/silver/build_order_lifecycle.py --as-of.
-scripts/run/run_order_lifecycle_spark.sh /opt/spark_jobs/gold/build_order_lifecycle.py \
+scripts/data/run_order_lifecycle_spark.sh /opt/spark_jobs/gold/build_order_lifecycle.py \
   --cutoff 2026-06-01T00:00:00.000000Z --run-id gold-v2-example \
   --receipt /receipts/gold-v2-example.json
-scripts/run/run_order_lifecycle_spark.sh /opt/spark_jobs/gold/validate_order_lifecycle.py \
+scripts/data/run_order_lifecycle_spark.sh /opt/spark_jobs/gold/validate_order_lifecycle.py \
   --cutoff 2026-06-01T00:00:00.000000Z --run-id gold-v2-example \
   --receipt /receipts/gold-v2-validate-example.json
 ```

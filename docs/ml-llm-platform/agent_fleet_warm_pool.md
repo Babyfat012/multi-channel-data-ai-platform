@@ -8,7 +8,7 @@ AWS configuration:
 - WorkerPool `kagent-default` (a worker pool shared by the Agents).
 - Golden snapshot: a pre-captured Agent state, used to restore Agents.
 
-Code: [deploy_substrate.sh](../../scripts/setup/deploy_substrate.sh), [Sandbox manifest](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
+Code: [deploy_substrate.sh](../../scripts/llm/deploy_substrate.sh), [Sandbox manifest](../../infra/k8s/agents/sandbox/fleet-agents.yaml).
 
 The screenshot below shows **6 SandboxAgents in Ready state on the same single worker**, with DESIRED/REPLICAS = 1. This is evidence of
 density (many Agents on one worker). There is no measurement of cold start time or cost savings yet.

@@ -15,7 +15,7 @@ hpa="keda-hpa-$agent"
 port=${EVAL_GATEWAY_PORT:-18300}
 out=${OUT:-docs/evidence/aws/keda-$agent.txt}
 K=(kubectl --context "${KCTX:?set KCTX=<kube-context>}")
-[[ -n "${AGW_AGENT_KEY:-}" ]] || eval "$(scripts/setup/vault_env.sh agentgateway)"
+[[ -n "${AGW_AGENT_KEY:-}" ]] || eval "$(scripts/shared/vault_env.sh agentgateway)"
 export AGW_AGENT_KEY
 
 "${K[@]}" -n agentgateway port-forward svc/agentgateway "$port:3000" >/dev/null 2>&1 &

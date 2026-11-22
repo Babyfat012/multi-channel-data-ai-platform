@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[6]
 sys.path.insert(0, str(ROOT))
-from scripts.setup.load_order_lifecycle_walmart import Row, load  # noqa: E402
-from scripts.setup.setup_order_snapshots_debezium import load_settings  # noqa: E402
+from scripts.data.load_order_lifecycle_walmart import Row, load  # noqa: E402
+from scripts.data.setup_order_snapshots_debezium import load_settings  # noqa: E402
 
 
 def main():

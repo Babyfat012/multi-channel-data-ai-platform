@@ -2,8 +2,8 @@
 
 This page covers pushing streaming features into the offline and online stores.
 
-Code / configuration: [PyFlink job](../../flink_jobs/ml/sku_return_feature.py), [submit 2 jobs](../../scripts/run/run_stream_feature_jobs.sh),
-[Flink ML image](../../docker/Dockerfile.flink-ml), [CI](../../ci/jenkins/stream-features.Jenkinsfile).
+Code / configuration: [PyFlink job](../../flink_jobs/ml/sku_return_feature.py), [submit 2 jobs](../../scripts/ml/run_stream_feature_jobs.sh),
+[Flink ML image](../../infra/docker/Dockerfile.flink-ml), [CI](../../infra/jenkins/stream-features.Jenkinsfile).
 
 The results below come from AWS runs; they do not confirm that the service is currently running.
 
@@ -52,7 +52,7 @@ docker compose --profile stream --profile flink-ml up -d --wait kafka flink-ml-j
 # Delete the old topic: messages from the Oct 30–31 run carry publish-time timestamps, which make the watermark jump incorrectly.
 docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
   --delete --if-exists --topic order_snapshots.return_events
-scripts/run/run_stream_feature_jobs.sh                       # submit 2 jobs
+scripts/ml/run_stream_feature_jobs.sh                       # submit 2 jobs
 # Mount the new script: the script is baked into the platform-feast image, and the old image replays messages WITHOUT event time.
 docker compose --profile stream --profile ml-stream run --rm -T --no-deps \
   -v "$PWD/feature_repo/replay_return_events.py:/opt/feature_repo/replay_return_events.py:ro" feast-pusher \
@@ -241,9 +241,9 @@ Kafka ml.sku_return_24h        {seller_sku, event_timestamp = window_end, approv
 | Component | File |
 |---|---|
 | Flink job | [`flink_jobs/ml/sku_return_feature.sql`](../../flink_jobs/ml/sku_return_feature.sql) |
-| Job submission (fills credentials from `.env`) | [`scripts/run/run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh) |
-| JDBC + PostgreSQL jars for Flink | [`docker/Dockerfile.flink`](../../docker/Dockerfile.flink) |
-| Pusher | [`feature_repo/push_stream_features.py`](../../feature_repo/push_stream_features.py), image [`docker/Dockerfile.feast`](../../docker/Dockerfile.feast), service `feast-pusher` |
+| Job submission (fills credentials from `.env`) | [`scripts/ml/run_sku_return_feature.sh`](../../scripts/ml/run_sku_return_feature.sh) |
+| JDBC + PostgreSQL jars for Flink | [`infra/docker/Dockerfile.flink`](../../infra/docker/Dockerfile.flink) |
+| Pusher | [`feature_repo/push_stream_features.py`](../../feature_repo/push_stream_features.py), image [`infra/docker/Dockerfile.feast`](../../infra/docker/Dockerfile.feast), service `feast-pusher` |
 | Feature view | `sku_return_24h` in [`feature_repo/features.py`](../../feature_repo/features.py) |
 
 ## Why it is built this way
@@ -289,7 +289,7 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server loca
 docker compose --profile ml-stream run --rm --no-deps feast-pusher feast apply
 
 ## 4. Submit the Flink job (UI: http://localhost:8082)
-scripts/run/run_sku_return_feature.sh
+scripts/ml/run_sku_return_feature.sh
 
 ## 5. Check
 docker compose --profile ml-stream logs feast-pusher | grep pushed
@@ -298,7 +298,7 @@ kubectl --context kind-platform -n feature-store exec deploy/redis -- redis-cli 
 
 ## CI/CD
 
-[`ci/jenkins/stream-features.Jenkinsfile`](../../ci/jenkins/stream-features.Jenkinsfile) runs these stages in order:
+[`infra/jenkins/stream-features.Jenkinsfile`](../../infra/jenkins/stream-features.Jenkinsfile) runs these stages in order:
 
 1. **Test**: ruff, docstring + stream renderer tests, Spark test `check_sku_daily_features.py`.
 2. **Build**: build the Flink, Feast and Flink ML images; run `tests/flink` inside the image.
@@ -309,7 +309,7 @@ kubectl --context kind-platform -n feature-store exec deploy/redis -- redis-cli 
      `ml-sku-return-24h` is RUNNING and the pusher is running.
 
 Secrets are not in the repo. The pipeline takes the Jenkins credentials `platform-postgres` and `platform-minio`
-(username/password) via `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/run/run_sku_return_feature.sh)
+(username/password) via `withCredentials`; [`run_sku_return_feature.sh`](../../scripts/ml/run_sku_return_feature.sh)
 only reads `.env` when run by hand. This pipeline has run on Jenkins EC2 (`stream-features`, Flink SQL run #2 and PyFlink run #7 both green), see [CI/CD](cicd.md#on-aws).
 
 ## Evidence

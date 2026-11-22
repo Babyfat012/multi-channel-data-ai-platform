@@ -26,11 +26,11 @@ and [Kafka Connect in Docker](https://debezium.io/documentation/reference/3.4/tu
 
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile cdc up -d debezium-connect kafka-ui
-.venv/bin/python scripts/setup/setup_order_snapshots_debezium.py --env-file .env
+.venv/bin/python scripts/data/setup_order_snapshots_debezium.py --env-file .env
 .venv/bin/python scripts/evidence/measure_order_snapshots_cdc.py --env-file .env
 ```
 
-`scripts/setup/setup_order_snapshots_debezium.py` checks the WAL, creates the publication/topic and registers the connector.
+`scripts/data/setup_order_snapshots_debezium.py` checks the WAL, creates the publication/topic and registers the connector.
 `scripts/evidence/measure_order_snapshots_cdc.py` temporarily copies one source order with its own ID, commits three changes
 **insert → update → delete**, waits for each event to appear in Kafka and writes the
 commit → Kafka time to `out/cdc/probe-*.json`. After the delete, the source table returns to
@@ -98,7 +98,7 @@ Quality on DataHub are in [DataHub](../data_governance.md#rerun-evidence).
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile spark up -d spark-master spark-worker-1 spark-worker-2
 env -u POSTGRES_PASSWORD docker compose --profile airflow up -d airflow
-env -u POSTGRES_PASSWORD bash scripts/setup/setup_dp1_cdc.sh
+env -u POSTGRES_PASSWORD bash scripts/data/setup_dp1_cdc.sh
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflow dags trigger dp1_cdc
 ```
 
@@ -160,7 +160,7 @@ shows the topic Debezium writes to directly, instead of only reading offset numb
 
 ```bash
 env -u POSTGRES_PASSWORD docker compose --profile cdc up -d postgres debezium-connect kafka-ui
-.venv/bin/python scripts/setup/setup_order_snapshots_debezium.py --env-file .env
+.venv/bin/python scripts/data/setup_order_snapshots_debezium.py --env-file .env
 .venv/bin/python scripts/evidence/measure_order_snapshots_cdc.py --env-file .env
 ```
 
@@ -197,7 +197,7 @@ Idea: capture the WAL to keep create/update/delete after the batch load, instead
 [DAG dp1_cdc](../../../dags/dp1_cdc.py) run `manual__2026-10-28T10:51:33.422898+00:00`:
 [ingest_walmart_cdc](../../../spark_jobs/cdc/ingest_walmart_order_changes.py) freezes the offsets and writes the envelope/provenance;
 [validate_walmart_cdc](../../../spark_jobs/cdc/validate_walmart_order_changes.py) compares Kafka/Bronze within the exact source epoch.
-Connector configuration: [setup_order_snapshots_debezium.py](../../../scripts/setup/setup_order_snapshots_debezium.py).
+Connector configuration: [setup_order_snapshots_debezium.py](../../../scripts/data/setup_order_snapshots_debezium.py).
 
 The [AWS probe](../../evidence/aws/cdc-probe-20261028.json) `CDC-DEMO-fb4b96588a6d` records topic
 `platform_cdc.walmart.orders`, partition 0, offsets 0/1/2 for `c/u/d` respectively.

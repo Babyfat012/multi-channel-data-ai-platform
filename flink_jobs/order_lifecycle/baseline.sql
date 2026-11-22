@@ -1,4 +1,4 @@
--- Bounded v2 source; render placeholders with scripts/run/render_order_lifecycle_stream.py before running.
+-- Bounded v2 source; render placeholders with scripts/data/render_order_lifecycle_stream.py before running.
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'order-lifecycle-stream-@@JOB@@-@@EPOCH@@';

@@ -29,15 +29,15 @@ def test_no_direct_kind_image_loading():
 
 def test_build_pipelines_publish_before_deploy():
     """Every build pipeline must Push before the first deploy."""
-    for path in (ROOT / "ci/jenkins").glob("*.Jenkinsfile"):
+    for path in (ROOT / "infra/jenkins").glob("*.Jenkinsfile"):
         text = path.read_text()
         stages = re.findall(r"stage\('([^']+)'\)", text)
         if "Build" in stages:
             deploy = next(i for i, name in enumerate(stages) if name.startswith("Deploy"))
             assert stages.index("Build") < stages.index("Push") < deploy, path
-            assert "scripts/run/push_images.sh" in text
+            assert "scripts/shared/push_images.sh" in text
     for name, deploy in (("feature-api-agents", "Deploy Agent"), ("coordinator", "Deploy")):
-        text = read(f"ci/jenkins/{name}.Jenkinsfile")
+        text = read(f"infra/jenkins/{name}.Jenkinsfile")
         stages = re.findall(r"stage\('([^']+)'\)", text)
         assert stages.index("Eval agent") > stages.index(deploy)
         assert "eval_agent_ci.sh" in text
@@ -58,7 +58,7 @@ def test_registry_and_pull_configuration():
     assert "localhost:5001" in read("ml/training_pipeline.py")
     assert 'set_image_pull_policy(task, "IfNotPresent")' in read("ml/training_pipeline.py")
     assert "imagePullPolicy: IfNotPresent" in read("infra/k8s/ml/return-risk.yaml")
-    setup = read("scripts/setup/setup_kind_registry.sh")
+    setup = read("scripts/shared/setup_kind_registry.sh")
     assert "/etc/containerd/certs.d/localhost:5001/hosts.toml" in setup
     assert 'server = "http://registry:5000"' in setup
     assert "namespace: kube-public" in setup
@@ -68,16 +68,16 @@ def test_registry_and_pull_configuration():
 @pytest.mark.parametrize(
     "script",
     [
-        "scripts/setup/setup_kind_registry.sh",
-        "scripts/setup/setup_letsencrypt.sh",
-        "scripts/run/push_images.sh",
-        "scripts/run/compose_release_images.sh",
-        "scripts/run/eval_agent_ci.sh",
-        "scripts/setup/deploy_kind_feature_api.sh",
-        "scripts/run/deploy_return_risk.sh",
-        "scripts/run/run_training_pipeline.sh",
-        "scripts/setup/up_ml_base.sh",
-        "scripts/setup/vault_env.sh",
+        "scripts/shared/setup_kind_registry.sh",
+        "scripts/shared/setup_letsencrypt.sh",
+        "scripts/shared/push_images.sh",
+        "scripts/shared/compose_release_images.sh",
+        "scripts/llm/eval_agent_ci.sh",
+        "scripts/ml/deploy_kind_feature_api.sh",
+        "scripts/ml/deploy_return_risk.sh",
+        "scripts/ml/run_training_pipeline.sh",
+        "scripts/shared/up_ml_base.sh",
+        "scripts/shared/vault_env.sh",
     ],
 )
 def test_shell_syntax(script):
@@ -89,7 +89,7 @@ def test_letsencrypt_disabled_without_domain():
     """The default branch still runs with no infrastructure tools in PATH."""
     env = {**os.environ, "DUCKDNS_DOMAIN": "", "PATH": "/nonexistent"}
     result = subprocess.run(
-        ["/bin/bash", str(ROOT / "scripts/setup/setup_letsencrypt.sh")],
+        ["/bin/bash", str(ROOT / "scripts/shared/setup_letsencrypt.sh")],
         env=env,
         text=True,
         capture_output=True,
@@ -113,7 +113,7 @@ def test_push_retags_to_immutable_release(tmp_path):
         "REGISTRY": "localhost:5001",
     }
     subprocess.run(
-        ["bash", str(ROOT / "scripts/run/push_images.sh"), "platform-feast:0.66.0"],
+        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
         env=env,
         check=True,
     )
@@ -125,7 +125,7 @@ def test_push_retags_to_immutable_release(tmp_path):
     log.unlink()
     env["TAG"] = "latest"
     result = subprocess.run(
-        ["bash", str(ROOT / "scripts/run/push_images.sh"), "platform-feast:0.66.0"],
+        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
         env=env,
         capture_output=True,
     )
@@ -138,7 +138,7 @@ def test_compose_release_matches_published_tag():
     result = subprocess.run(
         [
             "bash",
-            "scripts/run/compose_release_images.sh",
+            "scripts/shared/compose_release_images.sh",
             "flink-jobmanager=platform-flink",
             "flink-taskmanager=platform-flink",
         ],
@@ -154,7 +154,7 @@ def test_compose_release_matches_published_tag():
 
 def test_eval_gate_propagates_failure_and_archives_summary_contract():
     """pipefail keeps the harness exit 1 through tee; the CI threshold is stated explicitly."""
-    text = read("scripts/run/eval_agent_ci.sh")
+    text = read("scripts/llm/eval_agent_ci.sh")
     assert "set -euo pipefail" in text
     assert "--min-accuracy 0.95" in text
     assert 'tee "out/agent-eval-$tag-summary.json"' in text
@@ -195,7 +195,7 @@ def test_registry_setup_repeated_on_existing_nodes(tmp_path):
     }
     for _ in range(2):
         subprocess.run(
-            ["bash", str(ROOT / "scripts/setup/setup_kind_registry.sh")],
+            ["bash", str(ROOT / "scripts/shared/setup_kind_registry.sh")],
             env=env,
             check=True,
             capture_output=True,
@@ -228,7 +228,7 @@ def test_push_logs_into_ecr_only_for_ecr_registries(tmp_path):
         "REGISTRY": "665116832975.dkr.ecr.ap-southeast-2.amazonaws.com/platform",
     }
     subprocess.run(
-        ["bash", str(ROOT / "scripts/run/push_images.sh"), "platform-feast:0.66.0"],
+        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
         env=env,
         check=True,
         stdin=subprocess.DEVNULL,
@@ -246,7 +246,7 @@ def test_push_logs_into_ecr_only_for_ecr_registries(tmp_path):
     log.unlink()
     env["REGISTRY"] = "localhost:5001"
     subprocess.run(
-        ["bash", str(ROOT / "scripts/run/push_images.sh"), "platform-feast:0.66.0"],
+        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
         env=env,
         check=True,
         stdin=subprocess.DEVNULL,
@@ -269,15 +269,15 @@ def test_jenkins_on_ec2_is_loopback_with_eks_kubeconfig_and_bundle_source():
         "url('${CI_GIT_REMOTE:-file:///repo}')" in (ROOT / "infra/jenkins/jenkins.yaml").read_text()
     )
     casc = (ROOT / "infra/jenkins/jenkins.yaml").read_text()
-    assert "scriptPath('ci/jenkins/' + name + '.Jenkinsfile')" in casc and "${name}" not in casc
+    assert "scriptPath('infra/jenkins/' + name + '.Jenkinsfile')" in casc and "${name}" not in casc
     assert (
         "-Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true"
-        in (ROOT / "docker/Dockerfile.jenkins").read_text()
+        in (ROOT / "infra/docker/Dockerfile.jenkins").read_text()
     )
-    setup = (ROOT / "scripts/setup/setup_jenkins.sh").read_text()
+    setup = (ROOT / "scripts/shared/setup_jenkins.sh").read_text()
     eks = setup[setup.index('if [[ "${PLATFORM_STORAGE:-minio}" == s3 ]]; then') :].split("else")[0]
     assert "eks update-kubeconfig" in eks and "kind get kubeconfig" not in eks
-    dockerfile = (ROOT / "docker/Dockerfile.jenkins").read_text()
+    dockerfile = (ROOT / "infra/docker/Dockerfile.jenkins").read_text()
     assert "/release/v1.37.2/" in dockerfile and "awscli-exe-linux-x86_64-2.31.0.zip" in dockerfile
 
 
@@ -288,7 +288,7 @@ def _compose_args(tmp_path, env):
     fake.chmod(0o755)
     log = tmp_path / "docker.log"
     subprocess.run(
-        ["bash", str(ROOT / "scripts/run/ci_compose.sh"), "ps"],
+        ["bash", str(ROOT / "scripts/shared/ci_compose.sh"), "ps"],
         cwd=tmp_path,
         check=True,
         env={
@@ -330,25 +330,25 @@ def test_ci_compose_adds_aws_overlays_only_on_s3(tmp_path):
 
 def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
     """s3 branch: EC2's real .env, no MinIO keys, no setup_airflow, 2 PyFlink jobs; no more bare compose."""
-    rag = (ROOT / "ci/jenkins/rag-pipeline.Jenkinsfile").read_text()
-    stream = (ROOT / "ci/jenkins/stream-features.Jenkinsfile").read_text()
+    rag = (ROOT / "infra/jenkins/rag-pipeline.Jenkinsfile").read_text()
+    stream = (ROOT / "infra/jenkins/stream-features.Jenkinsfile").read_text()
     for text in (rag, stream):
         assert "choice(name: 'DATA_STORAGE', choices: ['minio', 's3']" in text
         assert "install -m 600 /repo/.env .env" in text
         assert "-f docker-compose.yml -f out/ci-compose-images.yaml" not in text
         assert "always { sh 'rm -f .env' }" in text
-    assert 'if [ "$DATA_STORAGE" != s3 ]; then bash scripts/setup/setup_airflow.sh' in rag
+    assert 'if [ "$DATA_STORAGE" != s3 ]; then bash scripts/data/setup_airflow.sh' in rag
     # AWS: two PyFlink jobs on the Flink ML cluster, verify exactly 2 jobs RUNNING.
-    assert 'COMPOSE="$COMPOSE" scripts/run/run_stream_feature_jobs.sh' in stream
+    assert 'COMPOSE="$COMPOSE" scripts/ml/run_stream_feature_jobs.sh' in stream
     assert 'want="ml-sku-return-24h-online ml-sku-return-24h-offline"' in stream
     # Only the local branch fetches MinIO keys from Vault; AWS goes through the IAM role.
     local_branch = stream.split("else\n", 1)[1].split("fi", 1)[0]
-    assert 'set +x; eval "$(scripts/setup/vault_env.sh minio)"' in local_branch
+    assert 'set +x; eval "$(scripts/shared/vault_env.sh minio)"' in local_branch
 
 
 def test_agent_pipelines_pass_eval_skus_for_pipeline_a():
     """AWS SKUs (APP-…) differ from local ⇒ both agent pipelines get EVAL_SKUS; the script uses the local set when empty."""
     for name in ("feature-api-agents", "coordinator"):
-        text = (ROOT / f"ci/jenkins/{name}.Jenkinsfile").read_text()
+        text = (ROOT / f"infra/jenkins/{name}.Jenkinsfile").read_text()
         assert "string(name: 'EVAL_SKUS'" in text and 'EVAL_SKUS = "${params.EVAL_SKUS}"' in text
-    assert '--skus "${EVAL_SKUS:-sku-00001,' in (ROOT / "scripts/run/eval_agent_ci.sh").read_text()
+    assert '--skus "${EVAL_SKUS:-sku-00001,' in (ROOT / "scripts/llm/eval_agent_ci.sh").read_text()

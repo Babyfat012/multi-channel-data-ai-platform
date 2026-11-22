@@ -12,7 +12,7 @@ Every request from outside the cluster goes through a single entry point (ingres
 
 - **Entry point:** F5 NGINX Ingress Controller (namespace `ingress`), behind an AWS NLB (network load balancer).
 - **HTTPS:** cert-manager obtains real Let's Encrypt certificates (HTTP-01 validation) for each host of the form `<name>.15-134-182-157.sslip.io`.
-- **Routes:** every UI sits behind this entry point. Routes are created by [`setup_ingress.sh`](../../scripts/setup/setup_ingress.sh).
+- **Routes:** every UI sits behind this entry point. Routes are created by [`setup_ingress.sh`](../../scripts/shared/setup_ingress.sh).
 - **Passwords:** generated once and stored in Vault.
 
 Route table (the "Host" column is the first part of the domain name):
@@ -71,7 +71,7 @@ helm --kube-context kind-platform install nginx-ingress oci://ghcr.io/nginx/char
   --version 2.7.3 -n ingress --create-namespace --set controller.service.type=NodePort \
   --set controller.service.httpPort.nodePort=30080 --set controller.service.httpsPort.nodePort=30443 \
   --set controller.ingressClass.name=nginx --set controller.ingressClass.setAsDefaultIngress=true
-scripts/setup/setup_ingress.sh
+scripts/shared/setup_ingress.sh
 ```
 
 | Route | Host (local) | Protection | File |
@@ -112,7 +112,7 @@ Local limitations:
 ## Let's Encrypt with DuckDNS (optional, off by default)
 
 ```bash
-scripts/setup/setup_letsencrypt.sh   # DUCKDNS_DOMAIN not set: prints instructions and exits 0, keeps the internal CA
+scripts/shared/setup_letsencrypt.sh   # DUCKDNS_DOMAIN not set: prints instructions and exits 0, keeps the internal CA
 ```
 
 Domain validation here is DNS-01 (proving domain ownership with a DNS record), using the community webhook [ebrianne/cert-manager-webhook-duckdns](https://github.com/ebrianne/cert-manager-webhook-duckdns).
@@ -136,10 +136,10 @@ export DUCKDNS_DOMAIN=your-name.duckdns.org
 export LE_EMAIL=you@example.com
 export DUCKDNS_WEBHOOK_CHART=/path/to/verified-chart
 ## VAULT_ADDR/VAULT_TOKEN come from the environment; do not copy secrets into commands or docs.
-LE_ENV=staging scripts/setup/setup_letsencrypt.sh
+LE_ENV=staging scripts/shared/setup_letsencrypt.sh
 kubectl --context kind-platform -n feature-store get certificate
 ## Only once staging is Ready, request production:
-LE_ENV=production scripts/setup/setup_letsencrypt.sh
+LE_ENV=production scripts/shared/setup_letsencrypt.sh
 ```
 
 Staging uses ACME staging (the cert is not trusted by browsers); production uses ACME production.

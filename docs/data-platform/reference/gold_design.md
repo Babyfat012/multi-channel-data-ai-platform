@@ -81,7 +81,7 @@ plus `-line_number`, so the Order ID can be recovered, `customer_order_id` recom
 with `native_digits(seed, 'walmart_co', order_id, 13)` as used in the renderer,
 then compared with the source payload. The job must stop if a key still joins multiple rows.
 
-`scripts/run/prepare_walmart_label_keys.py` builds a four-key-column Parquet from the
+`scripts/data/prepare_walmart_label_keys.py` builds a four-key-column Parquet from the
 ground-truth mapping, using the seed in `/data/raw/run_manifest.json` and exactly the generator's
 `native_digits` function. This step runs on the host because the Airflow driver uses
 Python 3.11 while the Spark worker uses Python 3.10; a Python UDF in Spark fails with

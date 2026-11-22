@@ -8,7 +8,7 @@
 name: platform
 
 x-generator: &generator
-  build: .
+  build: {context: ., dockerfile: infra/docker/Dockerfile}
   image: platform-generator:optimize
   env_file: .env
   environment:
@@ -225,7 +225,7 @@ services:
   airflow:
     build:
       context: .
-      dockerfile: docker/Dockerfile.airflow
+      dockerfile: infra/docker/Dockerfile.airflow
     image: platform-airflow:2.10.5-spark3.5.3
     profiles: [airflow]
     user: "${AIRFLOW_UID:-1000}:0"
@@ -263,7 +263,7 @@ services:
   flink-jobmanager:
     build:
       context: .
-      dockerfile: docker/Dockerfile.flink
+      dockerfile: infra/docker/Dockerfile.flink
     image: platform-flink:1.20.3-kafka3.4.0
     profiles: [flink]
     command: jobmanager
@@ -290,9 +290,9 @@ services:
     mem_limit: 1280m
 
   # ML Platform: reads stream features Flink writes to Kafka and pushes them into Feast (Redis in kind + Parquet on MinIO).
-  # Run scripts/setup/setup_kind_feature_store.sh first so Redis exists.
+  # Run scripts/ml/setup_kind_feature_store.sh first so Redis exists.
   feast-pusher:
-    build: {context: ., dockerfile: docker/Dockerfile.feast}
+    build: {context: ., dockerfile: infra/docker/Dockerfile.feast}
     image: platform-feast:0.66.0
     profiles: [ml-stream]
     command: ["python", "push_stream_features.py"]
@@ -311,7 +311,7 @@ services:
   # ML Platform: a separate Flink 2.2 cluster running the PyFlink stream feature jobs (2 jobs: online → Redis, offline → Parquet).
   # Separate from the Data Platform's 1.20 cluster (PyFlink 1.20 cannot be installed alongside Feast 0.66). UI: http://localhost:8086.
   flink-ml-jobmanager:
-    build: {context: ., dockerfile: docker/Dockerfile.flink-ml}
+    build: {context: ., dockerfile: infra/docker/Dockerfile.flink-ml}
     image: platform-flink-ml:2.2.1
     profiles: [flink-ml]
     command: jobmanager
@@ -376,7 +376,7 @@ services:
       || psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -c 'CREATE DATABASE mlflow'"
 
   mlflow:
-    build: {context: ., dockerfile: docker/Dockerfile.mlflow}
+    build: {context: ., dockerfile: infra/docker/Dockerfile.mlflow}
     image: platformflow:3.17.0
     profiles: [ml]
     depends_on:
@@ -397,7 +397,7 @@ services:
     mem_limit: 512m
 
   # Centralized secret management. Server mode, file storage in a volume; init/unseal and secret loading
-  # via scripts/setup/setup_vault.sh. UI: http://localhost:8200
+  # via scripts/shared/setup_vault.sh. UI: http://localhost:8200
   vault:
     image: hashicorp/vault:2.1.1
     profiles: [security]
@@ -413,9 +413,9 @@ services:
 
   # Jenkins CI/CD. network_mode host: builds can reach Vault, Flink REST and the kind API
   # as on the host. JENKINS_HOME is mounted at the SAME host path so bind mounts from `docker compose` in the
-  # workspace resolve correctly. Start with scripts/setup/setup_jenkins.sh (fetches secrets from Vault). UI :8090
+  # workspace resolve correctly. Start with scripts/shared/setup_jenkins.sh (fetches secrets from Vault). UI :8090
   jenkins:
-    build: {context: ., dockerfile: docker/Dockerfile.jenkins}
+    build: {context: ., dockerfile: infra/docker/Dockerfile.jenkins}
     image: platform-jenkins:2.580.1
     profiles: [ci]
     network_mode: host

@@ -97,47 +97,36 @@ The documentation follows the AWS deployments; each page has code/config, result
 
 ## Repository layout
 
-```txt
-├── generator/        # Synthetic data for five Channels (skew, schema evolution, duplicates, late arrival)
-├── configs/          # Generator data profiles (small → 100 GB)
-├── contracts/        # Data contracts and per-Channel schemas
-├── spark_jobs/       # Spark batch: Bronze, Silver, Gold, CDC, Iceberg maintenance
-├── flink_jobs/       # Flink streaming: late arrival, dedup, windows, 24h features
-├── sql/, trino/      # Warehouse SQL and Trino federation
-├── dags/             # Airflow pipelines DP1–DP4, feature materialization, RAG
-├── feature_repo/     # Feast: feature views, TTL, stream push to offline/online stores
-├── ml/               # Training (Kubeflow), evaluation, drift (Evidently)
-├── serving/          # Feature API (FastAPI) + MCP tools, KServe model
-├── rag/              # Document chunking, embedding and retrieval
-├── docker/           # Image Dockerfiles (multistage)
-├── infra/            # Infrastructure
-│   ├── aws/          #   Terraform (EC2, S3, ECR, EKS) and Ansible roles for EC2
-│   ├── k8s/          #   Kubernetes manifests: agents, ingress, observability, RAG, CI
-│   └── helm/         #   Feature API Helm chart
-├── ci/               # Jenkinsfiles and Jenkins configuration
-├── scripts/          # setup/ deploy services · run/ run pipelines · evidence/ collect evidence
-├── notebooks/        # Analysis notebooks: model + bootstrap, drift, LLM/A/B benchmark, label EDA (executed, with output)
-├── tests/            # Unit, Spark, test harnesses
-└── docs/             # Documentation, AWS results first
-    ├── README.md     # Main index
-    ├── data-platform/       # Data Platform: one file per component
-    │   ├── README.md
-    │   ├── docker.md
-    │   ├── data_generator.md
-    │   ├── processing_jobs.md
-    │   ├── ...
-    │   └── reference/    # Smaller technical pages, kept together
-    ├── ml-llm-platform/       # ML / LLM Platform: one file per component
-    │   ├── README.md
-    │   ├── llm_inference_platform.md
-    │   ├── global_model_config.md
-    │   ├── observability.md
-    │   ├── ...
-    │   └── reference/
-    ├── shared/       # Domain, AWS runbook and AWS validation status
-    ├── diagrams/     # Deployment diagrams
-    └── evidence/, images/ # Receipts, logs and screenshots from real runs
-```
+Top-level folders grouped by platform. Python packages keep their names (they are imported by that name), so the grouping lives in this table and in a one-line `README.md` inside each folder.
+
+| Group | Folder | What it holds |
+|---|---|---|
+| **Data Platform** | `generator/` | Synthetic data for five Channels (skew, schema evolution, duplicates, late arrival) |
+| | `configs/` | Generator data profiles (small → 100 GB), Iceberg maintenance config |
+| | `contracts/` | Data contracts and per-Channel schemas |
+| | `spark_jobs/` | Spark batch: Bronze, Silver, Gold, CDC, Iceberg maintenance |
+| | `flink_jobs/` | Flink streaming: late arrival, dedup, windows, 24h features |
+| | `sql/`, `trino/` | Warehouse SQL and Trino federation |
+| | `dags/` | Airflow pipelines DP1–DP4, feature materialization, RAG |
+| **ML Platform** | `feature_repo/` | Feast: feature views, TTL, stream push to offline/online stores |
+| | `ml/` | Training (Kubeflow), evaluation, drift (Evidently), KServe predictor |
+| | `serving/` | Feature API (FastAPI) + MCP tools |
+| **LLM Platform** | `rag/` | Document chunking, embedding and retrieval |
+| **Infrastructure** | `infra/docker/` | All Dockerfiles (the generator image is `infra/docker/Dockerfile`) |
+| | `infra/aws/` | Terraform (EC2, S3, ECR, EKS) and Ansible roles for EC2 |
+| | `infra/k8s/`, `infra/helm/` | Kubernetes manifests and the Feature API Helm chart |
+| | `infra/jenkins/` | Jenkinsfiles and Jenkins configuration (JCasC) |
+| | `docker-compose*.yml` | Compose stacks; kept at the root so `docker compose` finds them |
+| **Scripts** | `scripts/data/` | Set up and run the Data Platform (Airflow, Lakekeeper, Debezium, order lifecycle) |
+| | `scripts/ml/` | Deploy and run the ML Platform (KServe, Feature API, Redis, training, stream features) |
+| | `scripts/llm/` | Deploy the LLM Platform (agents, agentgateway, Langfuse, agentregistry, Substrate) |
+| | `scripts/shared/` | Shared: kind registry, images, ingress, TLS, Vault, Jenkins, observability, EKS access |
+| | `scripts/evidence/` | Collect evidence from real runs |
+| **Quality & docs** | `tests/` | Unit, Spark, Flink tests and test harnesses |
+| | `notebooks/` | Analysis notebooks (executed, with output) |
+| | `docs/` | Documentation: `data-platform/`, `ml-llm-platform/`, `shared/`, `diagrams/`, `evidence/` |
+
+Script file names say what they do: `setup_*` installs once, `deploy_*` deploys or updates, `run_*` runs a job.
 
 ## Development and contributing
 

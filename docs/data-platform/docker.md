@@ -2,7 +2,7 @@
 
 This page covers using Docker/Compose and optimizing the Dockerfile.
 
-Code / configuration: [Dockerfile](../../Dockerfile), [Compose AWS](../../docker-compose.aws.yml).
+Code / configuration: [Dockerfile](../../infra/docker/Dockerfile), [Compose AWS](../../docker-compose.aws.yml).
 
 The results below are from recorded AWS runs; this page does not claim the services are still running.
 
@@ -12,8 +12,8 @@ The services run with Docker Compose on EC2 in Sydney; the [AWS receipt](../evid
 records those workloads. The [Airflow AWS](pipeline_orchestration.md#on-aws) page embeds Graph/Gantt screenshots of the
 pipelines that ran. Deployment configuration: [Compose AWS](../../docker-compose.aws.yml).
 
-The table below lists the optimization techniques used in [`Dockerfile`](../../Dockerfile), compared with the unoptimized
-[`Dockerfile.naive`](../../docker/Dockerfile.naive):
+The table below lists the optimization techniques used in [`Dockerfile`](../../infra/docker/Dockerfile), compared with the unoptimized
+[`Dockerfile.naive`](../../infra/docker/Dockerfile.naive):
 
 | Technique | How it is applied and what it does |
 |---|---|
@@ -26,7 +26,7 @@ The table below lists the optimization techniques used in [`Dockerfile`](../../D
 **Re-measured on the EC2 instance itself.** The script [compare_docker_dependencies.sh](../../scripts/evidence/compare_docker_dependencies.sh)
 does three steps:
 
-1. Build [`docker/Dockerfile.naive`](../../docker/Dockerfile.naive) and [`Dockerfile`](../../Dockerfile) from the same code.
+1. Build [`infra/docker/Dockerfile.naive`](../../infra/docker/Dockerfile.naive) and [`Dockerfile`](../../infra/docker/Dockerfile) from the same code.
 2. List the packages installed in each image with `importlib.metadata`.
 3. Compare the two lists with `diff`.
 
@@ -108,7 +108,7 @@ uv run python -m generator report --source s3://platform \
 
 The two Dockerfiles install the same generator with the same dependencies; only the build approach differs:
 
-| | `docker/Dockerfile.naive` | `Dockerfile` |
+| | `infra/docker/Dockerfile.naive` | `Dockerfile` |
 |---|---|---|
 | Base image | `python:3.12` (full Debian, with compilers and headers) | `python:3.12-slim` |
 | Stages | 1 | 2: the build stage installs into `.venv`, the runtime stage only copies `.venv` |
@@ -150,7 +150,7 @@ To shrink further, `duckdb` could move into an optional dependency group, since 
 ### How to re-measure
 
 ```bash
-docker build -t data-generator:naive -f docker/Dockerfile.naive .
+docker build -t data-generator:naive -f infra/docker/Dockerfile.naive .
 docker build -t platform-generator:optimize .
 docker images data-generator
 ```
@@ -159,7 +159,7 @@ docker images data-generator
 
 The measurement in section 2 is **historical**: at that time `Dockerfile.naive` ran `pip install .` (no pinned versions), so the claim "same
 dependencies, only the build approach differs" was not proven. Now the naive image installs from `requirements.lock` (exported from
-`uv.lock` with `scripts/setup/export_requirements_lock.sh`, with hashes) and then `pip install --no-deps .`. `scripts/evidence/compare_docker_dependencies.sh`
+`uv.lock` with `scripts/shared/export_requirements_lock.sh`, with hashes) and then `pip install --no-deps .`. `scripts/evidence/compare_docker_dependencies.sh`
 builds both from the same working tree, lists the packages with `importlib.metadata` in each image and **fails if they differ**.
 
 | Image | Digest | Size |

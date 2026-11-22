@@ -12,7 +12,7 @@ The results below are from recorded AWS runs; this page does not claim the servi
 DataHub 1.7.0.1 runs with Compose on EC2. The metadata publish of six DAGs wrote 22 datasets, 30 jobs and 16
 assertions (data quality rules) into DataHub, all PASS. The information is loaded by two scripts:
 
-- The [publisher](../../scripts/run/publish_order_snapshots_datahub.py) declares lineage based on the inputs/outputs of each DAG.
+- The [publisher](../../scripts/data/publish_order_snapshots_datahub.py) declares lineage based on the inputs/outputs of each DAG.
 - The [validation builder](../../scripts/evidence/build_order_snapshots_datahub_validation.py) takes the check results from the logs
   of Airflow tasks that succeeded.
 
@@ -90,7 +90,7 @@ Local records keep their original environment and do not replace cloud evidence.
 ## Evidence scope
 
 DataHub GMS `v1.7.0.1` received **21 datasets** (22 after adding the CDC v2 table), **29 Airflow jobs** and **15 assertions**
-from `scripts/run/publish_order_snapshots_datahub.py`. The six source datasets are the Amazon JSONL,
+from `scripts/data/publish_order_snapshots_datahub.py`. The six source datasets are the Amazon JSONL,
 three small-Channel JSONL sources, the PostgreSQL table `walmart.orders` and the CDC Kafka topic;
 the 15 target datasets are the Bronze/Silver/Gold Iceberg tables. The metadata connects source →
 Bronze → Silver → Gold → features through the Airflow jobs' inputs/outputs and
@@ -180,7 +180,7 @@ docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
   --run dp3_features=manual__2026-10-18T05:24:29+00:00 \
   --cdc-table lakehouse.bronze.raw_walmart_cdc_v2
 "$HOME/.local/share/uv/tools/acryl-datahub/bin/python" \
-  scripts/run/publish_order_snapshots_datahub.py --server http://127.0.0.1:8089 \
+  scripts/data/publish_order_snapshots_datahub.py --server http://127.0.0.1:8089 \
   --evidence docs/evidence/datahub-validation-v2.json
 .venv/bin/python scripts/evidence/capture_order_snapshots_datahub_evidence.py --profile v2
 ```
@@ -189,7 +189,7 @@ docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
 
 The `mysql:8.2` image at this pull had a 0-byte `/bin/bash`; the frontend image
 `v1.7.0.1` had many 0-byte Play JARs. The file
-[`docker/datahub-compose.override.yml`](../../docker/datahub-compose.override.yml)
+[`infra/docker/datahub-compose.override.yml`](../../infra/docker/datahub-compose.override.yml)
 uses MySQL `8.0` and frontend `v1.6.0.2`, verified to work with GMS
 `v1.7.0.1`. This configuration serves the local proof; versions need to be aligned for a long-term
 deployment.
@@ -199,14 +199,14 @@ DATAHUB_VERSION=v1.7.0.1 UI_INGESTION_DEFAULT_CLI_VERSION=1.7.0.14 \
 DATAHUB_MAPPED_GMS_PORT=8089 DATAHUB_MAPPED_FRONTEND_PORT=9002 \
 docker compose --env-file "$HOME/.datahub/quickstart/.local-secrets.env" \
   --profile quickstart -f "$HOME/.datahub/quickstart/docker-compose.yml" \
-  -f docker/datahub-compose.override.yml -p datahub up -d
+  -f infra/docker/datahub-compose.override.yml -p datahub up -d
 
 docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
   python:3.12-slim python scripts/evidence/build_order_snapshots_datahub_validation.py \
   --logs-root /logs/logs
 
 "$HOME/.local/share/uv/tools/acryl-datahub/bin/python" \
-  scripts/run/publish_order_snapshots_datahub.py --server http://127.0.0.1:8089
+  scripts/data/publish_order_snapshots_datahub.py --server http://127.0.0.1:8089
 .venv/bin/python scripts/evidence/capture_order_snapshots_datahub_evidence.py
 ```
 

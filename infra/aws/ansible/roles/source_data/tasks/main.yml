@@ -57,7 +57,7 @@
   vars:
     source_loader_argv: >-
       {{ ['/mnt/platform-data/venv/bin/python',
-      ('scripts/setup/load_order_lifecycle_walmart.py' if source_mode == 'fixture' else
+      ('scripts/data/load_order_lifecycle_walmart.py' if source_mode == 'fixture' else
        'infra/aws/ansible/roles/source_data/files/load_scaled_walmart.py'),
       '--root', '/mnt/platform-data/source/' + source_dataset_name] }}
   # The script replaces data in one transaction; reruns do not increase the row count.

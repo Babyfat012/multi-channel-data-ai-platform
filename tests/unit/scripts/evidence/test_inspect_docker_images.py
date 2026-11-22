@@ -17,7 +17,7 @@ def test_services_keep_profiles_ports_and_limits():
         "services": {
             "spark-master": {
                 "image": "platform-spark",
-                "build": {"dockerfile": "docker/Dockerfile.airflow"},
+                "build": {"dockerfile": "infra/docker/Dockerfile.airflow"},
                 "profiles": ["spark"],
                 "ports": [{"host_ip": "127.0.0.1", "published": "8080", "target": 8080}],
                 "mem_limit": "2g",
@@ -29,12 +29,14 @@ def test_services_keep_profiles_ports_and_limits():
     rows = inventory.services(config)
     assert [r["service"] for r in rows] == ["postgres", "spark-master"]
     assert rows[0]["ports"][0]["host_ip"] == "0.0.0.0" and rows[0]["profiles"] == []
-    assert rows[1]["dockerfile"] == "docker/Dockerfile.airflow" and rows[1]["mem_limit"] == "2g"
+    assert (
+        rows[1]["dockerfile"] == "infra/docker/Dockerfile.airflow" and rows[1]["mem_limit"] == "2g"
+    )
 
 
 def test_naive_dockerfile_installs_locked_dependencies_only():
     """The naive image installs libraries from requirements.lock, the project with --no-deps ⇒ same library set as uv.lock."""
-    text = (ROOT / "docker/Dockerfile.naive").read_text()
+    text = (ROOT / "infra/docker/Dockerfile.naive").read_text()
     assert "pip install -r requirements.lock" in text and "--no-deps ." in text
     lock = (ROOT / "requirements.lock").read_text()
     assert "uv export --frozen --no-dev" in lock and "--hash=sha256:" in lock

@@ -12,7 +12,7 @@ Kubeflow Pipelines (KFP) 2.17.2 runs on EKS. MLflow 3.17.0 runs on EC2, with art
 
 KFP run `train-aws-3` (ID `0485ebd9-d74f-4db9-9b70-aaac07e5cb24`) completed successfully (SUCCEEDED) all 5 steps in 10 minutes 42 seconds.
 The [AWS receipt](../evidence/aws/data-platform-aws-20261027.json) (entry `ml_eks`) records the image used and the sample size: a 2‰ (two per thousand) sample, giving 359,457 rows.
-[Pipeline code](../../ml/training_pipeline.py), [train logic](../../ml/train_lib.py), [Dockerfile](../../docker/Dockerfile.train).
+[Pipeline code](../../ml/training_pipeline.py), [train logic](../../ml/train_lib.py), [Dockerfile](../../infra/docker/Dockerfile.train).
 
 | Step in the graph | Work |
 |---|---|
@@ -138,10 +138,10 @@ s3://platform/feature-store/training_lines   (Spark export_training_lines.py: la
 |---|---|
 | Pure logic (testable without KFP) | [`ml/train_lib.py`](../../ml/train_lib.py), test [`tests/unit/test_train_lib.py`](../../tests/unit/test_train_lib.py) |
 | 5-step KFP pipeline | [`ml/training_pipeline.py`](../../ml/training_pipeline.py) |
-| Image for the steps | [`docker/Dockerfile.train`](../../docker/Dockerfile.train) (built on `platform-feast`) |
+| Image for the steps | [`infra/docker/Dockerfile.train`](../../infra/docker/Dockerfile.train) (built on `platform-feast`) |
 | Training set export | [`spark_jobs/gold/export_training_lines.py`](../../spark_jobs/gold/export_training_lines.py), task `export_training_lines` of DAG `ml_feature_materialize` |
-| MLflow server | service `mlflow` (profile `ml`), [`docker/Dockerfile.mlflow`](../../docker/Dockerfile.mlflow) |
-| Submit | [`scripts/run/run_training_pipeline.sh`](../../scripts/run/run_training_pipeline.sh) |
+| MLflow server | service `mlflow` (profile `ml`), [`infra/docker/Dockerfile.mlflow`](../../infra/docker/Dockerfile.mlflow) |
+| Submit | [`scripts/ml/run_training_pipeline.sh`](../../scripts/ml/run_training_pipeline.sh) |
 
 ## Decisions
 
@@ -175,8 +175,8 @@ docker compose --profile ml up -d mlflow                     # UI http://localho
 kubectl --context kind-platform apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=2.17.2"
 kubectl --context kind-platform apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/platform-agnostic?ref=2.17.2"
 ## The submit script builds/pushes platform-train:<git-SHA> itself, then compiles KFP with the same image.
-scripts/setup/setup_kind_registry.sh
-scripts/run/run_training_pipeline.sh train-N                 # KFP UI: kubectl port-forward svc/ml-pipeline-ui 8888:80
+scripts/shared/setup_kind_registry.sh
+scripts/ml/run_training_pipeline.sh train-N                 # KFP UI: kubectl port-forward svc/ml-pipeline-ui 8888:80
 ```
 
 ## Evidence
