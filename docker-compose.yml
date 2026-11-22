@@ -397,7 +397,7 @@ services:
     mem_limit: 512m
 
   # Centralized secret management. Server mode, file storage in a volume; init/unseal and secret loading
-  # via scripts/shared/setup_vault.sh. UI: http://localhost:8200
+  # via scripts/shared/setup_vault.py. UI: http://localhost:8200
   vault:
     image: hashicorp/vault:2.1.1
     profiles: [security]
@@ -413,7 +413,7 @@ services:
 
   # Jenkins CI/CD. network_mode host: builds can reach Vault, Flink REST and the kind API
   # as on the host. JENKINS_HOME is mounted at the SAME host path so bind mounts from `docker compose` in the
-  # workspace resolve correctly. Start with scripts/shared/setup_jenkins.sh (fetches secrets from Vault). UI :8090
+  # workspace resolve correctly. Start with scripts/shared/setup_jenkins.py (fetches secrets from Vault). UI :8090
   jenkins:
     build: {context: ., dockerfile: infra/docker/Dockerfile.jenkins}
     image: platform-jenkins:2.580.1

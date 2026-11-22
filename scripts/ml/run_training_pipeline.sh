@@ -11,7 +11,7 @@ export TAG="${TAG:-$(git rev-parse HEAD)}"
 # SKIP_BUILD_PUSH=1: image TAG already exists in the registry (immutable ECR tags reject re-pushing the same tag).
 if [[ "${SKIP_BUILD_PUSH:-0}" != 1 ]]; then
   docker build -f infra/docker/Dockerfile.train -t "platform-train:$TAG" .
-  scripts/shared/push_images.sh "platform-train:$TAG"
+  python3 -m scripts.shared.push_images "platform-train:$TAG"
 fi
 K="kubectl --context ${KCTX:-kind-platform} -n kubeflow"
 export PIPELINE_TARGET="${PIPELINE_TARGET:-kind}"

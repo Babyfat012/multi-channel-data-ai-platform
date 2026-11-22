@@ -33,7 +33,7 @@ pipeline {
       steps { sh 'docker build -f infra/docker/Dockerfile.serving -t platform-feature-api:$TAG .' }
     }
     stage('Push') {
-      steps { sh 'scripts/shared/push_images.sh platform-feature-api:$TAG' }
+      steps { sh 'python3 -m scripts.shared.push_images platform-feature-api:$TAG' }
     }
     stage('Deploy MCP server') {
       steps {

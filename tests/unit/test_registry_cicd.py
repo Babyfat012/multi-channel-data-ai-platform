@@ -1,8 +1,10 @@
 """Check the image release contract and CI gates, fully offline."""
 
+import importlib
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,15 +18,22 @@ def read(path):
     return (ROOT / path).read_text()
 
 
+def run_module(module, *args, env=None, **kwargs):
+    """Run `python -m scripts.<module>` from the repo root, like Jenkins and the docs do."""
+    return subprocess.run(
+        [sys.executable, "-m", f"scripts.{module}", *args], cwd=ROOT, env=env, **kwargs
+    )
+
+
 def test_no_direct_kind_image_loading():
     """Scripts/CI must release images, not load them directly into nodes."""
-    for folder in ("scripts", "ci"):
+    for folder in ("scripts", "infra/jenkins"):
         for path in (ROOT / folder).rglob("*"):
-            if path.suffix not in (".sh", ".Jenkinsfile"):
+            if path.suffix not in (".sh", ".py", ".Jenkinsfile"):
                 continue
             for line in path.read_text().splitlines():
                 if not line.lstrip().startswith(("#", "//")):
-                    assert not re.search(r"\bkind\s+load\b", line), path
+                    assert not re.search(r"\bkind[\"',\s]+load\b", line), path
 
 
 def test_build_pipelines_publish_before_deploy():
@@ -35,7 +44,7 @@ def test_build_pipelines_publish_before_deploy():
         if "Build" in stages:
             deploy = next(i for i, name in enumerate(stages) if name.startswith("Deploy"))
             assert stages.index("Build") < stages.index("Push") < deploy, path
-            assert "scripts/shared/push_images.sh" in text
+            assert "python3 -m scripts.shared.push_images" in text
     for name, deploy in (("feature-api-agents", "Deploy Agent"), ("coordinator", "Deploy")):
         text = read(f"infra/jenkins/{name}.Jenkinsfile")
         stages = re.findall(r"stage\('([^']+)'\)", text)
@@ -58,7 +67,7 @@ def test_registry_and_pull_configuration():
     assert "localhost:5001" in read("ml/training_pipeline.py")
     assert 'set_image_pull_policy(task, "IfNotPresent")' in read("ml/training_pipeline.py")
     assert "imagePullPolicy: IfNotPresent" in read("infra/k8s/ml/return-risk.yaml")
-    setup = read("scripts/shared/setup_kind_registry.sh")
+    setup = read("scripts/shared/setup_kind_registry.py")
     assert "/etc/containerd/certs.d/localhost:5001/hosts.toml" in setup
     assert 'server = "http://registry:5000"' in setup
     assert "namespace: kube-public" in setup
@@ -68,15 +77,10 @@ def test_registry_and_pull_configuration():
 @pytest.mark.parametrize(
     "script",
     [
-        "scripts/shared/setup_kind_registry.sh",
-        "scripts/shared/setup_letsencrypt.sh",
-        "scripts/shared/push_images.sh",
-        "scripts/shared/compose_release_images.sh",
         "scripts/llm/eval_agent_ci.sh",
         "scripts/ml/deploy_kind_feature_api.sh",
         "scripts/ml/deploy_return_risk.sh",
         "scripts/ml/run_training_pipeline.sh",
-        "scripts/shared/up_ml_base.sh",
         "scripts/shared/vault_env.sh",
     ],
 )
@@ -85,15 +89,28 @@ def test_shell_syntax(script):
     subprocess.run(["bash", "-n", str(ROOT / script)], check=True)
 
 
+# Groups already converted from bash to Python; each module must import without side effects.
+CONVERTED_GROUPS = ("shared",)
+
+
+@pytest.mark.parametrize(
+    "module",
+    sorted(
+        f"scripts.{group}.{path.stem}"
+        for group in CONVERTED_GROUPS
+        for path in (ROOT / "scripts" / group).glob("*.py")
+        if path.stem != "__init__"
+    ),
+)
+def test_script_modules_import(module):
+    """Importing a script must not run it: all work happens in main()."""
+    assert callable(importlib.import_module(module).main)
+
+
 def test_letsencrypt_disabled_without_domain():
     """The default branch still runs with no infrastructure tools in PATH."""
     env = {**os.environ, "DUCKDNS_DOMAIN": "", "PATH": "/nonexistent"}
-    result = subprocess.run(
-        ["/bin/bash", str(ROOT / "scripts/shared/setup_letsencrypt.sh")],
-        env=env,
-        text=True,
-        capture_output=True,
-    )
+    result = run_module("shared.setup_letsencrypt", env=env, text=True, capture_output=True)
     assert result.returncode == 0
     assert "Keeping the internal CA." in result.stdout
     assert not result.stderr
@@ -112,8 +129,9 @@ def test_push_retags_to_immutable_release(tmp_path):
         "TAG": "abc123",
         "REGISTRY": "localhost:5001",
     }
-    subprocess.run(
-        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
+    run_module(
+        "shared.push_images",
+        "platform-feast:0.66.0",
         env=env,
         check=True,
     )
@@ -124,8 +142,9 @@ def test_push_retags_to_immutable_release(tmp_path):
     ]
     log.unlink()
     env["TAG"] = "latest"
-    result = subprocess.run(
-        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
+    result = run_module(
+        "shared.push_images",
+        "platform-feast:0.66.0",
         env=env,
         capture_output=True,
     )
@@ -135,14 +154,10 @@ def test_push_retags_to_immutable_release(tmp_path):
 
 def test_compose_release_matches_published_tag():
     """Services sharing an image get the same pushed address, taskmanager included."""
-    result = subprocess.run(
-        [
-            "bash",
-            "scripts/shared/compose_release_images.sh",
-            "flink-jobmanager=platform-flink",
-            "flink-taskmanager=platform-flink",
-        ],
-        cwd=ROOT,
+    result = run_module(
+        "shared.compose_release_images",
+        "flink-jobmanager=platform-flink",
+        "flink-taskmanager=platform-flink",
         env={**os.environ, "REGISTRY": "localhost:5001", "TAG": "abc123"},
         text=True,
         capture_output=True,
@@ -194,8 +209,8 @@ def test_registry_setup_repeated_on_existing_nodes(tmp_path):
         "KIND_CLUSTER": "platform",
     }
     for _ in range(2):
-        subprocess.run(
-            ["bash", str(ROOT / "scripts/shared/setup_kind_registry.sh")],
+        run_module(
+            "shared.setup_kind_registry",
             env=env,
             check=True,
             capture_output=True,
@@ -227,26 +242,27 @@ def test_push_logs_into_ecr_only_for_ecr_registries(tmp_path):
         "TAG": "abc123",
         "REGISTRY": "665116832975.dkr.ecr.ap-southeast-2.amazonaws.com/platform",
     }
-    subprocess.run(
-        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
+    run_module(
+        "shared.push_images",
+        "platform-feast:0.66.0",
         env=env,
         check=True,
         stdin=subprocess.DEVNULL,
     )
     calls = log.read_text().splitlines()
-    # `aws … | docker login` run concurrently in a pipe ⇒ assume no order between the first two lines.
-    assert set(calls[:2]) == {
+    assert calls[:2] == [
         "aws ecr get-login-password --region ap-southeast-2",
         "docker login --username AWS --password-stdin 665116832975.dkr.ecr.ap-southeast-2.amazonaws.com",
-    }
+    ]
     assert (
         calls[-1]
         == "docker push 665116832975.dkr.ecr.ap-southeast-2.amazonaws.com/platform/platform-feast:abc123"
     )
     log.unlink()
     env["REGISTRY"] = "localhost:5001"
-    subprocess.run(
-        ["bash", str(ROOT / "scripts/shared/push_images.sh"), "platform-feast:0.66.0"],
+    run_module(
+        "shared.push_images",
+        "platform-feast:0.66.0",
         env=env,
         check=True,
         stdin=subprocess.DEVNULL,
@@ -274,9 +290,12 @@ def test_jenkins_on_ec2_is_loopback_with_eks_kubeconfig_and_bundle_source():
         "-Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true"
         in (ROOT / "infra/docker/Dockerfile.jenkins").read_text()
     )
-    setup = (ROOT / "scripts/shared/setup_jenkins.sh").read_text()
-    eks = setup[setup.index('if [[ "${PLATFORM_STORAGE:-minio}" == s3 ]]; then') :].split("else")[0]
-    assert "eks update-kubeconfig" in eks and "kind get kubeconfig" not in eks
+    import inspect
+
+    from scripts.shared import setup_jenkins
+
+    eks = inspect.getsource(setup_jenkins.kubeconfig_eks)
+    assert '"update-kubeconfig"' in eks and '"kind"' not in eks
     dockerfile = (ROOT / "infra/docker/Dockerfile.jenkins").read_text()
     assert "/release/v1.37.2/" in dockerfile and "awscli-exe-linux-x86_64-2.31.0.zip" in dockerfile
 

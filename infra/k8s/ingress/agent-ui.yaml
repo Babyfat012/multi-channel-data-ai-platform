@@ -1,5 +1,5 @@
 # Agent chat UI (kagent UI) behind the gateway: HTTPS + basic auth + rate limit.
-# htpasswd Secret `agent-ui-basic-auth` is created by scripts/shared/setup_ingress.sh from the password in Vault.
+# htpasswd Secret `agent-ui-basic-auth` is created by scripts/shared/setup_ingress.py from the password in Vault.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

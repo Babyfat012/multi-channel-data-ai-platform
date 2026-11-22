@@ -1,15 +1,21 @@
 """Vault: the agentgateway key is copied from the EKS Secret even when running on EC2 (host has no kubeconfig)."""
 
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[4]
-SCRIPT = (ROOT / "scripts/shared/setup_vault.sh").read_text()
+from scripts.shared.setup_vault import agentgateway_kubectl
 
 
-def test_agentgateway_key_is_read_through_jenkins_kubeconfig_on_ec2():
+def test_agentgateway_key_is_read_through_jenkins_kubeconfig_on_ec2(monkeypatch):
     """Without the s3 branch ⇒ host kubectl points at kind, the error is swallowed ⇒ Vault has no key, CI eval 404s."""
-    s3 = SCRIPT[SCRIPT.index('if [[ "${PLATFORM_STORAGE:-minio}" == s3 ]]; then') :].split("else")[
-        0
+    monkeypatch.setenv("PLATFORM_STORAGE", "s3")
+    assert agentgateway_kubectl()[:8] == [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "jenkins",
+        "kubectl",
+        "--kubeconfig",
+        "/run/secrets/kubeconfig",
     ]
-    assert "docker compose exec -T jenkins kubectl --kubeconfig /run/secrets/kubeconfig" in s3
-    assert 'if agw=$("${KC[@]}" -n agentgateway get secret agentgateway-keys' in SCRIPT
+    monkeypatch.setenv("PLATFORM_STORAGE", "minio")
+    monkeypatch.delenv("KCTX", raising=False)
+    assert agentgateway_kubectl() == ["kubectl", "--context", "kind-platform"]

@@ -64,7 +64,7 @@ PY
 )
 if [[ "${SKIP_BUILD_PUSH:-0}" != 1 ]]; then
   docker build -f infra/docker/Dockerfile.serving -t "platform-feature-api:$TAG" .
-  scripts/shared/push_images.sh "platform-feature-api:$TAG"
+  python3 -m scripts.shared.push_images "platform-feature-api:$TAG"
 fi
 kubectl --context "$KCTX" create namespace "$namespace" --dry-run=client -o yaml | "${K[@]}" apply -f -
 printf '%s\n' "$secret_env" | "${K[@]}" create secret generic feature-api-env \

@@ -1,5 +1,5 @@
 # Feature-pull Web API: HTTPS via NGINX Ingress, cert issued by cert-manager.
-# sslip.io host points at the kind node IP (@@NODE_IP_DASH@@ filled in by scripts/shared/setup_ingress.sh).
+# sslip.io host points at the kind node IP (@@NODE_IP_DASH@@ filled in by scripts/shared/setup_ingress.py).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

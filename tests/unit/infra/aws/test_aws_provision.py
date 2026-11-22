@@ -553,9 +553,18 @@ def test_wave2_vault_ingress_and_letsencrypt_for_eks():
     assert issuer["spec"]["acme"]["solvers"] == [
         {"http01": {"ingress": {"ingressClassName": "nginx"}}}
     ]
-    script = (ROOT / "scripts/shared/setup_ingress.sh").read_text()
-    assert script.count('-e "s/cluster-issuer: platform-local-ca/cluster-issuer: $issuer/"') == 2
-    assert ': "${LE_EMAIL:?' in script and "ROOT=${VAULT_TOKEN:-" in script
+    from scripts.shared import setup_ingress
+
+    rendered = setup_ingress.render(
+        ROOT / "infra/k8s/ingress/ops-ui.yaml", "platform-letsencrypt", NAME="grafana"
+    )
+    assert (
+        "cluster-issuer: platform-letsencrypt" in rendered and "platform-local-ca" not in rendered
+    )
+    script = (ROOT / "scripts/shared/setup_ingress.py").read_text()
+    assert (
+        "Set LE_EMAIL" in script and 'os.environ.get("VAULT_TOKEN") or vault_root_token()' in script
+    )
 
 
 def test_wave2_prometheus_pulls_ec2_exporters_with_alerts():
@@ -581,12 +590,15 @@ def test_wave2_prometheus_pulls_ec2_exporters_with_alerts():
     assert 'mountpoint="/mnt/platform-data"' in rules["EC2DataDiskAlmostFull"]
     assert "> 0.8" in rules["EC2DataDiskAlmostFull"]
     assert "confirmed_flush_lsn > 1073741824" in rules["PostgresSlotWalRetained"]
-    script = (ROOT / "scripts/shared/deploy_kind_observability.sh").read_text()
-    assert (
-        '[[ "${KCTX:-kind-platform}" == kind-* ]] || prom_aws=(-f $V/prometheus-values-aws.yaml)'
-        in script
+    from scripts.shared.deploy_observability import prometheus_values
+
+    assert "infra/k8s/observability/prometheus-values-aws.yaml" not in prometheus_values(
+        "kind-platform"
     )
-    assert '"${prom_aws[@]}" --wait' in script
+    assert prometheus_values("platform-apps")[-2:] == [
+        "-f",
+        "infra/k8s/observability/prometheus-values-aws.yaml",
+    ]
 
 
 def test_letsencrypt_first_issue_opens_then_closes_each_route():
@@ -596,22 +608,26 @@ def test_letsencrypt_first_issue_opens_then_closes_each_route():
         assert (
             doc["metadata"]["annotations"]["acme.cert-manager.io/http01-edit-in-place"] == "true"
         ), f
-    script = (ROOT / "scripts/shared/setup_ingress.sh").read_text()
-    fn = script[
-        script.index("apply_ing() {") : script.index("\n}\n", script.index("apply_ing() {"))
-    ]
-    opened, wait, full = (
-        fn.index("/nginx.org\\/basic-auth/d"),
-        fn.index('wait --for=condition=Ready "certificate/$2"'),
-        fn.index('$K apply -f - <<<"$y"'),
+    import inspect
+
+    from scripts.shared import setup_ingress
+
+    ingress = (ROOT / "infra/k8s/ingress/agent-ui.yaml").read_text()
+    opened = setup_ingress.open_for_http01(ingress)
+    assert "nginx.org/basic-auth" in ingress and "nginx.org/basic-auth" not in opened
+    assert 'ingress.kubernetes.io/ssl-redirect: "false"' in opened
+    fn = inspect.getsource(setup_ingress.apply_ingress)
+    # Order on the first issue: open version → wait for the Certificate → full version.
+    assert (
+        fn.index("apply(kc, open_for_http01(manifest))")
+        < fn.index('"--for=condition=Ready"')
+        < fn.index("apply(kc, manifest)")
     )
-    assert opened < wait < full
-    assert 'ingress.kubernetes.io/ssl-redirect: "false"' in fn
     # The Secret can exist before a real cert does ⇒ ask whether the Certificate is Ready, not the secret.
-    assert '(@.type=="Ready")].status}\'' in fn and "!= True ]]" in fn
-    assert "get secret" not in fn
-    assert '.yaml" | apply_ing "${f%/*}" "${f#*/}-tls"' in script
-    assert 'ops-ui.yaml | apply_ing "$ns" "$name-tls"' in script
+    assert '(@.type=="Ready")].status}' in fn and 'ready != "True"' in fn
+    assert '"secret"' not in fn
+    main = inspect.getsource(setup_ingress.main)
+    assert main.count('apply_ingress(kc, issuer, namespace, f"{name}-tls", manifest)') == 2
 
 
 def test_wave4_rag_reaches_pgvector_nodeport_with_iam_s3():

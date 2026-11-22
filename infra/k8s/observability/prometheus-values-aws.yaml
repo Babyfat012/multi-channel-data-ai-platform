@@ -1,4 +1,4 @@
-# EKS only (deploy_kind_observability.sh loads it when KCTX is not kind-*): Prometheus pulls exporters on
+# EKS only (deploy_observability loads it when KCTX is not kind-*): Prometheus pulls exporters on
 # EC2 over private IP (SG opens 9100/9187 from the cluster SG). No Alertmanager: rules show on the Alerts page of
 # Prometheus/Grafana. Limitation: nobody is notified unless the page is open; prod adds Alertmanager + mail.
 extraScrapeConfigs: |

@@ -48,7 +48,7 @@ Receipts, logs and original screenshots keep the identifiers of the environment 
 | Agent test UI | Recorded | `agent.` (kagent UI) | Within the scope of the linked doc |
 | Agent registry UI | Recorded | `registry.` | Within the scope of the linked doc |
 | Basic auth + rate limit | Recorded | 401/200/429 — [gateway](../routing_gateway.md) | Within the scope of the linked doc |
-| Domain + HTTPS Web API | **On AWS** | sslip.io + internal CA; Let's Encrypt DNS-01 via DuckDNS is prepared but off by default (`scripts/shared/setup_letsencrypt.sh`) — [gateway](../routing_gateway.md) | AWS: `api.*.sslip.io`, Let's Encrypt cert (HTTP-01) — [gateway](../routing_gateway.md) |
+| Domain + HTTPS Web API | **On AWS** | sslip.io + internal CA; Let's Encrypt DNS-01 via DuckDNS is prepared but off by default (`python3 -m scripts.shared.setup_letsencrypt`) — [gateway](../routing_gateway.md) | AWS: `api.*.sslip.io`, Let's Encrypt cert (HTTP-01) — [gateway](../routing_gateway.md) |
 | Terraform cloud services | **On AWS** | [Terraform AWS](../../../infra/aws/terraform/README.md): EC2/VPC/S3/IAM; [IaC](../iac.md) | AWS: EC2/VPC/S3/IAM + EKS, `terraform plan` screenshot — [IaC](../iac.md) |
 | Ansible VM deploy | **On AWS** | [Ansible AWS](../../../infra/aws/ansible/README.md), [IaC](../iac.md) (Data Platform part) | AWS: `PLAY RECAP` screenshot on EC2 — [IaC](../iac.md) |
 | Web API metrics | Recorded | feature-api `/metrics`; KServe `return_risk_*` — [serving](../ml_inference_service.md) | Within the scope of the linked doc |

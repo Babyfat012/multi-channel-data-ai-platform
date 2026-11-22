@@ -1,7 +1,7 @@
 // CI/CD for the stream feature job: test → build → deploy → verify.
 // AWS (s3): TWO PyFlink jobs `ml-sku-return-24h-online` / `-offline` on the Flink ML 2.2 cluster (Compose).
 // Local (minio): variant B Flink SQL `ml-sku-return-24h` + feast-pusher. Secrets live in Vault (secret/platform/*); Jenkins
-// only holds the READ-ONLY token `vault-ci-token` (policy platform-read, created by scripts/shared/setup_vault.sh).
+// only holds the READ-ONLY token `vault-ci-token` (policy platform-read, created by scripts/shared/setup_vault.py).
 // The agent needs Docker, docker compose, uv; runs on a machine with the stack (local or a GCE VM).
 pipeline {
   agent any
@@ -38,12 +38,12 @@ pipeline {
       }
     }
     stage('Push') {
-      steps { sh 'scripts/shared/push_images.sh platform-flink:1.20.3-kafka3.4.0 platform-feast:0.66.0 platform-flink-ml:2.2.1' }
+      steps { sh 'python3 -m scripts.shared.push_images platform-flink:1.20.3-kafka3.4.0 platform-feast:0.66.0 platform-flink-ml:2.2.1' }
     }
     stage('Release config') {
       steps {
         sh 'mkdir -p out'
-        sh 'scripts/shared/compose_release_images.sh flink-jobmanager=platform-flink flink-taskmanager=platform-flink feast-pusher=platform-feast flink-ml-jobmanager=platform-flink-ml flink-ml-taskmanager=platform-flink-ml > out/ci-compose-images.yaml'
+        sh 'python3 -m scripts.shared.compose_release_images flink-jobmanager=platform-flink flink-taskmanager=platform-flink feast-pusher=platform-feast flink-ml-jobmanager=platform-flink-ml flink-ml-taskmanager=platform-flink-ml > out/ci-compose-images.yaml'
       }
     }
     stage('Deploy') {

@@ -22,12 +22,12 @@ pipeline {
       steps { sh 'docker compose --profile airflow build airflow' }
     }
     stage('Push') {
-      steps { sh 'scripts/shared/push_images.sh platform-airflow:2.10.5-spark3.5.3' }
+      steps { sh 'python3 -m scripts.shared.push_images platform-airflow:2.10.5-spark3.5.3' }
     }
     stage('Release config') {
       steps {
         sh 'mkdir -p out'
-        sh 'scripts/shared/compose_release_images.sh airflow=platform-airflow > out/ci-compose-images.yaml'
+        sh 'python3 -m scripts.shared.compose_release_images airflow=platform-airflow > out/ci-compose-images.yaml'
       }
     }
     stage('Deploy') {

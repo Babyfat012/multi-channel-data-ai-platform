@@ -175,7 +175,7 @@ docker compose --profile ml up -d mlflow                     # UI http://localho
 kubectl --context kind-platform apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=2.17.2"
 kubectl --context kind-platform apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/platform-agnostic?ref=2.17.2"
 ## The submit script builds/pushes platform-train:<git-SHA> itself, then compiles KFP with the same image.
-scripts/shared/setup_kind_registry.sh
+python3 -m scripts.shared.setup_kind_registry
 scripts/ml/run_training_pipeline.sh train-N                 # KFP UI: kubectl port-forward svc/ml-pipeline-ui 8888:80
 ```
 
