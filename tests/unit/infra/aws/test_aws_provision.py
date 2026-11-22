@@ -479,23 +479,45 @@ def test_kfp_on_eks_reads_s3_by_pod_identity_without_minio():
 
 
 def test_kserve_on_eks_reads_registry_by_pod_identity():
-    """return-risk: its own SA with a read-only feature-store role; the MinIO Secret is optional; the s3 branch creates no Secret."""
-    docs = list(yaml.safe_load_all((ROOT / "infra/k8s/ml/return-risk.yaml").read_text()))
-    account = next(d for d in docs if d["kind"] == "ServiceAccount")
-    service = next(d for d in docs if d["kind"] == "InferenceService")
+    """return-risk: SA created by the deploy script, bound by Pod Identity to read-only feature-store + mlflow; model via STORAGE_URI."""
+    docs = [
+        d for d in yaml.safe_load_all((ROOT / "infra/k8s/ml/return-risk.yaml").read_text()) if d
+    ]
+    assert not any(d.get("kind") == "ServiceAccount" for d in docs)
+
+    service = next(d for d in docs if d.get("kind") == "InferenceService")
     predictor = service["spec"]["predictor"]
-    assert predictor["serviceAccountName"] == account["metadata"]["name"] == "return-risk"
+    assert predictor["serviceAccountName"] == "return-risk"
+
+    # Env of the predictor container; EKS has no MinIO Secret, so it must stay optional.
     container = predictor["containers"][0]
     assert {"secretRef": {"name": "platform-minio", "optional": True}} in container["envFrom"]
-    env = {e["name"]: e["value"] for e in container["env"]}
+    env = {item["name"]: item["value"] for item in container.get("env", []) if "value" in item}
     assert env["FEAST_REGISTRY"] == "@@FEAST_ROOT@@/registry.db"
+    assert env["STORAGE_URI"] == "@@STORAGE_URI@@"
+    assert env["MODEL_VERSION"] == "@@VERSION@@"
+
     identity = (ROOT / "infra/aws/kubernetes/identity.tf").read_text()
     assert (
         'model_reader    = { namespace = "ml-serving", service_account = "return-risk" }'
         in identity
     )
+
     block = identity[identity.index('resource "aws_iam_role_policy" "model_reader"') :]
     assert "data.aws_iam_policy_document.feature_reader.json" in block.split("}")[0]
+
+    # model_reader also reads MLflow artifacts (mlflow/*) for the storage-initializer.
+    mlflow_policy_block = identity[
+        identity.index('resource "aws_iam_role_policy" "model_reader_mlflow"') :
+    ]
+    assert "data.aws_iam_policy_document.model_artifacts.json" in mlflow_policy_block.split("}")[0]
+    artifacts = identity[
+        identity.index('data "aws_iam_policy_document" "model_artifacts"') : identity.index(
+            'resource "aws_iam_role_policy" "model_reader"'
+        )
+    ]
+    assert "/mlflow/*" in artifacts and "Put" not in artifacts and "Delete" not in artifacts
+
     from scripts.ml.deploy_return_risk import cluster_objects
 
     # EKS: Pod Identity only, no MinIO Secret; kind: the MinIO Secret is attached to the ServiceAccount.

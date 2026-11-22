@@ -105,16 +105,46 @@ resource "aws_eks_pod_identity_association" "pipeline_runner" {
   depends_on      = [aws_eks_addon.pod_identity]
 }
 
-# KServe return-risk: Feast online must read registry.db on S3 before querying Redis; read-only feature-store/*.
+# KServe return-risk: Feast online must read registry.db on S3 before querying Redis (feature-store/*),
+# and KServe storage-initializer downloads model artifacts from mlflow/* at startup.
 resource "aws_iam_role" "model_reader" {
   name               = "${var.name_prefix}-model-reader"
   assume_role_policy = data.aws_iam_policy_document.pod_trust["model_reader"].json
+}
+
+data "aws_iam_policy_document" "model_artifacts" {
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}/mlflow/*"]
+  }
+
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}"]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["mlflow/*"]
+    }
+  }
+
+  statement {
+    actions   = ["s3:GetBucketLocation"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}"]
+  }
 }
 
 resource "aws_iam_role_policy" "model_reader" {
   name   = "feature-store-read"
   role   = aws_iam_role.model_reader.id
   policy = data.aws_iam_policy_document.feature_reader.json
+}
+
+resource "aws_iam_role_policy" "model_reader_mlflow" {
+  name   = "mlflow-artifacts-read"
+  role   = aws_iam_role.model_reader.id
+  policy = data.aws_iam_policy_document.model_artifacts.json
 }
 
 resource "aws_eks_pod_identity_association" "return_risk" {
