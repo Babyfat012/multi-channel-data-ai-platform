@@ -3,7 +3,7 @@
 
 ```
 kagent UI ─► Data Agent (kagent) ──/v1 (API key)──► agentgateway ──► llama.cpp Qwen2.5-1.5B (ns llm)
-                                └──/mcp (API key)──►      │       ──► feature-mcp /mcp/ (ns feature-store)
+                                └──/mcp (API key)──►      │       ──► mcp-server /mcp/ (ns serving-api)
                                                            └ /metrics :15020
 ```
 
@@ -84,7 +84,7 @@ agentgateway v1.6.0 (standalone, file-configured), a single port `:3000`:
 | Path | To | Policy |
 |---|---|---|
 | `/v1/chat/completions` | llama.cpp (`provider: custom`, format `completions`) | API key, rate limit burst of 60 requests + refill 1/s |
-| `/mcp` (route) | `feature-mcp` `/mcp/` | API key, `mcpAuthorization` allows only the 4 approved tools |
+| `/mcp` (route) | `mcp-server` `/mcp/` | API key, `mcpAuthorization` allows only the 4 approved tools |
 | header `x-kagent-host: <agent>.kagent` | the Agent's Service (A2A JSON-RPC) | API key, `a2a` policy; the path kagent uses when `proxy.url` is enabled |
 | `/a2a/<agent>/` | same as above, for clients outside the cluster | API key, `a2a`, strips the path prefix |
 
@@ -216,7 +216,7 @@ Agent/LLM monitoring: [`docs/ml-llm-platform/observability.md`](../observability
 ## System prompts from Langfuse
 
 Agents take their system prompts from a prompt management tool. Langfuse **v2.95.11**
-([`langfuse.yaml`](../../../infra/k8s/agents/langfuse.yaml), ns `langfuse`) needs only Postgres ⇒ it uses the database `langfuse` on
+([`langfuse.yaml`](../../../infra/k8s/observability/langfuse.yaml), ns `observability`, next to Prometheus/Loki/Jaeger/Grafana) needs only Postgres ⇒ it uses the database `langfuse` on
 pgvector; v3+ also needs ClickHouse/Redis/S3, too heavy for a local machine.
 
 ```
@@ -231,7 +231,7 @@ kagent rebuilds the Agent config (Secret <agent>/config.json)
 
 - Deploy + initial load: `python3 -m scripts.llm.deploy_langfuse` (source prompts in
   [`infra/k8s/agents/prompts/`](../../../infra/k8s/agents/prompts/README.md), only created when Langfuse does not have them yet). The API key is in
-  the Secret `kagent/langfuse-api`; the admin UI password is in the Secret `langfuse/langfuse-env`.
+  the Secret `kagent/langfuse-api`; the admin UI password is in the Secret `observability/langfuse-env` (moved from ns `langfuse`; the deploy script carries the old keys and SALT over).
 - Checked loading 3 prompts (version 1, production). Created `platform-coordinator` **version 2** in Langfuse (adding
   "Always answer in English.") → ran sync → the coordinator's `config.json` contains the new sentence after ~20 s, with no redeploy.
 - Error encountered: 2 Langfuse pods ran the Prisma migration at the same time ⇒ the migration broke (P3009). Fix: `strategy: Recreate`,

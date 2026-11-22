@@ -1,4 +1,4 @@
-# Feature Web API Deployment: rolling update without reducing replicas, probes for k8s, preStop waits for removal from the Service.
+# Serving Deployment (one per release): rolling update without reducing replicas, probes for k8s, preStop waits for removal from the Service.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,7 +17,7 @@ spec:
   template:
     metadata:
       labels: {app: {{ .Release.Name }}}
-      annotations:   # Prometheus scrapes Web API metrics at /metrics
+      annotations:   # Prometheus scrapes the service metrics at /metrics
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
         prometheus.io/path: /metrics
@@ -25,9 +25,7 @@ spec:
         checksum/env: {{ . | quote }}   # env Secret changes ⇒ pods are replaced
         {{- end }}
     spec:
-      {{- if .Values.serviceAccount.name }}
-      serviceAccountName: {{ .Values.serviceAccount.name }}
-      {{- end }}
+      serviceAccountName: {{ .Release.Name }}
       # Prefer spreading replicas across workers: one dead node still leaves a pod serving. 'preferred' so a 1-node kind still runs.
       affinity:
         podAntiAffinity:
@@ -41,8 +39,8 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{name: http, containerPort: 8000}]
-          envFrom: [{secretRef: {name: {{ .Values.envSecret }}}}]
-          env: [{name: API_SURFACE, value: {{ .Values.surface | quote }}}]   # rest | mcp: same image, different exposed surface
+          envFrom: [{secretRef: {name: {{ .Release.Name }}-env}}]   # written by the deploy script, one per service
+          env: [{name: API_SURFACE, value: {{ required "surface is required (values-<service>.yaml)" .Values.surface | quote }}}]
           resources: {{- toYaml .Values.resources | nindent 12 }}
           # Wait 5 s before shutdown: kube-proxy has time to remove the pod from the Service, in-flight requests are not dropped.
           lifecycle:

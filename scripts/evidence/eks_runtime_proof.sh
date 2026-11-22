@@ -10,12 +10,12 @@ section() { printf '\n## %s\n' "$*"; }
 {
   echo "# EKS runtime evidence ($KCTX, $(date -u +%Y-%m-%dT%H:%M:%SZ))"
   section "Feature API: Deployment, each pod, probe configuration"
-  "${K[@]}" -n feature-store get deploy,pods -l app=feature-api -o wide
-  "${K[@]}" -n feature-store describe deploy feature-api | grep -E "Replicas:|StrategyType|RollingUpdateStrategy|Liveness|Readiness|Startup"
+  "${K[@]}" -n serving-api get deploy,pods -l app=feature-api -o wide
+  "${K[@]}" -n serving-api describe deploy feature-api | grep -E "Replicas:|StrategyType|RollingUpdateStrategy|Liveness|Readiness|Startup"
   section "Feature API: /healthz (liveness) and /readyz (readiness) called inside each pod"
-  for pod in $("${K[@]}" -n feature-store get pods -l app=feature-api -o name); do
+  for pod in $("${K[@]}" -n serving-api get pods -l app=feature-api -o name); do
     printf '%s: ' "$pod"
-    "${K[@]}" -n feature-store exec "$pod" -- python -c \
+    "${K[@]}" -n serving-api exec "$pod" -- python -c \
       "import urllib.request as u;print({p: u.urlopen('http://localhost:8000'+p).status for p in ('/healthz','/readyz')})"
   done
   section "Agent: replica count and autoscaling (KEDA → HPA), which node each pod runs on"

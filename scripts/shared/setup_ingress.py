@@ -145,6 +145,31 @@ def htpasswd_secret(kc: list[str], namespace: str, name: str, user: str, passwor
     )
 
 
+def serving_api_routes(kc: list[str], host_suffix: str, issuer: str) -> None:
+    """Public API host: mergeable master + /features, /chunks minions; /predict once KServe's Service exists.
+
+    Always the internal CA: Let's Encrypt HTTP-01 is not wired for a mergeable master (it has no path for the
+    challenge), so this host keeps platform-local-ca even when INGRESS_ISSUER asks for Let's Encrypt.
+    """
+    if issuer != "platform-local-ca":
+        print(
+            f"api.{host_suffix}: keeping the internal CA (HTTP-01 not supported on the mergeable master)"
+        )
+
+    def manifest(name: str) -> str:
+        """Rendered api.<suffix> Ingress file."""
+        text = render(INGRESS / f"{name}.yaml", "platform-local-ca")
+        return text.replace("@@NODE_IP_DASH@@.sslip.io", host_suffix)
+
+    apply(kc, manifest("serving-api"))
+    if succeeds([*kc, "-n", "ml-serving", "get", "svc", "return-risk-predictor"]):
+        apply(kc, manifest("predict"))
+    else:
+        print(
+            "skipping /predict: ml-serving/return-risk-predictor does not exist yet (deploy KServe, then rerun)"
+        )
+
+
 def main() -> None:
     """Issuer, then the app routes, then the ops routes."""
     os.chdir(ROOT)
@@ -180,11 +205,11 @@ def main() -> None:
     htpasswd_secret(
         kc, "kagent", "agent-ui-basic-auth", "seller", ui_password("agent-ui", "seller", token)
     )
-    for namespace, name in (("feature-store", "feature-api"), ("kagent", "agent-ui")):
-        manifest = render(INGRESS / f"{name}.yaml", issuer).replace(
-            "@@NODE_IP_DASH@@.sslip.io", host_suffix
-        )
-        apply_ingress(kc, issuer, namespace, f"{name}-tls", manifest)
+    manifest = render(INGRESS / "agent-ui.yaml", issuer).replace(
+        "@@NODE_IP_DASH@@.sslip.io", host_suffix
+    )
+    apply_ingress(kc, issuer, "kagent", "agent-ui-tls", manifest)
+    serving_api_routes(kc, host_suffix, issuer)
 
     ops_password = ui_password("ops-ui", "ops", token)
     for name, namespace, service, port, host in OPS_ROUTES:

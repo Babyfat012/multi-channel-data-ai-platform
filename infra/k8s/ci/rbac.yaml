@@ -1,6 +1,6 @@
 # RBAC for Jenkins on EC2 (group `platform-ci` from the EKS access entry, infra/aws/kubernetes/cluster.tf).
-# Full access ONLY in the namespaces CI deploys to (kagent: Agent/ModelConfig are CRDs; feature-store: Feature API helm;
-# agentgateway: smoke pod; langfuse: port-forward to read prompts). Outside those, only Namespace read (the deploy script's kubectl apply
+# Full access ONLY in the namespaces CI deploys to (kagent: Agent/ModelConfig are CRDs; serving-api: feature-api/policy-api/mcp-server helm;
+# agentgateway: smoke pod). observability / agentregistry: only a port-forward (Langfuse prompts / registry API). Outside those, only Namespace read (the deploy script's kubectl apply
 # reads the namespace first). Admin applies once: kubectl --context platform-apps apply -f infra/k8s/ci/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -44,13 +44,13 @@ subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: platform-ci}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: feature-store
+  name: serving-api
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: platform-ci-deployer
-  namespace: feature-store
+  namespace: serving-api
 rules:
   - apiGroups: ["*"]
     resources: ["*"]
@@ -60,7 +60,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: platform-ci-deployer
-  namespace: feature-store
+  namespace: serving-api
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-ci-deployer}
 subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: platform-ci}]
 ---
@@ -90,22 +90,55 @@ subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: platform-ci}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: langfuse
+  name: observability
 ---
+# Observability holds Prometheus/Grafana/Loki/Jaeger and Langfuse: CI only reads prompts from Langfuse through a
+# port-forward, so it gets exactly that (no write access to the observability stack).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: platform-ci-deployer
-  namespace: langfuse
+  name: platform-ci-langfuse-reader
+  namespace: observability
 rules:
-  - apiGroups: ["*"]
-    resources: ["*"]
-    verbs: ["*"]
+  - apiGroups: [""]
+    resources: [services, pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/portforward]
+    verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: platform-ci-deployer
-  namespace: langfuse
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-ci-deployer}
+  name: platform-ci-langfuse-reader
+  namespace: observability
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-ci-langfuse-reader}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: platform-ci}]
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentregistry
+---
+# agentregistry: CI publishes agent/MCP versions and reads them back through a port-forward to the registry API;
+# the registry's own auth decides what may be written, Kubernetes only allows the port-forward.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-ci-registry-client
+  namespace: agentregistry
+rules:
+  - apiGroups: [""]
+    resources: [services, pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/portforward]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-ci-registry-client
+  namespace: agentregistry
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-ci-registry-client}
 subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: platform-ci}]

@@ -7,7 +7,7 @@ The ML Platform manages features and the lifecycle of the model that predicts Re
 | Offline and online features | `feature_repo/`, `infra/k8s/feature-store/` | [Feast](../feature_store.md), [stream features](../stream_features.md) |
 | Training and model registry | `ml/`, `infra/k8s/ml/` | [Training](../training_pipeline.md) |
 | Model serving and drift | `ml/`, `infra/k8s/ml/` | [Serving](../ml_inference_service.md), [drift](../drift_monitoring.md) |
-| API serving features and predictions | `serving/`, `infra/helm/feature-api/` | [Web API](../web_api_mcp.md) |
+| API serving features, policy chunks and the MCP tools; predictions via KServe | `serving/`, `infra/helm/serving-api/` | [Web API](../web_api_mcp.md) |
 | Shared operations | `infra/k8s/observability/`, `infra/jenkins/` | [Observability](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
 
 [ML + LLM Platform architecture](../../diagrams/system-architecture.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).

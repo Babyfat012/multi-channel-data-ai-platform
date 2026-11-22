@@ -1,16 +1,17 @@
-# Langfuse v2 (prompt management): Agent system prompts live here, versioned + `production` label.
+# Langfuse (LLM observability stack, ns observability next to Prometheus/Loki/Jaeger/Grafana).
+# v2 is used for prompt management: Agent system prompts live here, versioned + `production` label.
 # v2 only needs Postgres (uses the `langfuse` database on pgvector, ns rag); v3+ also needs ClickHouse/Redis/S3.
 # Secret langfuse-env (DATABASE_URL, keys, initial account) is created by scripts/llm/deploy_langfuse.py.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: langfuse
+  name: observability
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: langfuse
-  namespace: langfuse
+  namespace: observability
 spec:
   replicas: 1
   strategy: {type: Recreate}   # Prisma migrations run at startup: never let 2 pods migrate at the same time
@@ -25,7 +26,7 @@ spec:
           image: langfuse/langfuse:2.95.11
           envFrom: [{secretRef: {name: langfuse-env}}]
           env:
-            - {name: NEXTAUTH_URL, value: "http://langfuse.langfuse.svc.cluster.local:3000"}
+            - {name: NEXTAUTH_URL, value: "http://langfuse.observability.svc.cluster.local:3000"}
             - {name: HOSTNAME, value: "0.0.0.0"}
             - {name: TELEMETRY_ENABLED, value: "false"}
             - {name: LANGFUSE_INIT_ORG_ID, value: platform}
@@ -46,7 +47,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: langfuse
-  namespace: langfuse
+  namespace: observability
 spec:
   selector: {app: langfuse}
   ports: [{name: http, port: 3000, targetPort: http}]

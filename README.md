@@ -110,15 +110,15 @@ Top-level folders grouped by platform. Python packages keep their names (they ar
 | | `dags/` | Airflow pipelines DP1–DP4, feature materialization, RAG |
 | **ML Platform** | `feature_repo/` | Feast: feature views, TTL, stream push to offline/online stores |
 | | `ml/` | Training (Kubeflow), evaluation, drift (Evidently), KServe predictor |
-| | `serving/` | Feature API (FastAPI) + MCP tools |
+| | `serving/` | Feature API, Policy API (FastAPI) and the MCP server agents call |
 | **LLM Platform** | `rag/` | Document chunking, embedding and retrieval |
 | **Infrastructure** | `infra/docker/` | All Dockerfiles (the generator image is `infra/docker/Dockerfile`) |
 | | `infra/aws/` | Terraform (EC2, S3, ECR, EKS) and Ansible roles for EC2 |
-| | `infra/k8s/`, `infra/helm/` | Kubernetes manifests and the Feature API Helm chart |
+| | `infra/k8s/`, `infra/helm/` | Kubernetes manifests and the serving-api Helm chart (Feature API, Policy API, MCP server) |
 | | `infra/jenkins/` | Jenkinsfiles and Jenkins configuration (JCasC) |
 | | `docker-compose*.yml` | Compose stacks; kept at the root so `docker compose` finds them |
 | **Scripts** | `scripts/data/` | Set up and run the Data Platform (Airflow, Lakekeeper, Debezium, order lifecycle) |
-| | `scripts/ml/` | Deploy and run the ML Platform (KServe, Feature API, Redis, training, stream features) |
+| | `scripts/ml/` | Deploy and run the ML Platform (KServe, serving API, Redis, training, stream features) |
 | | `scripts/llm/` | Deploy the LLM Platform (agents, agentgateway, Langfuse, agentregistry, Substrate) |
 | | `scripts/shared/` | Shared: kind registry, images, ingress, TLS, Vault, Jenkins, observability, EKS access |
 | | `scripts/evidence/` | Collect evidence from real runs |

@@ -81,7 +81,7 @@ cache is **728**:
 
 ![Grafana: average tokens per request by gen_ai_token_type, table input 947, output 43.9, input_cache_read 728](../evidence/aws/grafana-tokens-per-request-20261031.png)
 
-**Call and error counts per MCP tool.** The Feature API counts with the metric `mcp_tool_calls_total{tool, outcome}`. `outcome` is `error`
+**Call and error counts per MCP tool.** The MCP server (`mcp-server`; the Feature API before the split) counts with the metric `mcp_tool_calls_total{tool, outcome}`. `outcome` is `error`
 when the tool returns `isError`, even if the HTTP status is still 200.
 
 To get real errors to count, MCP was called directly with 5 invalid inputs: an empty SKU list, a malformed SKU, `top_k=50` (over the limit of 10), Channel `ebay`, an invalid `chunk_id`.
@@ -126,6 +126,7 @@ Deployed with `python3 -m scripts.shared.deploy_observability` (namespace `obser
 | Fluent Bit | fluent/fluent-bit 0.58.3 | reads container logs on the node, attaches namespace/pod/app labels, pushes to Loki | [`fluent-bit-values.yaml`](../../infra/k8s/observability/fluent-bit-values.yaml) |
 | Jaeger | jaegertracing/jaeger 4.16.1, image **2.10.0** | traces (OTLP :4317), stored in RAM | [`jaeger-values.yaml`](../../infra/k8s/observability/jaeger-values.yaml) |
 | Grafana | grafana/grafana 10.5.15 | views all three; Data & AI Platform dashboard | [`grafana-values.yaml`](../../infra/k8s/observability/grafana-values.yaml), [`dashboards/`](../../infra/k8s/observability/dashboards/platform-agents.json) |
+| Langfuse | langfuse/langfuse 2.95.11 (Deployment, DB `langfuse` on pgvector) | LLM prompt versions: system prompts of the three agents, `production` label synced to ConfigMap `kagent/agent-prompts`; deployed by [`deploy_langfuse`](../../scripts/llm/deploy_langfuse.py) | [`langfuse.yaml`](../../infra/k8s/observability/langfuse.yaml) |
 
 Data sources:
 - **Web API** (Feature API, from v7): `/metrics` with `http_requests_total{method,handler,status}` and

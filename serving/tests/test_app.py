@@ -1,4 +1,7 @@
-"""Feature Web API tests: fake (mock) Feast store, no Redis needed.
+"""Serving tests: Feature API, Policy API and MCP server with a fake Feast store, no Redis/pgvector/KServe needed.
+
+The MCP server is a client of the APIs: in `all` mode its HTTP calls go back into the same in-process app
+(httpx.ASGITransport), and calls to KServe go to a fake (httpx.MockTransport).
 
 Run: `uv run --no-project --with-requirements serving/requirements-dev.txt \
     pytest serving/tests --cov=serving --cov-report=term-missing`
@@ -13,7 +16,8 @@ from fastapi.testclient import TestClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from serving.app import MAX_SKUS, create_app
+from serving.app import create_app
+from serving.schemas import MAX_SKUS
 
 # Fake values per SKU; a SKU not listed here = not in Redis yet → None.
 ORDER = [
@@ -48,14 +52,69 @@ def make_store():
     return fake
 
 
+KSERVE = "http://kserve.test/v1/models/return-risk:predict"
+PREDICTION = {
+    "seller_sku": "sku-00002",
+    "score": 0.71,
+    "abstain": False,
+    "reason": None,
+    "model_version": "3",
+}
+
+
+def fake_kserve(status=200, payload=None, sent=None):
+    """KServe v1 stand-in: records (url, body, timeout) and answers with a fixed payload."""
+
+    def handler(request):
+        if sent is not None:
+            sent.append(
+                (str(request.url), json.loads(request.read()), request.extensions["timeout"])
+            )
+        return httpx.Response(status, json=payload or {"predictions": [PREDICTION]})
+
+    return handler
+
+
+class Upstreams(httpx.AsyncBaseTransport):
+    """Where the MCP server's HTTP calls land: KServe → fake handler, the APIs → the same in-process app."""
+
+    def __init__(self, app, kserve_handler):
+        """Route by host: kserve.test goes to the fake, anything else to the ASGI app."""
+        self.app = httpx.ASGITransport(app=app)
+        self.kserve = httpx.MockTransport(kserve_handler)
+
+    async def handle_async_request(self, request):
+        """Forward to the matching transport."""
+        target = self.kserve if request.url.host == "kserve.test" else self.app
+        return await target.handle_async_request(request)
+
+
+def build(store=None, rag=None, kserve_handler=None, surface="all"):
+    """App with fake stores; the MCP server's upstream calls are wired back into the app / fake KServe."""
+    holder = {}
+    app = create_app(
+        store_factory=lambda: store,
+        rag_factory=lambda: rag,
+        http_factory=lambda: httpx.AsyncClient(
+            transport=Upstreams(holder["app"], kserve_handler or fake_kserve())
+        ),
+        surface=surface,
+    )
+    holder["app"] = app
+    return app
+
+
 @pytest.fixture
 def store():
     return make_store()
 
 
 @pytest.fixture
-def client(store):
-    with TestClient(create_app(store_factory=lambda: store)) as c:
+def client(store, monkeypatch):
+    monkeypatch.delenv("KSERVE_URL", raising=False)
+    monkeypatch.delenv("FEATURE_API_URL", raising=False)
+    monkeypatch.delenv("POLICY_API_URL", raising=False)
+    with TestClient(build(store)) as c:
         yield c
 
 
@@ -68,7 +127,7 @@ def test_readyz(client):
 
 
 def test_readyz_not_loaded():
-    with TestClient(create_app(store_factory=lambda: None)) as c:
+    with TestClient(build(None)) as c:
         assert c.get("/readyz").status_code == 503
 
 
@@ -171,7 +230,7 @@ sku_lists = st.lists(
 @settings(max_examples=50, deadline=None)
 @given(skus=sku_lists)
 def test_idempotent(skus):
-    with TestClient(create_app(store_factory=make_store)) as c:
+    with TestClient(build(make_store())) as c:
         first = c.post("/features", json={"seller_skus": skus}).json()
         second = c.post("/features", json={"seller_skus": skus}).json()
         doubled = c.post("/features", json={"seller_skus": skus + skus}).json()
@@ -226,7 +285,7 @@ def test_mcp_tool_store_down(client, store):
     store.get_online_features_async.side_effect = ConnectionError("redis down")
     result = call_tool(client, {"seller_skus": ["sku-00001"]})
     assert result["isError"] is True
-    assert "online store unavailable" in result["content"][0]["text"]
+    assert "feature api unavailable: online store unavailable" in result["content"][0]["text"]
 
 
 def test_mcp_server_identity(client):
@@ -249,8 +308,18 @@ def test_mcp_server_identity(client):
     )
 
 
-def test_openapi_title(client):
-    assert client.get("/openapi.json").json()["info"]["title"] == "Feature API"
+@pytest.mark.parametrize(
+    ("surface", "title"),
+    [
+        ("features", "Feature API"),
+        ("policy", "Policy API"),
+        ("mcp", "MCP server"),
+        ("all", "Serving API"),
+    ],
+)
+def test_openapi_title(store, surface, title):
+    with TestClient(build(store, surface=surface)) as c:
+        assert c.get("/openapi.json").json()["info"]["title"] == title
 
 
 # RAG chunk search: the fake rag returns fixed results and records calls.
@@ -300,7 +369,7 @@ def rag():
 
 @pytest.fixture
 def rag_client(store, rag):
-    with TestClient(create_app(store_factory=lambda: store, rag_factory=lambda: rag)) as c:
+    with TestClient(build(store, rag)) as c:
         yield c
 
 
@@ -318,9 +387,7 @@ def test_chunks_not_configured(client):
 
 
 def test_chunks_store_down():
-    with TestClient(
-        create_app(store_factory=make_store, rag_factory=lambda: FakeRag(ConnectionError("pg")))
-    ) as c:
+    with TestClient(build(make_store(), FakeRag(ConnectionError("pg")))) as c:
         resp = c.post("/chunks", json={"query": "Walmart return window?"})
     assert resp.status_code == 503
     assert resp.json() == {"detail": "vector store unavailable"}
@@ -387,7 +454,7 @@ def test_mcp_search_tool_not_configured(client):
 
 
 def test_load_rag_disabled_without_env(monkeypatch):
-    from serving.app import load_rag
+    from serving.policy import load_rag
 
     monkeypatch.delenv("FEAST_RAG_REGISTRY", raising=False)
     assert load_rag() is None
@@ -443,8 +510,7 @@ def test_mcp_get_policy_chunks_bad_id(rag_client):
     assert "invalid chunk_ids" in result["content"][0]["text"]
 
 
-# Prediction: KServe faked with httpx.MockTransport, records the sent body.
-KSERVE = "http://kserve.test/v1/models/return-risk:predict"
+# Prediction: the MCP tool forwards one order line to KServe (protocol v1); KServe validates it (ml/serve.py).
 ORDER_LINE = {
     "seller_sku": "sku-00002",
     "channel": "tiktok_shop",
@@ -454,161 +520,126 @@ ORDER_LINE = {
 }
 
 
-def kserve(status=200, payload=None):
-    sent = []
-
-    def handler(request):
-        sent.append((str(request.url), request.read()))
-        body = payload or {
-            "predictions": [
-                {
-                    "seller_sku": "sku-00002",
-                    "score": 0.71,
-                    "abstain": False,
-                    "reason": None,
-                    "model_version": "3",
-                }
-            ]
-        }
-        return httpx.Response(status, json=body)
-
-    return sent, lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+def predict_tool(client, arguments=ORDER_LINE):
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "predict_return_risk", "arguments": arguments},
+    }
+    return client.post("/mcp/", json=body, headers=MCP_HEADERS).json()["result"]
 
 
-@pytest.fixture
-def predict_client(store, monkeypatch):
+def predict_with(store, monkeypatch, **kserve):
+    """Run the predict tool once against a fake KServe; returns (tool result, recorded requests)."""
     monkeypatch.setenv("KSERVE_URL", KSERVE)
-    sent, factory = kserve()
-    with TestClient(create_app(store_factory=lambda: store, http_factory=factory)) as c:
-        yield c, sent
+    sent = []
+    with TestClient(build(store, kserve_handler=fake_kserve(sent=sent, **kserve))) as c:
+        return predict_tool(c), sent
 
 
-def test_predict_sends_v1_instance(predict_client):
-    client, sent = predict_client
-    body = client.post("/predict", json=ORDER_LINE).json()
-    assert body["score"] == 0.71 and body["model_version"] == "3"
-    url, raw = sent[0]
-    assert url == KSERVE
-    instance = json.loads(raw)["instances"][0]
-    assert instance == ORDER_LINE
+def test_mcp_predict_sends_v1_instance_with_10s_timeout(store, monkeypatch):
+    result, sent = predict_with(store, monkeypatch)
+    assert result["isError"] is False and result["structuredContent"]["score"] == 0.71
+    url, body, timeout = sent[0]
+    assert url == KSERVE and body == {"instances": [ORDER_LINE]}
+    assert timeout["read"] == 10
 
 
 def test_long_decimals_rounded_for_pii_guardrail(store, monkeypatch):
     """0.16980269175486737 was masked as <PHONE_NUMBER> by the gateway phoneNumber guardrail (30/10) ⇒ round to 4 digits."""
-    monkeypatch.setenv("KSERVE_URL", KSERVE)
-    prediction = {
-        "seller_sku": "sku-00003",
-        "score": 0.1661234567891234,
-        "abstain": False,
-        "reason": None,
-        "model_version": "1",
-    }
-    _, factory = kserve(payload={"predictions": [prediction]})
-    with TestClient(create_app(store_factory=lambda: store, http_factory=factory)) as c:
+    prediction = PREDICTION | {"score": 0.1661234567891234}
+    result, _ = predict_with(store, monkeypatch, payload={"predictions": [prediction]})
+    with TestClient(build(store)) as c:
         rate = c.post("/features", json={"seller_skus": ["sku-00003"]}).json()["features"][0]
-        score = c.post("/predict", json=ORDER_LINE).json()["score"]
-    assert (rate["return_or_refund_rate_90d"], score) == (0.1698, 0.1661)
+    assert (rate["return_or_refund_rate_90d"], result["structuredContent"]["score"]) == (
+        0.1698,
+        0.1661,
+    )
 
 
-def test_predict_rejects_missing_country(predict_client):
-    """No feature imputation: missing country gives 422 and the model is not called."""
-    client, sent = predict_client
-    body = {k: v for k, v in ORDER_LINE.items() if k != "country"}
-    assert client.post("/predict", json=body).status_code == 422
-    assert not sent
-
-
-def test_predict_not_configured(client, monkeypatch):
-    monkeypatch.delenv("KSERVE_URL", raising=False)
-    resp = client.post("/predict", json=ORDER_LINE)
-    assert resp.status_code == 503
-    assert resp.json() == {"detail": "model not configured"}
+def test_mcp_predict_tool_not_configured(client):
+    result = predict_tool(client)
+    assert result["isError"] is True
+    assert "model not configured" in result["content"][0]["text"]
 
 
 @pytest.mark.parametrize(
-    ("status", "payload"),
-    [(500, {"error": "boom"}), (200, {"predictions": []}), (200, {"nope": 1})],
-)
-def test_predict_bad_upstream(store, monkeypatch, status, payload):
-    monkeypatch.setenv("KSERVE_URL", KSERVE)
-    _, factory = kserve(status, payload)
-    with TestClient(create_app(store_factory=lambda: store, http_factory=factory)) as c:
-        resp = c.post("/predict", json=ORDER_LINE)
-    assert resp.status_code == 503
-    assert resp.json() == {"detail": "model unavailable"}
-
-
-# Equivalence partitioning: channel (5 valid / not in list); boundary: qty 1–1000, net ≥ 0.
-@pytest.mark.parametrize(
-    ("change", "status"),
+    ("status", "payload", "message"),
     [
-        ({"channel": "amazon"}, 200),
-        ({"channel": "shopee"}, 200),
-        ({"channel": "ebay"}, 422),
-        ({"ordered_basis_qty": 0}, 422),
-        ({"ordered_basis_qty": 1}, 200),
-        ({"ordered_basis_qty": 1000}, 200),
-        ({"ordered_basis_qty": 1001}, 422),
-        ({"ordered_product_net_minor": -1}, 422),
-        ({"ordered_product_net_minor": 0}, 200),
-        ({"seller_sku": "sku 1"}, 422),
+        (500, {"error": "boom"}, "model unavailable: boom"),
+        (200, {"predictions": []}, "model unavailable"),
+        (200, {"nope": 1}, "model unavailable"),
     ],
 )
-def test_predict_validation(predict_client, change, status):
-    client, _ = predict_client
-    assert client.post("/predict", json=ORDER_LINE | change).status_code == status
-
-
-def test_mcp_predict_tool(predict_client):
-    client, _ = predict_client
-    body = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {"name": "predict_return_risk", "arguments": ORDER_LINE},
-    }
-    result = client.post("/mcp/", json=body, headers=MCP_HEADERS).json()["result"]
-    assert result["isError"] is False
-    assert result["structuredContent"]["score"] == 0.71
-
-
-@pytest.mark.parametrize(
-    ("change", "message"),
-    [
-        ({"channel": "ebay"}, "invalid channel"),
-        ({"ordered_basis_qty": 0}, "invalid ordered_basis_qty"),
-    ],
-)
-def test_mcp_predict_tool_bad_input(predict_client, change, message):
-    client, _ = predict_client
-    body = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {"name": "predict_return_risk", "arguments": ORDER_LINE | change},
-    }
-    result = client.post("/mcp/", json=body, headers=MCP_HEADERS).json()["result"]
+def test_mcp_predict_bad_upstream(store, monkeypatch, status, payload, message):
+    result, _ = predict_with(store, monkeypatch, status=status, payload=payload)
     assert result["isError"] is True
     assert message in result["content"][0]["text"]
 
 
-def test_mcp_predict_tool_not_configured(client, monkeypatch):
-    monkeypatch.delenv("KSERVE_URL", raising=False)
-    body = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {"name": "predict_return_risk", "arguments": ORDER_LINE},
+def test_mcp_predict_passes_kserve_validation_error_to_the_agent(store, monkeypatch):
+    """KServe owns order-line validation: its 400 message reaches the LLM so it can fix the call."""
+    payload = {
+        "error": "invalid channel: must be one of amazon, walmart, shopify, tiktok_shop, shopee"
     }
-    result = client.post("/mcp/", json=body, headers=MCP_HEADERS).json()["result"]
+    result, _ = predict_with(store, monkeypatch, status=400, payload=payload)
     assert result["isError"] is True
-    assert "model not configured" in result["content"][0]["text"]
+    assert "model rejected the input: invalid channel" in result["content"][0]["text"]
+
+
+def test_mcp_predict_forwards_unavailable_without_inventing_score(store, monkeypatch):
+    """The tool keeps the predictor's null/reason so the agent never sees a fake score."""
+    prediction = PREDICTION | {
+        "score": None,
+        "abstain": True,
+        "reason": "feature_data_unavailable",
+        "batch_release": "a",
+        "batch_cutoff": "2026-06-30",
+    }
+    result, _ = predict_with(store, monkeypatch, payload={"predictions": [prediction]})
+    assert result["structuredContent"] == prediction
+
+
+def test_mcp_uses_configured_service_urls(store, monkeypatch):
+    """In the cluster each tool calls its own service; the URL comes from the pod env."""
+    monkeypatch.setenv("FEATURE_API_URL", "http://feature-api.test:8000/")
+    seen = []
+
+    def upstream(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, json={"features": []})
+
+    app = create_app(
+        store_factory=lambda: None,
+        http_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+        surface="mcp",
+    )
+    with TestClient(app) as c:
+        assert call_tool(c, {"seller_skus": ["sku-00001"]})["isError"] is False
+    assert seen == ["http://feature-api.test:8000/features"]
+
+
+def test_mcp_upstream_connection_error_is_a_tool_error(store, monkeypatch):
+    monkeypatch.setenv("FEATURE_API_URL", "http://feature-api.test")
+
+    def refuse(request):
+        raise httpx.ConnectError("refused", request=request)
+
+    app = create_app(
+        store_factory=lambda: None,
+        http_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(refuse)),
+        surface="mcp",
+    )
+    with TestClient(app) as c:
+        result = call_tool(c, {"seller_skus": ["sku-00001"]})
+    assert result["isError"] is True and "feature api unavailable" in result["content"][0]["text"]
 
 
 def test_load_rag_wires_store_and_cache(monkeypatch):
     """load_rag must pass the right store, question, top_k, model cache and ids down to rag.pipeline."""
     import rag.pipeline as pipeline
-    from serving.app import load_rag
+    from serving.policy import load_rag
 
     store, calls = object(), []
     monkeypatch.setenv("FEAST_RAG_REGISTRY", "s3://x/rag-registry.db")
@@ -626,33 +657,6 @@ def test_load_rag_wires_store_and_cache(monkeypatch):
     assert rag.search("Walmart?", 2) == ["hit"]
     assert rag.get(["a" * 16]) == ["chunk"]
     assert calls == [("search", store, "Walmart?", 2, "/models"), ("get", store, ["a" * 16])]
-
-
-def test_predict_uses_10s_timeout(store, monkeypatch):
-    monkeypatch.setenv("KSERVE_URL", KSERVE)
-    seen = []
-
-    def handler(request):
-        seen.append(request.extensions["timeout"])
-        return httpx.Response(
-            200,
-            json={
-                "predictions": [
-                    {
-                        "seller_sku": "s",
-                        "score": 0.1,
-                        "abstain": False,
-                        "reason": None,
-                        "model_version": "1",
-                    }
-                ]
-            },
-        )
-
-    factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))  # noqa: E731
-    with TestClient(create_app(store_factory=lambda: store, http_factory=factory)) as c:
-        assert c.post("/predict", json=ORDER_LINE).status_code == 200
-    assert seen[0]["read"] == 10
 
 
 def test_metrics_count_requests_by_handler_and_status(client):
@@ -740,45 +744,44 @@ def test_published_snapshot_distinguishes_missing_expected_sku(client, store):
     )
 
 
-def test_predict_forwards_unavailable_without_inventing_score(store, monkeypatch):
-    """The HTTP API keeps the predictor's null/reason so the agent never sees a fake score."""
-    monkeypatch.setenv("KSERVE_URL", KSERVE)
-    payload = {
-        "predictions": [
-            {
-                "seller_sku": "sku-00002",
-                "score": None,
-                "abstain": True,
-                "reason": "feature_data_unavailable",
-                "model_version": "3",
-                "batch_release": "a",
-                "batch_cutoff": "2026-06-30",
-            }
-        ]
-    }
-    _, factory = kserve(payload=payload)
-    with TestClient(create_app(store_factory=lambda: store, http_factory=factory)) as c:
-        result = c.post("/predict", json=ORDER_LINE).json()
-    assert result == payload["predictions"][0]
+@pytest.mark.parametrize(
+    ("surface", "features", "chunks", "mcp"),
+    [
+        ("features", 200, 404, 404),
+        ("policy", 404, 200, 404),
+        ("mcp", 404, 404, 200),
+        ("all", 200, 200, 200),
+    ],
+)
+def test_surface_splits_the_three_services(store, rag, surface, features, chunks, mcp):
+    """Each pod exposes only its own routes (+ probes and /metrics); `all` serves everything for local runs."""
+    with TestClient(build(store, rag, surface=surface)) as c:
+        assert c.post("/features", json={"seller_skus": ["sku-00001"]}).status_code == features
+        assert c.post("/chunks", json={"query": "Walmart?"}).status_code == chunks
+        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        assert c.post("/mcp/", json=body, headers=MCP_HEADERS).status_code == mcp
+        assert c.get("/readyz").status_code == 200
 
 
 @pytest.mark.parametrize(
-    ("surface", "features", "mcp", "health"),
-    [("rest", 200, 404, 200), ("mcp", 404, 200, 200), ("all", 200, 200, 200)],
+    ("surface", "store", "rag", "status"),
+    [
+        ("features", None, "rag", 503),
+        ("policy", "store", None, 503),
+        ("mcp", None, None, 200),
+        ("all", "store", None, 200),
+    ],
 )
-def test_surface_splits_rest_and_mcp_pods(store, surface, features, mcp, health):
-    """The REST pod does not expose /mcp, the MCP pod does not expose REST; both keep the probes."""
-    app = create_app(store_factory=lambda: store, surface=surface)
+def test_readyz_checks_only_what_the_pod_serves(surface, store, rag, status):
+    """The policy pod is not ready without RAG; the MCP pod needs no store; `all` keeps /chunks optional."""
+    app = build(make_store() if store else None, FakeRag() if rag else None, surface=surface)
     with TestClient(app) as c:
-        assert c.post("/features", json={"seller_skus": ["sku-00001"]}).status_code == features
-        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-        assert c.post("/mcp/", json=body, headers=MCP_HEADERS).status_code == mcp
-        assert c.get("/readyz").status_code == health
+        assert c.get("/readyz").status_code == status
 
 
 def test_surface_from_env_and_rejects_unknown(store, monkeypatch):
     monkeypatch.setenv("API_SURFACE", "mcp")
-    with TestClient(create_app(store_factory=lambda: store)) as c:
+    with TestClient(build(store, surface=None)) as c:
         assert c.post("/features", json={"seller_skus": ["sku-00001"]}).status_code == 404
     with pytest.raises(ValueError, match="API_SURFACE"):
-        create_app(store_factory=lambda: store, surface="both")
+        create_app(store_factory=lambda: store, surface="rest")  # the old REST+MCP split

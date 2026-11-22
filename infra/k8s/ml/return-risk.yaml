@@ -1,16 +1,9 @@
-# KServe InferenceService return-risk (RawDeployment, model-inside-image).
-# Image and version filled in by scripts/ml/deploy_return_risk.py (@@IMAGE@@, @@VERSION@@).
+# KServe InferenceService return-risk (RawDeployment).
+# Image and version filled in by scripts/ml/deploy_return_risk.py (@@IMAGE@@, @@VERSION@@, @@STORAGE_URI@@).
 apiVersion: v1
 kind: Namespace
 metadata:
   name: ml-serving
----
-# Pod Identity (EKS) grants S3 feature-store read access to this account; unused on kind.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: return-risk
-  namespace: ml-serving
 ---
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
@@ -47,6 +40,9 @@ spec:
           - {name: FEAST_SKU_DAILY_PATH, value: "@@FEAST_ROOT@@/sku_daily"}
           - {name: FEAST_SKU_RETURN_24H_PATH, value: "@@FEAST_ROOT@@/sku_return_24h/"}
           - {name: AWS_REGION, value: "@@AWS_REGION@@"}
+          # KServe sees STORAGE_URI on kserve-container ⇒ injects the storage-initializer, which downloads into /mnt/models
+          - {name: STORAGE_URI, value: "@@STORAGE_URI@@"}
+          - {name: MODEL_VERSION, value: "@@VERSION@@"}
         envFrom:
           # kind: MinIO key + endpoint; EKS has no such Secret, S3 via Pod Identity.
           - secretRef: {name: platform-minio, optional: true}

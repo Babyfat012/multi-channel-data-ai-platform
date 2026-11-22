@@ -1,0 +1,8 @@
+# One chart, three releases of the serving image (scripts/ml/deploy_serving_api.py): feature-api, policy-api and
+# mcp-server in namespace serving-api. Not the model: KServe serves predictions from namespace ml-serving.
+apiVersion: v2
+name: serving-api
+description: Feature API, Policy API and MCP server (one image, API_SURFACE picks the service)
+type: application
+version: 0.2.0
+appVersion: "0.2.0"

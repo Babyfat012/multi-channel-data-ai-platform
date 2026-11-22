@@ -46,7 +46,7 @@ output "ecr_repositories" {
 output "image_registry" {
   description = "Prefix for scripts/shared/push_images.py; includes the registry account and project namespace."
   value = var.enable_ecr ? trimsuffix(
-    aws_ecr_repository.application["platform-feature-api"].repository_url, "/platform-feature-api"
+    aws_ecr_repository.application["platform-serving-api"].repository_url, "/platform-serving-api"
   ) : null
 }
 

@@ -152,7 +152,7 @@ def score_policy(answer: str, want: str) -> dict:
 
 
 def score_predict(answer: str, truth: dict) -> dict:
-    """A prediction passes when score is within ≤ 0.005 of Feature API /predict (or both abstain)."""
+    """A prediction passes when score is within ≤ 0.005 of KServe's own answer (or both abstain)."""
     if truth.get("abstain") or truth.get("score") is None:
         return {"gradable": True, "pass": bool(ABSTAIN.search(answer)), "mode": "predict"}
     want = str(truth["score"])  # not rounded: agents often round to 2 digits
@@ -204,6 +204,11 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--gateway", default="http://localhost:13000")
     parser.add_argument("--feature-api", default="https://api.172-25-0-2.sslip.io:30443")
+    parser.add_argument(
+        "--predict-url",
+        default="",
+        help="KServe v1 predict endpoint for --task predict (default: <feature-api host>/predict via the ingress)",
+    )
     parser.add_argument("--ca", default="out/ingress/platform-local-ca.crt")
     parser.add_argument("--min-accuracy", type=float, default=0.6)
     parser.add_argument("--out", default="out/agent-eval.jsonl")
@@ -215,10 +220,11 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
     key = {"Authorization": f"Bearer {os.environ['AGW_AGENT_KEY']}"}
+    predict_url = args.predict_url or f"{args.feature_api}/predict"
+    # Ground truth comes from KServe for --task predict, else from the Feature API; only HTTPS needs the CA.
+    truth_url = predict_url if args.task == "predict" else args.feature_api
     context = (
-        ssl.create_default_context(cafile=args.ca)
-        if args.feature_api.startswith("https://")
-        else None
+        ssl.create_default_context(cafile=args.ca) if truth_url.startswith("https://") else None
     )
     skus = [x for x in args.skus.split(",") if x]
     jobs = []  # (label, question, grading function)
@@ -248,7 +254,8 @@ def main(argv=None) -> int:
                     "ordered_basis_qty": 2,
                     "ordered_product_net_minor": 4500,
                 }
-                truth = post(f"{args.feature_api}/predict", order, {}, context)
+                # Ground truth straight from KServe (protocol v1), the same model the agent's tool calls.
+                truth = post(predict_url, {"instances": [order]}, {}, context)["predictions"][0]
                 question = (
                     f"What is the return risk of a new order: 2 units of {sku} on amazon, "
                     "shipped to US, price 4500 cents?"

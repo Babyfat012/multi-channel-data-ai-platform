@@ -2,7 +2,8 @@
 data "aws_iam_policy_document" "pod_trust" {
   for_each = {
     ebs             = { namespace = "kube-system", service_account = "ebs-csi-controller-sa" }
-    feature_reader  = { namespace = "feature-store", service_account = "feature-api" }
+    feature_reader  = { namespace = "serving-api", service_account = "feature-api" }
+    policy_reader   = { namespace = "serving-api", service_account = "policy-api" }
     pipeline_reader = { namespace = "kubeflow", service_account = "pipeline-runner" }
     model_reader    = { namespace = "ml-serving", service_account = "return-risk" }
   }
@@ -78,9 +79,41 @@ resource "aws_iam_role_policy" "feature_reader" {
 
 resource "aws_eks_pod_identity_association" "feature_api" {
   cluster_name    = aws_eks_cluster.apps.name
-  namespace       = "feature-store"
+  namespace       = "serving-api"
   service_account = "feature-api"
   role_arn        = aws_iam_role.feature_reader.arn
+  depends_on      = [aws_eks_addon.pod_identity]
+}
+
+# Policy API: only the RAG Feast registry file; chunks and vectors come from pgvector (DB account, not IAM).
+# The MCP server (service account mcp-server) gets no role: it holds no data and only calls the APIs over HTTP.
+resource "aws_iam_role" "policy_reader" {
+  name               = "${var.name_prefix}-policy-reader"
+  assume_role_policy = data.aws_iam_policy_document.pod_trust["policy_reader"].json
+}
+
+data "aws_iam_policy_document" "policy_reader" {
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}/feature-store/rag-registry.db"]
+  }
+  statement {
+    actions   = ["s3:GetBucketLocation"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}"]
+  }
+}
+
+resource "aws_iam_role_policy" "policy_reader" {
+  name   = "rag-registry-read"
+  role   = aws_iam_role.policy_reader.id
+  policy = data.aws_iam_policy_document.policy_reader.json
+}
+
+resource "aws_eks_pod_identity_association" "policy_api" {
+  cluster_name    = aws_eks_cluster.apps.name
+  namespace       = "serving-api"
+  service_account = "policy-api"
+  role_arn        = aws_iam_role.policy_reader.arn
   depends_on      = [aws_eks_addon.pod_identity]
 }
 
@@ -105,16 +138,46 @@ resource "aws_eks_pod_identity_association" "pipeline_runner" {
   depends_on      = [aws_eks_addon.pod_identity]
 }
 
-# KServe return-risk: Feast online must read registry.db on S3 before querying Redis; read-only feature-store/*.
+# KServe return-risk: Feast online must read registry.db on S3 before querying Redis (feature-store/*),
+# and KServe storage-initializer downloads model artifacts from mlflow/* at startup.
 resource "aws_iam_role" "model_reader" {
   name               = "${var.name_prefix}-model-reader"
   assume_role_policy = data.aws_iam_policy_document.pod_trust["model_reader"].json
+}
+
+data "aws_iam_policy_document" "model_artifacts" {
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}/mlflow/*"]
+  }
+
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}"]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["mlflow/*"]
+    }
+  }
+
+  statement {
+    actions   = ["s3:GetBucketLocation"]
+    resources = ["arn:aws:s3:::${data.terraform_remote_state.data.outputs.lakehouse_bucket}"]
+  }
 }
 
 resource "aws_iam_role_policy" "model_reader" {
   name   = "feature-store-read"
   role   = aws_iam_role.model_reader.id
   policy = data.aws_iam_policy_document.feature_reader.json
+}
+
+resource "aws_iam_role_policy" "model_reader_mlflow" {
+  name   = "mlflow-artifacts-read"
+  role   = aws_iam_role.model_reader.id
+  policy = data.aws_iam_policy_document.model_artifacts.json
 }
 
 resource "aws_eks_pod_identity_association" "return_risk" {

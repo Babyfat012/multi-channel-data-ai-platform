@@ -13,7 +13,7 @@ model-inside-image: the model file is baked into the image, not downloaded at st
 v1 (alias `production`), built with [`scripts/ml/deploy_return_risk.py`](../../scripts/ml/deploy_return_risk.py).
 
 Test: call the predictor directly through port-forward with one order of APP-00042, Amazon US, 1 unit, 25 USD. Result `score` 0.1661,
-`abstain` false, `model_version` "1". This is also the number the Feature API `/predict` and model-agent return
+`abstain` false, `model_version` "1". This is also the number `/predict` (recorded before the split, via the Feature API; now straight to KServe) and model-agent return
 (see [Web API](web_api_mcp.md#on-eks)).
 
 ![KServe on EKS: inferenceservice return-risk READY True, predictor pod Running, POST :predict returns score 0.1661 model_version 1](../evidence/aws/kserve-pod-predict-20261031.png)
@@ -108,7 +108,7 @@ Besides KServe's built-in latency histograms (`request_predict_seconds`…), the
 | Metric | Meaning |
 |---|---|
 | `return_risk_predictions_total{abstain}` | number of rows scored, split by abstain or not |
-| `return_risk_errors_total{reason}` | failed requests (e.g. `missing_field` → HTTP **400**, not 500) |
+| `return_risk_errors_total{reason}` | failed requests (e.g. `invalid_input`: missing or out-of-range order field → HTTP **400**, not 500; recorded runs before the API split used `missing_field`) |
 | `return_risk_feast_lookup_seconds` | time to read online features |
 
 Checked through Prometheus (route `metrics.`): sent 5 requests of 2 rows each, plus 1 request with a missing field.

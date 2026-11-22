@@ -1,7 +1,0 @@
-# Helm chart for the feature Web API (REST + MCP tools); deployed by scripts/ml/deploy_feature_api.py.
-apiVersion: v2
-name: feature-api
-description: Web API + MCP tools pulling SKU features from the Feast online store (ML Platform)
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

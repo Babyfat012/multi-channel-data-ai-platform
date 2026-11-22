@@ -1,0 +1,22 @@
+# Defaults shared by the three releases; each release adds values-<service>.yaml (+ values-aws.yaml on EKS).
+# Change image.tag on every deploy so k8s does a rolling update; `helm upgrade --atomic` rolls back if a pod is not Ready.
+image:
+  repository: localhost:5001/platform-serving-api
+  tag: "0.2.0"  # the deploy script always overrides it with the git SHA/TAG
+  pullPolicy: IfNotPresent
+replicas: 2
+# features | policy | mcp: set by values-<service>.yaml
+surface: ""
+# KEDA ScaledObject (needs KEDA + Prometheus in the cluster); enabled on EKS by values-aws.yaml.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 3
+  threshold: 10   # requests/s per pod
+  prometheus: http://prometheus-server.observability.svc.cluster.local
+# Only reachable inside the cluster: clients go through the ingress, agents through agentgateway.
+service:
+  port: 8000
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 512Mi}

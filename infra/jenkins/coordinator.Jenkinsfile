@@ -1,4 +1,5 @@
-// CI/CD Coordinator Agent: check manifest → prompt from Langfuse → deploy → wait for Ready → agent card via the A2A gateway.
+// CI/CD Coordinator Agent: check manifest → prompt from Langfuse → register candidate → deploy → eval → promote to stable
+// in agentregistry → agent card via the A2A gateway.
 // Gateway API key taken from Vault (secret/platform/agentgateway) via the read-only token `vault-ci-token`.
 pipeline {
   agent any
@@ -13,6 +14,7 @@ pipeline {
     EVAL_SKUS = "${params.EVAL_SKUS}"
     EVAL_TIMEOUT = "${params.EVAL_TIMEOUT}"
     KCTX = "${params.TARGET_CONTEXT}"
+    TAG = "${env.GIT_COMMIT ?: env.BUILD_NUMBER}"
     VAULT_ADDR = 'http://localhost:8200'
   }
   stages {
@@ -31,6 +33,13 @@ pipeline {
         }
       }
     }
+    stage('Register candidate') {
+      steps {
+        withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
+          sh 'python3 -m scripts.llm.publish_agentregistry --tag "$TAG" coordinator'
+        }
+      }
+    }
     stage('Deploy') {
       steps {
         withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
@@ -46,6 +55,14 @@ pipeline {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN'),
                          file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
           sh 'EVAL_AGENT=coordinator python3 -m scripts.llm.eval_agent_ci'
+        }
+      }
+    }
+    stage('Promote to stable') {
+      steps {
+        withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
+          // Only reached when the eval passed.
+          sh 'python3 -m scripts.llm.publish_agentregistry --tag stable coordinator'
         }
       }
     }

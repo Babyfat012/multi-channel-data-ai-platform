@@ -202,7 +202,7 @@ data:
           targets:
           - name: features
             mcp:
-              host: http://feature-mcp.feature-store.svc.cluster.local:8000/mcp/   # dedicated MCP server pod (release feature-mcp)
+              host: http://mcp-server.serving-api.svc.cluster.local:8000/mcp/   # MCP server (release mcp-server, ns serving-api)
 ---
 apiVersion: apps/v1
 kind: Deployment

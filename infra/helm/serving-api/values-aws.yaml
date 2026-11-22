@@ -1,0 +1,3 @@
+# EKS overlay (after values-<service>.yaml): autoscale on request rate. Pod Identity binds each release's ServiceAccount.
+autoscaling:
+  enabled: true

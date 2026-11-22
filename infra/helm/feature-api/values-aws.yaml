@@ -1,9 +1,0 @@
-# Merged over the default values; repository/tag are passed by the deploy script from ECR and the commit SHA.
-service:
-  type: ClusterIP
-  port: 8000
-autoscaling:
-  enabled: true
-serviceAccount:
-  create: true
-  name: feature-api

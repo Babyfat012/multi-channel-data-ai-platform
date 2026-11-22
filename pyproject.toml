@@ -59,7 +59,7 @@ build-backend = "hatchling.build"
 packages = ["generator"]
 
 [tool.mutmut]
-paths_to_mutate = ["serving/app.py"]
+paths_to_mutate = ["serving/app.py", "serving/features.py", "serving/policy.py", "serving/mcp_server.py"]
 tests_dir = ["serving/tests"]
 pytest_add_cli_args = ["-o", "pythonpath=."]
 also_copy = ["serving/tests", "rag", "feature_repo"]

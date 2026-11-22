@@ -2,9 +2,54 @@
 
 This page covers FastAPI/Pydantic, health checks, async, MCP and Helm rolling update/fallback.
 
-Code / configuration: [API](../../serving/app.py), [Helm values](../../infra/helm/feature-api/values.yaml). [API tests and EKS load](validation_verification.md).
+Code / configuration: [entry point](../../serving/app.py), [Feature API](../../serving/features.py),
+[Policy API](../../serving/policy.py), [MCP server](../../serving/mcp_server.py), [Helm chart](../../infra/helm/serving-api/Chart.yaml),
+[deploy script](../../scripts/ml/deploy_serving_api.py). [API tests and EKS load](validation_verification.md).
 
-The results below come from AWS runs; they do not confirm that the service is currently running.
+## Current design: one API service per data owner
+
+One image, three Helm releases in namespace `serving-api`; `API_SURFACE` picks which service a pod runs. Each service
+owns one kind of data, so it can be scaled, rolled back and given permissions on its own:
+
+```text
+Client ──HTTPS──► Ingress api.<host> (mergeable master: TLS, rate limit)
+                    ├── /features  ──► feature-api  (ns serving-api) ──► Feast / Redis
+                    ├── /chunks    ──► policy-api   (ns serving-api) ──► Feast RAG / pgvector
+                    └── /predict   ──► KServe return-risk (ns ml-serving, rewritten to /v1/models/return-risk:predict)
+
+Agent ──► agentgateway /mcp ──► mcp-server (ns serving-api) ──HTTP──► feature-api, policy-api, KServe
+```
+
+| Service (release) | Routes | Reads | Pod Identity (EKS) | Secret holds |
+|---|---|---|---|---|
+| `feature-api` | `POST /features` | Feast registry + Redis | `feature-store/*` read | Feast/Redis settings |
+| `policy-api` | `POST /chunks`, `POST /chunks/by-id` | RAG registry + pgvector | `feature-store/rag-registry.db` read | pgvector account |
+| `mcp-server` | `/mcp/` (4 tools) | nothing: calls the services above over HTTP | none | only the three service URLs |
+| KServe `return-risk` | `/predict` via ingress, v1 protocol | model from MLflow artifacts, Feast online | `feature-store/*`, `mlflow/*` read | — |
+
+- **Predictions go straight to KServe.** KServe validates every order line itself ([`ml/serve.py`](../../ml/serve.py)):
+  same limits the Web API used to enforce, at most 100 instances per request, score rounded to 4 digits.
+  The public body is KServe v1: `{"instances": [{...}]}` → `{"predictions": [{...}]}`.
+- **The MCP server is a thin client.** It checks tool arguments with the APIs' own schemas
+  ([`serving/schemas.py`](../../serving/schemas.py)) and forwards upstream errors to the agent with their reason,
+  e.g. `model rejected the input: invalid channel`.
+- **Each pod is Ready only when what it serves is loaded**: `feature-api` needs Feast, `policy-api` needs the RAG
+  registry (`FEAST_RAG_REGISTRY`), `mcp-server` needs nothing.
+- **Local runs**: `API_SURFACE=all` serves every route in one process; the MCP server then calls back into the same
+  process on `localhost:8000`.
+
+Deploy (kind by default; EKS with `PLATFORM_STORAGE=s3`, see [cloud setup](../shared/cloud_setup.md)):
+
+```bash
+python3 -m scripts.ml.deploy_serving_api "$(git rev-parse HEAD)"
+python3 -m scripts.shared.setup_ingress     # api.<host>: /features, /chunks, and /predict once KServe is deployed
+```
+
+## Recorded on EKS before the API split
+
+The results below come from AWS runs **before the split** into three services: one REST release `feature-api`
+(namespace `feature-store`, serving `/features`, `/chunks` and `/predict`) plus one MCP release `feature-mcp`. They
+do not confirm that the service is currently running; AWS has not been rerun since the split.
 
 ### On EKS
 
@@ -44,10 +89,10 @@ The `/metrics` endpoint is deliberately hidden from the schema (`include_in_sche
 
 ![Swagger GET /readyz 200, status ready](../evidence/aws/feature-api-swagger-readyz-20261106.png)
 
-#### MCP server on EKS
+#### MCP server on EKS (first split: REST pod + MCP pod)
 
 MCP (Model Context Protocol) is the protocol Agents use to call tools. The MCP server uses the `mcp` library in stateless + JSON mode
-(no session kept between requests), at path `/mcp/`. This server runs in a **separate pod**, split from the REST pod:
+(no session kept between requests), at path `/mcp/`. At that time it ran in a **separate pod**, split from the REST pod:
 
 ```text
 agentgateway /mcp ──► Service feature-mcp ──► pod feature-mcp-*  (API_SURFACE=mcp: /mcp/, /healthz, /readyz, /metrics)
@@ -55,12 +100,9 @@ Ingress api.…     ──► Service feature-api ──► pod feature-api-*  (
                                   both    ──► Feast/Redis, KServe return-risk, pgvector
 ```
 
-How the split works:
-- Two Helm releases (`feature-api`, `feature-mcp`) share the chart [`infra/helm/feature-api`](../../infra/helm/feature-api/Chart.yaml), the image and the code
-  [`serving/app.py`](../../serving/app.py) (`create_app(surface=…)` selects which part is enabled).
-- [`values-mcp.yaml`](../../infra/helm/feature-api/values-mcp.yaml) sets `surface: mcp` and a ClusterIP Service (reachable only inside the cluster).
-- Each release has its own Deployment, probes, Helm `--atomic` and ScaledObject, so MCP scales and rolls back independently of REST.
-- Test `test_surface_splits_rest_and_mcp_pods`: the REST pod returns 404 at `/mcp/`, the MCP pod returns 404 at `/features`.
+How that first split worked (the current chart keeps the same pattern with three releases, see above):
+- Two Helm releases (`feature-api`, `feature-mcp`) shared one chart, the image and the code (`create_app(surface=…)`).
+- Each release had its own Deployment, probes, Helm `--atomic` and ScaledObject, so MCP scaled and rolled back independently of REST.
 
 Actual run on EKS after the split:
 - `feature-api` returns 200 at `/features` and 404 at `/mcp/`; `feature-mcp` does the opposite.
@@ -69,14 +111,14 @@ Actual run on EKS after the split:
 
 The Registry and Grafana screenshots below were taken before the split.
 
-Four tools share code with REST:
+The four tools (today each one is an HTTP call to the service that owns the data):
 
-| Tool | What it does | Matching REST endpoint |
+| Tool | What it does | Calls |
 |---|---|---|
-| `get_sku_features(seller_skus)` | online features from Feast/Redis | `POST /features` |
-| `predict_return_risk(...)` | calls KServe `return-risk` | `POST /predict` |
-| `search_policy_chunks(query, top_k)` | searches return policies (RAG, pgvector) | `POST /chunks` |
-| `get_policy_chunks(chunk_ids)` | fetches chunks by id | `POST /chunks/by-id` |
+| `get_sku_features(seller_skus)` | online features from Feast/Redis | `feature-api` `POST /features` |
+| `predict_return_risk(...)` | Return risk score of one order line | KServe `return-risk` v1 predict |
+| `search_policy_chunks(query, top_k)` | searches return policies (RAG, pgvector) | `policy-api` `POST /chunks` |
+| `get_policy_chunks(chunk_ids)` | fetches chunks by id | `policy-api` `POST /chunks/by-id` |
 
 Agents do not call the pod directly; they go through the `/mcp` route of [agentgateway](agent_gateways.md) (API key, only the four tools above are allowed).
 The smoke test on EKS after the split passed **24/24 PASS** ([gateway-smoke-20261109.json](../evidence/aws/gateway-smoke-20261109.json)). Some of its checks:
@@ -87,7 +129,7 @@ The smoke test on EKS after the split passed **24/24 PASS** ([gateway-smoke-2026
 
 ![Policy table on EKS: MCP without key 401, tools/list returns all four tools, get_sku_features, predict_return_risk, search_policy_chunks, tool outside the list blocked, A2A, rate limit 429, all PASS](../evidence/aws/gateway-smoke-policy-table-20261109.png)
 
-The MCP server is registered in the Agent Registry, and Grafana counts each tool call by outcome (`mcp_tool_calls_total{tool,outcome}` exported by the Feature API):
+The MCP server is registered in the Agent Registry, and Grafana counts each tool call by outcome (`mcp_tool_calls_total{tool,outcome}`, exported today by `mcp-server`):
 
 ![agentregistry UI on EKS: 1 MCP server and 3 published agents](../evidence/aws/agent-registry-ui-20261030.png)
 
@@ -117,8 +159,8 @@ The older record of the local run (583/583 requests, rollback revision 12 → 13
 
 #### Feature API and MCP server autoscaling (KEDA)
 
-Each Helm release has its own [ScaledObject](../../infra/helm/feature-api/templates/scaledobject.yaml) (KEDA scaling configuration),
-enabled in [`values-aws.yaml`](../../infra/helm/feature-api/values-aws.yaml):
+Each Helm release has its own [ScaledObject](../../infra/helm/serving-api/templates/scaledobject.yaml) (KEDA scaling configuration),
+enabled in [`values-aws.yaml`](../../infra/helm/serving-api/values-aws.yaml):
 - Minimum 2 pods, maximum 3 pods.
 - Scales on requests/second over the last 1 minute:
   `sum(rate(http_requests_total{pod=~"<release>-.*", handler!~"/healthz|/readyz|/metrics"}[1m]))`, threshold 10 requests/second per pod.
@@ -177,7 +219,7 @@ The local records keep their original environment and are not a substitute for c
 FastAPI + pydantic + health checks for k8s, using async.
 
 ```
-Agent / client ──POST /features {"seller_skus": [...]}──► serving/app.py
+Agent / client ──POST /features {"seller_skus": [...]}──► serving/features.py
                                                             │ await get_online_features_async
                                                             ▼
                                              Feast registry (MinIO) + Redis (kind platform)
@@ -200,7 +242,7 @@ Duplicate SKUs in a request are looked up only once; results keep the order of f
 in Feast RAG (pgvector). This endpoint is only enabled when the pod has the `FEAST_RAG_REGISTRY` variable; otherwise it returns 503. Chunk loading pipeline:
 [`docs/ml-llm-platform/rag_pipeline.md`](rag_pipeline.md).
 
-Code: [`serving/app.py`](../../serving/app.py). Tests: [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
+Code: [`serving/features.py`](../../serving/features.py). Tests: [`serving/tests/test_app.py`](../../serving/tests/test_app.py).
 
 ## Test
 
@@ -209,7 +251,9 @@ uv run --no-project --python 3.12 --with-requirements serving/requirements-dev.t
   pytest serving/tests -o pythonpath=. --cov=serving --cov-report=term-missing
 ```
 
-Result: 84 pass, coverage of `serving/app.py` 98% (only `load_store`, the real Feast loading part, is missing).
+Result after the split: 89 pass, coverage of `serving/` 96% (Jenkins requires 90%; the real Feast loading `load_store`
+is the main uncovered part). The MCP tests call the real Feature/Policy API routes in-process (`httpx.ASGITransport`)
+and fake only KServe. Before the split: 84 pass, `serving/app.py` 98%.
 
 | Technique | Where |
 |---|---|
@@ -219,7 +263,8 @@ Result: 84 pass, coverage of `serving/app.py` 98% (only `load_store`, the real F
 
 ## Mutation testing (mutmut)
 
-The [`[tool.mutmut]`](../../pyproject.toml) configuration selects `serving/app.py`, uses the test suite
+The [`[tool.mutmut]`](../../pyproject.toml) configuration now selects `serving/{app,features,policy,mcp_server}.py`
+(the run below was on the single `serving/app.py` before the split), uses the test suite
 [`serving/tests/test_app.py`](../../serving/tests/test_app.py) and copies `rag` to test the RAG branches.
 Run offline with cached dependencies (mutmut 3.3.1):
 
@@ -304,8 +349,8 @@ python3 -m scripts.ml.deploy_feature_api [tag]
 | Part | File |
 |---|---|
 | Image (built on `platform-feast:0.66.0`, 1.02 GB, mostly the shared Feast layer) | [`infra/docker/Dockerfile.serving`](../../infra/docker/Dockerfile.serving) |
-| Helm chart: Deployment with 2 replicas + NodePort Service 30800 | [`infra/helm/feature-api/`](../../infra/helm/feature-api/Chart.yaml) |
-| Build → `kind load` → Secret from `.env` → `helm upgrade --install --atomic` | [`scripts/ml/deploy_feature_api.py`](../../scripts/ml/deploy_feature_api.py) |
+| Helm chart: Deployment with 2 replicas + NodePort Service 30800 | [`infra/helm/feature-api/`](../../infra/helm/serving-api/Chart.yaml) |
+| Build → `kind load` → Secret from `.env` → `helm upgrade --install --atomic` | [`scripts/ml/deploy_feature_api.py`](../../scripts/ml/deploy_serving_api.py) |
 
 - **Rolling update**: `maxUnavailable: 0, maxSurge: 1`, i.e. add 1 new pod and only remove an old pod once the new pod is Ready.
   `preStop: sleep 5s` is added so kube-proxy has time to remove the old pod from the Service before that pod shuts down. Without this step, the first

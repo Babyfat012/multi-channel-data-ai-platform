@@ -59,6 +59,12 @@ Local records keep their original environment and are not a substitute for cloud
 CI/CD (test, build and automated deploy) for the RAG pipeline, the MCP server with agents,
 the coordinator and the stream feature jobs. Secrets must live in Jenkins or a similar tool, not in code.
 
+Current agent pipelines (runs recorded above used the earlier stage list): `feature-api-agents` = Test → Build → Push →
+Deploy serving API → **Register candidate** → **Gateway allowlist** → Sync prompts → Deploy Agent → Eval agent →
+**Promote to stable** → Smoke; `coordinator` = Validate → Sync prompts → **Register candidate** → Deploy → Eval agent →
+**Promote to stable** → Smoke A2A. The agentregistry stages version agents and the MCP server per commit and gate the
+gateway config: [Agent Registry](agent_registry.md#versioning-in-ci-and-the-gateway-gate).
+
 ## Setup
 
 | Component | File |
@@ -115,11 +121,11 @@ It does not recreate the cluster or restart nodes. When `config_path` is missing
 python3 -m scripts.shared.setup_kind_registry
 curl -fsS http://localhost:5001/v2/_catalog
 
-## Feature API: build → tag/push → helm upgrade --atomic, IfNotPresent.
-REGISTRY=localhost:5001 python3 -m scripts.ml.deploy_feature_api "$(git rev-parse HEAD)"
+## Serving API (feature-api, policy-api, mcp-server): build → tag/push → helm upgrade --atomic, IfNotPresent.
+REGISTRY=localhost:5001 python3 -m scripts.ml.deploy_serving_api "$(git rev-parse HEAD)"
 ## KFP: the script builds/pushes the train image with the same TAG before compile/submit.
 REGISTRY=localhost:5001 python3 -m scripts.ml.run_training_pipeline
-## KServe: takes the production model, builds/pushes an image tagged version+git SHA+content hash, then applies.
+## KServe: builds/pushes the code-only image (git SHA + code hash), points STORAGE_URI at the production model in MLflow, then applies.
 REGISTRY=localhost:5001 uv run --no-project --with mlflow-skinny==3.17.0 python -m scripts.ml.deploy_return_risk
 ```
 
@@ -130,7 +136,7 @@ The old name `push_images_gke.sh` is only a compatibility wrapper for `REGISTRY_
 
 Every Jenkinsfile that builds images has a **Push** stage before the deploy step, so the deploy uses exactly the image just pushed:
 
-- The Feature API deploys with `SKIP_BUILD_PUSH=1`, so it does not rebuild the image after the Push step.
+- The serving API deploys with `SKIP_BUILD_PUSH=1`, so it does not rebuild the image after the Push step.
 - RAG and stream publish images tagged with the git SHA, and generate the Compose override file `out/ci-compose-images.yaml`.
   The deploy step runs `--no-build --pull always` with that same SHA, including the Flink taskmanager. The later check stages also use this same override file.
 

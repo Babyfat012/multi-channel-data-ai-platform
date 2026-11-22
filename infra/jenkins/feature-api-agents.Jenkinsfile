@@ -30,12 +30,12 @@ pipeline {
       }
     }
     stage('Build') {
-      steps { sh 'docker build -f infra/docker/Dockerfile.serving -t platform-feature-api:$TAG .' }
+      steps { sh 'docker build -f infra/docker/Dockerfile.serving -t platform-serving-api:$TAG .' }
     }
     stage('Push') {
-      steps { sh 'python3 -m scripts.shared.push_images platform-feature-api:$TAG' }
+      steps { sh 'python3 -m scripts.shared.push_images platform-serving-api:$TAG' }
     }
-    stage('Deploy MCP server') {
+    stage('Deploy serving API') {
       steps {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN'),
                          file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
@@ -46,17 +46,29 @@ pipeline {
             set +x
             eval "$(scripts/shared/vault_env.sh postgres)"
             if [ "$PLATFORM_STORAGE" = s3 ]; then
-              # Enable RAG (registry already on S3; without this variable /chunks returns 503 and model-agent's RAG tool breaks).
+              # Enable RAG (registry already on S3); without it policy-api never gets Ready and the release rolls back.
               export FEAST_RAG_REGISTRY="s3://$LAKEHOUSE_BUCKET/feature-store/rag-registry.db"
               # D3 not migrated yet (no publications/ on S3 yet): empty = legacy reader. Remove this line after the first publication.
               export FEAST_PUBLICATION_ROOT=
             fi
-            SKIP_BUILD_PUSH=1 REPLICAS=2 python3 -m scripts.ml.deploy_feature_api "$TAG"
-            # Point the gateway's MCP backend at the feature-mcp pod (deployed above) then reload the ConfigMap; no Secrets in the file.
-            kubectl --context $KCTX apply -f infra/k8s/agents/agentgateway.yaml
-            kubectl --context $KCTX -n agentgateway rollout restart deploy/agentgateway
-            kubectl --context $KCTX -n agentgateway rollout status deploy/agentgateway --timeout=180s
+            SKIP_BUILD_PUSH=1 REPLICAS=2 python3 -m scripts.ml.deploy_serving_api "$TAG"
           '''
+        }
+      }
+    }
+    stage('Register candidate') {
+      steps {
+        withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
+          // agentregistry: this commit's agents + MCP server under tag $TAG (history: arctl get agent <name> --all-tags).
+          sh 'python3 -m scripts.llm.publish_agentregistry --tag "$TAG"'
+        }
+      }
+    }
+    stage('Gateway allowlist') {
+      steps {
+        withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
+          // The gateway may only expose agents/tools registered under $TAG; then apply it (MCP backend = mcp-server).
+          sh 'python3 -m scripts.llm.check_gateway_allowlist --tag "$TAG" --apply'
         }
       }
     }
@@ -82,12 +94,20 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN'),
                          file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
-          // Agent 1 is evaluated on features; Agent 2 on two tools: prediction (vs Feature API /predict) and RAG (vs rag/corpus).
+          // Agent 1 is evaluated on features; Agent 2 on two tools: prediction (vs KServe) and RAG (vs rag/corpus).
           sh '''
             python3 -m scripts.llm.eval_agent_ci
             EVAL_AGENT=model-agent EVAL_TASK=predict python3 -m scripts.llm.eval_agent_ci
             EVAL_AGENT=model-agent EVAL_TASK=policy python3 -m scripts.llm.eval_agent_ci
           '''
+        }
+      }
+    }
+    stage('Promote to stable') {
+      steps {
+        withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
+          // Only reached when the eval passed: these versions become `stable` in agentregistry.
+          sh 'python3 -m scripts.llm.publish_agentregistry --tag stable feature-tools data-agent model-agent'
         }
       }
     }
