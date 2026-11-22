@@ -89,17 +89,14 @@ def test_shell_syntax(script):
     subprocess.run(["bash", "-n", str(ROOT / script)], check=True)
 
 
-# Groups already converted from bash to Python; each module must import without side effects.
-CONVERTED_GROUPS = ("shared",)
-
-
 @pytest.mark.parametrize(
     "module",
     sorted(
-        f"scripts.{group}.{path.stem}"
-        for group in CONVERTED_GROUPS
-        for path in (ROOT / "scripts" / group).glob("*.py")
-        if path.stem != "__init__"
+        # Scripts converted from bash all build on scripts/common.py; older scripts import heavy deps
+        # (airflow, psycopg, …) and are covered by their own tests.
+        f"scripts.{path.parent.name}.{path.stem}"
+        for path in (ROOT / "scripts").glob("*/*.py")
+        if "from scripts.common import" in path.read_text()
     ),
 )
 def test_script_modules_import(module):
@@ -356,7 +353,7 @@ def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
         assert "install -m 600 /repo/.env .env" in text
         assert "-f docker-compose.yml -f out/ci-compose-images.yaml" not in text
         assert "always { sh 'rm -f .env' }" in text
-    assert 'if [ "$DATA_STORAGE" != s3 ]; then bash scripts/data/setup_airflow.sh' in rag
+    assert 'if [ "$DATA_STORAGE" != s3 ]; then python3 -m scripts.data.setup_airflow' in rag
     # AWS: two PyFlink jobs on the Flink ML cluster, verify exactly 2 jobs RUNNING.
     assert 'COMPOSE="$COMPOSE" scripts/ml/run_stream_feature_jobs.sh' in stream
     assert 'want="ml-sku-return-24h-online ml-sku-return-24h-offline"' in stream

@@ -307,7 +307,7 @@ def test_docker_storage_moves_to_ebs_without_silent_empty_store():
     )
 
 
-def test_cdc_on_aws_enables_debezium_and_loads_dp1_cdc_variables():
+def test_cdc_on_aws_enables_debezium_and_loads_dp1_cdc_variables(monkeypatch):
     """dp1_cdc on EC2: Kafka belongs to the cdc profile too, Debezium on loopback, Airflow loads the CDC Variables."""
     services = yaml.load(
         (ROOT / "docker-compose.aws-stream.yml").read_text(), Loader=ComposeLoader
@@ -315,10 +315,14 @@ def test_cdc_on_aws_enables_debezium_and_loads_dp1_cdc_variables():
     assert "cdc" in services["kafka"]["profiles"]
     assert services["debezium-connect"]["profiles"] == ["cdc"]
     assert services["debezium-connect"]["scale"] == 1
-    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
-    s3_branch = setup[setup.index("= s3 ]; then") :]
-    assert "dp1_cdc" in s3_branch.split("done")[0]
-    assert "spark-sql-kafka-0-10" in s3_branch and "PLATFORM_SPARK_PACKAGES_AWS" in s3_branch
+    from scripts.data.setup_airflow import variables
+
+    monkeypatch.setenv("PLATFORM_SPARK_PACKAGES_AWS", "test:aws:1")
+    monkeypatch.setenv("RAW_BUCKET", "test-raw")
+    aws = variables("base", "s3")
+    assert aws["platform_dp1_cdc_topic"] == "platform_cdc.walmart.orders"
+    assert aws["platform_cdc_spark_packages"].startswith("test:aws:1,")
+    assert "spark-sql-kafka-0-10" in aws["platform_cdc_spark_packages"]
 
 
 def _mb(value: str) -> int:
@@ -387,17 +391,20 @@ def test_spark_worker_promise_fits_container_limit():
         assert worker + executors * 384 + 512 <= _mb(services[name]["mem_limit"]), name
 
 
-def test_aws_maintenance_targets_a_configured_real_table():
+def test_aws_maintenance_targets_a_configured_real_table(monkeypatch):
     """The S3 branch replaces the demo table: every table in platform_maintenance_tables must have a policy in the AWS file."""
     import json
 
+    from scripts.data.setup_airflow import variables
     from spark_jobs.lib.maintenance_policy import validated_config
 
-    setup = (ROOT / "scripts/data/setup_airflow.sh").read_text()
-    s3_branch = setup[setup.index("= s3 ]; then") :].split("\nfi\n")[0]
-    assert "< configs/iceberg_maintenance_aws.json" in s3_branch
-    tables = json.loads(re.search(r"platform_maintenance_tables '(\[.*?\])'", s3_branch).group(1))
-    policies = json.loads((ROOT / "configs/iceberg_maintenance_aws.json").read_text())["tables"]
+    monkeypatch.setenv("PLATFORM_SPARK_PACKAGES_AWS", "test:aws:1")
+    monkeypatch.setenv("RAW_BUCKET", "test-raw")
+    aws = variables("base", "s3")
+    aws_config = (ROOT / "configs/iceberg_maintenance_aws.json").read_text()
+    assert aws["platform_maintenance_config"] == aws_config
+    tables = json.loads(aws["platform_maintenance_tables"])
+    policies = json.loads(aws_config)["tables"]
     assert tables and set(tables) <= set(policies)
     for name in tables:
         assert not name.startswith("lakehouse.demo.")

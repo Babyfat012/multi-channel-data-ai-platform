@@ -98,7 +98,7 @@ Configure `.env` as for the existing loader; setup/mutate also accept
 ```
 
 The DAG only runs `ingest_cdc` → `validate_cdc` and never mutates the source itself.
-`scripts/data/setup_airflow.sh` adds the Variables `platform_order_lifecycle_cdc_control_dir`,
+`python3 -m scripts.data.setup_airflow` adds the Variables `platform_order_lifecycle_cdc_control_dir`,
 `platform_order_lifecycle_cdc_oracle` and `platform_order_lifecycle_cdc_spark_packages`. RAM/cores reuse
 `platform_order_lifecycle_driver_memory`, `platform_order_lifecycle_executor_memory` and `platform_order_lifecycle_executor_cores`.
 The subclass adds all three to `template_fields`. The new script/helper and the

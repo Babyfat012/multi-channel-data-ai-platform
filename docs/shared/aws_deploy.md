@@ -146,14 +146,14 @@ eval "$(terraform -chdir=infra/aws/terraform output -raw ssm_command)"
 # In the EC2 session
 sudo -iu ubuntu
 cd /opt/platform
-bash scripts/data/run_order_lifecycle_live.sh --phase source    # only checks the manifest on S3
-bash scripts/data/run_order_lifecycle_live.sh --phase airflow   # DAG dp_order_lifecycle, receipts, then stops phase A
+python3 -m scripts.data.run_order_lifecycle_live --phase source    # only checks the manifest on S3
+python3 -m scripts.data.run_order_lifecycle_live --phase airflow   # DAG dp_order_lifecycle, receipts, then stops phase A
 ```
 
 Next run section [5. Measure](#do), **and only then** start DataHub (phase B reuses the RAM of Spark/Airflow):
 
 ```bash
-bash scripts/data/run_order_lifecycle_live.sh --phase datahub   # start DataHub, publish lineage + assertions
+python3 -m scripts.data.run_order_lifecycle_live --phase datahub   # start DataHub, publish lineage + assertions
 ```
 
 Do not use `--phase all` before measuring. Capture runs on the **laptop** through a tunnel: terminal 2 keeps the tunnel open,
@@ -194,9 +194,9 @@ Run on EC2 **after** the airflow phase and **before** the datahub phase (the run
 
 ```bash
 cd /opt/platform
-bash scripts/data/run_aws_measurements.sh --what skew          # baseline vs salted
-bash scripts/data/run_aws_measurements.sh --what maintenance   # compact/z-order real tables
-bash scripts/data/run_aws_measurements.sh --what warehouse     # EXPLAIN before/after index n=5
+python3 -m scripts.data.run_aws_measurements --what skew          # baseline vs salted
+python3 -m scripts.data.run_aws_measurements --what maintenance   # compact/z-order real tables
+python3 -m scripts.data.run_aws_measurements --what warehouse     # EXPLAIN before/after index n=5
 ```
 
 Results: `out/aws-evidence/<UTC date>/{skew,maintenance,warehouse}-<timestamp>-<pid>/` (JSON, image ID, logs, event logs;

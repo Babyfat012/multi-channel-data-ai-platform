@@ -118,9 +118,9 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
 env -u POSTGRES_PASSWORD docker compose --profile catalog up -d postgres minio lakekeeper
 export FIXTURE=out/source-v2-b-final-20261018-051930425055/default
 env -u POSTGRES_PASSWORD .venv/bin/python scripts/data/load_order_lifecycle_walmart.py --root $FIXTURE
-scripts/data/run_order_lifecycle_spark.sh /opt/spark_jobs/bronze/ingest_order_lifecycle.py --root /data/order_lifecycle \
+python3 -m scripts.data.run_order_lifecycle_spark /opt/spark_jobs/bronze/ingest_order_lifecycle.py --root /data/order_lifecycle \
   --run-id bronze-v2-20261018-jdbc --walmart-jdbc walmart_lifecycle.orders
-scripts/data/run_order_lifecycle_spark.sh /opt/spark_jobs/silver/build_order_lifecycle.py --run-id silver-v2-20261018-jdbc \
+python3 -m scripts.data.run_order_lifecycle_spark /opt/spark_jobs/silver/build_order_lifecycle.py --run-id silver-v2-20261018-jdbc \
   --receipt /receipts/silver-v2-receipt-20261018.json
 ```
 

@@ -109,7 +109,7 @@ Variables added in `scripts/data/bootstrap_airflow_config.py`:
 - platform_maintenance_receipt_dir: `/opt/airflow/logs/iceberg-maintenance`, on the
   Airflow volume; each logical timestamp has its own plan.json and execute.json.
 
-Compose currently does not mount configs/. So `scripts/data/setup_airflow.sh` **only adds** a step that
+Compose currently does not mount configs/. So `python3 -m scripts.data.setup_airflow` **only adds** a step that
 loads the whole configs/iceberg_maintenance.json via stdin into the Variable
 platform_maintenance_config. The DAG passes the content with --config-json. This step
 does not change other variables' configuration or Compose. After changing the JSON, rerun setup

@@ -44,7 +44,7 @@ pipeline {
                 scripts/shared/vault_env.sh postgres | sed 's/^export //'; } > .env
             fi
             scripts/shared/ci_compose.sh --profile airflow up --no-build --pull always -d --wait airflow
-            if [ "$DATA_STORAGE" != s3 ]; then bash scripts/data/setup_airflow.sh; rm -f .env; fi
+            if [ "$DATA_STORAGE" != s3 ]; then python3 -m scripts.data.setup_airflow; rm -f .env; fi
           '''
         }
       }

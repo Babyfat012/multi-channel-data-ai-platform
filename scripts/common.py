@@ -38,12 +38,11 @@ def succeeds(cmd: list[str]) -> bool:
     return subprocess.run(cmd, capture_output=True).returncode == 0
 
 
-def load_env(path: Path = ROOT / ".env", required: bool = True) -> None:
-    """Load KEY=VALUE lines into os.environ, overriding existing values (same as bash `set -a; . ./.env`)."""
+def read_env_file(path: Path = ROOT / ".env") -> dict[str, str]:
+    """Parse KEY=VALUE lines of a .env file (comments, `export ` and surrounding quotes allowed); {} if missing."""
+    values = {}
     if not path.exists():
-        if required:
-            sys.exit(f"{path} not found")
-        return
+        return values
     for line in path.read_text().splitlines():
         line = line.strip().removeprefix("export ")
         if not line or line.startswith("#") or "=" not in line:
@@ -52,7 +51,23 @@ def load_env(path: Path = ROOT / ".env", required: bool = True) -> None:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
             value = value[1:-1]
-        os.environ[key.strip()] = value
+        values[key.strip()] = value
+    return values
+
+
+def load_env(path: Path = ROOT / ".env", required: bool = True) -> None:
+    """Load .env into os.environ, overriding existing values (same as bash `set -a; . ./.env`)."""
+    if required and not path.exists():
+        sys.exit(f"{path} not found")
+    os.environ.update(read_env_file(path))
+
+
+def env_defaults(keys: list[str], path: Path = ROOT / ".env") -> None:
+    """Take only these keys from .env, and only when the environment does not set them (environment wins)."""
+    values = read_env_file(path)
+    for key in keys:
+        if key not in os.environ:
+            os.environ[key] = values.get(key, "")
 
 
 def env(key: str, default: str | None = None) -> str:
@@ -61,6 +76,27 @@ def env(key: str, default: str | None = None) -> str:
     if not value:
         sys.exit(f"{key} is required")
     return value
+
+
+def tee(cmd: list[str], log: Path, stdin: str | None = None) -> None:
+    """Run a command, print its output live and also save it to a log file (bash `cmd 2>&1 | tee log`)."""
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("w") as out:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE if stdin is not None else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if stdin is not None:
+            proc.stdin.write(stdin)
+            proc.stdin.close()
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            out.write(line)
+    if proc.wait() != 0:
+        sys.exit(f"command failed ({proc.returncode}): {' '.join(cmd[:4])}… (log: {log})")
 
 
 def kubectl(context: str | None = None) -> list[str]:
