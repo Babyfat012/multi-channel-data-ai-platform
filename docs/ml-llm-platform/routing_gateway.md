@@ -19,7 +19,7 @@ Route table (the "Host" column is the first part of the domain name):
 
 | Host | Backend service | NGINX setting | Auth |
 |---|---|---|---|
-| `api.` | Feature API (Web API) | [`feature-api.yaml`](../../infra/k8s/ingress/serving-api.yaml): HTTPS, `limit-req-rate` 50r/s, burst 100 | none (public API, rate limited) |
+| `api.` | Serving API: `/features`, `/chunks`, `/predict` (KServe) | [`serving-api.yaml`](../../infra/k8s/ingress/serving-api.yaml) + [`predict.yaml`](../../infra/k8s/ingress/predict.yaml): mergeable master (HTTPS, `limit-req-rate` 50r/s, burst 100) + one minion per service | none (public API, rate limited) |
 | `agent.` | kagent UI (agent test UI) | [`agent-ui.yaml`](../../infra/k8s/ingress/agent-ui.yaml): HTTPS, basic auth, 5r/s burst 10, returns 429 when exceeded | `seller` |
 | `grafana.` | Grafana (metrics + Loki logs) | [`ops-ui.yaml`](../../infra/k8s/ingress/ops-ui.yaml) | `ops` + Grafana admin |
 | `traces.` | Jaeger UI | `ops-ui.yaml` | `ops` |
@@ -76,7 +76,7 @@ python3 -m scripts.shared.setup_ingress
 
 | Route | Host (local) | Protection | File |
 |---|---|---|---|
-| Feature API (data-pulling Web API) | `api.<node-ip>.sslip.io` | HTTPS, HTTP→HTTPS redirect, 50 r/s | [`feature-api.yaml`](../../infra/k8s/ingress/serving-api.yaml) |
+| Serving API (`/features`, `/chunks`, `/predict`) | `api.<node-ip>.sslip.io` | HTTPS, HTTP→HTTPS redirect, 50 r/s; internal CA only (Let's Encrypt HTTP-01 is not wired for the mergeable master) | [`serving-api.yaml`](../../infra/k8s/ingress/serving-api.yaml) |
 | kagent UI (agent test chat) | `agent.<node-ip>.sslip.io` | HTTPS + **basic auth** + **5 r/s, burst 10, 429** | [`agent-ui.yaml`](../../infra/k8s/ingress/agent-ui.yaml) |
 | Prometheus (metrics) | `metrics.<node-ip>.sslip.io` | HTTPS + basic auth `ops` | [`ops-ui.yaml`](../../infra/k8s/ingress/ops-ui.yaml) |
 | Grafana (metrics + logs via Loki), Jaeger (traces) | `grafana.` / `traces.` | HTTPS + basic auth `ops` | same template |
@@ -137,7 +137,7 @@ export LE_EMAIL=you@example.com
 export DUCKDNS_WEBHOOK_CHART=/path/to/verified-chart
 ## VAULT_ADDR/VAULT_TOKEN come from the environment; do not copy secrets into commands or docs.
 LE_ENV=staging python3 -m scripts.shared.setup_letsencrypt
-kubectl --context kind-platform -n feature-store get certificate
+kubectl --context kind-platform -n serving-api get certificate
 ## Only once staging is Ready, request production:
 LE_ENV=production python3 -m scripts.shared.setup_letsencrypt
 ```
@@ -145,7 +145,7 @@ LE_ENV=production python3 -m scripts.shared.setup_letsencrypt
 Staging uses ACME staging (the cert is not trusted by browsers); production uses ACME production.
 The two environments use different accounts and TLS Secrets.
 
-The script creates a separate Ingress `feature-api-duckdns` to the Feature API, and keeps the sslip.io route using the internal CA unchanged.
+The script creates a separate Ingress `feature-api-duckdns` (ns `serving-api`) to the Feature API only, and keeps the sslip.io route using the internal CA unchanged.
 For clients to reach it, you need a DNS A record pointing to an address clients can reach, and a path to
 NodePort 30443 (or NAT forwarding port 443 to 30443 if you want an HTTPS URL without a port number).
 DNS-01 only proves domain ownership. The script does not set up NAT and does not update DuckDNS's A record.

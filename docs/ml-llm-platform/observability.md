@@ -81,7 +81,7 @@ cache is **728**:
 
 ![Grafana: average tokens per request by gen_ai_token_type, table input 947, output 43.9, input_cache_read 728](../evidence/aws/grafana-tokens-per-request-20261031.png)
 
-**Call and error counts per MCP tool.** The Feature API counts with the metric `mcp_tool_calls_total{tool, outcome}`. `outcome` is `error`
+**Call and error counts per MCP tool.** The MCP server (`mcp-server`; the Feature API before the split) counts with the metric `mcp_tool_calls_total{tool, outcome}`. `outcome` is `error`
 when the tool returns `isError`, even if the HTTP status is still 200.
 
 To get real errors to count, MCP was called directly with 5 invalid inputs: an empty SKU list, a malformed SKU, `top_k=50` (over the limit of 10), Channel `ebay`, an invalid `chunk_id`.

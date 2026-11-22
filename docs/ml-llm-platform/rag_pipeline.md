@@ -40,9 +40,9 @@ Fix:
 
 In the run in this screenshot, `publish` was skipped because the Variable `platform_datahub_gms_url` was not set. The run in the section above completed the publish step as well.
 
-### Feature API serving RAG on EKS
+### Policy API serving RAG on EKS
 
-Running `scripts/ml/deploy_feature_api.py` with `FEAST_RAG_REGISTRY=s3://…/feature-store/rag-registry.db` enables the `/chunks` endpoint and the MCP tool
+Running `scripts/ml/deploy_serving_api.py` with `FEAST_RAG_REGISTRY=s3://…/feature-store/rag-registry.db` makes `policy-api` Ready (it serves `/chunks`; without the registry it stays not Ready) and enables the MCP tool
 `search_policy_chunks`. Sending the question "What is Amazon's return window for apparel?" through the HTTPS ingress returns HTTP 200; the closest
 chunk is the "Return window" section of the `amazon-returns` document (30 days).
 
@@ -91,7 +91,7 @@ s3://platform/rag/raw/*.md ──chunk──► s3://platform/rag/chunks_text.pa
               Postgres + pgvector (kind ns rag)  table platform_rag_policy_chunks   ← online store
                                      │ validate → receipt → publish (DataHub)
                                      ▼
-       Feature API: POST /chunks, MCP tool search_policy_chunks → retrieve_online_documents_v2 (cosine)
+       Policy API: POST /chunks; MCP tool search_policy_chunks → policy-api → retrieve_online_documents_v2 (cosine)
 ```
 
 | Part | File |

@@ -241,3 +241,32 @@ def test_score_route():
     assert score_route({**call, **final}, "model_agent")["pass"] is False
     assert score_route(call, "data_agent")["pass"] is False
     assert score_route({}, "data_agent")["pass"] is False
+
+
+def test_predict_truth_comes_from_kserve_v1(monkeypatch, tmp_path):
+    """/predict now goes straight to KServe: the eval sends {"instances": [...]} and grades against predictions[0]."""
+    from ml import agent_eval
+
+    sent = {}
+
+    def fake_post(url, body, headers, context=None, timeout=180):
+        if "predict" in url:
+            sent[url] = body
+            return {"predictions": [{"seller_sku": "sku-00001", "score": 0.4, "abstain": False}]}
+        return {"result": {"parts": [{"text": "risk score 0.4"}]}}
+
+    monkeypatch.setattr(agent_eval, "post", fake_post)
+    monkeypatch.setenv("AGW_AGENT_KEY", "k")
+    predict = "http://localhost:18100/v1/models/return-risk:predict"
+    args = [
+        "--agent",
+        "model-agent",
+        "--task",
+        "predict",
+        "--skus",
+        "sku-00001",
+        "--predict-url",
+        predict,
+    ]
+    assert agent_eval.main([*args, "--min-accuracy", "1", "--out", str(tmp_path / "o.jsonl")]) == 0
+    assert sent[predict]["instances"][0]["seller_sku"] == "sku-00001"

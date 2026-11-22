@@ -3,10 +3,10 @@
 # Run: KCTX=<kube-context> scripts/evidence/helm_rollout_fallback_test.sh
 # 1) good rolling update  2) broken release (envSecret does not exist) ⇒ helm rolls back automatically  3) helm history + probe HTTP code counts.
 # The probe runs INSIDE the cluster (no port-forward: a forward is bound to one pod, so it drops when that pod is replaced).
-# Writes docs/evidence/aws/feature-api-helm-rollout.txt. The release was deployed with scripts/ml/deploy_feature_api.py.
+# Writes docs/evidence/aws/feature-api-helm-rollout.txt. The release is deployed with scripts/ml/deploy_serving_api.py (chart infra/helm/serving-api).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-ns=${FEATURE_API_NAMESPACE:-feature-store}
+ns=${SERVING_NAMESPACE:-serving-api}
 release=feature-api
 out=${OUT:-docs/evidence/aws/feature-api-helm-rollout.txt}
 K=(kubectl --context "${KCTX:?set KCTX=<kube-context>}" -n "$ns")
@@ -26,10 +26,10 @@ sleep 5
   echo "# helm history before:"
   "${H[@]}" history "$release" --max 3
   echo "# 1) Good rolling update (change envChecksum ⇒ pod template changes), --atomic --timeout 4m"
-  "${H[@]}" upgrade "$release" infra/helm/feature-api --reuse-values \
+  "${H[@]}" upgrade "$release" infra/helm/serving-api --reuse-values \
     --set-string envChecksum="rollout-$(date -u +%s)" --atomic --timeout 4m
   echo "# 2) Broken release: envSecret=does-not-exist ⇒ new pod does not start, --atomic --timeout 90s (expect FAILED then rollback)"
-  if "${H[@]}" upgrade "$release" infra/helm/feature-api --reuse-values \
+  if "${H[@]}" upgrade "$release" infra/helm/serving-api --reuse-values \
       --set envSecret=does-not-exist --atomic --timeout 90s; then
     echo "# WARNING: the broken release succeeded, fallback not proven"
   else

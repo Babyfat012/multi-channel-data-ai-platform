@@ -89,14 +89,14 @@ export REGISTRY=$(terraform -chdir=infra/aws/terraform output -raw image_registr
 export ECR_HOST=${REGISTRY%%/*}
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_HOST"
 export TAG="$(git rev-parse HEAD)-BUILD_ID"  # replace BUILD_ID for each new build
-# Example: build/push the Feature API; other images use the same helper and namespace.
-docker build -f infra/docker/Dockerfile.serving -t "platform-feature-api:$TAG" .
-python3 -m scripts.shared.push_images "platform-feature-api:$TAG"
+# Example: build/push the serving API; other images use the same helper and namespace.
+docker build -f infra/docker/Dockerfile.serving -t "platform-serving-api:$TAG" .
+python3 -m scripts.shared.push_images "platform-serving-api:$TAG"
 ```
 
 ECR tags are immutable: do not overwrite a published tag. Record the commit SHA, build ID and digest when collecting evidence. The deploy scripts take `KCTX`; the `setup_kind_*` bootstrap scripts are still for local use and do not run against EKS. Jenkins has registry/context/kubeconfig credential parameters, but the Compose pipelines for RAG/stream still need their own AWS configuration before running end to end.
 
-## 5. Feature API once its dependencies are ready
+## 5. Serving API once its dependencies are ready
 
 Only do this once Redis, pgvector, the Feast registry on S3 and KServe have been deployed/checked. This is the next integration check, not an automatic consequence of Terraform apply.
 
@@ -105,8 +105,12 @@ export PLATFORM_STORAGE=s3
 export KCTX=platform-apps
 export LAKEHOUSE_BUCKET=$(terraform -chdir=infra/aws/terraform output -raw lakehouse_bucket)
 # POSTGRES_USER / POSTGRES_PASSWORD come from the environment's secret source, never written to Git.
-SKIP_BUILD_PUSH=1 python3 -m scripts.ml.deploy_feature_api "$TAG"
-kubectl --context "$KCTX" -n feature-store rollout status deployment/feature-api --timeout=180s
+# policy-api is Ready only with the RAG registry; Pod Identity is read-only, so the file must already exist on S3.
+export FEAST_RAG_REGISTRY="s3://$LAKEHOUSE_BUCKET/feature-store/rag-registry.db"
+SKIP_BUILD_PUSH=1 python3 -m scripts.ml.deploy_serving_api "$TAG"
+for d in feature-api policy-api mcp-server; do
+  kubectl --context "$KCTX" -n serving-api rollout status "deployment/$d" --timeout=180s
+done
 ```
 
 The AWS chart uses ClusterIP and the `feature-api` ServiceAccount in the `feature-store` namespace, matching Pod Identity. The Secret contains no static MinIO/AWS keys. Helm `--atomic` rolls back if the pods do not become Ready. The gateway/ingress is deployed separately; `scripts.shared.setup_ingress` needs `INGRESS_DOMAIN` in a cloud context and does not infer the IP from the kind container. The internal CA in the script does not replace a real ACME/domain configuration.

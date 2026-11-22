@@ -47,7 +47,7 @@ What is known for certain: one Qwen 1.5B model running on CPU, shared by every A
 
 **Agent 2 (model-agent) has its own eval gate**, with two kinds of questions:
 
-- `ml/agent_eval.py --task predict`: asks for the risk score of a new order, then compares it with the result of the Feature API's `POST /predict`. A question passes when the difference is at most 0.005, or when the agent says "abstain" for a SKU without history.
+- `ml/agent_eval.py --task predict`: asks for the risk score of a new order, then compares it with KServe's own answer (`POST /v1/models/return-risk:predict`, the model the agent's tool calls; `--predict-url`, default `<api host>/predict` through the ingress). A question passes when the difference is at most 0.005, or when the agent says "abstain" for a SKU without history.
 - `--task policy`: asks 5 questions about return windows and deadlines in the policy, then checks whether the numbers match the documents in `rag/corpus`.
 
 `feature-api-agents.Jenkinsfile` runs all three tests (selected with the `EVAL_AGENT`, `EVAL_TASK` variables in `scripts/llm/eval_agent_ci.py`; the result file is `out/agent-eval-<agent>-<task>.jsonl`).
@@ -83,7 +83,7 @@ The question "does the agent answer with the **real numbers**?" cannot be measur
 So the harness works as follows:
 
 1. Ask the agent a fixed set of questions through agentgateway (A2A protocol).
-2. Take the **reference answer from the Feature API**, which is also the source the agent must call a tool to get numbers from.
+2. Take the **reference answer from the service that owns the data** (Feature API for features, KServe for predictions), which is also the source the agent's tool gets numbers from.
 3. Score each question.
 4. Use accuracy as a CI gate: below the threshold, the harness exits with code 1, turning the pipeline red after the agent deploy step.
 
@@ -146,7 +146,7 @@ ACC-00842 still returned a wrong number (0 returns) but was routed correctly, so
 The wrapper does the following:
 
 1. Read the key from `vault_env.sh agentgateway`.
-2. Port-forward the Feature API `18000:8000` and the gateway `18300:3000` (change with `EVAL_FEATURE_PORT`/`EVAL_GATEWAY_PORT` if needed).
+2. Port-forward the Feature API `18000:8000` (ns `serving-api`), the gateway `18300:3000`, and for `predict` KServe `18100:80` (change with `EVAL_FEATURE_PORT`/`EVAL_GATEWAY_PORT`/`EVAL_PREDICT_PORT` if needed).
 3. Call `python3 -m ml.agent_eval` with all 12 codes from `sku-00001` to `sku-00012`, `--min-accuracy 0.95`, `--out out/agent-eval.jsonl`.
 
 HTTP (unencrypted) is only used on loopback through port-forward, so it does not depend on the node IP or the development machine's local cert. When calling HTTPS directly, the harness still verifies the CA as before.

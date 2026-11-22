@@ -1,4 +1,6 @@
-"""CI gate: ask an agent through agentgateway (A2A) and score its answers against the Feature API.
+"""CI gate: ask an agent through agentgateway (A2A) and score its answers against the services' own answers.
+
+Ground truth: the Feature API (features), KServe (predict, protocol v1) or fixed policy facts (policy).
 
 Read-only: never modifies or flushes Redis. Exits non-zero below 95 % accuracy. One result file per (agent, task)
 because Jenkins runs it several times in a row and archives out/agent-eval*.json*.
@@ -6,7 +8,8 @@ because Jenkins runs it several times in a row and archives out/agent-eval*.json
     EVAL_AGENT=data-agent EVAL_TASK=features python3 -m scripts.llm.eval_agent_ci
 
 Env: EVAL_AGENT (data-agent), EVAL_TASK (features | predict | policy), EVAL_SKUS (AWS: APP-…), EVAL_TIMEOUT (180),
-EVAL_FEATURE_PORT (18000), EVAL_GATEWAY_PORT (18300), VAULT_ADDR + VAULT_TOKEN (the gateway API key), KCTX.
+EVAL_FEATURE_PORT (18000), EVAL_PREDICT_PORT (18100), EVAL_GATEWAY_PORT (18300), VAULT_ADDR + VAULT_TOKEN
+(the gateway API key), KCTX.
 """
 
 import os
@@ -62,11 +65,12 @@ def main() -> None:
     os.environ["AGW_AGENT_KEY"] = key  # read by ml.agent_eval; never printed
     feature_port = os.environ.get("EVAL_FEATURE_PORT") or "18000"
     gateway_port = os.environ.get("EVAL_GATEWAY_PORT") or "18300"
+    predict_port = os.environ.get("EVAL_PREDICT_PORT") or "18100"
     kc = kubectl()
     forwards = [
         port_forward(
             kc,
-            "feature-store",
+            "serving-api",
             "svc/feature-api",
             f"{feature_port}:8000",
             "out/eval-feature-forward.log",
@@ -79,14 +83,32 @@ def main() -> None:
             "out/eval-gateway-forward.log",
         ),
     ]
+    # The ready checks: Feature API health, the agent card behind the gateway, KServe's model when predicting.
+    checks = [
+        (f"http://localhost:{feature_port}/healthz", None),
+        (
+            f"http://localhost:{gateway_port}/a2a/{agent}/.well-known/agent-card.json",
+            {"Authorization": f"Bearer {key}"},
+        ),
+    ]
+    extra = []
+    if task == "predict":
+        forwards.append(
+            port_forward(
+                kc,
+                "ml-serving",
+                "svc/return-risk-predictor",
+                f"{predict_port}:80",
+                "out/eval-predict-forward.log",
+            )
+        )
+        checks.append((f"http://localhost:{predict_port}/v1/models/return-risk", None))
+        extra = ["--predict-url", f"http://localhost:{predict_port}/v1/models/return-risk:predict"]
     try:
         for _ in range(30):
             if any(f.poll() is not None for f in forwards):
                 sys.exit("Eval port-forward stopped; see out/eval-*-forward.log")
-            card = f"http://localhost:{gateway_port}/a2a/{agent}/.well-known/agent-card.json"
-            if reachable(f"http://localhost:{feature_port}/healthz") and reachable(
-                card, {"Authorization": f"Bearer {key}"}
-            ):
+            if all(reachable(url, headers) for url, headers in checks):
                 break
             time.sleep(1)
         else:
@@ -112,6 +134,7 @@ def main() -> None:
                 os.environ.get("EVAL_TIMEOUT") or "180",
                 "--out",
                 str(results),
+                *extra,
             ],
             summary,
             merge_stderr=False,

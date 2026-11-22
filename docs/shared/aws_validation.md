@@ -8,6 +8,12 @@ Legend: ✅ validated on AWS · ⚠️ runs on AWS but evidence is partial · �
 For ⚠️ rows about screenshots: the capability runs on AWS; the detailed screenshot is local or has no matching AWS capture yet.
 A green job status is not treated as a substitute for a detailed screenshot.
 
+**Not rerun on AWS after the serving split.** The ML rows below were recorded with the earlier layout: one REST release
+`feature-api` in namespace `feature-store` (serving `/features`, `/chunks`, `/predict`) plus the `feature-mcp` release, and
+a model image with `model.lgb` inside. The current code runs three releases in namespace `serving-api` (Feature API, Policy
+API, MCP server as their client), `/predict` straight to KServe, and KServe loads the model via `STORAGE_URI`
+([Web API and MCP](../ml-llm-platform/web_api_mcp.md)). Those changes pass unit tests only until the next AWS run.
+
 ## Data Platform
 
 | Capability | Status | Evidence / remaining work |

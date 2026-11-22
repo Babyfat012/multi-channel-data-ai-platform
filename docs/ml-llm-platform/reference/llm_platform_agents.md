@@ -3,7 +3,7 @@
 
 ```
 kagent UI ─► Data Agent (kagent) ──/v1 (API key)──► agentgateway ──► llama.cpp Qwen2.5-1.5B (ns llm)
-                                └──/mcp (API key)──►      │       ──► feature-mcp /mcp/ (ns feature-store)
+                                └──/mcp (API key)──►      │       ──► mcp-server /mcp/ (ns serving-api)
                                                            └ /metrics :15020
 ```
 
@@ -84,7 +84,7 @@ agentgateway v1.6.0 (standalone, file-configured), a single port `:3000`:
 | Path | To | Policy |
 |---|---|---|
 | `/v1/chat/completions` | llama.cpp (`provider: custom`, format `completions`) | API key, rate limit burst of 60 requests + refill 1/s |
-| `/mcp` (route) | `feature-mcp` `/mcp/` | API key, `mcpAuthorization` allows only the 4 approved tools |
+| `/mcp` (route) | `mcp-server` `/mcp/` | API key, `mcpAuthorization` allows only the 4 approved tools |
 | header `x-kagent-host: <agent>.kagent` | the Agent's Service (A2A JSON-RPC) | API key, `a2a` policy; the path kagent uses when `proxy.url` is enabled |
 | `/a2a/<agent>/` | same as above, for clients outside the cluster | API key, `a2a`, strips the path prefix |
 

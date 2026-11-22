@@ -1,4 +1,4 @@
-# agentregistry catalog: MCP server (feature-mcp pod, 4 tools) — declared as remote because it already runs behind agentgateway /mcp.
+# agentregistry catalog: MCP server (mcp-server release, ns serving-api, 4 tools) — declared as remote because it already runs behind agentgateway /mcp.
 # Publish: arctl apply -f infra/k8s/agents/registry/ (scripts/llm/publish_agentregistry.py).
 apiVersion: ar.dev/v1alpha1
 kind: MCPServer
@@ -9,7 +9,7 @@ spec:
   description: >-
     Return features per SKU (Feast/Redis), policy chunks by id and by question search (Feast/pgvector),
     Return risk score (KServe return-risk). Tools: get_sku_features, get_policy_chunks, search_policy_chunks,
-    predict_return_risk. Requires an agentgateway API key. Code: serving/ (Helm infra/helm/feature-api, release feature-mcp).
+    predict_return_risk. Requires an agentgateway API key. Code: serving/mcp_server.py (Helm infra/helm/serving-api, release mcp-server); it calls feature-api, policy-api and KServe.
   remote:
     type: streamable-http
     url: http://agentgateway.agentgateway.svc.cluster.local:3000/mcp

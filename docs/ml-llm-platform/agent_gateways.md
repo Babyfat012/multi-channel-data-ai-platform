@@ -10,7 +10,7 @@ Code: [agentgateway.yaml](../../infra/k8s/agents/agentgateway.yaml), [kagent pro
 | Route | Target | Policy / purpose |
 |---|---|---|
 | `/v1/chat/completions` | llama.cpp | API key and rate limit to control LLM calls |
-| `/mcp` | MCP server (pod `feature-mcp`) | API key; `mcpAuthorization` limits which tools can be called |
+| `/mcp` | MCP server (release `mcp-server`, ns `serving-api`) | API key; `mcpAuthorization` limits which tools can be called |
 | `x-kagent-host` / `/a2a/<agent>/` | Agent Service | API key, A2A policy; Agents are called through the gateway |
 
 ## Why these policies
@@ -67,7 +67,7 @@ The remaining routes:
 - `a2a-model-agent-path` and `a2a-coordinator-path` (path `/a2a/<agent>/`);
 - route **`mcp`** (`/mcp`) with `apiKey` and `mcpAuthorization`. This route only allows the four tools `get_sku_features`, `get_policy_chunks`, `search_policy_chunks`, `predict_return_risk`; tools not on the list are hidden from `tools/list` and blocked when called.
 
-The MCP backend is named `features` and points to `http://feature-mcp.feature-store.svc.cluster.local:8000/mcp/` (a dedicated MCP pod; see [Web API and MCP](web_api_mcp.md)).
+The MCP backend is named `features` and points to `http://mcp-server.serving-api.svc.cluster.local:8000/mcp/` (the MCP server, a client of the Feature/Policy APIs and KServe; see [Web API and MCP](web_api_mcp.md)). The screenshot below was taken before the split, when it pointed to `feature-mcp`.
 The MCP route has no rate limit, because version 1.6.0 does not apply rate limits to MCP.
 
 ![ConfigMap agentgateway-config: routes a2a-model-agent-path, a2a-coordinator, a2a-coordinator-path, route mcp with mcpAuthorization for four tools](../evidence/aws/gateway-config-routes-model-coordinator-mcp.png)

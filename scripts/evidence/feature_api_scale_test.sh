@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Measure KEDA autoscaling on a real cluster: a load pod INSIDE the cluster calls through the Service, recording target/pods over time
 # until it scales up and then back down to the minimum.
-# Run: KCTX=<kube-context> [TARGET=feature-api|feature-mcp|return-risk] scripts/evidence/feature_api_scale_test.sh [threads=4] [load seconds=150]
+# Run: KCTX=<kube-context> [TARGET=feature-api|mcp-server|return-risk] scripts/evidence/feature_api_scale_test.sh [threads=4] [load seconds=150]
 #   feature-api (default): POST /features, Helm release feature-api (values-aws.yaml enables autoscaling).
-#   feature-mcp: POST /mcp/ tools/list (separate MCP pod, release feature-mcp).
+#   mcp-server: POST /mcp/ tools/list (MCP server pod, release mcp-server).
 #   return-risk: POST KServe :predict (the Model Agent's predict backend), ScaledObject return-risk-predictor.
 # Ghi docs/evidence/aws/<target>-autoscale.txt.
 set -euo pipefail
@@ -14,16 +14,16 @@ interval=${INTERVAL:-15}
 target=${TARGET:-feature-api}
 case "$target" in
   feature-api)
-    ns=${FEATURE_API_NAMESPACE:-feature-store}; scaled=feature-api; selector=app=feature-api
+    ns=${SERVING_NAMESPACE:-serving-api}; scaled=feature-api; selector=app=feature-api
     url=http://feature-api:8000/features; body='{"seller_skus":["APP-00042","BEA-01708"]}' ;;
-  feature-mcp)
-    ns=${FEATURE_API_NAMESPACE:-feature-store}; scaled=feature-mcp; selector=app=feature-mcp
-    url=http://feature-mcp:8000/mcp/; body='{"jsonrpc":"2.0","id":1,"method":"tools/list"}' ;;
+  mcp-server)
+    ns=${SERVING_NAMESPACE:-serving-api}; scaled=mcp-server; selector=app=mcp-server
+    url=http://mcp-server:8000/mcp/; body='{"jsonrpc":"2.0","id":1,"method":"tools/list"}' ;;
   return-risk)
     ns=ml-serving; scaled=return-risk-predictor; selector=serving.kserve.io/inferenceservice=return-risk
     url=http://return-risk-predictor/v1/models/return-risk:predict
     body='{"instances":[{"seller_sku":"APP-00042","channel":"amazon","country":"US","ordered_basis_qty":1,"ordered_product_net_minor":2500}]}' ;;
-  *) echo "TARGET must be feature-api, feature-mcp or return-risk" >&2; exit 1 ;;
+  *) echo "TARGET must be feature-api, mcp-server or return-risk" >&2; exit 1 ;;
 esac
 hpa="keda-hpa-$scaled"
 load="$target-load"

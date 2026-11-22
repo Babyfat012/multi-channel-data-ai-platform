@@ -29,7 +29,8 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 |---|---|---|
 | EC2 · Airflow / stream | `ml_feature_materialize`, `ml_rag_ingest`, Kafka / Flink, 2 PyFlink stream-feature jobs (Flink ML 2.2) | Batch materialization, streaming push to online + offline, RAG pipeline / governance |
 | S3 | Offline features, training_lines, registry, RAG raw / chunk / embedding, MLflow artifacts | Offline feature store, dataset / model versioning |
-| `feature-store` | Redis, `feature-api` (REST) and `feature-mcp` (MCP), each release 2–3 pods with KEDA, Helm | Online features, async FastAPI / Pydantic, health, REST / MCP in separate pods, rolling update, autoscaling |
+| `feature-store` | Redis | Online features (Feast online store) |
+| `serving-api` | `feature-api`, `policy-api`, `mcp-server`: one image, three Helm releases, each 2–3 pods with KEDA and its own Pod Identity | Async FastAPI / Pydantic, health, one API per data owner, MCP as a client of the APIs, rolling update, autoscaling |
 | `kubeflow` | KFP pipeline, `mle-drift` | PIT join → split → train → evaluate → register; per-Channel drift monitoring |
 | EC2 · MLflow / CLI + ECR | `return-risk` registry, `scripts/ml/deploy_return_risk.py`, image containing the model | Tracking / versioning / production gate / deploy |
 | `ml-serving` / `kserve` | `return-risk` InferenceService 2–3 pods with KEDA / KServe controller | ML inference; predictor reads Feast online, autoscaling |
@@ -43,7 +44,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | `ate-system` / `kagent` | Substrate controllers / SandboxAgent + WorkerPool | Sandbox / gVisor / shared warm worker / golden snapshot |
 | EC2 · Jenkins / Vault + IaC | CI pipelines, secret KV, Terraform / Ansible | Test / build / deploy / eval; coverage / EP-BVA / mutation / property-based / Locust; security |
 
-Configuration sources: `infra/k8s/`, `infra/helm/feature-api/`, `infra/jenkins/`, `scripts/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
+Configuration sources: `infra/k8s/`, `infra/helm/serving-api/`, `infra/jenkins/`, `scripts/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
 
 Current limitations: the Model Agent's RAG eval is below threshold (3/5); the Coordinator gate only scores routing; stream features use replayed data; drift runs as an on-demand Job and does not yet start training automatically. A/B, sandbox and DataHub are enabled by phase. See the validation status page for per-item evidence.
 

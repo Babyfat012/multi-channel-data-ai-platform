@@ -13,7 +13,7 @@ model-inside-image: the model file is baked into the image, not downloaded at st
 v1 (alias `production`), built with [`scripts/ml/deploy_return_risk.py`](../../scripts/ml/deploy_return_risk.py).
 
 Test: call the predictor directly through port-forward with one order of APP-00042, Amazon US, 1 unit, 25 USD. Result `score` 0.1661,
-`abstain` false, `model_version` "1". This is also the number the Feature API `/predict` and model-agent return
+`abstain` false, `model_version` "1". This is also the number `/predict` (recorded before the split, via the Feature API; now straight to KServe) and model-agent return
 (see [Web API](web_api_mcp.md#on-eks)).
 
 ![KServe on EKS: inferenceservice return-risk READY True, predictor pod Running, POST :predict returns score 0.1661 model_version 1](../evidence/aws/kserve-pod-predict-20261031.png)
