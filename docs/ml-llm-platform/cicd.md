@@ -144,6 +144,21 @@ SHA tags are only correct when the working tree is clean. If you run by hand wit
 
 The **Eval agent** stage has been wired into the Feature API and coordinator pipelines, see the [eval gate](agent_evaluation.md#use-in-ci).
 
+### Compose deploys roll back (rag-pipeline, stream-features)
+
+Diagram "Deploy to EC2 · Docker Compose · rolls back if a check fails". The deploy commands and their checks are defined
+once at the top of each Jenkinsfile (`DEPLOY_SH`, `CHECK_SH` / `VERIFY_SH`) and run by the stages and by the rollback.
+
+- A release that passes every check is copied to `out/ci-compose-images.good.yaml` (stage **Keep as last good**, last).
+- A failure **after Deploy started** copies that file back, redeploys it (images by immutable git-SHA tag) and re-runs the
+  check; the build stays red. A failure before Deploy changes nothing. With no good release yet (first deploy), the job says
+  so and the failed release keeps running.
+- `.env` is removed in `post { cleanup }`, which runs after `failure`; in `always` it would be gone before the rollback.
+- Limits: the last-good file lives in the Jenkins workspace (lost if the workspace is wiped). In rag-pipeline the DAG code
+  is bind-mounted from the workspace (gap D2), so a rollback restores the Airflow image, not `dags/`; a failed `ml_rag_ingest`
+  run's partial writes are not undone. Checked: Groovy parse of every Jenkinsfile, `VERIFY_SH` run with fake
+  curl/compose (`tests/unit/test_registry_cicd.py`); not run on Jenkins yet.
+
 ### return-risk model approval
 
 [`return-risk.Jenkinsfile`](../../infra/jenkins/return-risk.Jenkinsfile) is the diagram's D12 → D14: Show challenger → Approve →
