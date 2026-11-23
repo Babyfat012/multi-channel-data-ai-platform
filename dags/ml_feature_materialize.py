@@ -28,7 +28,6 @@ ENSURE_24H = (
 )
 REPO = "/opt/feature_repo"
 # Gold A Cutoff (end of the 180 days of data); locally, if the variable is unset, fall back to the old Cutoff.
-FULL_RELOAD_START = "2000-01-01T00:00:00+00:00"  # before any simulated data
 CUTOFF = "{{ var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff) }}"
 # Spark writes via s3a://, Feast reads the same location via s3://.
 SPARK_ROOT = "{{ var.value.platform_feast_root | replace('s3://', 's3a://') }}"
@@ -39,13 +38,6 @@ def run_feast(*args, **context):
     """Run the Feast CLI on a copy of the repo (mounted read-only), with credentials fetched at run time."""
     # Do not declare `params=` in the signature: Airflow forbids context names clashing with *args positions (ValueError reserved).
     params = context.get("params")
-    # Redis lost its data but the registry still remembers the old watermark ⇒ incremental loads 0 rows
-    # and still goes green. full_reload: reload everything (FULL_RELOAD_START, end], writing the latest value per SKU.
-    if args[0] == "materialize-incremental" and (params or {}).get("full_reload"):
-        print(
-            "full_reload=true: deliberately reloading the batch, skipping the incremental watermark check."
-        )
-        args = ("materialize", *args[1:-1], FULL_RELOAD_START, args[-1])
     root = Variable.get("platform_feast_root")
     redis = Variable.get("platform_feast_redis")
     if not redis:
@@ -74,14 +66,6 @@ def run_feast(*args, **context):
                 command.append("--full-reload")
             subprocess.run(command, cwd=repo, env=env, check=True, timeout=3600)
             return
-        if args[0] == "materialize-incremental":
-            subprocess.run(
-                [FEAST_PYTHON, "-m", "check_online_store"],
-                cwd=repo,
-                env=env,
-                check=True,
-                timeout=120,
-            )
         if args[0] == "apply":
             # The 24h stream view reads Parquet created by the pusher; where the pusher is not running (AWS), create an empty file.
             subprocess.run(

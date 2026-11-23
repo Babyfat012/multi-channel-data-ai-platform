@@ -13,7 +13,7 @@ import sys
 from pyspark.sql import functions as F
 
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
-from spark_jobs.lib.order_snapshot_ml import configure_output, sku_daily_features
+from spark_jobs.lib.order_snapshot_ml import sku_daily_features
 
 
 def main(argv=None):
@@ -26,7 +26,6 @@ def main(argv=None):
     args = parser.parse_args(argv)
     spark = build_spark("export-sku-daily-features", shuffle_partitions=64)
     try:
-        configure_output(spark, args.output)
         labels = spark.table(f"{CATALOG}.gold.{args.labels_table}")
         runs = labels.select("run_id").distinct().collect()
         if len(runs) != 1:

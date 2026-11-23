@@ -1,9 +1,8 @@
-"""Materialize: full_reload reloads everything when Redis was wiped (incremental would load 0 rows and still go green)."""
+"""ml_feature_materialize: the publisher call, the full_reload switch and the empty-Redis guard."""
 
 from __future__ import annotations
 
 import ast
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
@@ -16,30 +15,8 @@ ROOT = Path(__file__).resolve().parents[3]
 DAG = (ROOT / "dags/ml_feature_materialize.py").read_text()
 
 
-def _rewrite(args, params):
-    """Run only run_feast's command-rewrite branch (no Airflow needed)."""
-    fn = next(
-        n for n in ast.parse(DAG).body if isinstance(n, ast.FunctionDef) and n.name == "run_feast"
-    )
-    branch = next(n for n in fn.body if isinstance(n, ast.If))
-    scope = {"args": args, "params": params, "FULL_RELOAD_START": "S"}
-    exec(compile(ast.Module(body=[branch], type_ignores=[]), "run_feast", "exec"), scope)
-    return scope["args"]
-
-
-def test_full_reload_switches_to_ranged_materialize():
-    """full_reload on ⇒ `materialize --views v START END`; off or another command ⇒ unchanged."""
-    inc = ("materialize-incremental", "--views", "sku_return_daily", "E")
-    assert _rewrite(inc, {"full_reload": True}) == (
-        "materialize",
-        "--views",
-        "sku_return_daily",
-        "S",
-        "E",
-    )
-    assert _rewrite(inc, {"full_reload": False}) == inc
-    assert _rewrite(inc, None) == inc
-    assert _rewrite(("apply",), {"full_reload": True}) == ("apply",)
+def test_full_reload_param_is_a_boolean_defaulting_to_false():
+    """full_reload is opt-in: a normal run never reloads the whole batch."""
     parameter = next(
         value
         for node in ast.walk(ast.parse(DAG))
@@ -106,46 +83,10 @@ def _run_feast_with_fake_runtime():
         "REPO": "/opt/feature_repo",
         "FEAST": "feast",
         "FEAST_PYTHON": "feast-python",
-        "FULL_RELOAD_START": "S",
         "ENSURE_24H": "ensure_24h",
     }
     exec(compile(ast.Module(body=[fn], type_ignores=[]), "run_feast", "exec"), scope)
     return scope["run_feast"], run
-
-
-@pytest.mark.parametrize("full_reload", [False, True])
-def test_dag_guards_incremental_but_allows_explicit_full_reload(full_reload):
-    """The guard runs before the CLI; a deliberate full_reload request must reach the ranged materialize."""
-    run_feast, run = _run_feast_with_fake_runtime()
-    run_feast(
-        "materialize-incremental",
-        "--views",
-        "sku_return_daily",
-        "E",
-        params={"full_reload": full_reload},
-    )
-    commands = [call.args[0] for call in run.call_args_list]
-    if full_reload:
-        assert commands == [["feast", "materialize", "--views", "sku_return_daily", "S", "E"]]
-    else:
-        assert commands == [
-            ["feast-python", "-m", "check_online_store"],
-            ["feast", "materialize-incremental", "--views", "sku_return_daily", "E"],
-        ]
-        assert run.call_args_list[0].kwargs["check"] is True
-        assert run.call_args_list[0].kwargs["timeout"] == 120
-        assert run.call_args_list[0].kwargs["env"] == run.call_args_list[1].kwargs["env"]
-
-
-def test_failed_guard_prevents_materialization():
-    """A helper reporting an error must stop the task before the materialize CLI is called."""
-    run_feast, run = _run_feast_with_fake_runtime()
-    run.side_effect = subprocess.CalledProcessError(1, "check_online_store")
-    with pytest.raises(subprocess.CalledProcessError):
-        run_feast("materialize-incremental", "--views", "sku_return_daily", "E")
-    assert [call.args[0] for call in run.call_args_list] == [
-        ["feast-python", "-m", "check_online_store"]
-    ]
 
 
 def test_feast_apply_excludes_guard_helper():

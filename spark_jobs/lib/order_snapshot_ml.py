@@ -6,8 +6,6 @@ labels with `label_available_at <= S`, and the training set only takes labels av
 
 from __future__ import annotations
 
-import os
-
 from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 
@@ -15,17 +13,6 @@ DATASET_VERSION = "order_snapshots"
 # Same table as generator/core/storefronts.py CURRENCY_DECIMALS (Spark does not ship the generator).
 CURRENCY_DECIMALS = {"USD": 2, "GBP": 2, "EUR": 2, "VND": 0}
 WINDOW_DAYS = 90
-
-
-def configure_output(spark, output: str) -> None:
-    """Local MinIO needs endpoint + keys; AWS (PLATFORM_STORAGE=s3) uses the default IAM role."""
-    if not output.startswith("s3a://") or os.environ.get("PLATFORM_STORAGE", "minio") == "s3":
-        return
-    hadoop = spark.sparkContext._jsc.hadoopConfiguration()
-    hadoop.set("fs.s3a.endpoint", os.environ["MINIO_INTERNAL_ENDPOINT"])
-    hadoop.set("fs.s3a.path.style.access", "true")
-    hadoop.set("fs.s3a.access.key", os.environ["AWS_ACCESS_KEY_ID"])
-    hadoop.set("fs.s3a.secret.key", os.environ["AWS_SECRET_ACCESS_KEY"])
 
 
 def minor_units(amount, currency):

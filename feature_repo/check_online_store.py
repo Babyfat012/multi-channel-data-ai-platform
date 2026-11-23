@@ -1,4 +1,4 @@
-"""Stop an incremental run from reporting green when Redis is empty but Feast remembers an old batch load."""
+"""Guard used by publish_batch: stop a run from reporting green when Redis is empty but Feast remembers an old batch load."""
 
 VIEW = "sku_return_daily"
 
@@ -14,21 +14,3 @@ def check_incremental_online_store(store, redis):
             "Stopping incremental to avoid loading 0 rows while reporting green. "
             "Investigate the cause; deliberately rerun with full_reload=true to restore the batch."
         )
-
-
-def main():
-    """Use the same Feast 0.66.0 config/client to check the right endpoint and Redis database."""
-    from feast import FeatureStore
-    from feast.infra.online_stores.redis import RedisOnlineStore
-
-    store = FeatureStore(repo_path=".")
-    # Adapter for the pinned Feast: keeps materialize's way of reading host/port/db/auth.
-    redis = RedisOnlineStore()._get_client(store.config.online_store)
-    try:
-        check_incremental_online_store(store, redis)
-    finally:
-        redis.close()
-
-
-if __name__ == "__main__":
-    main()

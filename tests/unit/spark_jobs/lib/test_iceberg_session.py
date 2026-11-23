@@ -33,6 +33,8 @@ def test_default_configuration_is_original():
         p + ".s3.endpoint": "http://minio:9000",
         p + ".s3.path-style-access": "true",
         p + ".s3.region": "local-01",
+        "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
+        "spark.hadoop.fs.s3a.path.style.access": "true",
         "spark.sql.iceberg.compression-codec": "zstd",
         "spark.sql.session.timeZone": "UTC",
         "spark.eventLog.enabled": "true",
@@ -48,11 +50,20 @@ def test_default_configuration_is_original():
     expected.update(
         {
             p + ".s3.endpoint": env["MINIO_INTERNAL_ENDPOINT"],
+            "spark.hadoop.fs.s3a.endpoint": env["MINIO_INTERNAL_ENDPOINT"],
             p + ".warehouse": "custom",
             p + ".uri": env["LAKEKEEPER_CATALOG_URI"],
         }
     )
     assert catalog_conf(env) == expected
+
+
+def test_minio_s3a_keys_only_when_present():
+    """s3a:// exports need the MinIO keys on workers; without keys in env, none are invented."""
+    conf = catalog_conf({"AWS_ACCESS_KEY_ID": "u", "AWS_SECRET_ACCESS_KEY": "s"})
+    assert conf["spark.hadoop.fs.s3a.access.key"] == "u"
+    assert conf["spark.hadoop.fs.s3a.secret.key"] == "s"
+    assert "spark.hadoop.fs.s3a.access.key" not in catalog_conf({})
 
 
 def test_unknown_storage_is_rejected():
