@@ -13,6 +13,13 @@ import sys
 from pyspark.sql import functions as F
 
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
+from spark_jobs.lib.snapshot_contracts import (
+    contract_aggregates,
+    failure,
+    type_errors,
+    v1_registry,
+    with_contract,
+)
 
 ID_PATH = {
     "tiktok_shop": "$.data.orders[0].id",
@@ -57,9 +64,13 @@ def main(argv: list[str] | None = None) -> int:
             | F.col("run_id").isNull()
             | (F.col("run_id") != args.run_id)
         )
-        counts = bronze.agg(
+        # Contract check (sim-native-v1) rides on the same scan: one agg over the same rows.
+        registry = v1_registry(channel=args.channel)
+        checked = with_contract(bronze, args.channel, "payload", registry)
+        counts = checked.agg(
             F.count("*").alias("rows"),
             F.sum(F.when(bad, 1).otherwise(0)).alias("invalid_rows"),
+            *contract_aggregates(),
         ).first()
         target_count = counts["rows"]
         invalid_count = counts["invalid_rows"] or 0
@@ -70,7 +81,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"invalid rows = {invalid_count:,}")
         if source_count == 0 or target_count != source_count or invalid_count:
             raise ValueError("Bronze validate failed")
-        print("Bronze validate: PASS")
+        message = failure(
+            int(counts["contract_rows"] or 0),
+            counts["contract_examples"],
+            type_errors(checked, registry),
+        )
+        if message:
+            raise ValueError(message)
+        print("Bronze validate: PASS (row count, provenance, contract sim-native-v1)")
         return 0
     finally:
         spark.stop()

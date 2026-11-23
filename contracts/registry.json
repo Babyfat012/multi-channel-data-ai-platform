@@ -196,6 +196,78 @@
           "identity_path": "$.response.order_list[0].order_sn"
         }
       ]
+    },
+    "sim-native-v1/amazon": {
+      "compatibility": "NONE",
+      "versions": [
+        {
+          "schema_id": "sim-native-v1/amazon/1",
+          "schema_path": "schemas/sim-native-v1/amazon/1.schema.json",
+          "parser": "snapshots/amazon/1",
+          "status": "active",
+          "identity_path": "$.AmazonOrderId"
+        },
+        {
+          "schema_id": "sim-native-v1/amazon/2",
+          "schema_path": "schemas/sim-native-v1/amazon/2.schema.json",
+          "parser": "snapshots/amazon/2",
+          "status": "active",
+          "identity_path": "$.orderId"
+        }
+      ],
+      "comment": "Pipeline A (dp1 → dp2) snapshot exports; checked on Bronze by the dp1 validate tasks. The two Amazon shapes have separate Silver parsers (build_amazon_order_snapshots.split_by_form)."
+    },
+    "sim-native-v1/walmart": {
+      "compatibility": "BACKWARD",
+      "versions": [
+        {
+          "schema_id": "sim-native-v1/walmart/1",
+          "schema_path": "schemas/sim-native-v1/walmart/1.schema.json",
+          "parser": "snapshots/walmart/1",
+          "status": "active",
+          "identity_path": "$.purchaseOrderId"
+        }
+      ],
+      "comment": "Pipeline A (dp1 → dp2) snapshot exports; checked on Bronze by the dp1 validate tasks."
+    },
+    "sim-native-v1/shopee": {
+      "compatibility": "BACKWARD",
+      "versions": [
+        {
+          "schema_id": "sim-native-v1/shopee/1",
+          "schema_path": "schemas/sim-native-v1/shopee/1.schema.json",
+          "parser": "snapshots/shopee/1",
+          "status": "active",
+          "identity_path": "$.response.order_list[0].order_sn"
+        }
+      ],
+      "comment": "Pipeline A (dp1 → dp2) snapshot exports; checked on Bronze by the dp1 validate tasks."
+    },
+    "sim-native-v1/shopify": {
+      "compatibility": "BACKWARD",
+      "versions": [
+        {
+          "schema_id": "sim-native-v1/shopify/1",
+          "schema_path": "schemas/sim-native-v1/shopify/1.schema.json",
+          "parser": "snapshots/shopify/1",
+          "status": "active",
+          "identity_path": "$.order.id"
+        }
+      ],
+      "comment": "Pipeline A (dp1 → dp2) snapshot exports; checked on Bronze by the dp1 validate tasks."
+    },
+    "sim-native-v1/tiktok_shop": {
+      "compatibility": "BACKWARD",
+      "versions": [
+        {
+          "schema_id": "sim-native-v1/tiktok_shop/1",
+          "schema_path": "schemas/sim-native-v1/tiktok_shop/1.schema.json",
+          "parser": "snapshots/tiktok_shop/1",
+          "status": "active",
+          "identity_path": "$.data.orders[0].id"
+        }
+      ],
+      "comment": "Pipeline A (dp1 → dp2) snapshot exports; checked on Bronze by the dp1 validate tasks."
     }
   }
 }

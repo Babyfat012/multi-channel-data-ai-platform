@@ -1,0 +1,96 @@
+{
+ "description": "Contract sim-native-v1/shopee/1 (Shopee get_order_detail, pipeline A): required = fields the Silver job needs for a correct row; other fields it reads are typed but may be absent.",
+ "properties": {
+  "response": {
+   "properties": {
+    "order_list": {
+     "items": {
+      "properties": {
+       "create_time": {
+        "type": "integer"
+       },
+       "currency": {
+        "type": "string"
+       },
+       "item_list": {
+        "items": {
+         "properties": {
+          "item_name": {
+           "type": "string"
+          },
+          "model_discounted_price": {
+           "type": "integer"
+          },
+          "model_original_price": {
+           "type": "integer"
+          },
+          "model_quantity_purchased": {
+           "type": "integer"
+          },
+          "model_sku": {
+           "type": "string"
+          },
+          "order_item_id": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "model_discounted_price",
+          "model_original_price",
+          "model_quantity_purchased",
+          "model_sku",
+          "order_item_id"
+         ],
+         "type": "object"
+        },
+        "type": "array"
+       },
+       "order_sn": {
+        "type": "string"
+       },
+       "order_status": {
+        "type": "string"
+       },
+       "recipient_address": {
+        "properties": {
+         "city": {
+          "type": "string"
+         },
+         "zipcode": {
+          "type": "string"
+         }
+        },
+        "required": [],
+        "type": "object"
+       },
+       "region": {
+        "type": "string"
+       },
+       "update_time": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "create_time",
+       "currency",
+       "item_list",
+       "order_sn",
+       "order_status",
+       "update_time"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "order_list"
+   ],
+   "type": "object"
+  }
+ },
+ "required": [
+  "response"
+ ],
+ "type": "object"
+}

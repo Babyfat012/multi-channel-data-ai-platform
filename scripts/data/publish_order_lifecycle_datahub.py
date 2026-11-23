@@ -149,6 +149,9 @@ def source_inventory(contracts_dir, source_root, walmart_jdbc):
     feeds = {}
     for subject, item in registry["subjects"].items():
         group, feed = subject.split("/", 1)
+        # Pipeline B (order lifecycle v2) feeds only; sim-native-v1 belongs to pipeline A's dp1 snapshot exports.
+        if group not in ("sim-native-v2", "seller-source-v2"):
+            continue
         if group == "sim-native-v2":
             feed += ".orders"
         selected = item["versions"]

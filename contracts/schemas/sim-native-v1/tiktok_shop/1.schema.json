@@ -1,0 +1,108 @@
+{
+ "description": "Contract sim-native-v1/tiktok_shop/1 (TikTok Shop order detail, pipeline A): required = fields the Silver job needs for a correct row; other fields it reads are typed but may be absent.",
+ "properties": {
+  "data": {
+   "properties": {
+    "orders": {
+     "items": {
+      "properties": {
+       "create_time": {
+        "type": "integer"
+       },
+       "id": {
+        "type": "string"
+       },
+       "line_items": {
+        "items": {
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "original_price": {
+           "type": "string"
+          },
+          "platform_discount": {
+           "type": "string"
+          },
+          "product_name": {
+           "type": "string"
+          },
+          "quantity": {
+           "type": "integer"
+          },
+          "seller_discount": {
+           "type": "string"
+          },
+          "seller_sku": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "id",
+          "original_price",
+          "platform_discount",
+          "quantity",
+          "seller_discount",
+          "seller_sku"
+         ],
+         "type": "object"
+        },
+        "type": "array"
+       },
+       "payment": {
+        "properties": {
+         "currency": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "currency"
+        ],
+        "type": "object"
+       },
+       "recipient_address": {
+        "properties": {
+         "city": {
+          "type": "string"
+         },
+         "postal_code": {
+          "type": "string"
+         },
+         "region_code": {
+          "type": "string"
+         }
+        },
+        "required": [],
+        "type": "object"
+       },
+       "status": {
+        "type": "string"
+       },
+       "update_time": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "create_time",
+       "id",
+       "line_items",
+       "payment",
+       "status",
+       "update_time"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "orders"
+   ],
+   "type": "object"
+  }
+ },
+ "required": [
+  "data"
+ ],
+ "type": "object"
+}

@@ -807,6 +807,15 @@ def contract_gate(bronze: DataFrame, registry: Registry) -> tuple:
     For arrays only the first item is checked; empty arrays valid under JSON Schema skip the item check.
     Nullable fields may be null. The Spark gate checks required; Python also checks types.
     """
+    checked = contract_reasons(bronze, registry)
+    return checked.filter(F.col("reason").isNull()).drop("reason", "detail"), checked.filter(
+        F.col("reason").isNotNull()
+    )
+
+
+def contract_reasons(bronze: DataFrame, registry: Registry) -> DataFrame:
+    """Every row plus `reason` (null = passes) and `detail` (missing required paths), lazily: callers can
+    aggregate it in the scan they already do (dp1 validate) instead of a second pass over the table."""
     parser = F.lit(None).cast("string")
     registered = F.lit(False)
     missing = F.array().cast("array<string>")
@@ -839,9 +848,7 @@ def contract_gate(bronze: DataFrame, registry: Registry) -> tuple:
             .when(F.length("detail") > 0, "contract_violation"),
         )
     )
-    return checked.filter(F.col("reason").isNull()).drop("reason", "detail"), checked.filter(
-        F.col("reason").isNotNull()
-    )
+    return checked
 
 
 def _native_order_identity(frame: DataFrame, registry: Registry) -> DataFrame:

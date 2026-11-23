@@ -13,7 +13,7 @@ The results below come from runs on AWS. They prove that those runs happened; th
 
 | Diagram | DAG | Trigger |
 |---|---|---|
-| Build the order lakehouse · every night | [`dp_nightly`](../../dags/dp_nightly.py) → `dp1_bronze` → `dp2_silver` → `dp3_features` → `dp4_warehouse` → `dp3_return_labels` | 01:00 Vietnam time (18:00 UTC), **paused on creation** |
+| Build the order lakehouse · every night (first step "Check contracts": dp1 validate tasks, [sim-native-v1](reference/data_contracts.md#pipeline-a-dp1--dp2-sim-native-v1)) | [`dp_nightly`](../../dags/dp_nightly.py) → `dp1_bronze` → `dp2_silver` → `dp3_features` → `dp4_warehouse` → `dp3_return_labels` | 01:00 Vietnam time (18:00 UTC), **paused on creation** |
 | Sync Walmart changes · every hour | [`dp1_cdc`](../../dags/dp1_cdc.py) | `@hourly` |
 | Refresh ML features · after each new Gold | [`ml_feature_materialize`](../../dags/ml_feature_materialize.py) | Dataset `GOLD_LABELS` ([`platform_datasets.py`](../../dags/platform_datasets.py)), emitted by every successful `dp3_return_labels` run, nightly or by hand |
 | Index the return policy · when the policy changes | [`ml_rag_ingest`](../../dags/ml_rag_ingest.py) | Jenkins `rag-pipeline` after a commit |

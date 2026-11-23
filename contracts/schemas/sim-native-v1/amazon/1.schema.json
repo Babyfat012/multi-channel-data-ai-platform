@@ -1,0 +1,140 @@
+{
+ "description": "Contract sim-native-v1/amazon/1 (Amazon v0 (PascalCase), pipeline A): required = fields the Silver job needs for a correct row; other fields it reads are typed but may be absent.",
+ "properties": {
+  "AmazonOrderId": {
+   "type": "string"
+  },
+  "EarliestDeliveryDate": {
+   "type": "string"
+  },
+  "FulfillmentChannel": {
+   "type": "string"
+  },
+  "IsPrime": {
+   "type": "boolean"
+  },
+  "LastUpdateDate": {
+   "type": "string"
+  },
+  "LatestDeliveryDate": {
+   "type": "string"
+  },
+  "MarketplaceId": {
+   "type": "string"
+  },
+  "NumberOfItemsShipped": {
+   "type": "integer"
+  },
+  "NumberOfItemsUnshipped": {
+   "type": "integer"
+  },
+  "OrderItems": {
+   "items": {
+    "properties": {
+     "ASIN": {
+      "type": "string"
+     },
+     "ItemPrice": {
+      "properties": {
+       "Amount": {
+        "type": "string"
+       },
+       "CurrencyCode": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "Amount",
+       "CurrencyCode"
+      ],
+      "type": "object"
+     },
+     "OrderItemId": {
+      "type": "string"
+     },
+     "PromotionDiscount": {
+      "properties": {
+       "Amount": {
+        "type": "string"
+       },
+       "CurrencyCode": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "Amount",
+       "CurrencyCode"
+      ],
+      "type": "object"
+     },
+     "QuantityOrdered": {
+      "type": "integer"
+     },
+     "QuantityShipped": {
+      "type": "integer"
+     },
+     "SellerSKU": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "ItemPrice",
+     "OrderItemId",
+     "PromotionDiscount",
+     "QuantityOrdered",
+     "SellerSKU"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  },
+  "OrderStatus": {
+   "type": "string"
+  },
+  "OrderTotal": {
+   "properties": {
+    "Amount": {
+     "type": "string"
+    },
+    "CurrencyCode": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "Amount",
+    "CurrencyCode"
+   ],
+   "type": "object"
+  },
+  "PurchaseDate": {
+   "type": "string"
+  },
+  "SalesChannel": {
+   "type": "string"
+  },
+  "ShippingAddress": {
+   "properties": {
+    "City": {
+     "type": "string"
+    },
+    "CountryCode": {
+     "type": "string"
+    },
+    "PostalCode": {
+     "type": "string"
+    }
+   },
+   "required": [],
+   "type": "object"
+  }
+ },
+ "required": [
+  "AmazonOrderId",
+  "LastUpdateDate",
+  "OrderItems",
+  "OrderStatus",
+  "OrderTotal",
+  "PurchaseDate"
+ ],
+ "type": "object"
+}
