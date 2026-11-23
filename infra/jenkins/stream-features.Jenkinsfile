@@ -3,6 +3,43 @@
 // Local (minio): variant B Flink SQL `ml-sku-return-24h` + feast-pusher. Secrets live in Vault (secret/platform/*); Jenkins
 // only holds the READ-ONLY token `vault-ci-token` (policy platform-read, created by scripts/shared/setup_vault.py).
 // The agent needs Docker, docker compose, uv; runs on a machine with the stack (local or a GCE VM).
+// Rollback (diagram "Deploy to EC2 · rolls back if a check fails"): a release that passes Verify is kept as
+// out/ci-compose-images.good.yaml; a failure after Deploy started redeploys that release (images by immutable git SHA
+// tag; on AWS the PyFlink job code is inside the image) and re-runs Verify.
+
+// Deploy and Verify, used as-is by the stages AND by the rollback, so the two paths cannot drift apart.
+// AWS: the REAL EC2 .env; the Feast registry is managed by DAG feast_apply (Airflow) ⇒ no apply from CI; S3 via IAM.
+DEPLOY_SH = '''
+  [ "$DATA_STORAGE" != s3 ] || install -m 600 /repo/.env .env
+  if [ "$DATA_STORAGE" = s3 ]; then
+    # AWS: Flink ML 2.2 cluster, two PyFlink jobs (online → EKS Redis, offline → S3 Parquet); no pusher.
+    $COMPOSE up --no-build --pull always -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
+    COMPOSE="$COMPOSE" python3 -m scripts.ml.run_stream_feature_jobs
+  else
+    $COMPOSE up --no-build --pull always -d --wait kafka flink-jobmanager flink-taskmanager
+    set +x; eval "$(scripts/shared/vault_env.sh minio)"
+    # Local: register new views (if features.py changed) before the pusher reads the registry.
+    $COMPOSE run --rm --no-deps feast-pusher feast apply
+    $COMPOSE up --no-build --pull always -d --force-recreate feast-pusher
+    # Cancel any job with the same name then resubmit ⇒ never two jobs running in parallel.
+    python3 -m scripts.ml.run_sku_return_feature
+  fi
+'''
+// AWS: exactly 2 PyFlink jobs RUNNING on Flink ML; local: 1 SQL job + pusher running.
+VERIFY_SH = '''
+  if [ "$DATA_STORAGE" = s3 ]; then port=${FLINK_ML_UI_PORT:-8086}; want="ml-sku-return-24h-online ml-sku-return-24h-offline"
+  else port=${FLINK_UI_PORT:-8082}; want="ml-sku-return-24h"; fi
+  ok=
+  for i in $(seq 1 30); do
+    if curl -fsS localhost:$port/jobs/overview | WANT="$want" python3 -c "import json,os,sys
+running=sorted(j['name'] for j in json.load(sys.stdin)['jobs'] if j['state']=='RUNNING')
+sys.exit(0 if all(running.count(w) == 1 for w in os.environ['WANT'].split()) else 1)"; then ok=1; break; fi
+    sleep 5
+  done
+  [ -n "$ok" ] || { echo "Flink jobs not RUNNING exactly once: $want"; exit 1; }
+  [ "$DATA_STORAGE" = s3 ] || $COMPOSE ps feast-pusher --format "{{.State}}" | grep -qx running
+'''
+
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds(); timeout(time: 30, unit: 'MINUTES') }
@@ -48,44 +85,38 @@ pipeline {
     }
     stage('Deploy') {
       steps {
+        script { env.DEPLOY_STARTED = 'true' }  // from here on a failure has touched the running services
         withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN')]) {
-          withEnv(['VAULT_ADDR=http://localhost:8200']) {
-            // AWS: the REAL EC2 .env; the Feast registry is managed by DAG feast_apply (Airflow) ⇒ no apply from CI; S3 via IAM.
-            sh '[ "$DATA_STORAGE" != s3 ] || install -m 600 /repo/.env .env'
-            sh '''if [ "$DATA_STORAGE" = s3 ]; then
-                    # AWS: Flink ML 2.2 cluster, two PyFlink jobs (online → EKS Redis, offline → S3 Parquet); no pusher.
-                    $COMPOSE up --no-build --pull always -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
-                    COMPOSE="$COMPOSE" python3 -m scripts.ml.run_stream_feature_jobs
-                  else
-                    $COMPOSE up --no-build --pull always -d --wait kafka flink-jobmanager flink-taskmanager
-                    set +x; eval "$(scripts/shared/vault_env.sh minio)"
-                    # Local: register new views (if features.py changed) before the pusher reads the registry.
-                    $COMPOSE run --rm --no-deps feast-pusher feast apply
-                    $COMPOSE up --no-build --pull always -d --force-recreate feast-pusher
-                    # Cancel any job with the same name then resubmit ⇒ never two jobs running in parallel.
-                    python3 -m scripts.ml.run_sku_return_feature
-                  fi'''
-          }
+          withEnv(['VAULT_ADDR=http://localhost:8200']) { sh DEPLOY_SH }
         }
       }
     }
     stage('Verify') {
-      steps {
-        // AWS: exactly 2 PyFlink jobs RUNNING on Flink ML; local: 1 SQL job + pusher running.
-        sh '''if [ "$DATA_STORAGE" = s3 ]; then port=${FLINK_ML_UI_PORT:-8086}; want="ml-sku-return-24h-online ml-sku-return-24h-offline"
-              else port=${FLINK_UI_PORT:-8082}; want="ml-sku-return-24h"; fi
-              for i in $(seq 1 30); do
-                curl -fsS localhost:$port/jobs/overview | WANT="$want" python3 -c "import json,os,sys
-running=sorted(j['name'] for j in json.load(sys.stdin)['jobs'] if j['state']=='RUNNING')
-sys.exit(0 if all(running.count(w) == 1 for w in os.environ['WANT'].split()) else 1)" && exit 0
-                sleep 5
-              done; exit 1'''
-        sh '[ "$DATA_STORAGE" = s3 ] || $COMPOSE ps feast-pusher --format "{{.State}}" | grep -qx running'
-      }
+      steps { sh VERIFY_SH }
+    }
+    stage('Keep as last good') {
+      steps { sh 'cp out/ci-compose-images.yaml out/ci-compose-images.good.yaml' }
     }
   }
   post {
-    failure { sh '$COMPOSE logs --tail 50 feast-pusher flink-jobmanager flink-ml-jobmanager flink-ml-taskmanager || true' }
-    always { sh 'rm -f .env' }
+    failure {
+      sh '$COMPOSE logs --tail 50 feast-pusher flink-jobmanager flink-ml-jobmanager flink-ml-taskmanager || true'
+      script {
+        if (env.DEPLOY_STARTED != 'true') {
+          echo 'Failed before Deploy: nothing was changed, no rollback needed.'
+        } else if (!fileExists('out/ci-compose-images.good.yaml')) {
+          echo 'ROLLBACK NOT POSSIBLE: no release has passed Verify yet (first deploy). The failed release keeps running.'
+        } else {
+          sh 'cp out/ci-compose-images.good.yaml out/ci-compose-images.yaml && echo "Rolling back to:" && cat out/ci-compose-images.yaml'
+          withCredentials([string(credentialsId: 'vault-ci-token', variable: 'VAULT_TOKEN')]) {
+            withEnv(['VAULT_ADDR=http://localhost:8200']) { sh DEPLOY_SH }
+          }
+          sh VERIFY_SH
+          echo 'Rolled back to the last good release; the build stays failed.'
+        }
+      }
+    }
+    // cleanup runs after failure (always would run first and delete the .env the rollback needs).
+    cleanup { sh 'rm -f .env' }
   }
 }

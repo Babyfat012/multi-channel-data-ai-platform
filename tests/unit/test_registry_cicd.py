@@ -1,6 +1,7 @@
 """Check the image release contract and CI gates, fully offline."""
 
 import importlib
+import json
 import os
 import re
 import subprocess
@@ -350,7 +351,7 @@ def test_compose_pipelines_use_machine_env_and_pipeline_a_flink_on_aws():
         assert "choice(name: 'DATA_STORAGE', choices: ['minio', 's3']" in text
         assert "install -m 600 /repo/.env .env" in text
         assert "-f docker-compose.yml -f out/ci-compose-images.yaml" not in text
-        assert "always { sh 'rm -f .env' }" in text
+        assert "cleanup { sh 'rm -f .env' }" in text  # always removed, but after the rollback
     assert 'if [ "$DATA_STORAGE" != s3 ]; then python3 -m scripts.data.setup_airflow' in rag
     # AWS: two PyFlink jobs on the Flink ML cluster, verify exactly 2 jobs RUNNING.
     assert 'COMPOSE="$COMPOSE" python3 -m scripts.ml.run_stream_feature_jobs' in stream
@@ -400,3 +401,79 @@ def test_monitor_trains_only_on_drift_and_schedules_do_not_pile_up():
     assert "max_concurrency=1" in submit and "no_catchup=True" in submit
     assert "delete_recurring_run" in submit
     assert '"pandas==2.3.3"' in read("infra/docker/Dockerfile.drift")
+
+
+@pytest.mark.parametrize(
+    ("name", "checks"),
+    [("rag-pipeline", ["DAG import", "Run DAG"]), ("stream-features", ["Verify"])],
+)
+def test_compose_deploys_roll_back_to_the_last_good_release(name, checks):
+    """Diagram "Deploy to EC2 · rolls back if a check fails": only a release that passed every check becomes
+    last-good; a failure after Deploy started redeploys it with the SAME deploy + check scripts; .env survives
+    until the rollback is done (post `always` would run before `failure`)."""
+    text = read(f"infra/jenkins/{name}.Jenkinsfile")
+    stages = re.findall(r"stage\('([^']+)'\)", text)
+    assert stages[-1] == "Keep as last good"
+    assert stages.index("Deploy") < min(stages.index(c) for c in checks)
+    deploy = text.split("stage('Deploy')")[1].split("stage(")[0]
+    assert deploy.index("env.DEPLOY_STARTED = 'true'") < deploy.index("sh DEPLOY_SH")
+    check = "CHECK_SH" if name == "rag-pipeline" else "VERIFY_SH"
+    failure = text.split("failure {")[1].split("cleanup {")[0]
+    assert "env.DEPLOY_STARTED != 'true'" in failure
+    assert "fileExists('out/ci-compose-images.good.yaml')" in failure
+    assert "cp out/ci-compose-images.good.yaml out/ci-compose-images.yaml" in failure
+    assert failure.index("sh DEPLOY_SH") < failure.index(f"sh {check}")
+    assert "cleanup { sh 'rm -f .env' }" in text and "always { sh 'rm -f .env' }" not in text
+
+
+def run_verify(tmp_path, storage, jobs, pusher="running", flink_up=True):
+    """Run the stream VERIFY_SH exactly as written in the Jenkinsfile, with fake curl/sleep/compose on PATH."""
+    script = re.search(
+        r"VERIFY_SH = '''(.*?)'''", read("infra/jenkins/stream-features.Jenkinsfile"), re.S
+    ).group(1)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    overview = json.dumps({"jobs": [{"name": n, "state": "RUNNING"} for n in jobs]})
+    fakes = {
+        "curl": f"echo '{overview}'" if flink_up else "exit 7",
+        "sleep": "exit 0",
+        "compose": f"echo {pusher}",
+    }
+    for tool, body in fakes.items():
+        (bin_dir / tool).write_text(f"#!/bin/sh\n{body}\n")
+        (bin_dir / tool).chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "DATA_STORAGE": storage,
+        "COMPOSE": "compose",
+    }
+    return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+
+
+@pytest.mark.parametrize(
+    ("storage", "jobs", "pusher", "flink_up", "ok"),
+    [
+        ("s3", ["ml-sku-return-24h-online", "ml-sku-return-24h-offline"], "running", True, True),
+        (
+            "s3",
+            ["ml-sku-return-24h-online"] * 2 + ["ml-sku-return-24h-offline"],
+            "running",
+            True,
+            False,
+        ),
+        ("s3", ["ml-sku-return-24h-online"], "running", True, False),
+        ("s3", [], "running", False, False),  # Flink UI down
+        ("minio", ["ml-sku-return-24h"], "running", True, True),
+        (
+            "minio",
+            ["ml-sku-return-24h"],
+            "exited",
+            True,
+            False,
+        ),  # jobs fine, pusher down: still red
+    ],
+)
+def test_stream_verify_script(tmp_path, storage, jobs, pusher, flink_up, ok):
+    """Each expected job RUNNING exactly once, and locally the pusher too; the job loop must not skip the pusher."""
+    result = run_verify(tmp_path, storage, jobs, pusher, flink_up)
+    assert (result.returncode == 0) is ok, result.stdout + result.stderr
