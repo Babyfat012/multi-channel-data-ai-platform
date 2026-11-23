@@ -15,14 +15,38 @@ import re
 import sys
 import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 from spark_jobs.lib.label_channels import count_mismatches
-from spark_jobs.lib.order_lifecycle_warehouse import connect, cutoff_utc
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 SCHEMA = "warehouse"
+
+
+def connect(dsn=None):
+    """Use whichever driver is available: psycopg in the venv or psycopg2 in the Airflow image."""
+    try:
+        import psycopg as driver
+    except ImportError:
+        import psycopg2 as driver
+    if dsn:
+        return driver.connect(dsn)
+    return driver.connect(
+        host=os.getenv("POSTGRES_HOST", "postgres"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "sources"),
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+    )
+
+
+def cutoff_utc(value):
+    """Normalize a time-zone-aware cutoff to the naive UTC datetime Spark/JDBC use."""
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if instant.tzinfo is None:
+        raise ValueError("cutoff must have a time zone")
+    return instant.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def drop_stale_stages(cur, table: str) -> None:

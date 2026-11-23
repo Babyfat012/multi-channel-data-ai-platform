@@ -28,7 +28,7 @@ with DAG(
             "--source-table",
             "{{ var.value.platform_dp3_gold_source_table }}",
             "--cutoff",
-            "{{ var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff) }}",
+            "{{ var.value.platform_ml_cutoff }}",
             "--days",
             "30",
         ],

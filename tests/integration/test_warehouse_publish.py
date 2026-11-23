@@ -9,8 +9,7 @@ from urllib.parse import urlsplit
 import pytest
 
 from spark_jobs.lib.label_channels import CHANNELS
-from spark_jobs.lib.order_lifecycle_warehouse import connect
-from spark_jobs.warehouse.export_order_snapshot_lines import drop_stale_stages, publish
+from spark_jobs.warehouse.export_order_snapshot_lines import connect, drop_stale_stages, publish
 
 TABLE = "fact_lines_test"
 GOLD = {channel: 2 for channel in CHANNELS}

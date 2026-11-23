@@ -15,7 +15,7 @@ def test_dag_exports_thirty_days_before_ml_cutoff():
     """Same Cutoff as ML (Gold A), 30-day window, the right warehouse job."""
     text = (ROOT / "dags/dp4_warehouse.py").read_text()
     assert "/opt/spark_jobs/warehouse/export_order_snapshot_lines.py" in text
-    assert "var.value.get('platform_ml_cutoff'" in text
+    assert "var.value.platform_ml_cutoff" in text
     assert '"--days",\n            "30"' in text
     assert (
         'runtime_groups=("iceberg", "postgres")' in text

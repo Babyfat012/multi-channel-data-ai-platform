@@ -1,7 +1,7 @@
--- Replaced on AWS by flink_jobs/ml/sku_return_feature.py (2 PyFlink jobs, online/offline); kept for the 30–31/10 run.
+-- AWS runs flink_jobs/ml/sku_return_feature.py (2 PyFlink jobs, online/offline); this SQL is the local/CI variant.
 -- Pipeline A: count of "approved" Returns per SKU over the last 24h (HOP sliding 1h) → Kafka ml.sku_return_24h → feast-pusher.
--- Unlike version B (sku_return_feature.sql): messages already carry seller_sku (replayed from Gold A), so no PostgreSQL lookup.
--- Submit: FEATURE_SQL=flink_jobs/ml/sku_return_feature_a.sql python3 -m scripts.ml.run_sku_return_feature
+-- Messages already carry seller_sku (replayed from Gold A), so no PostgreSQL lookup.
+-- Submit: python3 -m scripts.ml.run_sku_return_feature (the default SQL)
 SET 'table.local-time-zone' = 'UTC';
 SET 'parallelism.default' = '1';
 SET 'pipeline.name' = 'ml-sku-return-24h';

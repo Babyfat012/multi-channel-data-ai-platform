@@ -10,8 +10,6 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from spark_jobs.lib.return_label import utc
-
 DEFAULTS = {
     "min_input_files": 5,
     "small_file_ratio": 0.5,
@@ -28,6 +26,18 @@ DEFAULTS = {
     "max_backoff_seconds": 8,
     "probe_predicates": [],
 }
+
+
+def utc(value: str | datetime) -> datetime:
+    """Source ISO string or Spark's naive UTC datetime -> time-zone-aware UTC datetime."""
+    parsed = (
+        datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+    )
+    return (
+        parsed.replace(tzinfo=timezone.utc)
+        if parsed.tzinfo is None
+        else parsed.astimezone(timezone.utc)
+    )
 
 
 def validated_config(config):

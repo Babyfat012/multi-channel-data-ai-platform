@@ -27,8 +27,8 @@ ENSURE_24H = (
     "ensure_offline_file(os.environ['FEAST_SKU_RETURN_24H_PATH'])"
 )
 REPO = "/opt/feature_repo"
-# Gold A Cutoff (end of the 180 days of data); locally, if the variable is unset, fall back to the old Cutoff.
-CUTOFF = "{{ var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff) }}"
+# Gold A Cutoff: the simulated "now" of the ML exports (Airflow Variable platform_ml_cutoff).
+CUTOFF = "{{ var.value.platform_ml_cutoff }}"
 # Spark writes via s3a://, Feast reads the same location via s3://.
 SPARK_ROOT = "{{ var.value.platform_feast_root | replace('s3://', 's3a://') }}"
 SPARK_OUTPUT = SPARK_ROOT + "/sku_daily"
@@ -131,8 +131,7 @@ with DAG(
             "publish-batch",
             "--end",
             # Python 3.10 fromisoformat cannot parse the "Z" suffix.
-            "{{ (params.end or var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff))"
-            " | replace('Z', '+00:00') }}",
+            "{{ (params.end or var.value.platform_ml_cutoff) | replace('Z', '+00:00') }}",
         ],
     )
     export >> export_training >> apply >> materialize

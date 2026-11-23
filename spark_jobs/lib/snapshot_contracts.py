@@ -3,7 +3,7 @@
 The dp1 validate tasks check Bronze before dp2 Silver reads it (diagram: "Check contracts"):
 
 - every row, inside the aggregation validate already runs (no extra pass): the shape is registered and every
-  required path is present (Spark `get_json_object`; arrays: first item, as in pipeline B's gate);
+  required path is present (Spark `get_json_object`; arrays: first item);
 - types and every array item: Python `validate_record` on the first SAMPLE_ROWS rows of each shape.
 
 Any violation fails the task. dp2 Silver re-reads all of Bronze, so there is no quarantine to send rows to
@@ -13,13 +13,14 @@ without changing every Silver job. Required = what Silver needs for a correct ro
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from pyspark.sql import functions as F
 
-from spark_jobs.lib.data_contracts.registry import Registry
-from spark_jobs.lib.data_contracts.schema import validate_record
+from spark_jobs.lib.data_contracts.registry import SUPPORTED_PARSERS, Registry
+from spark_jobs.lib.data_contracts.schema import required_json_paths, validate_record
 
 if TYPE_CHECKING:  # hints only: unit tests import the validate jobs with a minimal fake pyspark
     from pyspark.sql import Column, DataFrame
@@ -50,12 +51,45 @@ def schema_id(channel: str, payload: Column) -> Column:
     return F.lit(f"{PREFIX}{channel}/1")
 
 
+def contract_reasons(bronze: DataFrame, registry) -> DataFrame:
+    """Every row plus `reason` (null = passes) and `detail` (missing required paths), lazily: callers can
+    aggregate it in the scan they already do (dp1 validate) instead of a second pass over the table."""
+    parser = F.lit(None).cast("string")
+    registered = F.lit(False)
+    missing = F.array().cast("array<string>")
+    for sid, entry in registry.entries.items():
+        matches = F.col("contract_schema_id") == sid
+        registered = registered | F.coalesce(matches, F.lit(False))
+        parser = F.when(matches, F.lit(entry["parser"]).cast("string")).otherwise(parser)
+        paths = []
+        for path in required_json_paths(entry["schema"]):
+            absent = F.get_json_object("raw_json", path).isNull()
+            # JSON Schema items does not require non-empty arrays; skip checks under empty arrays.
+            for match in re.finditer(r"\[0\]", path):
+                prefix = path[: match.start()]
+                absent = absent & ~F.coalesce(
+                    F.get_json_object("raw_json", prefix) == "[]", F.lit(False)
+                )
+            paths.append(F.when(absent, F.lit(path)))
+        required = F.filter(F.array(*paths).cast("array<string>"), lambda x: x.isNotNull())
+        missing = F.when(matches, required).otherwise(missing)
+    return (
+        bronze.withColumn("contract_parser", parser)
+        .withColumn("detail", F.concat_ws(", ", missing))
+        .withColumn(
+            "reason",
+            F.when(~registered, "unregistered_schema")
+            .when(
+                ~F.coalesce(F.col("contract_parser").isin(*SUPPORTED_PARSERS), F.lit(False)),
+                "no_parser",
+            )
+            .when(F.length("detail") > 0, "contract_violation"),
+        )
+    )
+
+
 def with_contract(bronze: DataFrame, channel: str, payload: str, registry) -> DataFrame:
     """Bronze rows plus raw_json, contract_schema_id, reason (NULL = passes) and detail."""
-    from spark_jobs.lib.order_lifecycle_lakehouse import (
-        contract_reasons,
-    )  # heavy module, only at run time
-
     frame = bronze.withColumn("raw_json", F.col(payload)).withColumn(
         "contract_schema_id", schema_id(channel, F.col(payload))
     )

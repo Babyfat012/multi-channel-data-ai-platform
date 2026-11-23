@@ -171,7 +171,7 @@ s3://platform/feature-store/training_lines   (Spark export_training_lines.py: la
 The first run (`small` set, 3,325 lines, test 757 lines) gave model PR-AUC **0.287**, baseline **0.291**, prevalence **0.291**.
 PR-AUC equal to prevalence means both the model and the baseline are only as good as guessing.
 
-Cause: `generator/generate_order_lifecycle.py` chooses the return/refund scenario **independently** of SKU, Channel and price (every line
+Cause: the v2 generator (`generator/generate_order_lifecycle.py`, archived in git tag `v2-archive`) chose the return/refund scenario **independently** of SKU, Channel and price (every line
 has the same price and the same quantity), so the data has nothing to learn. The production gate correctly blocked this model.
 
 Fix: add the option `--sku-return-skew S`.

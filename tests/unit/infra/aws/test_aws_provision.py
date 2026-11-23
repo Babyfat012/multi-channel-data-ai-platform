@@ -167,9 +167,9 @@ def test_overlay_fits_c6i_2xlarge_without_keys_or_gcs():
     assert sum(gib(str(services[n]["mem_limit"])) for n in running) <= 15
     for name in ("minio", "kafka", "flink-jobmanager"):
         assert services[name]["profiles"] == ["disabled-aws"]
-    assert services["airflow"]["environment"][
-        "AIRFLOW_VAR_PLATFORM_ORDER_LIFECYCLE_SOURCE_ROOT"
-    ].startswith("s3a://")
+    assert services["airflow"]["environment"]["AIRFLOW_VAR_PLATFORM_DP1_AMAZON_SOURCE"].startswith(
+        "s3a://"
+    )
 
 
 def test_ansible_finds_ebs_by_volume_id_and_guards_mkfs():
@@ -330,7 +330,7 @@ def _mb(value: str) -> int:
     return int(value[:-1]) * (1024 if value.endswith("g") else 1)
 
 
-@pytest.mark.parametrize("name", ["sku_return_feature_a.sql", "sku_return_feature.sql"])
+@pytest.mark.parametrize("name", ["sku_return_feature_a.sql"])
 def test_stream_feature_checkpoints_go_to_disk_not_jobmanager_memory(name):
     """The default checkpoint lives in JobManager memory (≤5 MB); stream A state is ~72 MB ⇒ it must go to a mounted directory."""
     sql = (ROOT / "flink_jobs/ml" / name).read_text()
@@ -715,7 +715,7 @@ def test_wave4_flink_a_reads_replayed_topic_without_postgres_lookup():
     assert '"FEAST_PUSH_TOPIC", "ml.sku_return_24h"' in pusher
     from scripts.ml.run_sku_return_feature import DEFAULT_SQL, render
 
-    assert DEFAULT_SQL == "flink_jobs/ml/sku_return_feature.sql"
+    assert DEFAULT_SQL == "flink_jobs/ml/sku_return_feature_a.sql"
     assert render(sql) == sql  # variant A has no @@PG_ placeholders ⇒ no credentials needed
     replay_sql = (ROOT / "sql/ml/return_events_replay.sql").read_text()
     assert "l.label = 1" in replay_sql and "ORDER BY l.label_available_at" in replay_sql

@@ -1,7 +1,7 @@
 """Load the Airflow Connections and Variables the DAGs read, into the Airflow metadata DB.
 
 Stages (each one only adds its own Variables; rerunning converges to the same config):
-  base        Spark connection, DP1 Amazon/Walmart, Iceberg maintenance, order lifecycle v2 + CDC v2, feature store
+  base        Spark connection, DP1 Amazon/Walmart, Iceberg maintenance, ML cutoff, feature store
   dp1-files   DP1 for the three newer batch Channels (TikTok Shop, Shopify, Shopee)
   dp1-cdc     DP1 CDC extension (Walmart change events)
   dp2-silver  DP2 Silver + Gold tables for Amazon/Walmart
@@ -34,19 +34,8 @@ STAGES = {
         "platform_dp1_walmart_table": "raw_walmart_orders_dp1",
         # configs/ is not mounted into Airflow, so the whole maintenance JSON goes into one Variable.
         "platform_maintenance_config": (ROOT / "configs/iceberg_maintenance.json").read_text(),
-        # Order lifecycle v2: in-container paths; the planner mounts the fixture before triggering.
-        "platform_order_lifecycle_receipt_dir": "/opt/airflow/receipts/order_lifecycle",
-        "platform_order_lifecycle_source_root": "/data/order_lifecycle",
-        "platform_order_lifecycle_cutoff": "2026-06-01T00:00:00.000000Z",
-        "platform_order_lifecycle_driver_memory": "3g",
-        "platform_order_lifecycle_executor_memory": "4g",
-        "platform_order_lifecycle_executor_cores": "2",
-        # Separate CDC v2: the planner creates and mounts the oracle before triggering the paused DAG.
-        "platform_order_lifecycle_cdc_control_dir": "/opt/airflow/platform-control/order_lifecycle_cdc",
-        "platform_order_lifecycle_cdc_oracle": (
-            "/opt/airflow/platform-control/order_lifecycle_cdc/order_lifecycle_cdc_expected.json"
-        ),
-        "platform_order_lifecycle_cdc_spark_packages": f"{ICEBERG},{KAFKA}",
+        # Simulated "now" for ML exports and the warehouse (AWS sets it via AIRFLOW_VAR_PLATFORM_ML_CUTOFF).
+        "platform_ml_cutoff": "2026-06-01T00:00:00.000000Z",
         # ML Platform feature store; Redis lives in the kind cluster (scripts/ml/setup_kind_feature_store.py).
         "platform_feast_root": "s3://platform/feature-store",
         "platform_feast_redis": "platform-control-plane:30379",
@@ -88,21 +77,7 @@ def aws_overrides() -> dict:
         # The demo tables do not exist on EC2; the real ones get the AWS policy file.
         "platform_maintenance_config": (ROOT / "configs/iceberg_maintenance_aws.json").read_text(),
         "platform_maintenance_tables": '["lakehouse.bronze.raw_shopee_orders_dp1"]',
-        "platform_order_lifecycle_source_root": (
-            f"s3a://{env('RAW_BUCKET')}/order_lifecycle/{os.environ.get('PLATFORM_DATASET_NAME') or 'fixture'}"
-        ),
-        "platform_order_lifecycle_cutoff": os.environ.get("PLATFORM_ORDER_LIFECYCLE_CUTOFF")
-        or "2026-06-01T00:00:00.000000Z",
-        "platform_order_lifecycle_driver_memory": "2g",
-        "platform_order_lifecycle_executor_memory": "2g",
-        "platform_order_lifecycle_executor_cores": "1",
     }
-    if os.environ.get("PLATFORM_RUNTIME_PROFILE") == "performance":
-        values |= {
-            "platform_order_lifecycle_driver_memory": "4g",
-            "platform_order_lifecycle_executor_memory": "4g",
-            "platform_order_lifecycle_executor_cores": "2",
-        }
     return values
 
 

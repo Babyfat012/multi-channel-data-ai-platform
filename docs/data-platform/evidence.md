@@ -112,14 +112,8 @@ Original receipts, logs and screenshots keep their content, timestamps and envir
 | Docker | Comparison with the same 27 packages: naive 2.39 GB → optimized 698 MB | [Image comparison](../evidence/docker-compare-20261019.json), [local inventory](../evidence/docker-inventory-local-20261019.json), [method](docker.md) | The historical GCP overlay inventory was also collected locally; it does not prove a cloud deployment |
 | Batch generator v1 | 100,012,790,412 raw bytes from Amazon, Walmart and SKU; duplicates 1.98% / 1.97% | [Manifest](../evidence/batch-100gb-manifest.json), [batch report](data_generator.md) | The other three Channels use small sources; not 100 GB v2 |
 | Stream generator v1 | 492,964 messages; late arrival, out-of-order, duplicates and bursts | [Stream report](data_generator.md) | Small configuration scope, separate from the 100 GB batch |
-| Lifecycle source v2 | 60,000 Orders, 97,890 lines, 1,546,066,142 bytes; Spark reconcile on 2,000 Orders | [Scale](reference/source_order_lifecycle_scale.md), [fixture](reference/source_order_lifecycle_fixtures.md) | Has not reached 100 GB v2 |
-| Bronze v2 | 550 records: 547 files + 3 JDBC, matching the manifest | [Bronze receipt](../evidence/bronze-v2-jdbc-20261018.json) | Local fixture |
-| Silver v2 | 19/19 checks with zero discrepancy; keeps revisions and blocks conflicts | [Silver receipt](../evidence/silver-v2-receipt-20261018.json), [Silver processing](reference/silver_order_lifecycle.md) | The clean receipt has duplicate_rows_dropped=0; it does not replace the v1 duplicate measurement |
 | Spark v1 | Baseline/AQE, skew, schema evolution, dedup; execution 3: 8,449,302 → 8,314,312 rows | [Spark report](processing_jobs.md), [event log and UI screenshots](../evidence/spark-ui/README.md) | The runs have different data windows; do not treat them as a v2 benchmark |
-| Spark v2 | Baseline/salted workloads and bag-equality checks exist | [Workload and protocol](reference/spark_order_lifecycle.md) | No v2 baseline/salted performance measurement yet |
 | Flink v1 | Watermark, late arrival, keyed dedup, tumbling/sliding windows | [Flink report](processing_jobs.md), [state metrics](../evidence/flink-dedup-state.json) | Results are tied to the job/offset recorded in the report |
-| Stream lifecycle v2 | Two epochs, checkpoint restart/restore; kept 15,261 matches the oracle | [Stream receipt](../evidence/stream-v2-local-20261019.json), [protocol](reference/stream_order_lifecycle.md) | Bounded event counting; not HA nor official business figures |
-| CDC lifecycle v2 | Insert/update/delete match the oracle; the extra case is blocked | [CDC receipt](../evidence/cdc-v2-local-20261019.json), [protocol](reference/cdc_order_lifecycle.md) | Local harness; does not yet prove a live v2 DAG |
 
 ### Storage, orchestration and governance
 
@@ -130,17 +124,12 @@ Original receipts, logs and screenshots keep their content, timestamps and envir
 | Federation | Gold and warehouse for the same SKU: 211 rows, net 12,038.74 | [SQL and results](trino_federation_and_cdc.md), [cross-check](reference/data_integration.md) | One Walmart SKU; does not show that cross-source queries are always faster |
 | Airflow v1 | DP1/DP2/DP3 have Graph/Grid/logs; runtime configuration smoke succeeded 2/2 tasks | [Airflow](pipeline_orchestration.md), [runtime receipt](../evidence/airflow-runtime-20261015.json) | The configuration smoke does not write business tables |
 | DataHub v1 | Lineage and assertions extracted from the Validate run | [DataHub](data_governance.md), [manifest](../evidence/datahub-validation.json) | Historical assertions; does not confirm every later run publishes automatically |
-| Airflow / DataHub v2 | DAGs and metadata dry-run available | [Airflow v2](reference/airflow_order_lifecycle.md), [DataHub v2](reference/datahub_order_lifecycle.md) | No live v2 DAG receipt nor matching lineage/quality screenshots yet |
 | Data contracts | Infer/diff/gate with Python fixtures; Spark check description 32/32 local | [Fixture receipt](../evidence/contracts-validation-20261018.json), [data contracts](reference/data_contracts.md) | The Python receipt is not Spark evidence |
 | Iceberg maintenance | Spark 3/3 on a demo table; checks compact/zorder, data and tags | [Maintenance receipt](../evidence/iceberg-maintenance-local-20261018.json), [mechanism](reference/iceberg_maintenance.md) | No maintenance schedule nor measurement on real business tables yet |
 
-Gold/e2e results whose logs are kept only in `out/` are recorded separately in [lifecycle status](reference/data_platform_order_lifecycle_status.md), [Gold](reference/gold_order_lifecycle.md) and [local e2e](reference/e2e_order_lifecycle_local.md). Those figures are historical records with limited public verifiability and are not to be treated as receipts attached to the repo.
-
 ## Missing verification
 
-- Medium e2e after the OOM fixes; a v2 skew measurement with the same input.
-- Live lifecycle DAG, DataHub publish/capture from the same generation, and an inventory of the deployed schema.
-- 100 GB v2 data, EXPLAIN at the corresponding scale, and maintenance of real business tables.
+- EXPLAIN at 100 GB scale and maintenance of real business tables.
 - The AWS runtime has receipts and screenshots per the table above. The [EC2 + S3 runbook](../shared/aws_deploy.md) is a reproduction guide; Terraform validate or local inventory alone does not replace runtime evidence.
 
 [Docs index](../README.md)

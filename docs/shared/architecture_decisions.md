@@ -46,4 +46,4 @@ Stream source, recorded in [Flink](../data-platform/reference/flink.md).
 Services are started in groups to fit the RAM and disk of a development machine. Do not
 start the whole Compose stack when you only need to rerun one proof; the commands naming the exact
 services are in each component's docs. Status and evidence are
-summarized in the [Data Platform status](../data-platform/reference/data_platform_order_lifecycle_status.md) and [evidence](../data-platform/evidence.md).
+summarized in the Data Platform status (archived in git tag `v2-archive`) and [evidence](../data-platform/evidence.md).

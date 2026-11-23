@@ -1,6 +1,6 @@
 // CI/CD for the stream feature job: test → build → deploy → verify.
 // AWS (s3): TWO PyFlink jobs `ml-sku-return-24h-online` / `-offline` on the Flink ML 2.2 cluster (Compose).
-// Local (minio): variant B Flink SQL `ml-sku-return-24h` + feast-pusher. Secrets live in Vault (secret/platform/*); Jenkins
+// Local (minio): variant A Flink SQL `ml-sku-return-24h` (flink_jobs/ml/sku_return_feature_a.sql) + feast-pusher. Secrets live in Vault (secret/platform/*); Jenkins
 // only holds the READ-ONLY token `vault-ci-token` (policy platform-read, created by scripts/shared/setup_vault.py).
 // The agent needs Docker, docker compose, uv; runs on a machine with the stack (local or a GCE VM).
 // Rollback (diagram "Deploy to EC2 · rolls back if a check fails"): a release that passes Verify is kept as
@@ -61,10 +61,10 @@ pipeline {
         sh 'uv sync --frozen'
         sh 'uv run ruff format --check feature_repo ml flink_jobs tests/flink && uv run ruff check feature_repo ml flink_jobs tests/flink'
         // Feast logic + view definitions; Spark tests for daily features run in the Airflow image.
-        sh 'uv run pytest -q tests/unit/test_docstrings.py tests/unit/generator/test_publish_order_lifecycle_events.py'
+        sh 'uv run pytest -q tests/unit/test_docstrings.py'
         sh '''docker run --rm --network none --read-only --tmpfs /tmp:rw,exec,size=1g \
               --mount type=bind,src=$PWD,dst=/workspace,readonly --entrypoint python \
-              platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_sku_daily_features.py'''
+              platform-airflow:2.10.5-spark3.5.3 /workspace/tests/spark/check_order_snapshot_ml.py'''
       }
     }
     stage('Build') {
