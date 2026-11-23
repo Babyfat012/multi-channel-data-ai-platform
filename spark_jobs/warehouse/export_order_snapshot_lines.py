@@ -1,7 +1,10 @@
 """Copy the last 30 days of the five-Channel Gold fact to the PostgreSQL warehouse, with an index.
 
 The warehouse keeps the "hot" part for fast per-SKU lookups; the full history is in Iceberg. Few columns are kept
-to fit the EBS disk. After writing: reconcile row counts per Channel with Gold, then create the index.
+to fit the EBS disk. Write-audit-publish (gap D8): load a staging table, reconcile row counts per Channel with Gold
+and index it, then swap it in with one transaction. Readers see the old table or the new one, never an empty or
+half-loaded one, and a failed reconciliation leaves the serving table untouched. Cost: the disk holds both copies
+during the load.
 """
 
 from __future__ import annotations
@@ -10,15 +13,79 @@ import argparse
 import os
 import re
 import sys
+import time
+import uuid
 from datetime import timedelta
-
-from pyspark.sql import functions as F
 
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 from spark_jobs.lib.label_channels import count_mismatches
 from spark_jobs.lib.order_lifecycle_warehouse import connect, cutoff_utc
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+SCHEMA = "warehouse"
+
+
+def drop_stale_stages(cur, table: str) -> None:
+    """Drop staging left by a run killed before its cleanup (driver OOM): each one holds a full copy on a tight disk.
+    Safe because the DAG allows one run at a time; a parallel manual run would fail loudly, not publish wrong data."""
+    cur.execute(
+        "SELECT tablename FROM pg_tables WHERE schemaname = %s AND tablename LIKE %s",
+        (SCHEMA, f"{table}\\_\\_load\\_%"),
+    )
+    for (stage,) in cur.fetchall():
+        cur.execute(f"DROP TABLE {SCHEMA}.{stage}")
+
+
+def lock_not_available(error: Exception) -> bool:
+    """SQLSTATE 55P03 (lock_timeout hit), for both drivers connect() may use (psycopg: sqlstate, psycopg2: pgcode)."""
+    return "55P03" in (getattr(error, "sqlstate", None), getattr(error, "pgcode", None))
+
+
+def publish(
+    conn,
+    table: str,
+    stage: str,
+    gold: dict[str, int],
+    lock_timeout: str = "300s",
+    attempts: int = 3,
+    pause: float = 5.0,
+) -> dict[str, int]:
+    """Reconcile staging with Gold, index it, then swap it in atomically. Raises before touching the serving
+    table when a Channel is short, missing or empty. Returns the per-Channel counts loaded.
+
+    The swap waits at most `lock_timeout` for its lock, `attempts` times: Postgres queues new readers BEHIND a
+    waiting ACCESS EXCLUSIVE request, so one long query plus a waiting swap would freeze every reader. Giving up
+    frees that queue; after the last attempt the job fails and readers keep the old table."""
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT channel, count(*) FROM {SCHEMA}.{stage} GROUP BY channel")
+        loaded = dict(cur.fetchall())
+        bad = count_mismatches(gold, loaded)
+        if bad:
+            raise ValueError(f"Warehouse staging differs from Gold or a Channel is empty: {bad}")
+        # Built on staging, so readers of the serving table never wait for it.
+        cur.execute(f"CREATE INDEX ON {SCHEMA}.{stage} (seller_sku)")
+        cur.execute(f"ANALYZE {SCHEMA}.{stage}")
+    # Postgres DDL is transactional: DROP + RENAME commit together. A reader blocks for the moment of the swap
+    # (ACCESS EXCLUSIVE lock), then resolves the name again and reads the new table.
+    for attempt in range(1, attempts + 1):
+        conn.autocommit = False
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"SET LOCAL lock_timeout = '{lock_timeout}'")  # this transaction only
+                cur.execute(f"DROP TABLE IF EXISTS {SCHEMA}.{table}")
+                cur.execute(f"ALTER TABLE {SCHEMA}.{stage} RENAME TO {table}")
+            conn.commit()
+            return loaded
+        except Exception as error:
+            conn.rollback()
+            if not lock_not_available(error) or attempt == attempts:
+                raise
+            print(f"swap attempt {attempt}/{attempts}: lock busy > {lock_timeout}, retrying")
+            time.sleep(pause)
+        finally:
+            conn.autocommit = True
+    raise ValueError("attempts must be ≥ 1")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     for value in (args.source_table, args.table):
         if not IDENTIFIER.fullmatch(value):
             parser.error(f"Invalid table name: {value!r}")
+    from pyspark.sql import (
+        functions as F,
+    )  # here: publish/drop_stale_stages are tested without Spark
+
     end = cutoff_utc(args.cutoff)
     start = end - timedelta(days=args.days)
 
@@ -57,41 +128,39 @@ def main(argv: list[str] | None = None) -> int:
         host = os.environ.get("POSTGRES_HOST", "postgres")
         port = os.environ.get("POSTGRES_PORT", "5432")
         database = os.environ.get("POSTGRES_DB", "sources")
-        target = f"warehouse.{args.table}"
+        # Postgres names stop at 63 characters: table (≤ 31 here) + "__load_" + 12 hex.
+        stage = f"{args.table}__load_{uuid.uuid4().hex[:12]}"
         options = {
             "url": f"jdbc:postgresql://{host}:{port}/{database}",
-            "dbtable": target,
+            "dbtable": f"{SCHEMA}.{stage}",
             "user": os.environ["POSTGRES_USER"],
             "password": os.environ["POSTGRES_PASSWORD"],
             "driver": "org.postgresql.Driver",
             "batchsize": "5000",
         }
-        # A fresh Postgres (AWS) has no schema yet: JDBC does not create schemas, only tables.
-        conn = connect()
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            cur.execute("CREATE SCHEMA IF NOT EXISTS warehouse")
-        conn.close()
-        # Limitation: overwrites directly, so the table is missing/empty during reload; for continuous reads use staging +
-        # rename like spark_jobs/lib/order_lifecycle_warehouse.py.
-        rows.repartition(4, "seller_sku").write.format("jdbc").options(**options).mode(
-            "overwrite"
-        ).save()
         conn = connect()
         conn.autocommit = True
         try:
+            # A fresh Postgres (AWS) has no schema yet: JDBC does not create schemas, only tables.
             with conn.cursor() as cur:
-                cur.execute(f"SELECT channel, count(*) FROM {target} GROUP BY channel")
-                loaded = dict(cur.fetchall())
-                bad = count_mismatches(gold, loaded)
-                print(f"Warehouse {target} [{start} → {end}): gold={gold} postgres={loaded}")
-                if bad:
-                    raise ValueError(f"Warehouse differs from Gold or a Channel is empty: {bad}")
-                cur.execute(f"CREATE INDEX ON {target} (seller_sku)")
-                cur.execute(f"ANALYZE {target}")
+                cur.execute(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}")
+                drop_stale_stages(cur, args.table)
+            # errorifexists: a fresh name every run, never write into someone else's table.
+            rows.repartition(4, "seller_sku").write.format("jdbc").options(**options).mode(
+                "errorifexists"
+            ).save()
+            loaded = publish(conn, args.table, stage, gold)
         finally:
+            # After a swap the stage name no longer exists; after a failure this frees the disk.
+            conn.rollback()
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(f"DROP TABLE IF EXISTS {SCHEMA}.{stage}")
             conn.close()
-        print(f"Warehouse written + index seller_sku: {target}; rows={sum(loaded.values())}")
+        print(
+            f"Published {SCHEMA}.{args.table} [{start} → {end}) + index seller_sku: "
+            f"gold={gold} postgres={loaded}"
+        )
         return 0
     finally:
         spark.stop()

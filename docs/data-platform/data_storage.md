@@ -53,6 +53,18 @@ The DAG [`dp4_warehouse`](../../dags/dp4_warehouse.py) copies the 30 days before
 ([job](../../spark_jobs/warehouse/export_order_snapshot_lines.py)). The table has **37,045,741 rows** and weighs **5,513 MB**;
 the `(seller_sku)` index weighs **250 MB**. Before creating the index, the job reconciles row counts per Channel against Gold.
 
+**Publishing without an empty window (gap D8).** The job loads a staging table `fact_order_lines_30d_dp2__load_<id>`,
+reconciles it per Channel against Gold, indexes it, then swaps it in with `DROP` + `RENAME` in **one transaction**. Readers
+see the old table or the new one; a failed reconciliation leaves the serving table untouched; staging left by a killed run is
+dropped at the next start. The swap waits at most `lock_timeout` 300 s for its lock, 3 attempts 5 s apart: Postgres queues
+new readers behind a waiting exclusive lock, so without the limit one long query (e.g. a Trino scan) plus the swap would freeze
+every reader. After the last attempt the job fails and readers keep the old table. Trade-off chosen: 300 s lets queries up to
+5 minutes finish, but while the swap waits, new readers queue behind it for up to 5 minutes per attempt (15 minutes worst case). The measured AWS run above used the earlier
+direct `overwrite`. Cost: during a load the disk holds
+both copies, about **5.8 GB more** (table + index) on the EBS volume shared with Spark (gap D6). Tested on PostgreSQL 16
+([`tests/integration/test_warehouse_publish.py`](../../tests/integration/test_warehouse_publish.py), opt in with
+`PLATFORM_TEST_POSTGRES_DSN`), including a reader arriving mid-swap; not rerun on AWS yet.
+
 Row counts per SKU are heavily skewed: the largest is `ELE-01103` with 2,011,389 rows (5.4%), the smallest is `APP-00482` with
 4,517 rows (0.012%).
 
