@@ -72,7 +72,7 @@ gateway config: [Agent Registry](agent_registry.md#versioning-in-ci-and-the-gate
 | Jenkins 2.580.1 LTS image + pinned plugins + docker/compose/kubectl/helm/kind/uv | [`infra/docker/Dockerfile.jenkins`](../../infra/docker/Dockerfile.jenkins) |
 | Configuration as code (JCasC): users, credentials, 4 jobs | [`infra/jenkins/jenkins.yaml`](../../infra/jenkins/jenkins.yaml) |
 | Startup (fetches secrets from Vault) | [`scripts/shared/setup_jenkins.py`](../../scripts/shared/setup_jenkins.py), service `jenkins` (profile `ci`) |
-| Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline`, `return-risk` |
+| Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `ci` (polls `main` every 5 minutes, tests only), `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline`, `return-risk` (manual) |
 
 ```bash
 python3 -m scripts.shared.setup_vault      # first: Vault + read-only token
@@ -143,6 +143,16 @@ Every Jenkinsfile that builds images has a **Push** stage before the deploy step
 SHA tags are only correct when the working tree is clean. If you run by hand with uncommitted code, set a separate `TAG` and do not reuse it.
 
 The **Eval agent** stage has been wired into the Feature API and coordinator pipelines, see the [eval gate](agent_evaluation.md#use-in-ci).
+
+### Commit → tests (job `ci`)
+
+Diagram D1 → D2: a push to `main` runs the tests in Jenkins. Job `ci` ([`ci.Jenkinsfile`](../../infra/jenkins/ci.Jenkinsfile))
+polls the repo every 5 minutes (`pollSCM H/5`, `jenkins.yaml`) and runs exactly what GitHub Actions runs
+(`.github/workflows/ci.yml`: uv sync, ruff, `check-registry`, pytest; a test keeps the two lists equal). It never builds or
+deploys: the deploy jobs stay manual until a staging step with approval exists. On EC2, every job clones the public GitHub
+repo (`CI_GIT_REMOTE`), replacing the hand-copied `out/platform.bundle`; locally the mounted repo stays the remote.
+Polling, not a webhook: Jenkins listens on loopback behind SSM, GitHub cannot reach it. GitHub Actions still runs on every push
+and PR; the two overlap on purpose so the diagram's Jenkins step exists.
 
 ### Compose deploys roll back (rag-pipeline, stream-features)
 

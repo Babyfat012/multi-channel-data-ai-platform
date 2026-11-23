@@ -279,11 +279,11 @@ services:
     ports:
       - "${PLATFORM_PRIVATE_IP:?PLATFORM_PRIVATE_IP_required}:9187:9187"
   # Jenkins on EC2 (phase 5): builds in place, deploys compose in place, pushes to ECR + deploys to EKS via the EC2 IAM role.
-  # Listens on loopback only (host network) ⇒ UI via tunnel 8090. Jobs get code from a git bundle (rsync does not carry .git).
+  # Listens on loopback only (host network) ⇒ UI via tunnel 8090. Jobs clone GitHub main (rsync does not carry .git).
   jenkins:
     environment:
       JENKINS_OPTS: --httpPort=8090 --httpListenAddress=127.0.0.1
-      # Plain path, not `file://`: git only recognizes a bundle file when the remote is a path (file:// requires a repo directory).
-      CI_GIT_REMOTE: /repo/out/platform.bundle
+      # Public repo: Jenkins polls/clones GitHub main directly, no credential; replaces the hand-copied git bundle.
+      CI_GIT_REMOTE: https://github.com/Babyfat012/multi-channel-data-ai-platform.git
       AWS_REGION: ${AWS_REGION:?AWS_REGION_required}
     mem_limit: 1536m
