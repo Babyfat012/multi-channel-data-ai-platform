@@ -144,6 +144,12 @@ SHA tags are only correct when the working tree is clean. If you run by hand wit
 
 The **Eval agent** stage has been wired into the Feature API and coordinator pipelines, see the [eval gate](agent_evaluation.md#use-in-ci).
 
+### No staging environment (decision)
+
+No separate test environment with an approval step before release: too costly for the EC2 machine and node group, so the
+system diagram draws Docker build → Deploy to EC2 (D6) / Deploy to EKS (D10) directly. Starting a deploy job by hand is the
+approval; see [the diagram notes](../diagrams/README.md).
+
 ### Commit → tests (job `ci`)
 
 Diagram D1 → D2: a push to `main` runs the tests in Jenkins. Job `ci` ([`ci.Jenkinsfile`](../../infra/jenkins/ci.Jenkinsfile))
@@ -171,7 +177,7 @@ once at the top of each Jenkinsfile (`DEPLOY_SH`, `CHECK_SH` / `VERIFY_SH`) and 
 
 ### return-risk model approval
 
-[`return-risk.Jenkinsfile`](../../infra/jenkins/return-risk.Jenkinsfile) is the diagram's D12 → D14: Show challenger → Approve →
+[`return-risk.Jenkinsfile`](../../infra/jenkins/return-risk.Jenkinsfile) is the diagram's D11 → D13: Show challenger → Approve →
 Promote → Deploy model, with [`scripts/ml/promote_return_risk.py`](../../scripts/ml/promote_return_risk.py).
 
 - **Show challenger** prints the challenger's metrics next to the champion's (same test set) and warns when the champion it was
