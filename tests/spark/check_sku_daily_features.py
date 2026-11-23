@@ -10,7 +10,7 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,exec,size=1g \
 
 import os
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
@@ -24,6 +24,7 @@ from spark_jobs.lib.order_lifecycle_gold import (
     sku_daily_features,
     sku_features,
 )
+from spark_jobs.lib.return_label import feature_window
 
 D = "ds1"
 
@@ -52,21 +53,16 @@ CUTOFF = ts(25)
 
 
 def oracle(sku, at):
-    """Count by hand: segments open in [a, b) with a, b as in `return_label.feature_window`."""
-    micro = timedelta(microseconds=1)
+    """Count in pure Python with `return_label.feature_window`: Spark `_feature_windows` must agree with it."""
     skus = {line: s for line, s, _ in FACT}
     n = p = 0
     for line, start, end, label, cohort in SEGMENTS:
         if skus[line] != sku:
             continue
-        a = max(
-            start + micro,
-            datetime.combine(cohort + timedelta(1), datetime.min.time(), timezone.utc),
+        window = feature_window(
+            {"start_exclusive": start, "end_inclusive": end, "cohort_date": cohort}
         )
-        b = datetime.combine(cohort + timedelta(91), datetime.min.time(), timezone.utc)
-        if end is not None:
-            b = min(b, end + micro)
-        if a <= at < b:
+        if window and window[0] <= at < window[1]:
             n, p = n + 1, p + label
     return n, p
 

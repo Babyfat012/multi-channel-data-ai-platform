@@ -25,12 +25,6 @@ class OrderLifecycleSparkSubmitOperator(PlatformSparkSubmitOperator):
 RUN_ID = "{{ params.run_id }}"
 CUTOFF = "{{ params.cutoff }}"
 DIRECTORY = "{{ var.value.platform_order_lifecycle_receipt_dir }}/warehouse/{{ ts_nodash }}"
-CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
-
 with DAG(
     dag_id="dp_order_lifecycle_warehouse",
     schedule=None,
@@ -66,7 +60,6 @@ with DAG(
         driver_memory="{{ var.value.platform_order_lifecycle_driver_memory }}",
         executor_memory="{{ var.value.platform_order_lifecycle_executor_memory }}",
         executor_cores="{{ var.value.platform_order_lifecycle_executor_cores }}",
-        conf=CONF,
         packages="{{ var.value.platform_spark_packages }}",
     )
     export_warehouse = OrderLifecycleSparkSubmitOperator(
@@ -88,7 +81,6 @@ with DAG(
         driver_memory="{{ var.value.platform_order_lifecycle_driver_memory }}",
         executor_memory="{{ var.value.platform_order_lifecycle_executor_memory }}",
         executor_cores="{{ var.value.platform_order_lifecycle_executor_cores }}",
-        conf=CONF,
         packages="{{ var.value.platform_spark_packages }}",
     )
     validate_gold >> export_warehouse

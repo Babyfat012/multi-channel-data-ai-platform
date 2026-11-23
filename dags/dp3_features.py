@@ -11,12 +11,6 @@ PACKAGES = "{{ var.value.platform_spark_packages }}"
 SOURCE = "{{ var.value.platform_dp3_gold_source_table }}"
 TARGET = "{{ var.value.platform_dp3_feature_table }}"
 RUN_ID = "{{ run_id }}"
-SPARK_CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
-
 with DAG(
     dag_id="dp3_features",
     description="Five-Channel Gold fact → offline features at Order time; check completeness",
@@ -35,7 +29,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     validate = SparkSubmitOperator(
         task_id="validate_return_features",
@@ -44,6 +37,5 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     build >> validate

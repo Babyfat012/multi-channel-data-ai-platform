@@ -38,11 +38,6 @@ SOURCE_ROOT = "{{ params.source_root or var.value.platform_order_lifecycle_sourc
 CUTOFF = "{{ params.cutoff or var.value.platform_order_lifecycle_cutoff }}"
 RUN_ID = "{{ run_id }}"
 PACKAGES = "{{ var.value.platform_spark_packages }}"
-CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
 
 
 def write_receipt(path, document):
@@ -178,7 +173,6 @@ with DAG(
         driver_memory="{{ var.value.platform_order_lifecycle_driver_memory }}",
         executor_memory="{{ var.value.platform_order_lifecycle_executor_memory }}",
         executor_cores="{{ var.value.platform_order_lifecycle_executor_cores }}",
-        conf=CONF,
     )
     build_silver = OrderLifecycleSparkSubmitOperator(
         task_id="build_silver",
@@ -199,7 +193,6 @@ with DAG(
         driver_memory="{{ var.value.platform_order_lifecycle_driver_memory }}",
         executor_memory="{{ var.value.platform_order_lifecycle_executor_memory }}",
         executor_cores="{{ var.value.platform_order_lifecycle_executor_cores }}",
-        conf=CONF,
     )
     build_gold = OrderLifecycleSparkSubmitOperator(
         task_id="build_gold",
@@ -218,7 +211,6 @@ with DAG(
         driver_memory="{{ var.value.platform_order_lifecycle_driver_memory }}",
         executor_memory="{{ var.value.platform_order_lifecycle_executor_memory }}",
         executor_cores="{{ var.value.platform_order_lifecycle_executor_cores }}",
-        conf=CONF,
     )
     validate_gold = OrderLifecycleSparkSubmitOperator(
         task_id="validate_gold",
@@ -237,6 +229,5 @@ with DAG(
         driver_memory="{{ var.value.platform_order_lifecycle_driver_memory }}",
         executor_memory="{{ var.value.platform_order_lifecycle_executor_memory }}",
         executor_cores="{{ var.value.platform_order_lifecycle_executor_cores }}",
-        conf=CONF,
     )
     check_contracts >> ingest_bronze >> build_silver >> build_gold >> validate_gold

@@ -18,12 +18,6 @@ AMAZON_SILVER = "{{ var.value.platform_dp2_amazon_silver_table }}"
 WALMART_SILVER = "{{ var.value.platform_dp2_walmart_silver_table }}"
 GOLD_TABLE = "{{ var.value.platform_dp2_gold_table }}"
 AMAZON_DIM = "{{ var.value.platform_dp2_amazon_dim_table }}"
-SPARK_CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
-
 with DAG(
     dag_id="dp2_silver",
     description="Bronze 5 Channels -> Silver Order Line; check the output of each Channel",
@@ -49,7 +43,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     validate_amazon = SparkSubmitOperator(
         task_id="validate_amazon_silver",
@@ -67,7 +60,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     ingest_walmart = SparkSubmitOperator(
         task_id="ingest_walmart_silver",
@@ -85,7 +77,7 @@ with DAG(
         driver_memory="600m",
         executor_memory="1536m",
         executor_cores=1,
-        conf={**SPARK_CONF, "spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m"},
+        conf={"spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m"},
     )
     validate_walmart = SparkSubmitOperator(
         task_id="validate_walmart_silver",
@@ -103,7 +95,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
 
     previous = validate_walmart
@@ -127,7 +118,6 @@ with DAG(
             conn_id="spark_default",
             packages=PACKAGES,
             driver_memory="600m",
-            conf=SPARK_CONF,
         )
         validate = SparkSubmitOperator(
             task_id=f"validate_{channel}_silver",
@@ -145,7 +135,6 @@ with DAG(
             conn_id="spark_default",
             packages=PACKAGES,
             driver_memory="600m",
-            conf=SPARK_CONF,
         )
         previous >> ingest >> validate
         previous = validate
@@ -169,7 +158,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     validate_gold = SparkSubmitOperator(
         task_id="validate_gold_order_lines",
@@ -178,7 +166,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     build_dim = SparkSubmitOperator(
         task_id="build_amazon_order_dim",
@@ -196,7 +183,7 @@ with DAG(
         driver_memory="600m",
         executor_memory="1536m",
         executor_cores=1,
-        conf={**SPARK_CONF, "spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m"},
+        conf={"spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m"},
     )
     validate_dim = SparkSubmitOperator(
         task_id="validate_amazon_order_dim",
@@ -207,6 +194,6 @@ with DAG(
         driver_memory="600m",
         executor_memory="1536m",
         executor_cores=1,
-        conf={**SPARK_CONF, "spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m"},
+        conf={"spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m"},
     )
     previous >> build_gold >> build_dim >> validate_dim >> validate_gold

@@ -9,12 +9,6 @@ TABLES = "{{ var.value.platform_maintenance_tables }}"
 DIRECTORY = "{{ var.value.platform_maintenance_receipt_dir }}/{{ ts_nodash }}"
 APPLICATION = "/opt/spark_jobs/maintenance/maintain_iceberg_tables.py"
 CONFIG = "{{ var.value.platform_maintenance_config }}"
-CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
-
 with DAG(
     dag_id="maintenance_iceberg",
     description="Plan → maintain + check data → check receipt with a fresh session",
@@ -40,7 +34,6 @@ with DAG(
         conn_id="spark_default",
         packages="{{ var.value.platform_spark_packages }}",
         driver_memory="600m",
-        conf=CONF,
     )
     execute = PlatformSparkSubmitOperator(
         task_id="execute",
@@ -57,7 +50,6 @@ with DAG(
         conn_id="spark_default",
         packages="{{ var.value.platform_spark_packages }}",
         driver_memory="600m",
-        conf=CONF,
     )
     validate = PlatformSparkSubmitOperator(
         task_id="validate",
@@ -66,6 +58,5 @@ with DAG(
         conn_id="spark_default",
         packages="{{ var.value.platform_spark_packages }}",
         driver_memory="600m",
-        conf=CONF,
     )
     plan >> execute >> validate

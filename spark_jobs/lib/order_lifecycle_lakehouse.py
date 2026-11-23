@@ -26,6 +26,7 @@ from pyspark.sql import functions as F
 
 from spark_jobs.lib.data_contracts.registry import SUPPORTED_PARSERS, Registry
 from spark_jobs.lib.data_contracts.schema import required_json_paths
+from spark_jobs.lib.return_label import FEED_KINDS
 
 OPERATIONAL_FEEDS = (
     "seller_oms.line_commitments",
@@ -554,14 +555,8 @@ def coverage_receipts(known: DataFrame) -> DataFrame:
     return checked.unionByName(unavailable)
 
 
-# Feeds the v2 label policy reads (matches `return_label.FEED_KINDS`); coverage only spans these feeds.
-LABEL_EVIDENCE_FEEDS = (
-    "seller_oms.line_commitments",
-    "seller_oms.fulfillment_allocations",
-    "carrier.delivery_events",
-    "seller_postsales.return_events",
-    "seller_postsales.refund_events",
-)
+# Feeds the v2 label policy reads; coverage only spans these feeds. Derived, so the two cannot drift.
+LABEL_EVIDENCE_FEEDS = tuple(FEED_KINDS)
 
 
 def observed_evidence(known: DataFrame) -> DataFrame:

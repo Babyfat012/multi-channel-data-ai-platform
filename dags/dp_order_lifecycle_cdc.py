@@ -31,11 +31,6 @@ RESOURCES = {
     "driver_memory": "{{ var.value.platform_order_lifecycle_driver_memory }}",
     "executor_memory": "{{ var.value.platform_order_lifecycle_executor_memory }}",
     "executor_cores": "{{ var.value.platform_order_lifecycle_executor_cores }}",
-    "conf": {
-        "spark.driver.host": "airflow",
-        "spark.driver.bindAddress": "0.0.0.0",
-        "spark.jars.ivy": "/opt/airflow/.ivy2",
-    },
 }
 
 with DAG(

@@ -33,11 +33,6 @@ CUTOFF = "{{ var.value.get('platform_ml_cutoff', var.value.platform_order_lifecy
 # Spark writes via s3a://, Feast reads the same location via s3://.
 SPARK_ROOT = "{{ var.value.platform_feast_root | replace('s3://', 's3a://') }}"
 SPARK_OUTPUT = SPARK_ROOT + "/sku_daily"
-CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
 
 
 def run_feast(*args, **context):
@@ -126,7 +121,6 @@ with DAG(
         conn_id="spark_default",
         packages="{{ var.value.platform_spark_packages }},org.apache.hadoop:hadoop-aws:3.3.4",
         driver_memory="1g",
-        conf=CONF,
     )
     # Training set (entity df for KFP): labeled lines before the Cutoff + order-time attributes, same label run as the features.
     export_training = PlatformSparkSubmitOperator(
@@ -144,7 +138,6 @@ with DAG(
         conn_id="spark_default",
         packages="{{ var.value.platform_spark_packages }},org.apache.hadoop:hadoop-aws:3.3.4",
         driver_memory="1g",
-        conf=CONF,
     )
     apply = PythonOperator(task_id="feast_apply", python_callable=run_feast, op_args=["apply"])
     materialize = PythonOperator(
