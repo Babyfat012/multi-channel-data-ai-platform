@@ -1,0 +1,182 @@
+{
+ "description": "Contract sim-native-v1/walmart/1 (Walmart raw_payload, pipeline A): required = fields the Silver job needs for a correct row; other fields it reads are typed but may be absent.",
+ "properties": {
+  "buyerId": {
+   "type": "string"
+  },
+  "customerOrderId": {
+   "type": "string"
+  },
+  "isGuest": {
+   "type": "boolean"
+  },
+  "orderDate": {
+   "type": "integer"
+  },
+  "orderLines": {
+   "properties": {
+    "orderLine": {
+     "items": {
+      "properties": {
+       "charges": {
+        "properties": {
+         "charge": {
+          "items": {
+           "properties": {
+            "chargeAmount": {
+             "properties": {
+              "amount": {
+               "type": "number"
+              },
+              "currency": {
+               "type": "string"
+              }
+             },
+             "required": [
+              "amount",
+              "currency"
+             ],
+             "type": "object"
+            }
+           },
+           "required": [
+            "chargeAmount"
+           ],
+           "type": "object"
+          },
+          "type": "array"
+         }
+        },
+        "required": [
+         "charge"
+        ],
+        "type": "object"
+       },
+       "item": {
+        "properties": {
+         "productName": {
+          "type": "string"
+         },
+         "sku": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "sku"
+        ],
+        "type": "object"
+       },
+       "lineNumber": {
+        "type": "string"
+       },
+       "orderLineQuantity": {
+        "properties": {
+         "amount": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "amount"
+        ],
+        "type": "object"
+       },
+       "orderLineStatuses": {
+        "properties": {
+         "orderLineStatus": {
+          "items": {
+           "properties": {
+            "status": {
+             "type": "string"
+            },
+            "trackingInfo": {
+             "properties": {
+              "carrierName": {
+               "properties": {
+                "carrier": {
+                 "type": "string"
+                }
+               },
+               "required": [],
+               "type": "object"
+              },
+              "shipDateTime": {
+               "type": "integer"
+              },
+              "trackingNumber": {
+               "type": "string"
+              }
+             },
+             "required": [],
+             "type": "object"
+            }
+           },
+           "required": [
+            "status"
+           ],
+           "type": "object"
+          },
+          "type": "array"
+         }
+        },
+        "required": [
+         "orderLineStatus"
+        ],
+        "type": "object"
+       },
+       "statusDate": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "charges",
+       "item",
+       "lineNumber",
+       "orderLineQuantity",
+       "orderLineStatuses",
+       "statusDate"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "orderLine"
+   ],
+   "type": "object"
+  },
+  "purchaseOrderId": {
+   "type": "string"
+  },
+  "shippingInfo": {
+   "properties": {
+    "estimatedDeliveryDate": {
+     "type": "integer"
+    },
+    "postalAddress": {
+     "properties": {
+      "city": {
+       "type": "string"
+      },
+      "country": {
+       "type": "string"
+      },
+      "postalCode": {
+       "type": "string"
+      }
+     },
+     "required": [],
+     "type": "object"
+    }
+   },
+   "required": [],
+   "type": "object"
+  }
+ },
+ "required": [
+  "orderDate",
+  "orderLines",
+  "purchaseOrderId"
+ ],
+ "type": "object"
+}

@@ -1,0 +1,91 @@
+{
+ "description": "Contract sim-native-v1/shopify/1 (Shopify order, pipeline A): required = fields the Silver job needs for a correct row; other fields it reads are typed but may be absent.",
+ "properties": {
+  "order": {
+   "properties": {
+    "created_at": {
+     "type": "string"
+    },
+    "currency": {
+     "type": "string"
+    },
+    "financial_status": {
+     "type": "string"
+    },
+    "fulfillment_status": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "id": {
+     "type": "integer"
+    },
+    "line_items": {
+     "items": {
+      "properties": {
+       "id": {
+        "type": "integer"
+       },
+       "price": {
+        "type": "string"
+       },
+       "quantity": {
+        "type": "integer"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "title": {
+        "type": "string"
+       },
+       "total_discount": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "price",
+       "quantity",
+       "sku",
+       "total_discount"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    },
+    "shipping_address": {
+     "properties": {
+      "city": {
+       "type": "string"
+      },
+      "country_code": {
+       "type": "string"
+      },
+      "zip": {
+       "type": "string"
+      }
+     },
+     "required": [],
+     "type": "object"
+    },
+    "updated_at": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "created_at",
+    "currency",
+    "financial_status",
+    "id",
+    "line_items",
+    "updated_at"
+   ],
+   "type": "object"
+  }
+ },
+ "required": [
+  "order"
+ ],
+ "type": "object"
+}

@@ -1,0 +1,162 @@
+{
+ "description": "Contract sim-native-v1/amazon/2 (Amazon 2026 (camelCase), pipeline A): required = fields the Silver job needs for a correct row; other fields it reads are typed but may be absent.",
+ "properties": {
+  "createdTime": {
+   "type": "string"
+  },
+  "fulfillment": {
+   "properties": {
+    "deliverByWindow": {
+     "properties": {
+      "endTime": {
+       "type": "string"
+      },
+      "startTime": {
+       "type": "string"
+      }
+     },
+     "required": [],
+     "type": "object"
+    },
+    "fulfilledBy": {
+     "type": "string"
+    },
+    "status": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "status"
+   ],
+   "type": "object"
+  },
+  "lastUpdatedTime": {
+   "type": "string"
+  },
+  "orderId": {
+   "type": "string"
+  },
+  "orderItems": {
+   "items": {
+    "properties": {
+     "orderItemId": {
+      "type": "string"
+     },
+     "price": {
+      "properties": {
+       "amount": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "amount"
+      ],
+      "type": "object"
+     },
+     "product": {
+      "properties": {
+       "asin": {
+        "type": "string"
+       },
+       "sellerSku": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "sellerSku"
+      ],
+      "type": "object"
+     },
+     "promotion": {
+      "properties": {
+       "amount": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "amount"
+      ],
+      "type": "object"
+     },
+     "quantityOrdered": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "orderItemId",
+     "price",
+     "product",
+     "promotion",
+     "quantityOrdered"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  },
+  "proceeds": {
+   "properties": {
+    "grandTotal": {
+     "properties": {
+      "amount": {
+       "type": "string"
+      },
+      "currencyCode": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "amount",
+      "currencyCode"
+     ],
+     "type": "object"
+    }
+   },
+   "required": [
+    "grandTotal"
+   ],
+   "type": "object"
+  },
+  "programs": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "salesChannel": {
+   "properties": {
+    "channelName": {
+     "type": "string"
+    },
+    "marketplaceId": {
+     "type": "string"
+    }
+   },
+   "required": [],
+   "type": "object"
+  },
+  "shippingAddress": {
+   "properties": {
+    "city": {
+     "type": "string"
+    },
+    "countryCode": {
+     "type": "string"
+    },
+    "postalCode": {
+     "type": "string"
+    }
+   },
+   "required": [],
+   "type": "object"
+  }
+ },
+ "required": [
+  "createdTime",
+  "fulfillment",
+  "lastUpdatedTime",
+  "orderId",
+  "orderItems",
+  "proceeds"
+ ],
+ "type": "object"
+}

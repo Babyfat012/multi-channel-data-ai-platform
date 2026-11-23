@@ -4,6 +4,27 @@ Package G puts the v2 source contracts into `contracts/`, automatically compares
 unsupported data before parsing. The demo uses the small fixture from
 [package B](source_order_lifecycle_fixtures.md); it is not evidence at 100 GB scale.
 
+## Pipeline A (dp1 → dp2): `sim-native-v1`
+
+The deployed pipeline A now checks contracts too (diagram: nightly lakehouse, first step "Check contracts"). The v2
+schemas do not fit A's exports (e.g. Shopee prices are numbers in v1, strings in v2), so A has its own subjects
+`sim-native-v1/{amazon,walmart,shopee,shopify,tiktok_shop}` with parsers `snapshots/*`.
+
+| Decision | Choice and why |
+|---|---|
+| What is required | Only what the Silver job needs for a correct row (keys, times, status, currency, SKU, quantity, price, discount). Fields Silver reads but tolerates as NULL are typed, not required. Fields Silver never reads are not in the contract, even if every sample row has them (`infer_schema` would wrongly require e.g. `IsBusinessOrder`). |
+| Where | In the dp1 validate tasks, on Bronze, inside the aggregation they already run: no extra pass over the data. Bronze keeps the raw rows as evidence; dp2 Silver runs only after dp1 succeeds. |
+| On a violation | The task fails with the count and up to 5 distinct reasons (`reason shape missing-path`). No quarantine: dp2 Silver re-reads all of Bronze. |
+| Amazon's two shapes | `amazon/1` (PascalCase) and `amazon/2` (2026 camelCase), told apart by the root id as Silver's `split_by_form` does. A row with neither is `unregistered_schema`; before, Silver dropped it silently. |
+
+Checks: every row for registered shape + required paths (Spark expressions, arrays: first item, as in pipeline B);
+types and every array item with `validate_record` on the first 1,000 rows of each shape (a wrong type appearing only
+later is missed; Silver's cast would then give NULL). All 12,900 local sample rows (`out/channels-small`) pass; tests:
+[`test_snapshot_contracts_v1.py`](../../../tests/unit/spark_jobs/lib/test_snapshot_contracts_v1.py) (removing any
+required key must fail) and [`check_snapshot_contracts.py`](../../../tests/spark/check_snapshot_contracts.py) on a real
+local Spark 3.5.3. Not run on AWS yet. Pipeline B's gate also loops over the v1 entries; no B row carries a v1 id, so its
+result is unchanged.
+
 ## Source problems and goals
 
 Three gaps were recorded during the review:

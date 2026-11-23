@@ -16,6 +16,13 @@ from pyspark.sql import functions as F
 
 from spark_jobs.lib.day_selection import pick_window_days
 from spark_jobs.lib.iceberg_session import build_spark
+from spark_jobs.lib.snapshot_contracts import (
+    contract_aggregates,
+    failure,
+    type_errors,
+    v1_registry,
+    with_contract,
+)
 
 AMAZON_SOURCE = "/data/raw/source-exports/channel=amazon/dataset=orders"
 WALMART_SOURCE = "walmart.orders"
@@ -117,9 +124,15 @@ def validate(spark: SparkSession, channel: str, table: str, run_id: str, source_
         | F.col("run_id").isNull()
         | (F.col("run_id") != run_id)
     )
-    result = df.agg(
+    # Contract check (sim-native-v1) rides on the same scan: one agg over the same rows.
+    registry = v1_registry(channel=channel)
+    checked = with_contract(
+        df, channel, "payload" if channel == "amazon" else "raw_payload", registry
+    )
+    result = checked.agg(
         F.count("*").alias("rows"),
         F.sum(F.when(invalid, 1).otherwise(0)).alias("invalid_rows"),
+        *contract_aggregates(),
     ).first()
     target_rows = int(result["rows"])
     invalid_rows = int(result["invalid_rows"] or 0)
@@ -130,7 +143,14 @@ def validate(spark: SparkSession, channel: str, table: str, run_id: str, source_
         raise ValueError(
             "DP1 Validate failed: source and Bronze differ or provenance/payload is broken"
         )
-    print("DP1 Validate passed")
+    message = failure(
+        int(result["contract_rows"] or 0),
+        result["contract_examples"],
+        type_errors(checked, registry),
+    )
+    if message:
+        raise ValueError(message)
+    print("DP1 Validate passed (row count, provenance, contract sim-native-v1)")
 
 
 def main(argv: list[str] | None = None) -> int:

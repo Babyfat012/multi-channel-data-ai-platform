@@ -33,7 +33,12 @@ OPERATIONAL_FEEDS = (
     "seller_wms.stock_snapshots",
 )
 SIDE_FEEDS = ("source.coverage_envelopes", "source.uncertainties")
-SUPPORTED_PARSERS = NATIVE_PARSERS | set(OPERATIONAL_FEEDS) | set(SIDE_FEEDS)
+# Pipeline A (dp1 → dp2) snapshot exports: one Silver parser per Channel shape (sim-native-v1 contracts).
+SNAPSHOT_PARSERS = {
+    f"snapshots/{name}"
+    for name in ("amazon/1", "amazon/2", "walmart/1", "shopee/1", "shopify/1", "tiktok_shop/1")
+}
+SUPPORTED_PARSERS = NATIVE_PARSERS | SNAPSHOT_PARSERS | set(OPERATIONAL_FEEDS) | set(SIDE_FEEDS)
 
 
 class Registry:
