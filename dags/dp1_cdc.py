@@ -32,7 +32,9 @@ with DAG(
     dag_id="dp1_cdc",
     description="Walmart CDC source via Kafka → Bronze and check offset completeness",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
-    schedule=None,
+    # Diagram "every hour". Safe to repeat: MERGE on the Kafka offset, never duplicates. Each run reads the topic
+    # from its beginning (cdc_offsets.capture_kafka_boundary), so runs get slower as the topic grows.
+    schedule="@hourly",
     catchup=False,
     is_paused_upon_creation=False,
     max_active_runs=1,
