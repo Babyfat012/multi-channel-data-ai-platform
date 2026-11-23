@@ -1,5 +1,6 @@
 """Check the image release contract and CI gates, fully offline."""
 
+import ast
 import importlib
 import json
 import os
@@ -266,8 +267,9 @@ def test_push_logs_into_ecr_only_for_ecr_registries(tmp_path):
     assert not any(line.startswith("aws ") for line in log.read_text().splitlines())
 
 
-def test_jenkins_on_ec2_is_loopback_with_eks_kubeconfig_and_bundle_source():
-    """Jenkins AWS: loopback only, jobs fetch a git bundle, EKS kubeconfig on s3, kubectl matches EKS 1.37, aws CLI present."""
+def test_jenkins_on_ec2_is_loopback_with_eks_kubeconfig_and_github_source():
+    """Jenkins AWS: loopback only, jobs clone the public GitHub main (no hand-copied bundle, no credential),
+    EKS kubeconfig on s3, kubectl matches EKS 1.37, aws CLI present."""
     import yaml as _yaml
 
     from tests.unit.infra.aws.test_aws_provision import ComposeLoader
@@ -276,7 +278,11 @@ def test_jenkins_on_ec2_is_loopback_with_eks_kubeconfig_and_bundle_source():
         "services"
     ]["jenkins"]
     assert "--httpListenAddress=127.0.0.1" in jenkins["environment"]["JENKINS_OPTS"]
-    assert jenkins["environment"]["CI_GIT_REMOTE"] == "/repo/out/platform.bundle"
+    assert (
+        jenkins["environment"]["CI_GIT_REMOTE"]
+        == "https://github.com/Babyfat012/multi-channel-data-ai-platform.git"
+    )
+    assert "platform.bundle" not in (ROOT / "docs/shared/aws_deploy.md").read_text()
     assert (
         "url('${CI_GIT_REMOTE:-file:///repo}')" in (ROOT / "infra/jenkins/jenkins.yaml").read_text()
     )
@@ -477,3 +483,39 @@ def test_stream_verify_script(tmp_path, storage, jobs, pusher, flink_up, ok):
     """Each expected job RUNNING exactly once, and locally the pusher too; the job loop must not skip the pusher."""
     result = run_verify(tmp_path, storage, jobs, pusher, flink_up)
     assert (result.returncode == 0) is ok, result.stdout + result.stderr
+
+
+def jenkins_commands(name):
+    """Every sh '...' command of a Jenkinsfile, in order."""
+    return re.findall(r"sh '([^']+)'", read(f"infra/jenkins/{name}.Jenkinsfile"))
+
+
+def test_jenkins_ci_runs_exactly_what_github_actions_runs():
+    """Two CI runners on one repo must agree on green: same Python, same commands, same order."""
+    workflow = yaml.safe_load(read(".github/workflows/ci.yml"))
+    steps = workflow["jobs"]["contracts-and-tests"]["steps"]
+    python = next(s["with"]["python-version"] for s in steps if "setup-uv" in s.get("uses", ""))
+    actions = [
+        line.strip() for s in steps if "run" in s for line in s["run"].splitlines() if line.strip()
+    ]
+    assert actions[0] == "uv sync --frozen"
+    assert jenkins_commands("ci") == [f"uv sync --frozen --python {python}", *actions[1:]]
+
+
+def test_only_ci_polls_and_it_never_deploys():
+    """Diagram D1 → D2: a commit runs the tests. No deploy without a human until staging/approval exists."""
+    config = read("infra/jenkins/jenkins.yaml")
+    jobs = yaml.safe_load(config)["jobs"][0]["script"]
+    names = ast.literal_eval(re.search(r"(\[[^\]]+\])\.each", jobs).group(1))
+    assert names[0] == "ci" and set(names) == {
+        p.name.removesuffix(".Jenkinsfile") for p in (ROOT / "infra/jenkins").glob("*.Jenkinsfile")
+    }
+    assert jobs.count("pollSCM") == 1
+    assert re.search(
+        r"if \(name == 'ci'\) \{\s+properties \{ pipelineTriggers \{ triggers \{ pollSCM \{ "
+        r"scmpoll_spec\('H/5 \* \* \* \*'\)",
+        jobs,
+    )
+    commands = " ".join(jenkins_commands("ci"))
+    for deploy in ("docker", "compose", "kubectl", "helm", "push_images", "deploy"):
+        assert deploy not in commands, deploy
