@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from airflow import DAG
+from platform_datasets import GOLD_LABELS
 from platform_spark_operator import PlatformSparkSubmitOperator as SparkSubmitOperator
 
 with DAG(
@@ -20,6 +21,8 @@ with DAG(
 ) as dag:
     SparkSubmitOperator(
         task_id="build_and_validate_return_labels",
+        # Emitted only when the task succeeds (labels built AND validated): starts ml_feature_materialize.
+        outlets=[GOLD_LABELS],
         application="/opt/spark_jobs/gold/build_order_snapshot_return_labels.py",
         application_args=[
             "--fact-table",

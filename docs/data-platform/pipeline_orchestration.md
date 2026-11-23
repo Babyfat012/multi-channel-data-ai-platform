@@ -9,6 +9,27 @@ Code / configuration: [DP1](../../dags/dp1_bronze.py), [DP2](../../dags/dp2_silv
 
 The results below come from runs on AWS. They prove that those runs happened; they do not mean the services are still running.
 
+## Schedules (diagram)
+
+| Diagram | DAG | Trigger |
+|---|---|---|
+| Build the order lakehouse · every night | [`dp_nightly`](../../dags/dp_nightly.py) → `dp1_bronze` → `dp2_silver` → `dp3_features` → `dp4_warehouse` → `dp3_return_labels` | 01:00 Vietnam time (18:00 UTC), **paused on creation** |
+| Sync Walmart changes · every hour | [`dp1_cdc`](../../dags/dp1_cdc.py) | `@hourly` |
+| Refresh ML features · after each new Gold | [`ml_feature_materialize`](../../dags/ml_feature_materialize.py) | Dataset `GOLD_LABELS` ([`platform_datasets.py`](../../dags/platform_datasets.py)), emitted by every successful `dp3_return_labels` run, nightly or by hand |
+| Index the return policy · when the policy changes | [`ml_rag_ingest`](../../dags/ml_rag_ingest.py) | Jenkins `rag-pipeline` after a commit |
+
+- `dp_nightly` triggers each child and waits for it (`TriggerDagRunOperator`, synchronous: LocalExecutor, no triggerer);
+  a failed child stops the chain. The children keep `schedule=None`, so each still runs by hand on its own.
+- `dp3_return_labels` is last: the ML refresh it starts would otherwise run next to `dp3_features` / `dp4`, and every
+  Spark driver shares the Airflow container's RAM. `dp3_features` and `dp4` read only the Gold fact.
+- Why paused: each run still reads the fixed window from Variables (`platform_dp1_amazon_window_*`, `platform_ml_cutoff`),
+  so a nightly run reprocesses the same data. Making each run a new simulated day (`data_interval`) is not built.
+- `is_paused_upon_creation` only applies to a DAG Airflow has never seen. `dp1_cdc` and `ml_feature_materialize` already
+  exist unpaused, so their new triggers start as soon as the code is deployed; pause them in the UI to keep them manual.
+- Limits: `dp1_cdc` can overlap the nightly chain (no shared Spark pool yet); its ingest re-reads the topic from the
+  beginning each run, so runs slow down as the topic grows. With `catchup=False`, nights when EC2 is stopped are skipped.
+- Checked with Airflow 2.10.5 `DagBag`: no import errors, chain order, 18:00 UTC, Dataset wiring. Not run on AWS yet.
+
 ## On AWS
 
 Airflow and Spark run with Docker Compose on a single EC2 instance in the Sydney region. Source data is read from S3 (raw files) and from PostgreSQL on EC2.

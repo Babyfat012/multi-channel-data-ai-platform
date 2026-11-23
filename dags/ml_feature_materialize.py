@@ -17,6 +17,7 @@ from airflow.hooks.base import BaseHook
 from airflow.models import Variable
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
+from platform_datasets import GOLD_LABELS
 from platform_spark_operator import PlatformSparkSubmitOperator
 
 FEAST = "/home/airflow/feast-venv/bin/feast"
@@ -100,9 +101,11 @@ def run_feast(*args, **context):
 
 with DAG(
     dag_id="ml_feature_materialize",
-    description="Daily SKU features: Parquet → separate batch → reconcile → publish Redis A/B",
+    description="SKU features after each new Gold + labels: Parquet → separate batch → reconcile → publish Redis A/B",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
-    schedule=None,
+    # Diagram "after each new Gold": every successful dp3_return_labels run, nightly or by hand. Dataset runs use
+    # the default params (end = Gold Cutoff, full_reload=false): an empty Redis fails loudly (D3), it is not refilled.
+    schedule=[GOLD_LABELS],
     catchup=False,
     is_paused_upon_creation=False,
     max_active_runs=1,
