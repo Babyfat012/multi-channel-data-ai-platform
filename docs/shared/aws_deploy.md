@@ -83,7 +83,7 @@ Fix the cause and plan again; do not downsize to an 8 GiB machine, because the o
 The budget only alerts on **cost before credits**; it does not cap spending.
 
 <a id="ansible"></a>
-## 3. Ansible: configure EC2, generate sources and smoke test (laptop)
+## 3. Ansible: configure EC2 and smoke test (laptop)
 
 From the Terraform directory after step 2:
 
@@ -108,7 +108,6 @@ Fill in the files you just copied:
 | `data_volume_id`, `raw_bucket`, `lakehouse_bucket` | the keys with the same names in `all.yml` (buckets without `s3://`) |
 | Absolute repo path on the laptop | `repo_local`, for example `/home/you/Data & AI Platform` |
 | Random secrets using only letters/digits/`_`/`-` | `postgres_password` ≥16 characters; `lakekeeper_encryption_key` ≥32 characters |
-| Sources | keep the defaults `source_mode: scale`, `source_dataset_name: aws-scale150-seed7` (150 days × 20 orders); rename the dataset when the source configuration changes |
 
 Keep `app_dir: /opt/platform`; the private key in the inventory is `~/.ssh/platform_aws`.
 Encrypt all variables before running:
@@ -116,105 +115,30 @@ Encrypt all variables before running:
 ```bash
 ansible-vault encrypt group_vars/all.yml
 ansible-playbook -i inventory.ini site.yml --ask-vault-pass
-ansible-playbook -i inventory.ini site.yml --ask-vault-pass --tags source_data
 ansible-playbook -i inventory.ini site.yml --ask-vault-pass --tags smoke
 ```
 
-Expected: PLAY RECAP `failed=0`, runtime healthy; the sources have a manifest at
-`s3://<raw_bucket>/order_lifecycle/aws-scale150-seed7`, Walmart is loaded into PostgreSQL,
-and the smoke test reads/writes Iceberg through the IAM role successfully. By default the playbook does not run
-the `source_data`/`smoke` tags, so all three commands are needed. Common errors:
+Expected: PLAY RECAP `failed=0`, runtime healthy, and the smoke test reads/writes Iceberg through the IAM role
+successfully. By default the playbook does not run the `smoke` tag, so both commands are needed. Common errors:
 `TargetNotConnected` → wait for the SSM agent, check role/Internet/region;
 `Permission denied (publickey)` → key does not match Terraform;
 `CHANGE_ME`/badly formatted secret → `ansible-vault edit group_vars/all.yml`;
 S3 `AccessDenied` → check bucket/role; do not add MinIO access keys.
 
 <a id="pipeline"></a>
-## 4. Pipeline → DataHub (EC2; capture on the laptop)
+## 4. Run the pipeline (EC2)
 
-Only run the end-to-end fixture after the smoke test. DataHub runs in a **later phase**, after
-Spark/Airflow have been stopped so that it fits in 16 GiB of RAM; do not start everything at once. Keep the same
-`run_id`, dataset and receipts for the pipeline, publish and capture. The scale source
-runs after the fixture passes; a fixture proof does not prove medium or ≥100 GB.
-
-Open a session on EC2 through SSM (no SSH port opened), then run **in exactly this order** as the `ubuntu` user
-so that HOME, the DataHub SDK and quickstart match Ansible:
-
-```bash
-# Laptop, repository root
-eval "$(terraform -chdir=infra/aws/terraform output -raw ssm_command)"
-# In the EC2 session
-sudo -iu ubuntu
-cd /opt/platform
-python3 -m scripts.data.run_order_lifecycle_live --phase source    # only checks the manifest on S3
-python3 -m scripts.data.run_order_lifecycle_live --phase airflow   # DAG dp_order_lifecycle, receipts, then stops phase A
-```
-
-Next run section [5. Measure](#do), **and only then** start DataHub (phase B reuses the RAM of Spark/Airflow):
-
-```bash
-python3 -m scripts.data.run_order_lifecycle_live --phase datahub   # start DataHub, publish lineage + assertions
-```
-
-Do not use `--phase all` before measuring. Capture runs on the **laptop** through a tunnel: terminal 2 keeps the tunnel open,
-terminal 3 takes the screenshots. Capture only needs the repo + Chrome + aiohttp, not the receipts on the laptop.
-
-```bash
-# Terminal 2 (laptop): tunnel covering 8080/8081/8181 and 9002 (DataHub UI) / 8089 (GMS)
-eval "$(terraform -chdir=infra/aws/terraform output -raw port_forward_command)"
-# Terminal 3 (laptop)
-.venv/bin/python scripts/evidence/capture_order_lifecycle_datahub_evidence.py
-```
-
-Screenshots go to `docs/images/datahub/v2/dp-order-lifecycle-{gold,silver}-{lineage,validation}.png`. After capturing, stop DataHub on EC2
-(keep the volumes, no `down -v`):
-
-```bash
-cd /opt/platform
-DATAHUB_VERSION=v1.7.0.1 UI_INGESTION_DEFAULT_CLI_VERSION=1.7.0.14 \
-DATAHUB_MAPPED_GMS_PORT=8089 DATAHUB_MAPPED_FRONTEND_PORT=9002 \
-docker compose --env-file "$HOME/.datahub/quickstart/.local-secrets.env" \
-  --profile quickstart -f "$HOME/.datahub/quickstart/docker-compose.yml" \
-  -f infra/docker/datahub-compose.override.yml -p datahub stop
-```
-
-Evidence on EC2: `out/receipts-v2-run/<run_id>/` (five receipts + `datahub-mcps.json`) and
-`out/receipts-v2-run/latest-run-id`. Mechanism and limitations: [DataHub v2](../data-platform/reference/datahub_order_lifecycle.md#running-for-real).
-
-Expected: DAG success, receipts of the right generation,
-Lineage/Quality published and captured from the laptop through the tunnel. Common errors:
-missing manifest → run the source_data tag; wrong `source_root` → check the S3 prefix/dataset;
-DataHub OOM → check that Spark/Airflow are stopped; capture error → check the tunnel/UI and that the receipts
-are from the same run. Only record results after checking the actual output and screenshots of the same run.
+Pipeline A reads the order exports already on `s3://<raw_bucket>/order_snapshots/`. Trigger `dp_nightly` from the Airflow UI
+(through the tunnel in [section 6](#anh)) or run the stages one by one, as described in
+[pipeline orchestration](../data-platform/pipeline_orchestration.md). DataHub lineage and assertions for dp1–dp4:
+[data governance](../data-platform/data_governance.md).
 
 <a id="do"></a>
 ## 5. Measure on real tables (EC2)
 
-Run on EC2 **after** the airflow phase and **before** the datahub phase (the runner refuses to run while DataHub is up):
-
-```bash
-cd /opt/platform
-python3 -m scripts.data.run_aws_measurements --what skew          # baseline vs salted
-python3 -m scripts.data.run_aws_measurements --what maintenance   # compact/z-order real tables
-python3 -m scripts.data.run_aws_measurements --what warehouse     # EXPLAIN before/after index n=5
-```
-
-Results: `out/aws-evidence/<UTC date>/{skew,maintenance,warehouse}-<timestamp>-<pid>/` (JSON, image ID, logs, event logs;
-skew also has Parquet). The original event logs are in `/mnt/platform-data/spark-events/aws-evidence/`. Fetch them to the laptop to add to `docs/evidence/`:
-
-```bash
-# In the EC2 session: package
-tar czf /tmp/platform-aws-evidence.tgz -C /opt/platform out/aws-evidence out/receipts-v2-run
-# Laptop (uses the same SSM ProxyCommand as the inventory)
-scp -i ~/.ssh/platform_aws -o ProxyCommand="aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p --region ap-southeast-1" \
-  ubuntu@$(terraform -chdir=infra/aws/terraform output -raw instance_id):/tmp/platform-aws-evidence.tgz .
-```
-
-Expected: baseline/salted have bag equality on the same input; maintenance preserves
-the data and the oracle afterwards; EXPLAIN before/after index uses the same input and the
-query returns results. Common errors: OOM → reduce the volume/run phase by phase and record the actual
-scope; slow CPU when standard credits run out → check CPU credits, do not switch to
-unlimited on your own. Do not use harness timings as an index improvement percentage.
+Bronze/Spark measurements: [Spark optimization](../data-platform/reference/spark.md); Iceberg maintenance:
+[Iceberg maintenance](../data-platform/reference/iceberg_maintenance.md). The former order-lifecycle (v2) runner,
+DataHub capture and measurements were removed with that pipeline (archived in git tag `v2-archive`).
 
 <a id="anh"></a>
 ## 6. UI tunnel and evidence collection (laptop)

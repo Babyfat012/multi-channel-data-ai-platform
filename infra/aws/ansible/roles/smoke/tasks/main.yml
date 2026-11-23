@@ -1,5 +1,5 @@
 # Checks the real runtime when the operator runs --tags smoke; no fabricated metrics.
-- name: Check health and status of all Data Platform v2 containers
+- name: Check health and status of all Data Platform containers
   ansible.builtin.command: docker compose --profile catalog --profile spark --profile airflow ps --all --format json
   args:
     chdir: '{{ app_dir }}'
@@ -32,7 +32,7 @@
     chdir: '{{ app_dir }}'
   # The temporary table is dropped within the same check; business state is untouched.
   changed_when: false
-- name: Check that Airflow picks up the v2 DAGs
+- name: Check that Airflow picks up the pipeline DAGs
   ansible.builtin.command: docker compose --profile airflow exec -T airflow airflow dags list --output json
   args:
     chdir: '{{ app_dir }}'
@@ -40,4 +40,4 @@
   changed_when: false
 - name: Verify DAG names
   ansible.builtin.assert:
-    that: "'dp_order_lifecycle' in (dag_list.stdout | from_json | map(attribute='dag_id') | list)"
+    that: "'dp_nightly' in (dag_list.stdout | from_json | map(attribute='dag_id') | list)"

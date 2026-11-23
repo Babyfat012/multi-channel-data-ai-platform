@@ -126,7 +126,6 @@ This warning is a signal to recheck the model **before** trusting its prediction
 | Component | File |
 |---|---|
 | Drift check + summary | [`ml/drift.py`](../../ml/drift.py), test [`tests/unit/test_drift.py`](../../tests/unit/test_drift.py) |
-| "Sale Event" batch | `generator.generate_order_lifecycle --sku-zipf-s 0.3` (promoted SKUs spread evenly) |
 | Results | [`evidence/mle-drift-summary-20261021.json`](../evidence/mle-drift-summary-20261021.json), HTML in `out/drift/` |
 
 ## How it is measured
@@ -146,7 +145,7 @@ The bug was found by recomputing with scipy's chi-square. Fix: determine the com
 | Batch compared with reference (first 30 days, 2,307 lines) | `seller_sku` | `label` | alert |
 |---|---|---|---|
 | 15 days later, same distribution (1,165 lines) | 0.136 | 0.005 | **no** |
-| 5-day Sale Event, zipf 0.3 (1,228 lines) | **0.436** | 0.001 | **yes** |
+| 5-day Sale Event, zipf 0.3 (1,228 lines; v2 generator, archived in git tag `v2-archive`) | **0.436** | 0.001 | **yes** |
 
 Manual check: the top SKU makes up 27.9% of the reference batch but only 3.3% of the Sale Event, while the return rate stays almost
 unchanged (0.299 / 0.306 / 0.300). This matches the result that only `seller_sku` drifted.
@@ -157,7 +156,7 @@ unchanged (0.299 / 0.306 / 0.300). This matches the result that only `seller_sku
 uv run --no-project --with evidently==0.7.23 --with s3fs==2026.9.0 --with pyarrow \
   env PYTHONPATH=. AWS_ENDPOINT_URL_S3=http://localhost:9000 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
   python -m ml.drift --reference s3://platform/feature-store/training_lines \
-    --sale-truth out/order_lifecycle_sale/_truth/lines.jsonl --out out/drift
+    --out out/drift
 ```
 
 </details>

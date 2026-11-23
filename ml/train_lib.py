@@ -11,6 +11,8 @@ import pandas as pd
 
 FEAST_FEATURES = [
     "sku_return_daily:labeled_count_90d",
+    # Not a model input: the predictor needs it to tell a whole daily row from a broken one (daily_status).
+    "sku_return_daily:positive_count_90d",
     "sku_return_daily:return_or_refund_rate_90d",
     "sku_return_24h:approved_returns_24h",
 ]
@@ -75,32 +77,64 @@ def train_model(train: pd.DataFrame, seed: int = 7):
     return model
 
 
+def ap_gain_lower(
+    y: np.ndarray, scores: np.ndarray, other: np.ndarray, n_boot: int = 1000, seed: int = 7
+) -> float:
+    """One-sided 95% lower bound of PR-AUC(scores) - PR-AUC(other), bootstrapping test rows.
+
+    Both scorers see the same resample, so the luck of the test window cancels in the difference. A model
+    "wins" only if this bound is > 0: 0.3101 vs 0.3100 on one window is noise, not a better model.
+    NaN when no resample holds both classes (tiny test set): never a win.
+    ponytail: rows are resampled independently; lines of one day/SKU are correlated, so the bound is a bit
+    optimistic. Resample whole order days (block bootstrap) if a gate decision ever hinges on it.
+    """
+    from sklearn.metrics import average_precision_score
+
+    rng = np.random.default_rng(seed)
+    gains = []
+    for _ in range(n_boot):
+        i = rng.integers(0, len(y), len(y))
+        if y[i].min() != y[i].max():
+            gains.append(
+                average_precision_score(y[i], scores[i]) - average_precision_score(y[i], other[i])
+            )
+    return float(np.percentile(gains, 5)) if gains else float("nan")
+
+
 def evaluate(
     test: pd.DataFrame,
     model_scores: np.ndarray,
     base_scores: np.ndarray,
     champion_scores: np.ndarray | None = None,
 ) -> dict:
-    """PR-AUC (average precision) of the model, baseline and (if any) the current production model
-    (champion), all on the SAME test set, so the same prevalence. A PR-AUC from another run's test set
-    is not comparable: a test window with more returns scores higher with no better model."""
+    """PR-AUC of the model, baseline and (if any) the current production model (champion), all on the
+    SAME test set, so the same prevalence. A PR-AUC from another run's test set is not comparable: a test
+    window with more returns scores higher with no better model. `beats_*` needs the bootstrap lower bound
+    of the gain (`ap_gain_lower`) above 0, not just a higher point estimate."""
     from sklearn.metrics import average_precision_score
 
     y = test["label"].to_numpy()
     prevalence = float(y.mean())
     model_ap = float(average_precision_score(y, model_scores))
     base_ap = float(average_precision_score(y, base_scores))
+    gain_base = ap_gain_lower(y, model_scores, base_scores)
     result = {
         "test_rows": int(len(y)),
         "prevalence": prevalence,
         "pr_auc_model": model_ap,
         "pr_auc_baseline": base_ap,
         "lift_model": model_ap / prevalence,
-        "beats_baseline": model_ap > base_ap,
+        "gain_lower_baseline": gain_base,
+        "beats_baseline": gain_base > 0,
     }
     if champion_scores is not None:
         champion_ap = float(average_precision_score(y, champion_scores))
-        result |= {"pr_auc_champion": champion_ap, "beats_champion": model_ap > champion_ap}
+        gain_champion = ap_gain_lower(y, model_scores, champion_scores)
+        result |= {
+            "pr_auc_champion": champion_ap,
+            "gain_lower_champion": gain_champion,
+            "beats_champion": gain_champion > 0,
+        }
     return result
 
 

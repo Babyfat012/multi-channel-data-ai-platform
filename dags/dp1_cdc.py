@@ -22,12 +22,6 @@ SparkSubmitOperator = Dp1CdcSparkSubmitOperator
 PACKAGES = "{{ var.value.platform_cdc_spark_packages }}"
 TABLE = "{{ var.value.platform_dp1_cdc_table }}"
 BOUNDARY_DIR = "/opt/airflow/platform-control/cdc"
-SPARK_CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
-
 with DAG(
     dag_id="dp1_cdc",
     description="Walmart CDC source via Kafka → Bronze and check offset completeness",
@@ -59,7 +53,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     validate = SparkSubmitOperator(
         task_id="validate_walmart_cdc",
@@ -79,6 +72,5 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     ingest >> validate

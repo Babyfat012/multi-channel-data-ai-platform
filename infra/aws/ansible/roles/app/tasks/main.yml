@@ -9,7 +9,6 @@
       - lakekeeper_encryption_key != 'CHANGE_ME'
       - postgres_password is match('^[A-Za-z0-9_-]{16,}$')
       - lakekeeper_encryption_key is match('^[A-Za-z0-9_-]{32,}$')
-      - source_dataset_name is match('^[a-zA-Z0-9_-]+$')
       - warehouse_name is match('^[a-zA-Z0-9_-]+$')
       - (aws_runtime_profile | default('standard')) in ['standard', 'performance']
   no_log: true

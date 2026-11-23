@@ -36,6 +36,7 @@ class FakeStore:
                 {
                     "seller_sku": skus,
                     "labeled_count_90d": [self.history.get(s) for s in skus],
+                    "positive_count_90d": [0 for _ in skus],
                     "return_or_refund_rate_90d": [0.3 for _ in skus],
                     "approved_returns_24h": [None for _ in skus],
                 }
@@ -80,7 +81,7 @@ def test_abstain_boundary(history, abstain):
         assert p["score"] is None and p["reason"] == "feature_data_unavailable"
     else:
         assert p["score"] == 0.42
-        assert p["reason"] == ("insufficient_history" if abstain else None)
+        assert p["reason"] == {0: "no_history", 19: "too_few_samples"}.get(history)
 
 
 @pytest.mark.parametrize("history", [None, np.nan, pd.NA])
@@ -118,7 +119,7 @@ def test_mixed_batch_only_scores_available_rows_in_original_order():
         "feature_data_unavailable",
         None,
         "feature_data_unavailable",
-        "insufficient_history",
+        "no_history",
         None,
     ]
     m.booster.predict.assert_called_once()
@@ -133,6 +134,25 @@ def test_nullable_features_do_not_block_known_history():
     assert result["score"] == 0.42 and result["abstain"] is False
     assert result["reason"] is None
     assert m.booster.predict.call_args.args[0]["approved_returns_24h"].isna().all()
+
+
+def test_incomplete_daily_row_is_not_scored():
+    """Count present but rate missing is broken data (same rule as the Feature API), not a model input."""
+    m = model({"sku-1": 50})
+    m.store.get_online_features = lambda features, entity_rows: types.SimpleNamespace(
+        to_df=lambda: pd.DataFrame(
+            {
+                "seller_sku": ["sku-1"],
+                "labeled_count_90d": [50],
+                "positive_count_90d": [10],
+                "return_or_refund_rate_90d": [None],
+                "approved_returns_24h": [None],
+            }
+        )
+    )
+    m.booster.predict = Mock(side_effect=AssertionError("must not score a broken row"))
+    p = m.predict({"instances": [{"seller_sku": "sku-1", **ORDER}]})["predictions"][0]
+    assert p["score"] is None and p["reason"] == "feature_data_unavailable"
 
 
 def test_missing_order_field_is_rejected():

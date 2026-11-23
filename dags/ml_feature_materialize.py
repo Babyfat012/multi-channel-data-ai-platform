@@ -27,30 +27,17 @@ ENSURE_24H = (
     "ensure_offline_file(os.environ['FEAST_SKU_RETURN_24H_PATH'])"
 )
 REPO = "/opt/feature_repo"
-# Gold A Cutoff (end of the 180 days of data); locally, if the variable is unset, fall back to the old Cutoff.
-FULL_RELOAD_START = "2000-01-01T00:00:00+00:00"  # before any simulated data
-CUTOFF = "{{ var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff) }}"
+# Gold A Cutoff: the simulated "now" of the ML exports (Airflow Variable platform_ml_cutoff).
+CUTOFF = "{{ var.value.platform_ml_cutoff }}"
 # Spark writes via s3a://, Feast reads the same location via s3://.
 SPARK_ROOT = "{{ var.value.platform_feast_root | replace('s3://', 's3a://') }}"
 SPARK_OUTPUT = SPARK_ROOT + "/sku_daily"
-CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
 
 
 def run_feast(*args, **context):
     """Run the Feast CLI on a copy of the repo (mounted read-only), with credentials fetched at run time."""
     # Do not declare `params=` in the signature: Airflow forbids context names clashing with *args positions (ValueError reserved).
     params = context.get("params")
-    # Redis lost its data but the registry still remembers the old watermark ⇒ incremental loads 0 rows
-    # and still goes green. full_reload: reload everything (FULL_RELOAD_START, end], writing the latest value per SKU.
-    if args[0] == "materialize-incremental" and (params or {}).get("full_reload"):
-        print(
-            "full_reload=true: deliberately reloading the batch, skipping the incremental watermark check."
-        )
-        args = ("materialize", *args[1:-1], FULL_RELOAD_START, args[-1])
     root = Variable.get("platform_feast_root")
     redis = Variable.get("platform_feast_redis")
     if not redis:
@@ -79,14 +66,6 @@ def run_feast(*args, **context):
                 command.append("--full-reload")
             subprocess.run(command, cwd=repo, env=env, check=True, timeout=3600)
             return
-        if args[0] == "materialize-incremental":
-            subprocess.run(
-                [FEAST_PYTHON, "-m", "check_online_store"],
-                cwd=repo,
-                env=env,
-                check=True,
-                timeout=120,
-            )
         if args[0] == "apply":
             # The 24h stream view reads Parquet created by the pusher; where the pusher is not running (AWS), create an empty file.
             subprocess.run(
@@ -126,7 +105,6 @@ with DAG(
         conn_id="spark_default",
         packages="{{ var.value.platform_spark_packages }},org.apache.hadoop:hadoop-aws:3.3.4",
         driver_memory="1g",
-        conf=CONF,
     )
     # Training set (entity df for KFP): labeled lines before the Cutoff + order-time attributes, same label run as the features.
     export_training = PlatformSparkSubmitOperator(
@@ -144,7 +122,6 @@ with DAG(
         conn_id="spark_default",
         packages="{{ var.value.platform_spark_packages }},org.apache.hadoop:hadoop-aws:3.3.4",
         driver_memory="1g",
-        conf=CONF,
     )
     apply = PythonOperator(task_id="feast_apply", python_callable=run_feast, op_args=["apply"])
     materialize = PythonOperator(
@@ -154,8 +131,7 @@ with DAG(
             "publish-batch",
             "--end",
             # Python 3.10 fromisoformat cannot parse the "Z" suffix.
-            "{{ (params.end or var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff))"
-            " | replace('Z', '+00:00') }}",
+            "{{ (params.end or var.value.platform_ml_cutoff) | replace('Z', '+00:00') }}",
         ],
     )
     export >> export_training >> apply >> materialize

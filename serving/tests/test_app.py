@@ -712,7 +712,7 @@ def test_partial_batch_failure_preserves_stream_status(client, store):
 def test_zero_history_and_zero_stream_are_not_system_failure(client):
     """A confirmed zero is different from null and from a store error."""
     row = client.post("/features", json={"seller_skus": ["sku-00002"]}).json()["features"][0]
-    assert row["batch_status"] == "insufficient_history"
+    assert row["batch_status"] == "no_history"
     assert row["stream_status"] == "ready" and row["approved_returns_24h"] == 0
 
 

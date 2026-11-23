@@ -12,7 +12,7 @@ the generator owns in the chosen root, so only use it when you deliberately want
 Do not run restart on an evidence set that must be kept. The guard assumes a single writer;
 it is not yet a distributed lock or a hash check over every generated file.
 The fix records tests and limitations.
-[Source contract v2](source_contract_order_lifecycle.md) is the next target; it is not
+Source contract v2 (archived in git tag `v2-archive`) is the next target; it is not
 enforced just by having `dataset_version`; the current label logic is still v1.
 
 ## Table of contents

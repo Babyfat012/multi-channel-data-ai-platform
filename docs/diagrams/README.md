@@ -16,7 +16,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | Spark | Baseline, skew, schema evolution, dedup; pipeline integration | `spark_jobs/`, [Spark](../data-platform/processing_jobs.md) |
 | Kafka / Flink | Online generator, late arrival, duplicates, windows | `flink_jobs/`, [Flink](../data-platform/processing_jobs.md) |
 | Lakekeeper / S3 / Iceberg | Catalog, zones, SCD2, labels, features, compaction / partitioning | [Storage](../data-platform/data_storage.md), [Schema](../data-platform/schema_design.md) |
-| PostgreSQL | Warehouse dim–fact / indexing | [Warehouse](../data-platform/reference/warehouse_order_lifecycle.md) |
+| PostgreSQL | Warehouse dim–fact / indexing | [Warehouse](../data-platform/data_storage.md) |
 | Airflow DP1–DP4 | Ingest, validate, task dependencies, publish | `dags/`, [Airflow](../data-platform/pipeline_orchestration.md) |
 | DataHub | Dataset / DataJob lineage, validation assertions | [DataHub](../data-platform/data_governance.md) |
 | Trino | Trino federation | [Trino](../data-platform/trino_federation_and_cdc.md) |

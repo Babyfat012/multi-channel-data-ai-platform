@@ -50,14 +50,22 @@ def catalog_conf(env) -> dict[str, str]:
     }
     storage = env.get("PLATFORM_STORAGE", "minio")
     if storage == "minio":
+        endpoint = env.get("MINIO_INTERNAL_ENDPOINT", "http://minio:9000")
         conf.update(
             {
                 f"{prefix}.io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
-                f"{prefix}.s3.endpoint": env.get("MINIO_INTERNAL_ENDPOINT", "http://minio:9000"),
+                f"{prefix}.s3.endpoint": endpoint,
                 f"{prefix}.s3.path-style-access": "true",
                 f"{prefix}.s3.region": "local-01",
+                # Plain s3a:// files (Parquet exports for Feast) on the same MinIO.
+                "spark.hadoop.fs.s3a.endpoint": endpoint,
+                "spark.hadoop.fs.s3a.path.style.access": "true",
             }
         )
+        # Workers have no keys in their environment; Spark redacts *.access.key / *.secret.key in UI and logs.
+        if env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"):
+            conf["spark.hadoop.fs.s3a.access.key"] = env["AWS_ACCESS_KEY_ID"]
+            conf["spark.hadoop.fs.s3a.secret.key"] = env["AWS_SECRET_ACCESS_KEY"]
     elif storage == "s3":
         # Real AWS: no endpoint/key; temporary credentials come from the EC2 IAM role.
         region = env["AWS_REGION"]

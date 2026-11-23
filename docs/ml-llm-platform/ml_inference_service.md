@@ -51,10 +51,13 @@ Returns `{"predictions": [{"seller_sku", "score", "abstain", "reason", "model_ve
 - `score` is a **ranking** signal, not a probability (Q38).
 - The caller only sends order attributes. The predictor **reads** the SKU features from Feast online (Redis) itself, so the feature
   list is declared in one place only.
-- `abstain` means the model declines to make a claim. A SKU with fewer than 20 labeled lines in 90 days returns
-  `abstain: true, reason: insufficient_history`. This rule only applies when `labeled_count_90d` has a value.
-- If a count is missing (`null`/NaN), the predictor does not call LightGBM for that row and returns `score: null, abstain: true,
-  reason: feature_data_unavailable`. The predictor does not treat a missing count as 0.
+- `abstain` means the model declines to make a claim. A SKU with 0 labeled lines in 90 days returns
+  `abstain: true, reason: no_history`; with 1-19 lines it returns `abstain: true, reason: too_few_samples`.
+  Both still include the score for reference.
+- The predictor reads the daily features with the same rule as the Feature API (`daily_status` in
+  `feature_repo/publication.py`). If the row is missing or incomplete (count, positive count, or the rate when count > 0),
+  it does not call LightGBM for that row and returns `score: null, abstain: true, reason: feature_data_unavailable`.
+  The predictor does not treat a missing count as 0.
 - In a batch with both rows that have counts and rows that don't, only rows with counts are scored; the result order matches the input.
   Other nullable features keep their current handling.
 - The missing-count handling is a change in the repo that has not been verified in an AWS deployment.
@@ -92,7 +95,7 @@ POST /v1/models/return-risk:predict  → sku-00002 0.346 · sku-00099 0.305 · s
 ```
 
 The score order matches the actual return rates in the data (sku-00002 about 54%, sku-00003 about 7%).
-All three are `abstain: insufficient_history`, and that is **correct**: Redis holds the latest snapshot, and the last order
+All three are `abstain: insufficient_history` (the reason is now called `no_history`), and that is **correct**: Redis holds the latest snapshot, and the last order
 was placed on 2026-02-14, so there are no labeled lines left in the 90-day window. The model still returns a score for reference but
 makes no claim.
 

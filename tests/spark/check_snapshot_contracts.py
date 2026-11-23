@@ -127,8 +127,8 @@ def main() -> int:
         rows, examples, typed = check(spark, registry, "shopify", ['{"order": {"id": 1'])
         assert rows == 1 and "sim-native-v1/shopify/1 $: not JSON" in typed, (examples, typed)
 
-        # 5. Pipeline B's gate still splits accepted / quarantined the same way after contract_reasons moved out.
-        from spark_jobs.lib.order_lifecycle_lakehouse import contract_gate
+        # 5. contract_reasons tags each row: passes (None), missing required paths, unregistered shape.
+        from spark_jobs.lib.snapshot_contracts import contract_reasons
 
         frame = spark.createDataFrame(
             [
@@ -138,9 +138,9 @@ def main() -> int:
             ],
             "raw_json string, contract_schema_id string",
         )
-        accepted, quarantined = contract_gate(frame, v1_registry(registry, "amazon"))
-        assert accepted.count() == 1 and "reason" not in accepted.columns
-        assert sorted(r["reason"] for r in quarantined.collect()) == [
+        reasons = contract_reasons(frame, v1_registry(registry, "amazon")).select("reason")
+        assert sorted(str(r["reason"]) for r in reasons.collect()) == [
+            "None",
             "contract_violation",
             "unregistered_schema",
         ]

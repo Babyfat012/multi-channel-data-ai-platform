@@ -212,120 +212,19 @@ replay: [`replay_return_events.py`](../../feature_repo/replay_return_events.py),
 [`return_events_replay.sql`](../../sql/ml/return_events_replay.sql), pusher:
 [`push_stream_features.py`](../../feature_repo/push_stream_features.py).
 
-<details>
-<summary>Reference: design, development guide and records from before the AWS deployment</summary>
-
-The local records keep their original environment and are not a substitute for cloud evidence.
-
-<!-- Purpose: jobs that push stream features into Feast's OFFLINE and ONLINE stores, -->
-## Stream features into Feast — ML Platform step 3
-
-Goal: deploy the jobs that push **streaming features** (features computed continuously from an event stream) into the OFFLINE and ONLINE stores.
-
-## Data path
-
-```
-Kafka order_lifecycle.seller_postsales.return_events     (Data Platform publisher)
-   │ ① Flink SQL sku_return_feature.sql (runs continuously)
-   │    - drop duplicate retries by record_sha256
-   │    - look up line_id → seller_sku in PostgreSQL warehouse_lifecycle.fact_order_lines (lookup join, cached)
-   │    - HOP 24h sliding 1h on event time, count "approved" Returns
-   ▼
-Kafka ml.sku_return_24h        {seller_sku, event_timestamp = window_end, approved_returns_24h}
-   │ ② feast-pusher (push_stream_features.py, Compose service)
-   │    store.push(..., to=ONLINE_AND_OFFLINE), commit offset AFTER the push
-   ├──► Redis in kind (ONLINE)             feature view sku_return_24h
-   └──► s3://platform/feature-store/sku_return_24h.parquet (OFFLINE, training uses PIT join)
-```
-
-| Component | File |
-|---|---|
-| Flink job | [`flink_jobs/ml/sku_return_feature.sql`](../../flink_jobs/ml/sku_return_feature.sql) |
-| Job submission (fills credentials from `.env`) | [`scripts/ml/run_sku_return_feature.py`](../../scripts/ml/run_sku_return_feature.py) |
-| JDBC + PostgreSQL jars for Flink | [`infra/docker/Dockerfile.flink`](../../infra/docker/Dockerfile.flink) |
-| Pusher | [`feature_repo/push_stream_features.py`](../../feature_repo/push_stream_features.py), image [`infra/docker/Dockerfile.feast`](../../infra/docker/Dockerfile.feast), service `feast-pusher` |
-| Feature view | `sku_return_24h` in [`feature_repo/features.py`](../../feature_repo/features.py) |
-
-## Why it is built this way
-
-- **Return events have no SKU**, only `line_id`. Flink looks up the SKU from the PostgreSQL warehouse, instead of carrying all
-  the order information into Kafka. Lookup results are cached for 1 hour, since a line never changes its SKU.
-- **Flink is not allowed to write directly to Redis.** That would bypass Feast: the offline store would have no data, and training
-  could not do a PIT join.
-- **At-least-once**: the pusher commits the Kafka offset only after the push finishes. If the pusher dies midway,
-  it rereads from the old offset and may write duplicate rows to offline. Duplicate rows have the same values, so the PIT join does not change.
-
-**Limitations (marked `Limitation:` in the SQL):**
-- A HOP window is only emitted when there are messages. For a SKU with no new Returns, Redis keeps the old count until a new message arrives.
-- On each offline push, the pusher reads and rewrites the whole file. This only works at demo scale.
-
-## Running locally
-
-```bash
-## 0. Gold already exists (docs/ml-llm-platform/feature_store.md step 1) and Redis is in kind (scripts/ml/setup_kind_feature_store.py)
-
-## 1. line → SKU lookup table: publish the warehouse from the current Gold (run_id = Gold's generation_id).
-##    On a RAM-constrained machine, run the export_order_lifecycle.py job directly with Spark local[2] (driver 1g) instead of the DAG.
-docker compose --profile airflow --profile spark up -d --wait airflow spark-master spark-worker-1 spark-worker-2
-docker compose --profile airflow exec airflow airflow dags unpause dp_order_lifecycle_warehouse
-docker compose --profile airflow exec airflow airflow dags trigger dp_order_lifecycle_warehouse \
-  --conf '{"run_id": "<generation_id>", "cutoff": "2026-06-01T00:00:00.000000Z"}'
-docker compose --profile airflow --profile spark stop airflow spark-master spark-worker-1 spark-worker-2
-
-## 2. Kafka + Flink + pusher
-docker compose --profile stream --profile flink --profile ml-stream up -d kafka flink-jobmanager flink-taskmanager feast-pusher
-
-## 3. Publish operational events to Kafka
-.venv/bin/python -m generator.publish_order_lifecycle_events --source out/order_lifecycle_live \
-  --bootstrap localhost:9094 --epoch 1 --manifest out/stream-ml-1.json
-
-## First time (do this BEFORE step 3): create the topics and register the view with Feast
-for t in carrier.delivery_events seller_postsales.return_events seller_postsales.refund_events seller_wms.stock_operations; do
-  docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-    --create --if-not-exists --topic order_lifecycle.$t --partitions 3 --replication-factor 1
-done
-docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-  --create --if-not-exists --topic ml.sku_return_24h --partitions 1 --replication-factor 1
-docker compose --profile ml-stream run --rm --no-deps feast-pusher feast apply
-
-## 4. Submit the Flink job (UI: http://localhost:8082)
-python3 -m scripts.ml.run_sku_return_feature
-
-## 5. Check
-docker compose --profile ml-stream logs feast-pusher | grep pushed
-kubectl --context kind-platform -n feature-store exec deploy/redis -- redis-cli dbsize
-```
-
 ## CI/CD
 
-[`infra/jenkins/stream-features.Jenkinsfile`](../../infra/jenkins/stream-features.Jenkinsfile) runs these stages in order:
+[`infra/jenkins/stream-features.Jenkinsfile`](../../infra/jenkins/stream-features.Jenkinsfile): test (ruff, docstrings, Spark
+check [`check_order_snapshot_ml.py`](../../tests/spark/check_order_snapshot_ml.py)) → build the Flink, Feast and Flink ML images
+and run `tests/flink` inside the image → deploy → verify.
 
-1. **Test**: ruff, docstring + stream renderer tests, Spark test `check_sku_daily_features.py`.
-2. **Build**: build the Flink, Feast and Flink ML images; run `tests/flink` inside the image.
-3. **Deploy**, split into two branches by `DATA_STORAGE`:
-   - `DATA_STORAGE=s3` (AWS): bring up Kafka + the Flink ML cluster. The script `scripts/ml/run_stream_feature_jobs.py` cancels jobs with the same name
-     (if any) then submits 2 jobs. The **Verify** stage checks that exactly 2 jobs are RUNNING.
-   - Local: runs the Flink SQL version B + pusher as described in this section. The **Verify** stage checks that exactly 1 job
-     `ml-sku-return-24h` is RUNNING and the pusher is running.
+- `DATA_STORAGE=s3` (AWS): Kafka + the Flink ML cluster; [`run_stream_feature_jobs.py`](../../scripts/ml/run_stream_feature_jobs.py)
+  cancels jobs with the same name, then submits the 2 PyFlink jobs. Verify: exactly 2 jobs RUNNING.
+- Local: the Flink SQL variant A [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql) + `feast-pusher`,
+  submitted by [`run_sku_return_feature.py`](../../scripts/ml/run_sku_return_feature.py). Verify: 1 job `ml-sku-return-24h` RUNNING
+  and the pusher running.
 
-Secrets are not in the repo. The pipeline takes the Jenkins credentials `platform-postgres` and `platform-minio`
-(username/password) via `withCredentials`; [`scripts/ml/run_sku_return_feature.py`](../../scripts/ml/run_sku_return_feature.py)
-only reads `.env` when run by hand. This pipeline has run on Jenkins EC2 (`stream-features`, Flink SQL run #2 and PyFlink run #7 both green), see [CI/CD](cicd.md#on-aws).
-
-## Evidence
-
-Local run (fixture of 15 orders / 2 SKUs):
-
-- Warehouse: table `warehouse_lifecycle.fact_order_lines` has 30 lines, each mapping `line_id` to `sku-A` or `sku-B`.
-- Flink job `ml-sku-return-24h`: **RUNNING** (a streaming job, it does not stop by itself).
-- The pusher prints `pushed 72 rows, last 2026-02-05 10:00:00+00:00`. Consumer group `feast-pusher` has lag = 0
-  (lag is the number of unread Kafka messages; 0 means everything has been read).
-- Offline: `sku_return_24h.parquet` has 72 rows. Online: `sku-A = 5`, `sku-B = None`. The `None` result is correct, because
-  sku-B has no approved Returns.
-- **Re-checked by manual counting**: a script counts from the source JSONL file (dropping duplicate `source_event_id` rows, looking up SKUs
-  from PostgreSQL, counting within the 24 hours before each hour mark) → all 72 result rows match, none differ.
-- The final window stops at 02-05 10:00 because the watermark only advances when new messages arrive (the stream does not end by itself).
-
-</details>
+The earlier order-lifecycle (v2) variant, which looked SKUs up in a PostgreSQL warehouse, was removed with that pipeline
+(archived in git tag `v2-archive`).
 
 [Section index](README.md) · [Main index](../README.md)

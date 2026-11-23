@@ -2,8 +2,10 @@
 
 Callers (MCP server, or clients through the ingress `/predict`) send only the order attributes; the predictor
 validates them, joins SKU features from Redis and scores. This is the trust boundary for prediction input.
-A SKU with fewer than MIN_HISTORY labeled lines in 90 days ⇒ `abstain` (Q38), score still included for reference.
-Missing labeled_count_90d ⇒ no scoring, score=null and reason=feature_data_unavailable.
+Daily features are read with `feature_repo.publication.daily_status`, the same rule as the Feature API:
+- missing or incomplete (count, positive, rate) ⇒ no scoring, score=null, reason=feature_data_unavailable;
+- 0 labeled lines ⇒ abstain, reason=no_history; fewer than MIN_HISTORY ⇒ abstain, reason=too_few_samples
+  (Q38). Both still include the score for reference.
 """
 
 import os
@@ -16,7 +18,7 @@ from kserve import Model, ModelServer
 from kserve.errors import InvalidInput
 from prometheus_client import Counter, Histogram
 
-from feature_repo.publication import FeatureDataUnavailable, load_published_store
+from feature_repo.publication import FeatureDataUnavailable, daily_status, load_published_store
 from ml.train_lib import FEAST_FEATURES, FEATURES, add_order_features
 
 # Business metrics, exposed at /metrics next to KServe's default latency metrics (scraped by Prometheus).
@@ -127,19 +129,35 @@ class ReturnRisk(Model):
         frame = add_order_features(
             pd.concat([orders.reset_index(drop=True), online.drop(columns="seller_sku")], axis=1)
         )
-        history = frame["labeled_count_90d"]
-        available = history.notna()
+        plain = lambda v: None if pd.isna(v) else v  # noqa: E731 - NaN/NA → None for daily_status
+        expected = release.expected_skus if release else frozenset()
+        statuses = [
+            daily_status(
+                plain(row.labeled_count_90d),
+                plain(row.positive_count_90d),
+                plain(row.return_or_refund_rate_90d),
+                expected=row.seller_sku in expected,
+            )
+            for row in frame.itertuples()
+        ]
+        # Same reading as the Feature API: score only rows whose daily features are whole.
+        available = pd.Series([s in ("ready", "no_history") for s in statuses], index=frame.index)
         scores = pd.Series(float("nan"), index=frame.index)
         if available.any():
             scores.loc[available] = self.booster.predict(frame.loc[available, FEATURES])
         predictions = []
-        for sku, score, count in zip(orders["seller_sku"], scores, history, strict=True):
-            unavailable = pd.isna(count)
+        history = frame["labeled_count_90d"]
+        for sku, score, count, ok, status in zip(
+            orders["seller_sku"], scores, history, available, statuses, strict=True
+        ):
+            unavailable = not ok
             if unavailable:
                 reason = "feature_data_unavailable"
                 ERRORS.labels(reason).inc()
+            elif status == "no_history":
+                reason = "no_history"
             elif count < self.min_history:
-                reason = "insufficient_history"
+                reason = "too_few_samples"
             else:
                 reason = None
             PREDICTIONS.labels(str(reason is not None).lower()).inc()

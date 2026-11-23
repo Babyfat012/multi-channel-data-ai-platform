@@ -1,5 +1,5 @@
-# The operator runs this playbook against the EC2; by default it neither generates sources nor runs the Cloud smoke test.
-- name: Prepare the Data Platform v2 runtime on a single VM
+# The operator runs this playbook against the EC2; by default it does not run the Cloud smoke test.
+- name: Prepare the Data Platform runtime on a single VM
   hosts: aws
   become: true
   roles:
@@ -8,7 +8,5 @@
     - role: app
     - role: datahub
       when: enable_datahub | default(true) | bool
-    - role: source_data
-      tags: [never, source_data]
     - role: smoke
       tags: [never, smoke]

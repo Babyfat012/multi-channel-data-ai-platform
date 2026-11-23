@@ -20,7 +20,7 @@ The [AWS receipt](../evidence/aws/data-platform-aws-20261027.json) (entry `ml_ek
 | `split` | Splits train/test by Order date; outputs train_set and test_set |
 | `train` | LightGBM on train_set, outputs the model |
 | `evaluate` | PR-AUC of the model, the baseline and the current `production` model (champion), all on the same test_set |
-| `register` | Writes the model, metrics, metadata and dataset to MLflow; alias `challenger` only if it beats the baseline |
+| `register` | Writes the model, metrics, metadata and dataset to MLflow; alias `challenger` only if it beats the baseline: the one-sided 95% bootstrap lower bound of the PR-AUC gain (`gain_lower_baseline`, 1,000 resamples) must be > 0 |
 
 Training never sets `production`. An ML engineer approves the challenger in the Jenkins pipeline
 [`return-risk`](../../infra/jenkins/return-risk.Jenkinsfile), which moves the alias and deploys KServe (see [CI/CD](cicd.md#return-risk-model-approval)).
@@ -78,6 +78,8 @@ The notebook [`05_retrain_and_bootstrap`](../../notebooks/05_retrain_and_bootstr
 | Model − baseline difference | +0.0048. Bootstrap with 1,000 resamples (sampling with replacement): 95% confidence interval `[-0.0003, +0.0099]`; the model beats the baseline in about 96% of samples |
 | 5 seeds (7–11) | model 0.2512–0.2532 (standard deviation 0.0008), all 5 beat the baseline |
 | Feature importance | ~85% on `return_or_refund_rate_90d`, a column the baseline also uses |
+
+This check is now the gate itself: `ml/train_lib.py` `ap_gain_lower` computes the same bootstrap in every run, and `beats_baseline` / `beats_champion` are true only when its one-sided lower bound is above 0 (the run above, with 96% of resamples winning, would pass narrowly).
 
 Conclusion: the result is reproducible, and the model tends to beat the baseline. But the confidence interval touches 0, so it is **not yet established** that the model is better than a simple rule. In addition, the bootstrap treats rows as independent of each other, so the true confidence interval may be even wider.
 
@@ -169,7 +171,7 @@ s3://platform/feature-store/training_lines   (Spark export_training_lines.py: la
 The first run (`small` set, 3,325 lines, test 757 lines) gave model PR-AUC **0.287**, baseline **0.291**, prevalence **0.291**.
 PR-AUC equal to prevalence means both the model and the baseline are only as good as guessing.
 
-Cause: `generator/generate_order_lifecycle.py` chooses the return/refund scenario **independently** of SKU, Channel and price (every line
+Cause: the v2 generator (`generator/generate_order_lifecycle.py`, archived in git tag `v2-archive`) chose the return/refund scenario **independently** of SKU, Channel and price (every line
 has the same price and the same quantity), so the data has nothing to learn. The production gate correctly blocked this model.
 
 Fix: add the option `--sku-return-skew S`.

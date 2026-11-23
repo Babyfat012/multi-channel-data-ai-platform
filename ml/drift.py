@@ -7,7 +7,7 @@ after the Order, so "current" lags the calendar by that much. Drift ⇒ train, u
 
 Demo CLI (AWS evidence 2026-10-31, Job infra/k8s/ml/drift-job.yaml): slices of one training_lines file on
 DEMO_COLUMNS, which are NOT model inputs (seller_sku is not a feature, label is the target).
-Run: `python -m ml.drift --reference <parquet> [--sale-truth <_truth/lines.jsonl>] --out out/drift`.
+Run: `python -m ml.drift --reference <parquet> [--shift-channel <channel>] --out out/drift`.
 """
 
 from __future__ import annotations
@@ -119,20 +119,6 @@ def decide(alert: bool, current_rows: int, min_rows: int, pending: str | None) -
     return "train", "drift"
 
 
-def sale_batch(truth_path: str) -> pd.DataFrame:
-    """'Sale event' batch from the generator truth file: SKU + return/refund label within 30 days."""
-    # Imported here: the Job on EKS (pipeline A) does not ship the generator code; only needed for B's Sale batch.
-    from generator.generate_order_lifecycle import POSITIVE_SCENARIOS
-
-    rows = [json.loads(line) for line in Path(truth_path).read_text().splitlines()]
-    return pd.DataFrame(
-        {
-            "seller_sku": [r["sku"] for r in rows],
-            "label": [int(r["scenario"] in POSITIVE_SCENARIOS) for r in rows],
-        }
-    )
-
-
 def comparisons(frame: pd.DataFrame, reference_days: int, shift_channel: str | None = None) -> dict:
     """(reference, current) pairs: `stable` = first N days vs the rest; `channel_shift` = first N days vs
     the rest of one Channel only (order mix shifting to one Marketplace) — a drift scenario buildable on pipeline A."""
@@ -149,7 +135,7 @@ def comparisons(frame: pd.DataFrame, reference_days: int, shift_channel: str | N
 
 
 def main(argv=None):
-    """Comparisons: stable, Channel shift (if given), pipeline B Sale event (if given)."""
+    """Comparisons: stable and Channel shift (if given)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--reference", required=True, help="Parquet training_lines (local or s3://)"
@@ -158,7 +144,6 @@ def main(argv=None):
     parser.add_argument(
         "--shift-channel", help="e.g. shopee: the current batch holds one Channel only"
     )
-    parser.add_argument("--sale-truth")
     parser.add_argument("--out", type=Path, default=Path("out/drift"))
     args = parser.parse_args(argv)
     frame = pd.read_parquet(args.reference)
@@ -171,10 +156,6 @@ def main(argv=None):
         }
         for name, (ref, cur) in pairs.items()
     }
-    if args.sale_truth:
-        results["sale_event"] = check(
-            pairs["stable"][0], sale_batch(args.sale_truth), args.out / "sale_event.html"
-        )
     (args.out / "summary.json").write_text(json.dumps(results, indent=2))
     print(json.dumps(results, indent=2))
 

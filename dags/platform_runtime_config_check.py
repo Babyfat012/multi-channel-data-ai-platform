@@ -95,8 +95,6 @@ with DAG(
         executor_cores=1,
         total_executor_cores=1,
         conf={
-            "spark.driver.host": "airflow",
-            "spark.driver.bindAddress": "0.0.0.0",
             "spark.eventLog.enabled": "true",
             "spark.eventLog.dir": "file:///spark-events",
         },

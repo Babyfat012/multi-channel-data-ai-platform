@@ -173,8 +173,7 @@ services:
               /data/raw/ground-truth:/data/ground-truth:ro,
               ./out/ground-truth-bridge:/data/ground-truth-bridge:ro,
               ./out/channels-small/source-exports:/data/channels-small/source-exports:ro,
-              ./out/spark-events:/spark-events,
-              "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"]
+              ./out/spark-events:/spark-events]
     mem_limit: 512m
 
   # Workers do the real work. Worker RAM is the number WE SET (SPARK_WORKER_MEMORY); if it runs short
@@ -194,8 +193,7 @@ services:
               "/data/raw:/data/raw:ro", "/data/raw/ground-truth:/data/ground-truth:ro",
               "./out/ground-truth-bridge:/data/ground-truth-bridge:ro",
               "./out/channels-small/source-exports:/data/channels-small/source-exports:ro",
-              "./out/spark-events:/spark-events",
-              "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"]
+              "./out/spark-events:/spark-events"]
     mem_limit: ${SPARK_WORKER_MEM_LIMIT:-2560m}
 
   spark-worker-2:
@@ -204,8 +202,7 @@ services:
               "/data/raw:/data/raw:ro", "/data/raw/ground-truth:/data/ground-truth:ro",
               "./out/ground-truth-bridge:/data/ground-truth-bridge:ro",
               "./out/channels-small/source-exports:/data/channels-small/source-exports:ro",
-              "./out/spark-events:/spark-events",
-              "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"]
+              "./out/spark-events:/spark-events"]
 
   # Airflow uses its own DB in the existing PostgreSQL. Only creates the DB, does not touch `sources`.
   airflow-db-init:
@@ -253,9 +250,7 @@ services:
               /data/raw/ground-truth:/data/ground-truth:ro,
               ./out/ground-truth-bridge:/data/ground-truth-bridge:ro,
               ./out/channels-small/source-exports:/data/channels-small/source-exports:ro,
-              ./out/spark-events:/spark-events,
-              "${PLATFORM_ORDER_LIFECYCLE_DIR:-./out/order_lifecycle_live}:/data/order_lifecycle:ro"]
-    # 6g: the Spark client-mode driver of DAG v2 runs in this container with a 3g heap.
+              ./out/spark-events:/spark-events]
     mem_limit: 6g
 
   # Flink SQL reads the replayed Kafka stream to demonstrate watermarks, state and Windows.

@@ -16,16 +16,6 @@ postgres_password: CHANGE_ME
 lakekeeper_encryption_key: CHANGE_ME
 airflow_uid: 50000
 warehouse_name: platform-aws
-# 150-day scaled source up to the end of May: covers the 30-day window before the warehouse cutoff and has enough rows to measure skew.
-source_mode: scale
-# Every new source configuration needs a new name; never overwrite generated data.
-source_dataset_name: aws-scale150-seed7
-source_seed: 7
-source_days: 150
-source_orders_per_day: 20
-source_followup_days: 270
-source_observation_days: 285
-source_cutoff: '2026-06-01T00:00:00.000000Z'
 # Spark --packages accepts only group:artifact:version. hadoop-aws pulls in aws-java-sdk-bundle
 # so Spark reads raw files over s3a://; Iceberg reads and writes tables with S3FileIO from iceberg-aws-bundle.
 spark_packages_aws: 'org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.11.0,org.apache.iceberg:iceberg-aws-bundle:1.11.0,org.postgresql:postgresql:42.7.4,org.apache.hadoop:hadoop-aws:3.3.4'

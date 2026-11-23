@@ -28,7 +28,7 @@ with DAG(
             "--source-table",
             "{{ var.value.platform_dp3_gold_source_table }}",
             "--cutoff",
-            "{{ var.value.get('platform_ml_cutoff', var.value.platform_order_lifecycle_cutoff) }}",
+            "{{ var.value.platform_ml_cutoff }}",
             "--days",
             "30",
         ],
@@ -37,9 +37,4 @@ with DAG(
         driver_memory="1g",
         executor_memory="1536m",
         executor_cores=1,
-        conf={
-            "spark.driver.host": "airflow",
-            "spark.driver.bindAddress": "0.0.0.0",
-            "spark.jars.ivy": "/opt/airflow/.ivy2",
-        },
     )

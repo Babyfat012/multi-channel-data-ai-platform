@@ -34,12 +34,6 @@ AMAZON_SOURCE = (
     "{{ var.value.get('platform_dp1_amazon_source', "
     "'/data/raw/source-exports/channel=amazon/dataset=orders') }}"
 )
-SPARK_CONF = {
-    "spark.driver.host": "airflow",
-    "spark.driver.bindAddress": "0.0.0.0",
-    "spark.jars.ivy": "/opt/airflow/.ivy2",
-}
-
 with DAG(
     dag_id="dp1_bronze",
     description="Raw 5 Channels -> Bronze; check row counts, payload and provenance",
@@ -69,7 +63,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     validate_amazon = SparkSubmitOperator(
         task_id="validate_amazon",
@@ -91,7 +84,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     ingest_walmart = SparkSubmitOperator(
         task_id="ingest_walmart",
@@ -100,7 +92,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
     validate_walmart = SparkSubmitOperator(
         task_id="validate_walmart",
@@ -109,7 +100,6 @@ with DAG(
         conn_id="spark_default",
         packages=PACKAGES,
         driver_memory="600m",
-        conf=SPARK_CONF,
     )
 
     previous = validate_walmart
@@ -132,7 +122,6 @@ with DAG(
             conn_id="spark_default",
             packages=PACKAGES,
             driver_memory="600m",
-            conf=SPARK_CONF,
         )
         validate = SparkSubmitOperator(
             task_id=f"validate_{channel}",
@@ -150,7 +139,6 @@ with DAG(
             conn_id="spark_default",
             packages=PACKAGES,
             driver_memory="600m",
-            conf=SPARK_CONF,
         )
         previous >> ingest >> validate
         previous = validate

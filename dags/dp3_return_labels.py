@@ -42,9 +42,6 @@ with DAG(
         executor_memory="1536m",
         executor_cores=1,
         conf={
-            "spark.driver.host": "airflow",
-            "spark.driver.bindAddress": "0.0.0.0",
-            "spark.jars.ivy": "/opt/airflow/.ivy2",
             "spark.sql.adaptive.advisoryPartitionSizeInBytes": "64m",
         },
     )

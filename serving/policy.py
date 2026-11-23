@@ -20,9 +20,9 @@ def load_rag():
         return None
     from types import SimpleNamespace
 
-    from rag.pipeline import _store, get_chunks, search
+    from rag.pipeline import get_chunks, open_store, search
 
-    store = _store()
+    store = open_store()
     cache = os.environ.get("RAG_MODEL_CACHE")
     return SimpleNamespace(
         search=lambda query, top_k: search(store, query, top_k=top_k, cache_dir=cache),

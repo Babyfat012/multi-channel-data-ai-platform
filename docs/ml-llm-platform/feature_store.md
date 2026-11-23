@@ -102,7 +102,7 @@ delete the registry or self-heal. DB1/DB2 hold only batches; DB0 must never be f
 - The API additionally returns `batch_status`, `stream_status`, `batch_release`, `batch_cutoff`. How to interpret the statuses:
   - SKU is in the record but cannot be read: unavailable.
   - SKU is outside the snapshot: not_available (it does not conclude by itself that it is a new SKU).
-  - Count = 0 has been confirmed: insufficient_history.
+  - Count = 0 has been confirmed: no_history.
   - Only feature groups with valid data are used.
 - If the predictor lacks the count, or cannot select/read a batch copy, it does not score and returns `score=null`,
   `abstain=true`, `reason=feature_data_unavailable`. On a successful read the result includes the copy and Cutoff used.
@@ -139,10 +139,10 @@ set (`export_training_lines.py`, the KFP input), then step ②, and finally step
 |---|---|
 | Feature definitions (entity `sku`, view `sku_return_daily`) | [`feature_repo/features.py`](../../feature_repo/features.py) |
 | Feast configuration (reads environment variables) | [`feature_repo/feature_store.yaml`](../../feature_repo/feature_store.yaml) |
-| Function computing the daily snapshot | `sku_daily_features` in [`spark_jobs/lib/order_lifecycle_gold.py`](../../spark_jobs/lib/order_lifecycle_gold.py) |
+| Function computing the daily snapshot | `sku_daily_features` in [`spark_jobs/lib/order_snapshot_ml.py`](../../spark_jobs/lib/order_snapshot_ml.py) |
 | Spark job exporting Parquet | [`spark_jobs/gold/export_sku_daily_features.py`](../../spark_jobs/gold/export_sku_daily_features.py) |
 | kind cluster + Redis | [`infra/k8s/kind-config.yaml`](../../infra/k8s/kind-config.yaml), [`infra/k8s/feature-store/redis.yaml`](../../infra/k8s/feature-store/redis.yaml) |
-| Checks | [`tests/spark/check_sku_daily_features.py`](../../tests/spark/check_sku_daily_features.py) |
+| Checks | [`tests/spark/check_order_snapshot_ml.py`](../../tests/spark/check_order_snapshot_ml.py) |
 
 ## Why daily snapshots, keyed by SKU
 
@@ -232,9 +232,8 @@ These checks do not yet replace verification of S3/IAM, rollout and recovery on 
 RAM: enable only what you need. Do not run alongside DataHub.
 
 ```bash
-## 1. Needs Gold order_lifecycle in the catalog. If missing, run the Data Platform pipeline (~5 minutes with fixtures):
-python3 -m scripts.data.run_order_lifecycle_live --phase source
-python3 -m scripts.data.run_order_lifecycle_live --phase airflow     # stops the stack automatically when done
+## 1. Needs Gold A (fact_order_lines_dp2 + fact_return_labels_dp3) in the catalog. If missing, run dp1 → dp2 → dp3_return_labels
+##    (docs/data-platform/pipeline_orchestration.md).
 
 ## 2. kind cluster + Redis, attached to the Compose network
 python3 -m scripts.ml.setup_kind_feature_store

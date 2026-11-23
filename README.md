@@ -31,7 +31,7 @@ A Seller sells on seven Storefronts: Amazon US/UK/DE, TikTok Shop US, Shopify, W
 
 > Will this Order Line be Returned or Refunded within 30 days of delivery?
 
-The agent retrieves features, calls the prediction model and looks up the return policy through MCP. Details: [business domain](docs/shared/domain.md), [terminology](docs/shared/terminology.md), [label contract](docs/data-platform/reference/return_label_contract.md).
+The agent retrieves features, calls the prediction model and looks up the return policy through MCP. Details: [business domain](docs/shared/domain.md) and [terminology](docs/shared/terminology.md).
 
 ## Architecture
 
@@ -117,7 +117,7 @@ Top-level folders grouped by platform. Python packages keep their names (they ar
 | | `infra/k8s/`, `infra/helm/` | Kubernetes manifests and the serving-api Helm chart (Feature API, Policy API, MCP server) |
 | | `infra/jenkins/` | Jenkinsfiles and Jenkins configuration (JCasC) |
 | | `docker-compose*.yml` | Compose stacks; kept at the root so `docker compose` finds them |
-| **Scripts** | `scripts/data/` | Set up and run the Data Platform (Airflow, Lakekeeper, Debezium, order lifecycle) |
+| **Scripts** | `scripts/data/` | Set up and run the Data Platform (Airflow, Lakekeeper, Debezium) |
 | | `scripts/ml/` | Deploy and run the ML Platform (KServe, serving API, Redis, training, stream features) |
 | | `scripts/llm/` | Deploy the LLM Platform (agents, agentgateway, Langfuse, agentregistry, Substrate) |
 | | `scripts/shared/` | Shared: kind registry, images, ingress, TLS, Vault, Jenkins, observability, EKS access |

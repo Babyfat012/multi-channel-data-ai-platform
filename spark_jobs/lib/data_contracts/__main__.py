@@ -1,4 +1,4 @@
-"""infer/diff/check-registry/gate CLI, standard library only."""
+"""infer/diff/check-registry CLI, standard library only."""
 
 import argparse
 import json
@@ -6,7 +6,6 @@ from dataclasses import asdict
 from pathlib import Path
 
 from spark_jobs.lib.data_contracts.compat import diff, verdict
-from spark_jobs.lib.data_contracts.gate import gate_root
 from spark_jobs.lib.data_contracts.registry import Registry
 from spark_jobs.lib.data_contracts.schema import infer_schema
 
@@ -27,9 +26,6 @@ def main(argv=None):
     compare.add_argument("--migrations", help="JSON file mapping old path -> new")
     check = commands.add_parser("check-registry")
     check.add_argument("--contracts-dir", default=None)
-    gate = commands.add_parser("gate")
-    gate.add_argument("root")
-    gate.add_argument("--contracts-dir", default=None)
     args = parser.parse_args(argv)
     code = 0
     if args.command == "infer":
@@ -53,12 +49,10 @@ def main(argv=None):
             "changes": [asdict(c) for c in changes],
         }
         code = 0 if compatible else 1
-    elif args.command == "check-registry":
+    else:
         errors = Registry(args.contracts_dir).check_registry()
         result = {"errors": errors}
         code = int(bool(errors))
-    else:
-        result = gate_root(args.root, Registry(args.contracts_dir))
     output = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.command == "infer" and args.output:
         target = Path(args.output)

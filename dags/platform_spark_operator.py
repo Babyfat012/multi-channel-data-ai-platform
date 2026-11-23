@@ -10,51 +10,61 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from platform_runtime import resolve_runtime_env
 
 
+class _Lookup(dict):
+    """Dict that fetches a key on first read: `resolve_runtime_env` alone decides what it needs."""
+
+    def __init__(self, fetch):
+        """Keep the fetch function; nothing is looked up yet."""
+        super().__init__()
+        self._fetch = fetch
+
+    def __missing__(self, key):
+        """Fetch, cache and return the value for a key not read before."""
+        self[key] = value = self._fetch(key)
+        return value
+
+
 class PlatformSparkSubmitOperator(SparkSubmitOperator):
     """Inject selected connection groups into spark-submit without templating secrets."""
 
     template_fields = tuple(
         field for field in SparkSubmitOperator.template_fields if field != "env_vars"
     )
+    # The driver runs inside the Airflow container; executors call back to it by this host name.
+    DEFAULT_CONF = {
+        "spark.driver.host": "airflow",
+        "spark.driver.bindAddress": "0.0.0.0",
+        "spark.jars.ivy": "/opt/airflow/.ivy2",
+    }
 
-    def __init__(self, *, runtime_groups: tuple[str, ...] = ("iceberg",), **kwargs):
-        """Create a Spark task with the Airflow connection groups it needs."""
+    def __init__(self, *, runtime_groups: tuple[str, ...] = ("iceberg",), conf=None, **kwargs):
+        """Create a Spark task with the Airflow connection groups it needs; `conf` extends the defaults."""
         self.runtime_groups = runtime_groups
-        super().__init__(**kwargs)
+        super().__init__(conf={**self.DEFAULT_CONF, **(conf or {})}, **kwargs)
 
     def execute(self, context):
         """Resolve credentials at execution time and restore operator state afterward."""
-        conn_ids = {
-            "iceberg": "platform_minio",
-            "postgres": "platform_postgres",
-            "kafka": "platform_kafka",
-        }
-        storage = os.environ.get("PLATFORM_STORAGE", "minio")
-        connections = {}
-        for group in self.runtime_groups:
-            if group == "iceberg" and storage != "minio":
-                continue
-            conn = BaseHook.get_connection(conn_ids[group])
-            connections[conn_ids[group]] = {
+
+        def connection(conn_id):
+            """Airflow Connection -> the plain fields `resolve_runtime_env` reads."""
+            conn = BaseHook.get_connection(conn_id)
+            return {
                 "host": conn.host,
                 "port": conn.port,
                 "schema": conn.schema,
                 "login": conn.login,
                 "password": conn.password,
             }
-        variable_names = (
-            ("platform_warehouse_name", "platform_lakekeeper_catalog_uri")
-            if "iceberg" in self.runtime_groups
-            else ()
-        ) + (("platform_dp1_cdc_topic",) if "kafka" in self.runtime_groups else ())
-        if "iceberg" in self.runtime_groups and storage == "minio":
-            variable_names += ("platform_minio_internal_endpoint",)
-        variables = {name: Variable.get(name) for name in variable_names}
+
+        storage = os.environ.get("PLATFORM_STORAGE", "minio")
+        runtime_env = resolve_runtime_env(
+            _Lookup(connection), _Lookup(Variable.get), self.runtime_groups, storage=storage
+        )
         original_env = self.env_vars
         self.env_vars = {
             "PYTHONPATH": os.environ.get("PYTHONPATH", "/opt"),
             **(original_env or {}),
-            **resolve_runtime_env(connections, variables, self.runtime_groups, storage=storage),
+            **runtime_env,
         }
         inherited_secrets = {
             key: os.environ.pop(key)

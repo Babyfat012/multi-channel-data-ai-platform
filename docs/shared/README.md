@@ -12,4 +12,3 @@
 
 [Documentation index](../README.md)
 
-- [Business table relationships](../diagrams/schema-order-lifecycle.md)

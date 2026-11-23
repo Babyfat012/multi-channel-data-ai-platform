@@ -20,25 +20,11 @@ def resolve_contracts_dir(contracts_dir=None):
     return DOCKER_CONTRACTS_DIR if DOCKER_CONTRACTS_DIR.is_dir() else REPO_CONTRACTS_DIR
 
 
-NATIVE_PARSERS = {"amazon/1", "amazon/2", "walmart/1", "shopify/1", "tiktok_shop/1", "shopee/1"}
-OPERATIONAL_FEEDS = (
-    "seller_oms.line_commitments",
-    "seller_oms.fulfillment_allocations",
-    "carrier.delivery_events",
-    "seller_postsales.return_events",
-    "seller_postsales.refund_events",
-    "seller_catalog.listing_versions",
-    "seller_wms.stock_operations",
-    "seller_wms.inbound_events",
-    "seller_wms.stock_snapshots",
-)
-SIDE_FEEDS = ("source.coverage_envelopes", "source.uncertainties")
 # Pipeline A (dp1 → dp2) snapshot exports: one Silver parser per Channel shape (sim-native-v1 contracts).
-SNAPSHOT_PARSERS = {
+SUPPORTED_PARSERS = {
     f"snapshots/{name}"
     for name in ("amazon/1", "amazon/2", "walmart/1", "shopee/1", "shopify/1", "tiktok_shop/1")
 }
-SUPPORTED_PARSERS = NATIVE_PARSERS | SNAPSHOT_PARSERS | set(OPERATIONAL_FEEDS) | set(SIDE_FEEDS)
 
 
 class Registry:

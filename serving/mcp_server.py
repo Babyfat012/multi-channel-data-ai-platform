@@ -111,7 +111,7 @@ def build_mcp(state) -> MCPServer:
         """Return features and per-group availability for 1-100 SKUs (e.g. APP-00042).
 
         Use only ready data. Missing values are null, never assumed zero; unavailable groups
-        must be reported as unavailable. insufficient_history means confirmed zero labeled samples.
+        must be reported as unavailable. no_history means confirmed zero labeled samples.
         """
         body = checked(FeatureRequest, "seller_skus", seller_skus=seller_skus)
         url = f"{service_url('FEATURE_API_URL')}/features"
@@ -146,7 +146,8 @@ def build_mcp(state) -> MCPServer:
         """Return risk score (0-1, higher = riskier, for ranking) of one new order line.
 
         channel: amazon|walmart|shopify|tiktok_shop|shopee; country: ISO-2 ship-to country (e.g. US);
-        ordered_product_net_minor: price in cents. abstain=true when the SKU has too little labeled history.
+        ordered_product_net_minor: price in cents. abstain=true with reason no_history (0 labeled lines),
+        too_few_samples (some, but too few to trust the score) or feature_data_unavailable (score is null).
         """
         # KServe validates the order line itself (ml/serve.py): it is the trust boundary for /predict.
         instance = {

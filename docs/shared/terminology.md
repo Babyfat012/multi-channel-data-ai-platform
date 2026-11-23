@@ -5,7 +5,7 @@ A Seller-side data platform that collects sales data from several external e-com
 The source model extends to partial lifecycle feeds, Listing history,
 a small inventory model and review queues. Inventory terms are defined in
 [GLOSSARY.md](../../GLOSSARY.md). Label v2, the pool topology and the
-three-group queue are settled. Current definitions follow the [label contract](../data-platform/reference/return_label_contract.md)
+three-group queue are settled. Current definitions follow the label contract (archived in git tag `v2-archive`)
 and the extension design; older code/proofs still follow the
 original contract until they are migrated with a new version.
 

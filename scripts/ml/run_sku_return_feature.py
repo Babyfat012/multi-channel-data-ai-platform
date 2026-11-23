@@ -1,10 +1,10 @@
-"""Submit the Flink SQL stream feature job (flink_jobs/ml/sku_return_feature.sql) to the Flink cluster.
+"""Submit the Flink SQL stream feature job (flink_jobs/ml/sku_return_feature_a.sql) to the Flink cluster.
 
 A RUNNING job with the same name is cancelled first, so a redeploy never leaves two jobs in parallel.
-PostgreSQL credentials (only when the SQL has @@PG_*@@ placeholders): the environment, else Vault (VAULT_ADDR +
-VAULT_TOKEN, as CI does), else .env on a manual run. Variant A (sku_return_feature_a.sql) needs none:
+AWS runs the PyFlink job instead (scripts/ml/run_stream_feature_jobs.py), which reuses `cancel_running`.
+PostgreSQL credentials are filled only when a SQL file has @@PG_*@@ placeholders (the environment, else Vault, else .env).
 
-    FEATURE_SQL=flink_jobs/ml/sku_return_feature_a.sql python3 -m scripts.ml.run_sku_return_feature
+    python3 -m scripts.ml.run_sku_return_feature
 """
 
 import json
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from scripts.common import ROOT, env, load_env, run, vault_secret
 
-DEFAULT_SQL = "flink_jobs/ml/sku_return_feature.sql"
+DEFAULT_SQL = "flink_jobs/ml/sku_return_feature_a.sql"
 JOB_NAME = "ml-sku-return-24h"
 
 
