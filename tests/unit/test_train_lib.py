@@ -95,6 +95,22 @@ def test_evaluate_scores_champion_on_the_same_test_set():
     assert "pr_auc_champion" not in evaluate(test, perfect, inverted)
 
 
+def test_tiny_point_gain_is_not_a_win():
+    """One fixed mis-ordered pair lifts PR-AUC a hair: higher point estimate, but no real win."""
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 2, 2000)
+    base = rng.random(2000)
+    pos = np.flatnonzero(y == 1)
+    neg = np.flatnonzero(y == 0)
+    i = pos[np.argmin(base[pos])]  # weakest positive
+    j = neg[np.argmax(base[neg])]  # strongest negative, ranked above it
+    model = base.copy()
+    model[i], model[j] = base[j], base[i]
+    m = evaluate(pd.DataFrame({"label": y}), model, base)
+    assert m["pr_auc_model"] > m["pr_auc_baseline"]
+    assert m["gain_lower_baseline"] <= 0 and not m["beats_baseline"]
+
+
 class Booster:
     """Stand-in for lgb.Booster: records which columns it was asked to score."""
 

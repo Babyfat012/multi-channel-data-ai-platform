@@ -32,6 +32,7 @@ policy_chunks = FeatureView(
         Field(name="text", dtype=String),
         Field(name="doc_id", dtype=String),
         Field(name="heading", dtype=String),
+        Field(name="embedding_model", dtype=String),
     ],
     source=FileSource(
         name="policy_chunks_source",

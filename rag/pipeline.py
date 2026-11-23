@@ -80,13 +80,15 @@ def embed_step(cache_dir):
     with fs.open(f"{_root()}/chunks_text.parquet", "rb") as f:
         frame = pd.read_parquet(f)
     frame["embedding"] = embed(frame["text"], cache_dir=cache_dir)
+    # Stored per chunk so a query embedded with another model fails loudly instead of ranking at random.
+    frame["embedding_model"] = MODEL
     frame["event_timestamp"] = pd.Timestamp.now(tz="UTC")
     with fs.open(f"{_root()}/chunks.parquet", "wb") as f:
         frame.to_parquet(f, index=False)
     print(f"embedded {len(frame)} chunks with {MODEL}")
 
 
-def _store():
+def open_store():
     """FeatureStore on a copy of the repo (the mounted directory is read-only, Feast needs to write temp files)."""
     from feast import FeatureStore
 
@@ -101,11 +103,11 @@ def load():
     fs = _fs()
     with fs.open(f"{_root()}/chunks.parquet", "rb") as f:
         frame = pd.read_parquet(f)
-    store = _store()
+    store = open_store()
     # CLI from the same venv: create the pgvector table + write definitions to the registry.
     feast = Path(sys.executable).parent / "feast"
     subprocess.run([str(feast), "apply"], cwd=store.repo_path, check=True)
-    store = _store()
+    store = open_store()
     store.write_to_online_store(FEATURE_VIEW, frame)
     print(f"wrote {len(frame)} chunks to online store ({FEATURE_VIEW})")
 
@@ -114,11 +116,20 @@ def search(store, question, top_k=3, cache_dir=None):
     """Find the top_k chunks closest to the question; shared by validate and the Feature API."""
     vector = embed([question], cache_dir=cache_dir)[0]
     response = store.retrieve_online_documents_v2(
-        features=[f"{FEATURE_VIEW}:{n}" for n in ("text", "doc_id", "heading", "embedding")],
+        features=[
+            f"{FEATURE_VIEW}:{n}"
+            for n in ("text", "doc_id", "heading", "embedding", "embedding_model")
+        ],
         query=vector,
         top_k=top_k,
         distance_metric="cosine",
     ).to_dict()
+    # Vectors from another model share the 384 dims but not the space: the distances would be meaningless.
+    stale = {str(m) for m in response["embedding_model"]} - {MODEL}
+    if stale:
+        raise RuntimeError(
+            f"index embedded with {sorted(stale)}, queries use {MODEL}: re-run the {DAG_ID} DAG"
+        )
     # Feast's SQL picks the right top_k but returns them unordered ⇒ re-sort here (closest first).
     rows = [
         {"chunk_id": c, "doc_id": d, "heading": h, "text": t, "distance": dist}
@@ -160,7 +171,7 @@ def validate(receipt_dir, run_id, cache_dir):
     fs = _fs()
     with fs.open(f"{_root()}/chunks.parquet", "rb") as f:
         frame = pd.read_parquet(f)
-    store = _store()
+    store = open_store()
     table = f"{store.project}_{FEATURE_VIEW}"
     with psycopg.connect(
         host=os.environ["RAG_PG_HOST"],
@@ -177,6 +188,7 @@ def validate(receipt_dir, run_id, cache_dir):
         "duplicate_chunk_ids": int(frame["chunk_id"].duplicated().sum()),
         "empty_text": int((frame["text"].str.len() == 0).sum()),
         "wrong_dimension": int((frame["embedding"].map(len) != 384).sum()),
+        "wrong_embedding_model": int((frame["embedding_model"] != MODEL).sum()),
         "not_unit_norm": int(((norms - 1).abs() > 1e-3).sum()),
         "probe_wrong_top_doc": sum(top[q] != doc for q, doc in PROBES.items()),
     }
