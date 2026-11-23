@@ -1,4 +1,4 @@
-// CD return-risk model (diagram D12 → D14): show challenger vs champion → ML Engineer approves → move MLflow alias
+// CD return-risk model (diagram D11 → D13): show challenger vs champion → ML Engineer approves → move MLflow alias
 // `production` → deploy KServe (scripts/ml/deploy_return_risk.py reads that alias). Training (KFP) only sets
 // `challenger`; this pipeline is the ONLY writer of `production`, and disableConcurrentBuilds keeps it single.
 pipeline {

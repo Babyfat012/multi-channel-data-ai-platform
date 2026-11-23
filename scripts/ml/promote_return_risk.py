@@ -1,4 +1,4 @@
-"""Human approval of the return-risk model: challenger → production (diagram D12).
+"""Human approval of the return-risk model: challenger → production (diagram D11).
 
 Training only sets alias `challenger` (beats the baseline). This script, run by the return-risk Jenkins
 pipeline around an `input` step, is the only writer of alias `production`:

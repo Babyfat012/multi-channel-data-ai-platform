@@ -46,6 +46,13 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 
 Configuration sources: `infra/k8s/`, `infra/helm/serving-api/`, `infra/jenkins/`, `scripts/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
 
+**No staging environment (decision).** CI/CD has no separate test environment with an approval step before release: a second
+Compose stack and set of EKS namespaces on an EC2 machine and node group that are already short of RAM and disk would cost out
+of proportion to this project, so the diagram no longer draws one. What stands in for it: job `ci` tests every commit (D2); the
+deploy jobs are started by hand (the human approval); each deploy checks itself and rolls back (Compose: last good release;
+serving API: `helm --atomic`); the model has its own approval (D11, Jenkins `return-risk`). Known gap: agents are applied with
+`kubectl apply` and are not rolled back when their eval fails.
+
 Current limitations: the Model Agent's RAG eval is below threshold (3/5); the Coordinator gate only scores routing; stream features use replayed data; drift sees labeled lines only, so it lags the calendar by ~30 days, and the monitor has not run on EKS yet. A/B, sandbox and DataHub are enabled by phase. See the validation status page for per-item evidence.
 
 Open and edit `.excalidraw` files with excalidraw.com (File → Open) or the Excalidraw extension in VS Code; re-export the PNG (Export image, without the title and legend) when the diagram changes.
