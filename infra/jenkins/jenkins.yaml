@@ -35,7 +35,7 @@ jobs:
   # docker-compose.aws.yml), else the read-only mounted local repo.
   # Only `ci` polls (diagram D1 → D2): every commit runs the tests. Deploy jobs stay manual (no staging/approval yet).
   - script: |
-      ['ci', 'stream-features', 'feature-api-agents', 'coordinator', 'rag-pipeline', 'return-risk'].each { name ->
+      ['ci', 'stream-features', 'feature-api-agents', 'coordinator', 'rag-pipeline', 'return-risk', 'llm-ab'].each { name ->
         pipelineJob(name) {
           if (name == 'ci') {
             properties { pipelineTriggers { triggers { pollSCM { scmpoll_spec('H/5 * * * *') } } } }
