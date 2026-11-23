@@ -72,7 +72,7 @@ gateway config: [Agent Registry](agent_registry.md#versioning-in-ci-and-the-gate
 | Jenkins 2.580.1 LTS image + pinned plugins + docker/compose/kubectl/helm/kind/uv | [`infra/docker/Dockerfile.jenkins`](../../infra/docker/Dockerfile.jenkins) |
 | Configuration as code (JCasC): users, credentials, 4 jobs | [`infra/jenkins/jenkins.yaml`](../../infra/jenkins/jenkins.yaml) |
 | Startup (fetches secrets from Vault) | [`scripts/shared/setup_jenkins.py`](../../scripts/shared/setup_jenkins.py), service `jenkins` (profile `ci`) |
-| Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `ci` (polls `main` every 5 minutes, tests only), `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline`, `return-risk` (manual) |
+| Pipelines | [`infra/jenkins/`](../../infra/jenkins/stream-features.Jenkinsfile): `ci` (polls `main` every 5 minutes, tests only), `stream-features`, `feature-api-agents`, `coordinator`, `rag-pipeline`, `return-risk`, `llm-ab` (manual) |
 
 ```bash
 python3 -m scripts.shared.setup_vault      # first: Vault + read-only token

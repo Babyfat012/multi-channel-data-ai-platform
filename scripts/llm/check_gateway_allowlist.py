@@ -8,6 +8,11 @@ allowlist). Before it is applied, every agent behind an A2A route must be regist
     python3 -m scripts.llm.check_gateway_allowlist --tag <sha> [--apply]
 
 --apply: after the check passes, apply the gateway config and restart agentgateway (KCTX).
+
+A/B (diagram: Qwen 0.5B "kept only if it wins A/B"): branch B stays in the split only while agentregistry holds
+data-agent-b@stable with label ab.platform.dev/decision=keep (written by scripts/llm/ab_gate.py). Otherwise the applied
+config drops B from the `platform-chat` split and from /a2a/data-agent-ab/; the file in git is not changed. The direct
+route /a2a/data-agent-b/ stays so the A/B eval can still score B on its own.
 """
 
 import argparse
@@ -15,6 +20,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 from scripts.common import ROOT, kubectl, run
 from scripts.llm.publish_agentregistry import registry
@@ -24,6 +30,33 @@ TOOL_LABEL = "tool.platform.dev/"
 MCP_ENTRY = "feature-tools"
 # Gateway-only variants of a registered agent: the A/B routes of the data agent.
 VARIANTS = {"data-agent-b": "data-agent", "data-agent-ab": "data-agent"}
+DECISION_LABEL = "ab.platform.dev/decision"
+# Branch B's two places in the split. Text, not YAML: the Jenkins python3 has no PyYAML. Each block must occur exactly
+# once, so a reshaped gateway file fails loudly instead of leaving B in the split.
+B_SPLIT = (
+    "            - model: qwen2.5-0.5b-instruct\n              weight: 1\n",  # virtual model platform-chat
+    "      - host: data-agent-b.kagent.svc.cluster.local:8080\n        weight: 1\n",  # /a2a/data-agent-ab/
+)
+
+
+def without_b(config: str) -> str:
+    """The gateway manifests with branch B removed from both weighted splits."""
+    for block in B_SPLIT:
+        if config.count(block) != 1:
+            raise ValueError(f"expected exactly one A/B block {block.strip()!r} in {GATEWAY.name}")
+        config = config.replace(block, "")
+    return config
+
+
+def b_kept() -> bool:
+    """True only when data-agent-b@stable carries decision=keep (call inside `registry()`); anything else drops B."""
+    agents = json.loads(
+        run(["arctl", "get", "agents", "--tag", "stable", "-o", "json"], capture=True) or "[]"
+    )
+    for agent in agents:
+        if agent["metadata"]["name"] == "data-agent-b":
+            return (agent["metadata"].get("labels") or {}).get(DECISION_LABEL) == "keep"
+    return False
 
 
 def gateway_allowlist(config: str) -> tuple[set[str], set[str]]:
@@ -85,6 +118,7 @@ def main() -> None:
     config = GATEWAY.read_text()
     with registry():
         agents, tools = registry_state(args.tag)
+        keep_b = b_kept()
     problems = unapproved(config, agents, tools)
     if problems:
         print(f"gateway allowlist NOT approved by agentregistry tag {args.tag}:", file=sys.stderr)
@@ -95,9 +129,13 @@ def main() -> None:
     print(
         f"gateway allowlist approved by tag {args.tag}: agents {sorted(exposed_agents)}, tools {sorted(exposed_tools)}"
     )
+    print(f"A/B branch B: {'kept in the split' if keep_b else 'dropped from the split'}")
     if args.apply:
         kc = kubectl()
-        run([*kc, "apply", "-f", str(GATEWAY)])
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml") as rendered:
+            rendered.write(config if keep_b else without_b(config))
+            rendered.flush()
+            run([*kc, "apply", "-f", rendered.name])
         run([*kc, "-n", "agentgateway", "rollout", "restart", "deploy/agentgateway"])
         run(
             [

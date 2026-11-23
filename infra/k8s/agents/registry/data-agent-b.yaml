@@ -1,0 +1,19 @@
+# agentregistry catalog: Data Agent branch B (A/B candidate) — same prompt and tools as data-agent, model Qwen 0.5B
+# (infra/k8s/agents/ab-data-agent.yaml). Published only by scripts/llm/ab_gate.py under tag `stable`, with label
+# ab.platform.dev/decision = keep | drop; check_gateway_allowlist.py drops B from the gateway unless it is `keep`.
+apiVersion: ar.dev/v1alpha1
+kind: Agent
+metadata:
+  name: data-agent-b
+spec:
+  title: Data Agent (A/B branch B)
+  description: "A/B candidate of the Data Agent: same prompt and MCP tools, ModelConfig ab-small-model-config (qwen2.5-0.5b-instruct via agentgateway). Kept in the gateway split only if it wins the A/B eval."
+  source:
+    image: ghcr.io/kagent-dev/kagent/golang-adk:0.10.3
+    protocol: A2A
+    repository:
+      url: https://github.com/Babyfat012/multi-channel-data-ai-platform
+      subfolder: infra/k8s/agents
+  mcpServers:
+    - kind: MCPServer
+      name: feature-tools

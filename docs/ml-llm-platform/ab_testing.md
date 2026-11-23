@@ -120,7 +120,26 @@ accurate: on AWS **A 12/12, B 4/12** (local: A 12/12, B 11/12). The questions B 
 The initial hypothesis "B skips the tool call" is only partly right: B still calls the tool, but sometimes misreads or mixes up the numbers.
 B is only suitable for questions that do not need exact numbers. A CI gate set to `--min-accuracy 0.95` would block B.
 
-The B branches have been scaled to 0 pods. Commands to bring them back: `kubectl -n llm scale deploy/qwen-small --replicas=1`,
-`kubectl -n kagent scale deploy/data-agent-b --replicas=1`.
+## A/B gate: B is kept only if it wins
+
+Diagram: Qwen 0.5B "B: candidate, gets 50%, kept only if it wins A/B". Before, that decision lived only in this page and in
+a hand-typed `kubectl scale … --replicas=0`, while `agentgateway.yaml` still split 50/50: about half the requests to
+`platform-chat` and `/a2a/data-agent-ab/` went to a branch with no pods, and the next deploy re-applied the 50/50 file.
+
+Jenkins job `llm-ab` ([`llm-ab.Jenkinsfile`](../../infra/jenkins/llm-ab.Jenkinsfile), manual) runs
+[`scripts/llm/ab_gate.py`](../../scripts/llm/ab_gate.py):
+
+1. Scale B up (`llm/qwen-small`, `kagent/data-agent-b`) and evaluate A and B on the same SKUs (`eval_agent_ci`, task features).
+2. **B wins only if its accuracy ≥ 0.95 and ≥ A's.** B exists to be faster at the same quality. A missing result (branch down,
+   eval crashed) is a loss.
+3. Record the decision in agentregistry: `data-agent-b@stable` with label `ab.platform.dev/decision: keep | drop`.
+4. Apply the gateway: [`check_gateway_allowlist.py`](../../scripts/llm/check_gateway_allowlist.py) reads that label on **every**
+   apply, including the deploy pipelines'. Unless it is `keep`, the applied config drops B from the `platform-chat` split and from
+   `/a2a/data-agent-ab/` (the file in git is unchanged); `/a2a/data-agent-b/` stays so the eval can still score B alone.
+5. Only then, if B lost, scale B to 0: the gateway never sends traffic to a branch without pods.
+
+Limits: the B blocks are removed as text (the Jenkins `python3` has no PyYAML); each must occur exactly once or the apply fails.
+The decision uses the features task only (12 SKUs). Tested offline (`tests/unit/scripts/llm/test_ab_gate.py`: decision table,
+rendered gateway parsed and compared, step order); `arctl` labels on an `Agent` entry and the job itself are not run yet.
 
 [Section index](README.md) · [Main index](../README.md)
