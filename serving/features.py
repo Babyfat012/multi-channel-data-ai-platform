@@ -8,7 +8,7 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from feature_repo.publication import load_published_store
+from feature_repo.publication import daily_status, load_published_store
 from serving.schemas import FeatureRequest, FeatureResponse, SkuFeatures
 
 # Look up each view separately: if one view fails or is not registered, its features are None
@@ -52,26 +52,21 @@ async def fetch_features(store, requested_skus):
         values = {} if isinstance(result, Exception) else result.to_dict()
         for name in names:
             columns[name] = values.get(name, [None] * len(skus))
+    by_view = dict(zip(VIEWS, results, strict=True))
+    daily, stream = by_view["sku_return_daily"], by_view["sku_return_24h"]
+    release = None if isinstance(daily, Exception) else getattr(daily, "release", None)
+    # Legacy/mock OnlineResponse has no real release metadata.
+    release = release if isinstance(getattr(release, "release_id", None), str) else None
     rows = []
     for i, sku in enumerate(skus):
-        daily, stream = results
-        release = None if isinstance(daily, Exception) else getattr(daily, "release", None)
-        # Legacy/mock OnlineResponse has no real release metadata.
-        release_id = getattr(release, "release_id", None)
-        release = release if isinstance(release_id, str) else None
         count, positive, rate = (columns[name][i] for name in VIEWS["sku_return_daily"])
-        if isinstance(daily, Exception):
-            batch_status = "unavailable"
-        elif count is None:
-            batch_status = (
-                "unavailable" if release and sku in release.expected_skus else "not_available"
+        batch_status = (
+            "unavailable"
+            if isinstance(daily, Exception)
+            else daily_status(
+                count, positive, rate, expected=bool(release) and sku in release.expected_skus
             )
-        elif positive is None or (count > 0 and rate is None):
-            batch_status = "unavailable"
-        elif count == 0:
-            batch_status = "insufficient_history"
-        else:
-            batch_status = "ready"
+        )
         stream_status = (
             "unavailable"
             if isinstance(stream, Exception)

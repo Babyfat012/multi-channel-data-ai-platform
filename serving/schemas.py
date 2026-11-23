@@ -27,7 +27,7 @@ class SkuFeatures(BaseModel):
     positive_count_90d: int | None
     return_or_refund_rate_90d: Rounded | None
     approved_returns_24h: int | None
-    batch_status: Literal["ready", "insufficient_history", "not_available", "unavailable"]
+    batch_status: Literal["ready", "no_history", "not_available", "unavailable"]
     stream_status: Literal["ready", "not_available", "unavailable"]
     batch_release: str | None = None
     batch_cutoff: str | None = None
@@ -52,7 +52,8 @@ class Prediction(BaseModel):
     seller_sku: str
     score: Rounded | None
     abstain: bool
-    reason: str | None
+    # no_history: 0 labeled lines; too_few_samples: fewer than the predictor's MIN_HISTORY (score is a hint only).
+    reason: Literal["feature_data_unavailable", "no_history", "too_few_samples"] | None
     model_version: str | None
     batch_release: str | None = None
     batch_cutoff: str | None = None

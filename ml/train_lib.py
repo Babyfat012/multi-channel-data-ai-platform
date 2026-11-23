@@ -11,6 +11,8 @@ import pandas as pd
 
 FEAST_FEATURES = [
     "sku_return_daily:labeled_count_90d",
+    # Not a model input: the predictor needs it to tell a whole daily row from a broken one (daily_status).
+    "sku_return_daily:positive_count_90d",
     "sku_return_daily:return_or_refund_rate_90d",
     "sku_return_24h:approved_returns_24h",
 ]

@@ -102,7 +102,7 @@ delete the registry or self-heal. DB1/DB2 hold only batches; DB0 must never be f
 - The API additionally returns `batch_status`, `stream_status`, `batch_release`, `batch_cutoff`. How to interpret the statuses:
   - SKU is in the record but cannot be read: unavailable.
   - SKU is outside the snapshot: not_available (it does not conclude by itself that it is a new SKU).
-  - Count = 0 has been confirmed: insufficient_history.
+  - Count = 0 has been confirmed: no_history.
   - Only feature groups with valid data are used.
 - If the predictor lacks the count, or cannot select/read a batch copy, it does not score and returns `score=null`,
   `abstain=true`, `reason=feature_data_unavailable`. On a successful read the result includes the copy and Cutoff used.

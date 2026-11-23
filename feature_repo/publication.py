@@ -22,6 +22,22 @@ BATCH_FIELDS = (
 )
 
 
+def daily_status(count, positive, rate, *, expected: bool) -> str:
+    """What one SKU's `sku_return_daily` row means, for every reader (Feature API, predictor).
+
+    ready        : usable counts.
+    no_history   : confirmed zero labeled lines in 90 days (a real 0, not missing data).
+    not_available: no row, and the published release does not list this SKU (e.g. a new SKU).
+    unavailable  : no row although the release lists the SKU, or the row is incomplete ⇒ data fault.
+    Missing values must be None (callers turn pandas NaN/NA into None).
+    """
+    if count is None:
+        return "unavailable" if expected else "not_available"
+    if positive is None or (count > 0 and rate is None):
+        return "unavailable"
+    return "no_history" if count == 0 else "ready"
+
+
 class FeatureDataUnavailable(RuntimeError):
     """Not enough grounds to serve a published batch release."""
 
