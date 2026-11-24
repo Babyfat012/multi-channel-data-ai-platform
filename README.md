@@ -129,6 +129,26 @@ sequenceDiagram
     CO-->>U: answer
 ```
 
+### Component diagrams: inside each service
+
+The system diagram draws one box per service. Each diagram below opens one service and shows its parts, where every input comes from and where every output goes. Arrows follow the same codes and colours.
+
+| Service | What the diagram shows |
+|---|---|
+| [Airflow](docs/diagrams/components/airflow.png) | Scheduler, LocalExecutor, Spark driver and feast-venv in one container; what each job reads and writes |
+| [Spark jobs](docs/diagrams/components/spark.png) | Standalone cluster; bronze → silver → gold → warehouse, Feast Parquet export, Iceberg maintenance |
+| [Kafka + Debezium + Flink](docs/diagrams/components/streaming.png) | Topics, WAL CDC, the two Flink clusters, return-event replay from Gold |
+| [Lakehouse](docs/diagrams/components/lakehouse.png) | S3 buckets and prefixes, Lakekeeper catalog, Trino; who writes each prefix |
+| [DataHub](docs/diagrams/components/datahub.png) | Push-only metadata: Airflow logs → evidence manifest → publish scripts → GMS |
+| [Feature store (Feast)](docs/diagrams/components/feast.png) | `platform` (Redis, A/B batch slots) and `platform_rag` (pgvector) projects |
+| [Serving](docs/diagrams/components/serving.png) | NGINX, feature-api, policy-api, mcp-server, KServe and where it loads the model; KEDA |
+| [Training + drift](docs/diagrams/components/training.png) | Kubeflow training and drift pipelines, MLflow aliases, Jenkins approval and deploy |
+| [Agents](docs/diagrams/components/agents.png) | kagent agents, agentgateway guardrails, LLM and agent A/B, prompts from Langfuse |
+| [Agent Substrate](docs/diagrams/components/substrate.png) | SandboxAgents in gVisor, snapshot and restore |
+| [Ingress + TLS](docs/diagrams/components/ingress.png) | NLB, NGINX, cert-manager, basic auth from Vault |
+| [Observability](docs/diagrams/components/observability.png) | Prometheus, Fluent Bit + Loki, Jaeger, Grafana, KEDA |
+| [CI/CD](docs/diagrams/components/cicd.png) | Jenkins pipeline, Vault, ECR, Terraform, Ansible |
+
 ## Getting started
 
 Requirements: Python 3.12+, `uv`, Docker Engine and Docker Compose v2. Run commands from the repository root.

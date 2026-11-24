@@ -2,7 +2,7 @@
 
 [System architecture (PNG)](system-architecture.png) · [Editable Excalidraw](system-architecture.excalidraw)
 
-One diagram covers Data + ML + LLM + CI/CD with the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams. Sources are simulated.
+One diagram covers Data + ML + LLM + CI/CD with the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams in [components/](components/) (listed in the [root README](../../README.md#component-diagrams-inside-each-service)). Sources are simulated.
 
 Each box is one service (Compose container, Deployment / Pod, Job or managed service); dashed coloured frames are Kubernetes namespaces or the S3 bucket, grey dashed strips are pipelines and their steps. Each arrow goes from sender to receiver; its colour is the business flow and its number, e.g. (B1), gives the order inside that flow. Dotted arrows start or control something without moving data; dashed arrows are CI/CD. The legend is in the Excalidraw file, above the drawing.
 

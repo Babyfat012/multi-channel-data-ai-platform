@@ -58,5 +58,6 @@ llm-d-benchmark/
 scripts/diagrams/
 docs/learning/
 
-# Per-service component diagrams: local until the user decides to publish them
-docs/diagrams/components/
+# Component diagram sources (built by local scripts/diagrams/); only the PNGs are published
+docs/diagrams/components/*.excalidraw
+docs/diagrams/components/*.svg
