@@ -49,6 +49,86 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 In the current code the Airflow DAGs are triggered manually and the training pipeline sets the `production` alias when the model beats the baseline.
 Deployment evidence is in [AWS validation](docs/shared/aws_validation.md).
 
+The diagrams below zoom in on the three main flows of the system diagram.
+
+### Data flow: sources → lakehouse → warehouse
+
+Batch (B), CDC (S) and streaming on the EC2 data platform. Airflow runs DP1–DP4; Lakekeeper is the Iceberg catalog over S3.
+
+```mermaid
+flowchart LR
+    GEN["Source generator<br/>Amazon · TikTok · Shopify · Shopee"] -->|JSONL| RAW[("S3 raw files")]
+    GEN --> WDB[("Walmart order DB<br/>PostgreSQL")]
+    GEN -->|live events| KAFKA[["Kafka"]]
+    WDB -->|WAL| DBZ["Debezium"] --> KAFKA
+
+    subgraph LH["S3 lakehouse · Iceberg"]
+        BRONZE[("Bronze")] --> SILVER[("Silver<br/>dedup · SCD2")] --> GOLD[("Gold<br/>labels · features")]
+    end
+
+    RAW -->|"DP1 · Spark"| BRONZE
+    KAFKA -->|"dp1_cdc · Spark hourly merge"| BRONZE
+    KAFKA --> FLINK["Flink<br/>late arrival · dedup · windows"]
+    GOLD -->|"DP4"| WH[("PostgreSQL warehouse<br/>dim / fact")]
+    TRINO["Trino"] -.->|federated SQL| GOLD
+    TRINO -.-> WH
+    DATAHUB["DataHub"] -.->|lineage · assertions| LH
+```
+
+### ML flow: features → training → serving
+
+Features (M) and prediction (A). A trained model becomes a challenger; the Jenkins `return-risk` pipeline promotes it to `production`.
+
+```mermaid
+flowchart LR
+    GOLD[("Gold tables")] -->|"Airflow · Feast materialize"| OFF[("Offline store<br/>S3")]
+    GOLD --> ON[("Online store<br/>Redis")]
+    KAFKA[["Kafka returns"]] -->|"PyFlink · 24h counts"| ON
+    KAFKA --> OFF
+
+    subgraph KFP["Kubeflow · return-risk-training"]
+        direction LR
+        L["Load features<br/>PIT join"] --> S["Split by date"] --> T["Train LightGBM"] --> E["Evaluate<br/>vs baseline"]
+    end
+
+    OFF --> L
+    E -->|register challenger| MLF[("MLflow registry")]
+    MLF -->|"approve → production"| KS["KServe return-risk"]
+    ON -->|read features| KS
+    CLIENT(["Seller / API client"]) -->|"/predict"| KS
+    MON["Evidently drift · daily"] -.->|drift → retrain| KFP
+```
+
+### AI chat: one question through the agents
+
+AI chat (C), RAG (R) and the tool calls behind it. The agents never touch data stores directly: every tool goes through the MCP server and the APIs.
+
+```mermaid
+sequenceDiagram
+    actor U as Seller
+    participant UI as Chat UI (NGINX, basic auth)
+    participant GW as agentgateway
+    participant CO as Coordinator agent
+    participant AG as Data / Model agent
+    participant LLM as llama.cpp Qwen (A/B)
+    participant MCP as MCP server
+    participant API as Feature API · Policy API · KServe
+
+    U->>UI: question
+    UI->>GW: forward (API key, PII mask)
+    GW->>CO: route to coordinator
+    CO->>LLM: plan (via gateway)
+    CO->>AG: sub-task (A2A via gateway)
+    AG->>LLM: pick a tool (via gateway)
+    AG->>MCP: tool call (via gateway)
+    MCP->>API: features / policy chunks (pgvector) / predict
+    API-->>MCP: data
+    MCP-->>AG: tool result
+    AG-->>CO: answer to sub-task
+    CO->>LLM: write final answer
+    CO-->>U: answer
+```
+
 ## Getting started
 
 Requirements: Python 3.12+, `uv`, Docker Engine and Docker Compose v2. Run commands from the repository root.
