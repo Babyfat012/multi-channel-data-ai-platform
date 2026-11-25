@@ -10,7 +10,7 @@ The LLM Platform provides conversation for the Seller through an LLM, RAG and ag
 | Evaluation and A/B | `ml/`, `infra/k8s/agents/` | [Eval](../agent_evaluation.md), [A/B](../ab_testing.md) |
 | Shared operations | `infra/k8s/observability/`, `infra/jenkins/` | [Observability](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
 
-[ML + LLM Platform architecture](../../diagrams/system-architecture.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).
+[ML + LLM Platform architecture](../../diagrams/architecture-ml-llm.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).
 
 Agents query figures from the [Data Platform](../../data-platform/reference/data_platform.md), and features and predictions from the [ML Platform](ml_platform.md). The API and shared operations infrastructure are referenced from both platforms.
 

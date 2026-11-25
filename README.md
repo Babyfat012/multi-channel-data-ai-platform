@@ -35,11 +35,23 @@ The agent retrieves features, calls the prediction model and looks up the return
 
 ## Architecture
 
-One diagram covers the whole platform: the data platform on EC2 (Docker Compose), the AWS managed services (S3 lakehouse, ECR), the ML + LLM platform on EKS, and the CI/CD jobs with their steps. Click the picture for the full-size PNG. All marketplace source data is simulated.
+Three diagrams cover the platform: the data platform on EC2 (Docker Compose), the ML + LLM platform on EKS, and the CI/CD jobs with their steps.
+The AWS managed services (S3 lakehouse, ECR) appear on the edge of both platform diagrams; a line that leaves a diagram ends with "to …" / "from …" naming the box on the other one.
+Click a picture for the full-size PNG. All marketplace source data is simulated.
 
-[![System architecture](docs/diagrams/system-architecture.png)](docs/diagrams/system-architecture.png)
+**Data platform** (EC2 + S3)
 
-[Full-size PNG](docs/diagrams/system-architecture.png) · [Editable Excalidraw](docs/diagrams/system-architecture.excalidraw) · [Blocks mapped to configuration and docs](docs/diagrams/README.md)
+[![Data platform architecture](docs/diagrams/architecture-data.png)](docs/diagrams/architecture-data.png)
+
+**ML + LLM platform** (S3 + EKS)
+
+[![ML + LLM platform architecture](docs/diagrams/architecture-ml-llm.png)](docs/diagrams/architecture-ml-llm.png)
+
+**CI/CD** (Jenkins + Vault on EC2)
+
+[![CI/CD architecture](docs/diagrams/architecture-cicd.png)](docs/diagrams/architecture-cicd.png)
+
+Editable Excalidraw: [data](docs/diagrams/architecture-data.excalidraw) · [ML + LLM](docs/diagrams/architecture-ml-llm.excalidraw) · [CI/CD](docs/diagrams/architecture-cicd.excalidraw) · [whole platform in one picture](docs/diagrams/system-architecture.png) · [Blocks mapped to configuration and docs](docs/diagrams/README.md)
 
 How to read it: each arrow shows the way the data moves, its colour is the business flow, and its number gives the order inside that flow —
 (B) batch, (S) CDC + streaming, (M) features + training, (R) return-policy RAG, (A) prediction API call, (C) AI chat, (K) control, (O) observability, (D) CI/CD.

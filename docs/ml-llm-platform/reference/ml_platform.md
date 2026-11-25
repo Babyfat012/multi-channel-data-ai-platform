@@ -10,7 +10,7 @@ The ML Platform manages features and the lifecycle of the model that predicts Re
 | API serving features, policy chunks and the MCP tools; predictions via KServe | `serving/`, `infra/helm/serving-api/` | [Web API](../web_api_mcp.md) |
 | Shared operations | `infra/k8s/observability/`, `infra/jenkins/` | [Observability](../observability.md), [Vault](../security.md), [CI/CD](../cicd.md) |
 
-[ML + LLM Platform architecture](../../diagrams/system-architecture.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).
+[ML + LLM Platform architecture](../../diagrams/architecture-ml-llm.png) · [ML Platform / LLM Platform evidence](ml_llm_platform_evidence.md).
 
 Features come from the [Data Platform](../../data-platform/reference/data_platform.md); predictions and features are provided to the [LLM Platform](llm_platform.md) through the tool API. The operations infrastructure serves both platforms.
 

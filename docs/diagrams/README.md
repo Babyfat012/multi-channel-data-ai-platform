@@ -1,6 +1,6 @@
 # System architecture
 
-[System architecture (PNG)](system-architecture.png) · [Editable Excalidraw](system-architecture.excalidraw)
+[Data platform](architecture-data.png) · [ML + LLM platform](architecture-ml-llm.png) · [CI/CD](architecture-cicd.png) · [Whole platform in one picture](system-architecture.png) (each has an editable `.excalidraw` next to it)
 
 One diagram covers Data + ML + LLM + CI/CD with the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams in `components/` (listed in the [root README](../../README.md#component-diagrams-inside-each-service)). Sources are simulated.
 

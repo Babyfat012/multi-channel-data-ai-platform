@@ -3,12 +3,26 @@
 # spreads requests) and through agentgateway + EPP (prefix-aware). vLLM replicas restart before each run so both start
 # with an empty cache. Output: out/llmd-poc/<label>/summary.json + prefix-cache counters per replica.
 #   kubectl --context kind-fsds-ml apply -f infra/k8s/agents/llm-d-poc.yaml && scripts/llm/llmd_poc_bench.sh
+# ENGINE=llamacpp (replicas from llm-d-poc-llamacpp.yaml): output in out/llmd-poc-llamacpp/, chat API (the agents' path;
+# agentgateway's llm route turns /v1/completions into /v1/v1/completions), counters from llamacpp:* metrics.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 K=(kubectl --context "${KCTX:-kind-fsds-ml}" -n llm-d-poc)
 IMAGE=quay.io/inference-perf/inference-perf:v0.7.0
+ENGINE=${ENGINE:-vllm}
+OUT=out/llmd-poc; [ "$ENGINE" = vllm ] || OUT=out/llmd-poc-$ENGINE
 
-counters() {  # "<pod> <prefix queries> <prefix hits>" per vLLM replica
+counters() {  # "<pod> <prefix queries> <prefix hits> <requests>" per replica
+  if [ "$ENGINE" = llamacpp ]; then  # prompt_tokens_total = tokens computed, cached ones counted apart; 8 output tokens each
+    for pod in $("${K[@]}" get pod -l app=vllm-a -o jsonpath='{.items[*].metadata.name}'); do
+      "${K[@]}" exec "$pod" -- python3 -c "
+import urllib.request
+m = dict(l.rsplit(' ', 1) for l in urllib.request.urlopen('http://localhost:8000/metrics').read().decode().splitlines() if l.startswith('llamacpp:'))
+c, t = int(float(m['llamacpp:prompt_tokens_cached_total'])), int(float(m['llamacpp:prompt_tokens_total']))
+print('$pod', c + t, c, int(float(m['llamacpp:tokens_predicted_total'])) // 8)"
+    done
+    return
+  fi
   for pod in $("${K[@]}" get pod -l app=vllm-a -o jsonpath='{.items[*].metadata.name}'); do
     "${K[@]}" exec "$pod" -- python3 -c "
 import urllib.request
@@ -19,11 +33,12 @@ print('$pod', int(v('vllm:prefix_cache_queries_total')), int(v('vllm:prefix_cach
 }
 
 run() {  # run <label> <base url>
-  local label=$1 url=$2 dir=out/llmd-poc/$1
+  local label=$1 url=$2 dir=$OUT/$1
   mkdir -p "$dir"
   "${K[@]}" rollout restart deploy/vllm-a >/dev/null
   "${K[@]}" rollout status deploy/vllm-a --timeout=15m >/dev/null
   sed "s|@@BASE_URL@@|$url|" infra/k8s/benchmark/llmd-poc-prefix.yaml >"$dir/workload.yaml"
+  [ "$ENGINE" = vllm ] || sed -i 's|type: completion$|type: chat|' "$dir/workload.yaml"
   "${K[@]}" create configmap "bench-$label" --from-file=config.yml="$dir/workload.yaml" --dry-run=client -o yaml | "${K[@]}" apply -f - >/dev/null
   "${K[@]}" delete job "bench-$label" --ignore-not-found >/dev/null
   "${K[@]}" apply -f - >/dev/null <<YAML
@@ -51,10 +66,10 @@ YAML
 
 run round-robin http://vllm-a.llm-d-poc.svc.cluster.local:8000
 run epp http://agentgateway.llm-d-poc.svc.cluster.local:3000
-python3 - <<'PY'
-import json, pathlib
+OUT=$OUT python3 - <<'PY'
+import json, os, pathlib
 for label in ("round-robin", "epp"):
-    d = pathlib.Path("out/llmd-poc") / label
+    d = pathlib.Path(os.environ["OUT"]) / label
     s = json.loads((d / "summary.json").read_text())
     ok, ttft = s["successes"], s["successes"]["latency"]["time_to_first_token"]
     rows = [l.split() for l in (d / "prefix_cache.txt").read_text().splitlines()]
