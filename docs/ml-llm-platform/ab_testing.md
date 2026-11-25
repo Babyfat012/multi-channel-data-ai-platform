@@ -15,8 +15,8 @@ Details in [Conclusion and decision](#conclusion-and-decision).
 
 | Branch | LLM | Agent | File |
 |---|---|---|---|
-| **A** (in use) | `qwen2.5-1.5b-instruct` (llama.cpp, benchmarked configuration) | `data-agent`, `default-model-config` | `infra/k8s/agents/llm.yaml`, `data-agent.yaml` |
-| **B** (candidate) | `qwen2.5-0.5b-instruct` (same image, same flags) | `data-agent-b`, `ab-small-model-config` — same prompt, same tools | [`ab-llm-small.yaml`](../../infra/k8s/agents/ab-llm-small.yaml), [`ab-data-agent.yaml`](../../infra/k8s/agents/ab-data-agent.yaml) |
+| **A** (in use) | `qwen2.5-1.5b-instruct` (vLLM CPU × 2 behind the llm-d EPP, see [LLM inference](llm_inference_platform.md)) | `data-agent`, `default-model-config` | `infra/k8s/agents/llm.yaml`, `data-agent.yaml` |
+| **B** (candidate) | `qwen2.5-0.5b-instruct` (same vLLM image and flags, 1 replica, no EPP) | `data-agent-b`, `ab-small-model-config` — same prompt, same tools | [`ab-llm-small.yaml`](../../infra/k8s/agents/ab-llm-small.yaml), [`ab-data-agent.yaml`](../../infra/k8s/agents/ab-data-agent.yaml) |
 
 Traffic is split at **agentgateway** ([`agentgateway.yaml`](../../infra/k8s/agents/agentgateway.yaml)):
 
@@ -126,7 +126,7 @@ Diagram: Qwen 0.5B "B: candidate, gets 50%, kept only if it wins A/B". Before, t
 a hand-typed `kubectl scale … --replicas=0`, while `agentgateway.yaml` still split 50/50: about half the requests to
 `platform-chat` and `/a2a/data-agent-ab/` went to a branch with no pods, and the next deploy re-applied the 50/50 file.
 
-Jenkins job `llm-ab` ([`llm-ab.Jenkinsfile`](../../infra/jenkins/llm-ab.Jenkinsfile), manual) runs
+Jenkins job `llm-serving` ([`llm-serving.Jenkinsfile`](../../infra/jenkins/llm-serving.Jenkinsfile), manual; Deploy → Smoke → A/B gate), stage A/B gate, runs
 [`scripts/llm/ab_gate.py`](../../scripts/llm/ab_gate.py):
 
 1. Scale B up (`llm/qwen-small`, `kagent/data-agent-b`) and evaluate A and B on the same SKUs (`eval_agent_ci`, task features).

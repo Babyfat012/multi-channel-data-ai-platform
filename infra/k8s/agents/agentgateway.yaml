@@ -22,6 +22,21 @@ data:
     gateways:
       default:
         port: 3000
+      # Loopback-only listener for model A: in v1.6.0 the EPP call (`inferenceRouting`) works only on a route backend of
+      # type `service`, while the A/B split by model name exists only in `llm:`. So `llm:` keeps keys, guardrails and the
+      # split, and model A's baseUrl is this listener, whose one route (routes: llm-d-qwen) asks the EPP for the pod.
+      inference:
+        port: 3001
+        bindAddress: 127.0.0.1
+    # Logical service for that route: the EPP owns discovery (destinationMode passthrough), so no endpoints are listed.
+    # Referenced as <namespace>/<hostname>.
+    services:
+    - name: qwen
+      namespace: llm
+      hostname: qwen
+      vips: []
+      ports:
+        8000: 8000
     llm:
       policies:
         apiKey:                      # missing/wrong key ⇒ 401
@@ -42,7 +57,7 @@ data:
             - type: completions
         params:
           model: qwen2.5-1.5b-instruct
-          baseUrl: http://qwen.llm.svc.cluster.local:8080/v1
+          baseUrl: http://127.0.0.1:3001/v1   # → route llm-d-qwen → EPP picks a qwen replica (infra/k8s/agents/llm.yaml)
         # PII: block requests containing email / credit card / SSN (403), mask PII in responses.
         # Phone numbers are not blocked in requests: quantities, prices, SKU codes are easily misdetected. Counted in
         # agentgateway_guardrail_checks_total.
@@ -91,6 +106,20 @@ data:
     # x-kagent-host = "<agent>.<ns>" (kagent applyProxyURL); the route picks the Agent by that header. Clients outside the cluster
     # use the /a2a/<agent>/ path. The a2a policy rewrites `url` in the agent card to the gateway. New Agent = add a route.
     routes:
+    # Model A behind the llm-d EPP (prefix-aware replica choice). Fail-closed: EPP down ⇒ model A requests fail.
+    - name: llm-d-qwen
+      gateways: inference
+      matches:
+      - path: {pathPrefix: /v1/}
+      backends:
+      - service:
+          name: llm/qwen
+          port: 8000
+        policies:
+          inferenceRouting:
+            endpointPicker:
+              host: epp.llm.svc.cluster.local:9002
+            destinationMode: passthrough
     - name: a2a-data-agent
       matches:
       - path: {pathPrefix: /}

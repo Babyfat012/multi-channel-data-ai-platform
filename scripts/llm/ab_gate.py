@@ -10,7 +10,7 @@ quality. A missing result (a branch down, the eval crashed) is a loss: nothing p
 Order matters: decision → gateway apply (drops or restores B in the split) → only then scale B to 0, so the gateway
 never sends half the traffic to a branch with no pods.
 
-    python3 -m scripts.llm.ab_gate        (Jenkins job llm-ab; same env as scripts.llm.eval_agent_ci)
+    python3 -m scripts.llm.ab_gate        (Jenkins job llm-serving, stage A/B gate; same env as scripts.llm.eval_agent_ci)
 """
 
 import json

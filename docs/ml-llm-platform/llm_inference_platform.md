@@ -2,7 +2,50 @@
 
 This page covers inference, custom models, agentgateway and benchmarking.
 
-On the EKS cluster `platform-apps`, llama.cpp (a server that runs LLMs) self-hosts the Qwen2.5-1.5B-Instruct model on CPU.
+## Current serving: vLLM + llm-d EPP (since 2026-11-25)
+
+Model A (`qwen2.5-1.5b-instruct`, the Agents' model) runs on **vLLM CPU × 2 replicas** behind the **llm-d EPP**
+(endpoint picker, [llm-d-router](https://github.com/llm-d/llm-d-router) v1.0.0). For each request the EPP picks the
+replica: the one that already holds the prompt's prefix in its KV cache first (prefix-aware), then by queue length and KV
+use. Branch B of the A/B test (`qwen2.5-0.5b-instruct`) runs on the same vLLM image, 1 replica, without the EPP.
+Disaggregated prefill/decode (llm-d's next step) needs GPUs and is not used.
+
+```text
+agent → agentgateway :3000 (`llm:` keys · PII guardrails · A/B split by model name)
+          model A → baseUrl 127.0.0.1:3001 → route llm-d-qwen ─ext_proc→ EPP (llm/epp:9002) → chosen qwen pod :8000
+          model B → qwen-small.llm:8080
+```
+
+Code: [`llm.yaml`](../../infra/k8s/agents/llm.yaml) (A + EPP), [`ab-llm-small.yaml`](../../infra/k8s/agents/ab-llm-small.yaml) (B),
+[`agentgateway.yaml`](../../infra/k8s/agents/agentgateway.yaml), Jenkins [`llm-serving`](../../infra/jenkins/llm-serving.Jenkinsfile)
+(Deploy → [Smoke](../../scripts/llm/smoke_llm_serving.py) → A/B gate).
+
+**Evidence (local kind, not run on AWS):** [`llm-d-poc.yaml`](../../infra/k8s/agents/llm-d-poc.yaml) is the same setup at
+laptop size (Qwen2.5-0.5B × 2, KV cache 32 MiB so the cache holds half of the benchmark's prefixes).
+[`llmd_poc_bench.sh`](../../scripts/llm/llmd_poc_bench.sh) runs one shared-prefix load ([workload](../../infra/k8s/benchmark/llmd-poc-prefix.yaml):
+8 groups × 512-token prefix × 3 questions, 0.1 request/s) twice, vLLM restarted in between
+(results: [round-robin](../evidence/llmd-poc-20261125/round-robin/summary.json), [EPP](../evidence/llmd-poc-20261125/epp/summary.json)):
+
+| Path | OK / failed | TTFT p50 / p90 (s) | Prefix-cache hit (tokens) | Requests per replica |
+|---|---|---|---|---|
+| Service (kube-proxy spreads) | 24 / 0 | 4.36 / 19.22 | 28% (3,584 / 12,864) | 16 / 8 |
+| agentgateway + EPP | 24 / 0 | **0.36** / 19.31 | **56%** (7,168 / 12,864) | 14 / 10 |
+
+p90 is the first request of each group, a miss either way; the best possible hit rate here is about 64%. One run per
+configuration, 24 requests: a direction, not a precise number. Through the hybrid gateway config, every model-A request
+reached the EPP listener and the `platform-chat` split kept working.
+
+| Constraint (found in the POC) | Consequence |
+|---|---|
+| agentgateway v1.6.0 calls the EPP only from a route backend of type `service`; the A/B split by model name exists only in `llm:` | Model A's `baseUrl` points at a loopback listener (:3001) whose one route uses the EPP; keys, guardrails and the split stay in `llm:` |
+| agentgateway standalone is fail-closed | EPP down ⇒ model A requests fail (single EPP replica for now) |
+| vLLM CPU runs 3 processes that each load torch | 0.5B with 1 GiB KV measured **5.0 GiB** per replica (llama.cpp Q4 1.5B: 1.6 GiB limit). A ×2 (9 GiB limit each) + B (6 GiB) fit the 2 × r6i.xlarge (32 GiB) EKS nodes |
+| Prefill on CPU is slow without compilation | 1,000-token prompt: 25 s on a miss, 1 s on a cache hit (laptop, 3 threads) — the reason prefix-aware routing matters on CPU |
+| Container `/dev/shm` is 64 MiB; torch.compile warm-up OOM-killed at 4 GiB; `VLLM_CPU_KVCACHE_SPACE` takes whole GiB | emptyDir `/dev/shm`, `-O0 --enforce-eager`, `--kv-cache-memory-bytes` |
+
+The sections below describe the **previous llama.cpp setup** and its EKS measurements (history; same model, GGUF Q4).
+
+Until 2026-11-25, on the EKS cluster `platform-apps`, llama.cpp (a server that runs LLMs) self-hosted the Qwen2.5-1.5B-Instruct model on CPU.
 The model is in GGUF format, Q4_K_M compression (4-bit quantization), and is stored on a PVC (a volume attached to the pod).
 This is an off-the-shelf model brought in for self-hosting; there is no evidence of custom fine-tuning yet. Agents call the model through agentgateway using an OpenAI-compatible API.
 

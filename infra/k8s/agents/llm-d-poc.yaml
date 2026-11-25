@@ -1,0 +1,298 @@
+# POC (step 6, local kind): vLLM CPU replicas behind the llm-d EPP (prefix-aware routing), agentgateway in front.
+# Own namespace, nothing in `llm` / `agentgateway` changes. Local size: Qwen2.5-0.5B, KV cache 1 GiB per replica (the
+# machine has ~6 GiB free); the target design is Qwen2.5-1.5B × 2 for model A. Benchmark: scripts/llm/llmd_poc_bench.sh.
+#
+#   client → agentgateway (backend ai + inferenceRouting) ─ext_proc→ EPP (scores pods) → chosen vLLM pod
+#
+# agentgateway runs standalone (config file, no Gateway API controller), so there is no InferencePool consumer:
+# the EPP finds the pods itself with --endpoint-selector (same pod set an InferencePool would select).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-d-poc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hf-cache
+  namespace: llm-d-poc
+spec:
+  accessModes: [ReadWriteOnce]   # single-node kind: both replicas mount it
+  resources:
+    requests: {storage: 2Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-a
+  namespace: llm-d-poc
+spec:
+  replicas: 2
+  strategy: {type: Recreate}   # never run old + new replicas side by side: RAM is the limit
+  selector:
+    matchLabels: {app: vllm-a}
+  template:
+    metadata:
+      labels: {app: vllm-a}
+    spec:
+      containers:
+        - name: vllm
+          image: docker.io/vllm/vllm-openai-cpu:v0.33.0
+          args:
+            - Qwen/Qwen2.5-0.5B-Instruct
+            - --served-model-name=qwen-poc
+            - --port=8000
+            - --max-model-len=1024
+            - --dtype=bfloat16
+            - --enable-prefix-caching   # default in V1; explicit because the POC is about it
+            # No torch.compile: warm-up compiles C++ kernels (cc1plus) on top of the loaded model and was OOM-killed
+            # at 4 GiB. Eager mode costs some tokens/s, which this POC does not measure across modes.
+            - -O0
+            # 32 MiB KV cache ≈ 2.7k tokens per replica (Qwen2.5-0.5B: 12 KiB/token). Deliberately small: the benchmark
+            # (infra/k8s/benchmark/llmd-poc-prefix.yaml) needs a cache that holds half of its prefixes, not all of them,
+            # or round-robin also hits every time. VLLM_CPU_KVCACHE_SPACE takes whole GiB only.
+            - --kv-cache-memory-bytes=33554432
+            - --enforce-eager
+          env:
+            - {name: VLLM_CPU_OMP_THREADS_BIND, value: "nobind"}
+            - {name: OMP_NUM_THREADS, value: "3"}
+            - {name: HF_HOME, value: /cache}
+          ports: [{name: http, containerPort: 8000}]
+          volumeMounts: [{name: cache, mountPath: /cache}, {name: shm, mountPath: /dev/shm}]
+          resources:
+            # Measured 2026-11-25: one 0.5B replica with 1 GiB KV = 5.0 GiB (3 processes each load torch + page cache);
+            # 3Gi and 4Gi were OOM-killed.
+            requests: {cpu: "2", memory: 4Gi}
+            limits: {memory: 5Gi}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 90
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+      volumes:
+        - name: cache
+          persistentVolumeClaim: {claimName: hf-cache}
+        # Container default /dev/shm is 64 MiB; the vLLM engine's shared-memory queue needs 160 MiB.
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 256Mi}
+---
+# Plain round-robin Service: the baseline the EPP is compared against.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-a
+  namespace: llm-d-poc
+spec:
+  selector: {app: vllm-a}
+  ports: [{name: http, port: 8000, targetPort: http}]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: epp
+  namespace: llm-d-poc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: epp
+  namespace: llm-d-poc
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: epp
+  namespace: llm-d-poc
+subjects: [{kind: ServiceAccount, name: epp, namespace: llm-d-poc}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: epp}
+---
+# llm-d-router v1.0.0 default profile: prefix-cache (approximate, router-side index) weighs most, then queue and KV use.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: epp-config
+  namespace: llm-d-poc
+data:
+  epp.yaml: |
+    apiVersion: llm-d.ai/v1
+    kind: EndpointPickerConfig
+    plugins:
+    - type: queue-scorer
+    - type: kv-cache-utilization-scorer
+    - type: prefix-cache-scorer
+    - type: metrics-data-source
+      parameters: {scheme: http, path: /metrics, insecureSkipVerify: true}
+    - type: core-metrics-extractor
+    schedulingProfiles:
+    - name: default
+      plugins:
+      - {pluginRef: queue-scorer, weight: 2}
+      - {pluginRef: kv-cache-utilization-scorer, weight: 2}
+      - {pluginRef: prefix-cache-scorer, weight: 3}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epp
+  namespace: llm-d-poc
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: epp}
+  template:
+    metadata:
+      labels: {app: epp}
+    spec:
+      serviceAccountName: epp
+      containers:
+        - name: epp
+          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v1.0.0
+          args:
+            - --endpoint-selector=app=vllm-a
+            - --endpoint-target-ports=8000
+            - --config-file=/config/epp.yaml
+            - --grpc-health-port=9003
+            - --secure-serving=false   # in-cluster POC; agentgateway speaks plaintext gRPC to it
+            - --metrics-endpoint-auth=false
+            - --tracing=false
+            - --zap-encoder=json
+          env:
+            - name: NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: POD_NAME   # required at startup
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          ports:
+            - {name: ext-proc, containerPort: 9002}
+            - {name: health, containerPort: 9003}
+            - {name: metrics, containerPort: 9090}
+          volumeMounts: [{name: config, mountPath: /config}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: config
+          configMap: {name: epp-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epp
+  namespace: llm-d-poc
+spec:
+  selector: {app: epp}
+  ports:
+    - {name: ext-proc, port: 9002, targetPort: ext-proc, appProtocol: http2}
+    - {name: metrics, port: 9090, targetPort: metrics}
+---
+# agentgateway (same image as infra/k8s/agents/agentgateway.yaml), the same shape as the real config:
+# in v1.6.0 `inferenceRouting` only works on a route backend of type `service` (not on `llm.models`), and the A/B split by
+# model name only exists in `llm:`. So `llm:` stays as it is on :3000, and model A's baseUrl is a loopback-only gateway
+# (:3001) whose single route asks the EPP for the pod (destinationMode passthrough: the EPP owns discovery). Fail-closed:
+# EPP down ⇒ model A requests fail (agentgateway examples/llm-standalone-epp).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway-config
+  namespace: llm-d-poc
+data:
+  config.yaml: |
+    config:
+      adminAddr: 0.0.0.0:15000
+      statsAddr: 0.0.0.0:15020
+      readinessAddr: 0.0.0.0:15021
+    gateways:
+      default:
+        port: 3000
+      inference:
+        port: 3001
+        bindAddress: 127.0.0.1
+    services:
+    - name: vllm-a
+      namespace: llm-d-poc
+      hostname: vllm-a   # logical: the route refers to it as <namespace>/<hostname>; EPP picks the real pod
+      vips: []
+      ports:
+        8000: 8000
+    llm:
+      models:
+      - name: qwen-poc
+        provider:
+          custom:
+            formats:
+            - type: completions
+        params:
+          model: qwen-poc
+          baseUrl: http://127.0.0.1:3001/v1
+      # Stand-in for branch B: same pods, no EPP (the real B is a separate one-replica deployment).
+      - name: qwen-direct
+        provider:
+          custom:
+            formats:
+            - type: completions
+        params:
+          model: qwen-poc
+          baseUrl: http://vllm-a.llm-d-poc.svc.cluster.local:8000/v1
+      virtualModels:
+      - name: platform-chat
+        routing:
+          weighted:
+            targets:
+            - {model: qwen-poc, weight: 1}
+            - {model: qwen-direct, weight: 1}
+    routes:
+    - name: vllm-a-epp
+      gateways: inference
+      matches:
+      - path: {pathPrefix: /v1/}
+      backends:
+      - service:
+          name: llm-d-poc/vllm-a
+          port: 8000
+        policies:
+          inferenceRouting:
+            endpointPicker:
+              host: epp.llm-d-poc.svc.cluster.local:9002
+            destinationMode: passthrough
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgateway
+  namespace: llm-d-poc
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: agentgateway}
+  template:
+    metadata:
+      labels: {app: agentgateway}
+    spec:
+      containers:
+        - name: agentgateway
+          image: ghcr.io/agentgateway/agentgateway:v1.6.0@sha256:9d3e6044ddcdc0878b1787f77bd401252b95e22684203fb5e874c4c42d2ed90c
+          args: ["-f", "/config/config.yaml"]
+          ports:
+            - {name: llm, containerPort: 3000}
+            - {name: stats, containerPort: 15020}
+          volumeMounts: [{name: config, mountPath: /config}]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: config
+          configMap: {name: agentgateway-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentgateway
+  namespace: llm-d-poc
+spec:
+  selector: {app: agentgateway}
+  ports: [{name: llm, port: 3000, targetPort: llm}]

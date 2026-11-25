@@ -1,5 +1,5 @@
 # Minimal Prometheus for local kind (chart prometheus-community/prometheus 29.36.2): server only, 6-hour retention.
-# Scrapes pods annotated prometheus.io/scrape (agentgateway, llama.cpp, Feature API) for KEDA and Grafana.
+# Scrapes pods annotated prometheus.io/scrape (agentgateway, vLLM, llm-d EPP, Feature API) for KEDA and Grafana.
 alertmanager: {enabled: false}
 prometheus-pushgateway: {enabled: false}
 prometheus-node-exporter: {enabled: false}

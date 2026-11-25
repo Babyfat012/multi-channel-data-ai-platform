@@ -1,4 +1,4 @@
-"""Deploy the agent stack: LLM (llama.cpp), agentgateway, kagent (CRDs + controller/UI) and the Data Agent.
+"""Deploy the agent stack: LLM (vLLM model A × 2 + llm-d EPP), agentgateway, kagent (CRDs + controller/UI) and the Data Agent.
 
 One API key for every agent calling the gateway, generated once and then read back from the Secret. Safe to rerun.
 

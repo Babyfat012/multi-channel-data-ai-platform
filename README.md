@@ -21,7 +21,7 @@ A data and AI platform for a Seller selling on Amazon, TikTok Shop, Shopify, Wal
 |---|---|---|---|
 | **Data Platform** | Sources → Bronze / Silver / Gold → warehouse; batch, streaming, orchestration and governance | Spark, Kafka, Flink, Debezium, Iceberg, Lakekeeper, PostgreSQL, Trino, Airflow, DataHub | [Data Platform](docs/data-platform/README.md) |
 | **ML Platform** | Feature store, training, model registry, serving and drift monitoring | Feast, Redis, LightGBM, Kubeflow Pipelines, MLflow, KServe, Evidently | [ML Platform](docs/ml-llm-platform/README.md) |
-| **LLM Platform** | LLM inference, RAG, agents, gateway and answer evaluation | llama.cpp, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/ml-llm-platform/README.md) |
+| **LLM Platform** | LLM inference, RAG, agents, gateway and answer evaluation | vLLM + llm-d EPP, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/ml-llm-platform/README.md) |
 
 On AWS: the Data Platform runs on one EC2 instance (Docker Compose) with data in S3; the ML Platform and LLM Platform run on EKS. Infrastructure is built with Terraform, and EC2 is configured with Ansible.
 
@@ -110,7 +110,7 @@ sequenceDiagram
     participant GW as agentgateway
     participant CO as Coordinator agent
     participant AG as Data / Model agent
-    participant LLM as llama.cpp Qwen (A/B)
+    participant LLM as vLLM Qwen via llm-d EPP (A/B)
     participant MCP as MCP server
     participant API as Feature API · Policy API · KServe
 
