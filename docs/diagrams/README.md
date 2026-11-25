@@ -2,9 +2,9 @@
 
 [System architecture (PNG)](system-architecture.png) · [Editable Excalidraw](system-architecture.excalidraw)
 
-One diagram covers Data + ML + LLM + CI/CD with the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams in [components/](components/) (listed in the [root README](../../README.md#component-diagrams-inside-each-service)). Sources are simulated.
+One diagram covers Data + ML + LLM + CI/CD with the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams in `components/` (listed in the [root README](../../README.md#component-diagrams-inside-each-service)). Sources are simulated.
 
-Each box is one service (Compose container, Deployment / Pod, Job or managed service); dashed coloured frames are Kubernetes namespaces or the S3 bucket, grey dashed strips are pipelines and their steps. Each arrow goes from sender to receiver; its colour is the business flow and its number, e.g. (B1), gives the order inside that flow. Dotted arrows start or control something without moving data; dashed arrows are CI/CD. The legend is in the Excalidraw file, above the drawing.
+Each box is one service (Compose container, Deployment / Pod, Job or managed service); dashed coloured frames are Kubernetes namespaces or the S3 bucket, grey dashed strips are pipelines and their steps. Each arrow shows the way the data moves (a request and its answer are two arrows); its colour is the business flow and its number, e.g. (B1), gives the order inside that flow. Dotted arrows start or control something without moving data; dashed arrows are CI/CD. The legend is in the Excalidraw file, above the drawing.
 
 The diagram shows the target operating model: pipelines run on schedules and a new model is registered as a challenger that an ML engineer approves. In the current code the schedules exist (nightly `dp_nightly`, hourly `dp1_cdc`, ML refresh on the `GOLD_LABELS` Dataset) but `dp_nightly` is paused on creation, because each run still processes the fixed window set by Variables, not a new day; the challenger → production approval is the `return-risk` Jenkins pipeline. Deployment status and evidence are in the [AWS validation status](../shared/aws_validation.md).
 

@@ -41,7 +41,7 @@ One diagram covers the whole platform: the data platform on EC2 (Docker Compose)
 
 [PNG](docs/diagrams/system-architecture.png) · [Editable Excalidraw](docs/diagrams/system-architecture.excalidraw) · [Blocks mapped to configuration and docs](docs/diagrams/README.md)
 
-How to read it: each arrow goes from sender to receiver, its colour is the business flow, and its number gives the order inside that flow —
+How to read it: each arrow shows the way the data moves, its colour is the business flow, and its number gives the order inside that flow —
 (B) batch, (S) CDC + streaming, (M) features + training, (R) return-policy RAG, (A) prediction API call, (C) AI chat, (K) control, (O) observability, (D) CI/CD.
 A red "security" tag marks a security control. Grey dashed strips are pipelines and their steps.
 
