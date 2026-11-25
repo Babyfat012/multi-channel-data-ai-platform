@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from dags.platform_runtime import resolve_rag_env, resolve_runtime_env
+from spark_jobs.lib.assertion_result import emit, parse
 
 
 def test_resolve_runtime_env_maps_requested_connection_groups_only():
@@ -116,6 +117,8 @@ def test_cloud_operator_clears_inherited_keys_and_restores_state(monkeypatch, st
         "BaseHook": SimpleNamespace(get_connection=unexpected_connection),
         "Variable": SimpleNamespace(get=variables.__getitem__),
         "resolve_runtime_env": resolve_runtime_env,
+        "report_task": lambda records, context: None,
+        "parse": parse,
     }
     classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
     exec(compile(ast.Module(body=classes, type_ignores=[]), str(source), "exec"), namespace)
@@ -167,3 +170,70 @@ def test_rag_dag_skips_minio_lookups_on_s3():
     assert '(["platform_minio"] if storage != "s3" else [])' in text
     assert '["platform_minio_internal_endpoint"] if storage != "s3" else []' in text
     assert "resolve_rag_env(connections, variables, storage=storage)" in text
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_operator_reports_check_lines_from_spark_output_pass_or_fail(monkeypatch, capsys, fails):
+    """`DATAHUB_ASSERTION` lines in spark-submit output reach DataHub reporting even when the task fails."""
+    monkeypatch.setenv("PLATFORM_STORAGE", "s3")
+    emit(
+        "lakehouse.gold.fact_order_lines_dp2",
+        not fails,
+        {"duplicates": int(fails)},
+        "unique key",
+        name="u",
+    )
+    result_line = capsys.readouterr().out
+    reported = []
+
+    class HookStub:
+        """Consumes the subprocess lines like SparkSubmitHook does."""
+
+        def _process_spark_submit_log(self, itr):
+            self.seen = list(itr)
+
+    class SparkStub:
+        """spark-submit replaced by feeding output lines to the hook."""
+
+        template_fields = ("env_vars",)
+
+        def __init__(self, **kwargs):
+            self.env_vars = kwargs.get("env_vars")
+
+        def _get_hook(self):
+            return HookStub()
+
+        def execute(self, context):
+            hook = self._get_hook()
+            hook._process_spark_submit_log(
+                iter(["INFO spark started\n", result_line, "{not json\n"])
+            )
+            assert len(hook.seen) == 3  # every line still reaches the normal log
+            if fails:
+                raise RuntimeError("spark failed")
+
+    source = Path(__file__).resolve().parents[3] / "dags/platform_spark_operator.py"
+    tree = ast.parse(source.read_text())
+    namespace = {
+        "os": os,
+        "SparkSubmitOperator": SparkStub,
+        "BaseHook": SimpleNamespace(get_connection=lambda name: {}),
+        "Variable": SimpleNamespace(
+            get={
+                "platform_warehouse_name": "w",
+                "platform_lakekeeper_catalog_uri": "http://lakekeeper:8181/catalog",
+            }.__getitem__
+        ),
+        "resolve_runtime_env": resolve_runtime_env,
+        "report_task": lambda records, context: reported.append(records),
+        "parse": parse,
+    }
+    classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
+    exec(compile(ast.Module(body=classes, type_ignores=[]), str(source), "exec"), namespace)
+    operator = namespace["PlatformSparkSubmitOperator"]()
+    if fails:
+        with pytest.raises(RuntimeError):
+            operator.execute({})
+    else:
+        operator.execute({})
+    assert [[r["passed"] for r in records] for records in reported] == [[not fails]]

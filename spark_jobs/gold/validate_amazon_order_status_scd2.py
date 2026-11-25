@@ -9,6 +9,7 @@ import sys
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -81,6 +82,19 @@ def main(argv: list[str] | None = None) -> int:
             f"Amazon SCD2 versions={rows}; invalid={invalid}; duplicate={duplicate}; "
             f"multiple_current={multiple_current}; bad_fact={bad_fact}; "
             f"missing_version={missing_version}"
+        )
+        emit(
+            table,
+            not (invalid or duplicate or multiple_current or bad_fact or missing_version),
+            {
+                "dataset_rows": sum(row["count"] for row in rows),
+                "invalid_rows": invalid,
+                "duplicate_rows": duplicate,
+                "multiple_current_rows": multiple_current,
+                "bad_fact_rows": bad_fact,
+                "missing_version_rows": missing_version,
+            },
+            "One current version per Order; fact keys point to an existing version; no invalid",
         )
         if invalid or duplicate or multiple_current or bad_fact or missing_version:
             raise ValueError("Validate Amazon Order SCD2 failed")

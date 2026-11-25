@@ -21,5 +21,16 @@ pipeline {
     stage('Pytest') {
       steps { sh 'uv run pytest -q' }
     }
+    // Diagram "Publish contracts → DataHub": Jenkins only (GitHub Actions cannot reach the private DataHub), and only
+    // when contracts/** changed. DataHub is not always on, so a failed publish marks this stage UNSTABLE and never turns
+    // the build red: the contract and test stages above decide green. Re-run by hand once DataHub is up.
+    stage('Publish contracts to DataHub') {
+      when { changeset 'contracts/**' }
+      steps {
+        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+          sh 'uv run --with acryl-datahub==1.7.0.14 python -m scripts.data.publish_datahub_contracts'
+        }
+      }
+    }
   }
 }

@@ -15,6 +15,7 @@ import time
 
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.cdc_offsets import capture_kafka_boundary, gate_failures, kafka_read_options
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 
@@ -109,6 +110,21 @@ def main(argv: list[str] | None = None) -> int:
             f"missing={missing:,}, extra={extra:,}, payload mismatch={mismatched:,}, invalid={invalid:,}"
         )
         failed = gate_failures(source_count, rows, unique, missing, extra, mismatched, invalid)
+        emit(
+            table,
+            not failed,
+            {
+                "source_rows": source_count,
+                "dataset_rows": rows,
+                "unique_offsets": unique,
+                "missing_rows": missing,
+                "extra_rows": extra,
+                "payload_mismatch_rows": mismatched,
+                "invalid_rows": invalid,
+            },
+            "Within the frozen offset range and source epoch: Kafka = Bronze = unique offsets; "
+            "no missing, no extra, payload matches, no invalid",
+        )
         if failed:
             raise ValueError("CDC Bronze gate failed: " + ", ".join(failed))
         print("CDC Bronze gate: PASS")

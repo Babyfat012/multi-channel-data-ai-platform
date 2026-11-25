@@ -17,6 +17,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 from spark_jobs.lib.label_channels import count_mismatches
 
@@ -85,6 +86,16 @@ def publish(
         cur.execute(f"SELECT channel, count(*) FROM {SCHEMA}.{stage} GROUP BY channel")
         loaded = dict(cur.fetchall())
         bad = count_mismatches(gold, loaded)
+        emit(
+            f"{SCHEMA}.{table}",
+            not bad,
+            {
+                "source_rows": sum(gold.values()),
+                "dataset_rows": sum(loaded.values()),
+                "bad_channel_counts": len(bad),
+            },
+            "30-day warehouse matches Gold per Channel (all 5 Channels) before creating the index",
+        )
         if bad:
             raise ValueError(f"Warehouse staging differs from Gold or a Channel is empty: {bad}")
         # Built on staging, so readers of the serving table never wait for it.

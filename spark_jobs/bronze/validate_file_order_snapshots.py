@@ -12,6 +12,7 @@ import sys
 
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import contract_schema_urn, emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 from spark_jobs.lib.snapshot_contracts import (
     contract_aggregates,
@@ -79,13 +80,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"source rows  = {source_count:,}")
         print(f"Bronze rows  = {target_count:,}")
         print(f"invalid rows = {invalid_count:,}")
-        if source_count == 0 or target_count != source_count or invalid_count:
-            raise ValueError("Bronze validate failed")
-        message = failure(
-            int(counts["contract_rows"] or 0),
-            counts["contract_examples"],
-            type_errors(checked, registry),
+        rows_ok = source_count > 0 and target_count == source_count and not invalid_count
+        contract_rows = int(counts["contract_rows"] or 0)
+        typed = type_errors(checked, registry)
+        message = failure(contract_rows, counts["contract_examples"], typed)
+        emit(
+            target,
+            rows_ok,
+            {
+                "source_rows": source_count,
+                "dataset_rows": target_count,
+                "invalid_rows": invalid_count,
+            },
+            "Source has rows; source row count = Bronze; id and provenance valid",
         )
+        emit(
+            target,
+            message is None,
+            {"contract_rows": contract_rows, "type_errors": len(typed)},
+            f"Every payload matches its sim-native-v1/{args.channel} JSON Schema version "
+            "(contracts/registry.json)",
+            urn=contract_schema_urn(args.channel),
+        )
+        if not rows_ok:
+            raise ValueError("Bronze validate failed")
         if message:
             raise ValueError(message)
         print("Bronze validate: PASS (row count, provenance, contract sim-native-v1)")

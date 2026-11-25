@@ -7,7 +7,10 @@ import os
 from airflow.hooks.base import BaseHook
 from airflow.models import Variable
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from platform_datahub import report_task
 from platform_runtime import resolve_runtime_env
+
+from spark_jobs.lib.assertion_result import parse
 
 
 class _Lookup(dict):
@@ -41,6 +44,26 @@ class PlatformSparkSubmitOperator(SparkSubmitOperator):
         """Create a Spark task with the Airflow connection groups it needs; `conf` extends the defaults."""
         self.runtime_groups = runtime_groups
         super().__init__(conf={**self.DEFAULT_CONF, **(conf or {})}, **kwargs)
+        self._check_results: list[dict] = []
+
+    def _get_hook(self):
+        """Hook whose spark-submit output also feeds `DATAHUB_ASSERTION` lines into `_check_results`."""
+        hook = super()._get_hook()
+        process = hook._process_spark_submit_log
+
+        def lines(itr):
+            for line in itr:
+                try:
+                    record = parse(line)
+                except ValueError:
+                    self.log.warning("Unreadable check result line: %s", line.strip())
+                    record = None
+                if record is not None:
+                    self._check_results.append(record)
+                yield line
+
+        hook._process_spark_submit_log = lambda itr: process(lines(itr))
+        return hook
 
     def execute(self, context):
         """Resolve credentials at execution time and restore operator state afterward."""
@@ -78,8 +101,11 @@ class PlatformSparkSubmitOperator(SparkSubmitOperator):
             )
             if key in os.environ
         }
+        self._check_results = []
         try:
             return super().execute(context)
         finally:
             self.env_vars = original_env
             os.environ.update(inherited_secrets)
+            # PASS or FAIL: the validator printed its results before raising (DataHub shows failed runs too).
+            report_task(self._check_results, context)

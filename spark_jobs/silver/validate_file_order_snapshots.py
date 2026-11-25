@@ -8,6 +8,7 @@ import sys
 
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 
 ID_PATH = {
@@ -91,12 +92,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Order Line Silver         = {counts['rows']:,}")
         print(f"invalid rows              = {counts['invalid_rows'] or 0:,}")
         print(f"duplicate Order Line keys = {bool(duplicates)}")
-        if (
+        passed = not (
             not source_orders
             or counts["orders"] != source_orders
             or counts["invalid_rows"]
             or duplicates
-        ):
+        )
+        emit(
+            target,
+            passed,
+            {
+                "source_orders": source_orders,
+                "silver_orders": counts["orders"],
+                "dataset_rows": counts["rows"],
+                "invalid_rows": counts["invalid_rows"] or 0,
+                "duplicate_keys": int(bool(duplicates)),
+            },
+            "Silver has every source Order; required values and money rules hold; no duplicate keys",
+        )
+        if not passed:
             raise ValueError("Silver validate failed")
         print("Silver validate: PASS")
         return 0

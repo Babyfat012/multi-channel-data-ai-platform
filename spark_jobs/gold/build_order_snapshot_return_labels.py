@@ -14,6 +14,7 @@ import sys
 
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 from spark_jobs.lib.label_channels import KEY_CHANNELS, missing_channels
 
@@ -115,6 +116,17 @@ def main(argv: list[str] | None = None) -> int:
             )
         missing = missing_channels(counts)
         print(f"Label bridge: rows={rows}, duplicate={duplicate}, invalid={invalid}")
+        emit(
+            target,
+            bool(rows) and not (duplicate or invalid or missing),
+            {
+                "dataset_rows": int(rows or 0),
+                "duplicate_keys": duplicate,
+                "invalid_rows": invalid,
+                "missing_channels": len(missing),
+            },
+            "Five-Channel label bridge has rows in every Channel; no invalid and no duplicate keys",
+        )
         if not rows or duplicate or invalid or missing:
             raise ValueError(f"Invalid label bridge; Channels without labels: {missing}")
         print(f"Label bridge for five Channels written: {target}")

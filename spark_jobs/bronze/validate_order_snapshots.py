@@ -14,6 +14,7 @@ import sys
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import contract_schema_urn, emit
 from spark_jobs.lib.day_selection import pick_window_days
 from spark_jobs.lib.iceberg_session import build_spark
 from spark_jobs.lib.snapshot_contracts import (
@@ -139,15 +140,27 @@ def validate(spark: SparkSession, channel: str, table: str, run_id: str, source_
     print(
         f"source={source_rows:,} Bronze={target_rows:,} invalid={invalid_rows:,} table={full_name}"
     )
-    if source_rows <= 0 or target_rows != source_rows or invalid_rows:
+    rows_ok = source_rows > 0 and target_rows == source_rows and not invalid_rows
+    contract_rows = int(result["contract_rows"] or 0)
+    typed = type_errors(checked, registry)
+    message = failure(contract_rows, result["contract_examples"], typed)
+    emit(
+        full_name,
+        rows_ok,
+        {"source_rows": source_rows, "dataset_rows": target_rows, "invalid_rows": invalid_rows},
+        "Source has rows; source row count = Bronze; provenance and payload id present",
+    )
+    emit(
+        full_name,
+        message is None,
+        {"contract_rows": contract_rows, "type_errors": len(typed)},
+        f"Every payload matches its sim-native-v1/{channel} JSON Schema version (contracts/registry.json)",
+        urn=contract_schema_urn(channel),
+    )
+    if not rows_ok:
         raise ValueError(
             "DP1 Validate failed: source and Bronze differ or provenance/payload is broken"
         )
-    message = failure(
-        int(result["contract_rows"] or 0),
-        result["contract_examples"],
-        type_errors(checked, registry),
-    )
     if message:
         raise ValueError(message)
     print("DP1 Validate passed (row count, provenance, contract sim-native-v1)")
