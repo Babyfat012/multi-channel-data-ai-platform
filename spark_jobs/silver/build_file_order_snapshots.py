@@ -2,6 +2,8 @@
 
 Each Channel keeps its own table. Takes the latest snapshot per pair of original IDs of
 Order and Order Line; Export Date is not used as a key because exports overlap.
+TikTok Shop then takes the latest streamed webhook status (Flink, `bronze.tiktok_order_events`) when it is
+newer (`spark_jobs/lib/order_events.py`).
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, IntegerType, StringType, StructField, StructType
 
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
+from spark_jobs.lib.order_events import load_events, overlay_latest_status
+from spark_jobs.lib.order_snapshot_mapping import TIKTOK_WEBHOOK_STATUS
 
 CHANNELS = ("tiktok_shop", "shopify", "shopee")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -198,8 +202,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source-table", required=True)
     parser.add_argument("--table", required=True)
     parser.add_argument("--run-id", default=None)
+    parser.add_argument(
+        "--events-table",
+        default="tiktok_order_events",
+        help="tiktok_shop only: Bronze table of streamed webhooks (Flink); skipped while it does not exist.",
+    )
     args = parser.parse_args(argv)
-    for value in (args.source_table, args.table):
+    for value in (args.source_table, args.table, args.events_table):
         if not IDENTIFIER.fullmatch(value):
             parser.error(f"Invalid table name: {value!r}")
     return args
@@ -230,6 +239,10 @@ def main(argv: list[str] | None = None) -> int:
             .filter(F.col("_rn") == 1)
             .drop("_rn")
         )
+        if args.channel == "tiktok_shop":
+            unique = overlay_latest_status(
+                unique, load_events(spark, args.events_table, TIKTOK_WEBHOOK_STATUS)
+            )
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.silver")
         unique.writeTo(target).partitionedBy(F.days("created_at")).createOrReplace()
         after = spark.table(target).count()

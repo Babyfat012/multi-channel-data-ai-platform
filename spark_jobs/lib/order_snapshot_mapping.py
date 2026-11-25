@@ -57,3 +57,17 @@ AMAZON_FULFILLMENT: dict[str, str] = {
 
 # Walmart writes "USA"; Amazon already uses 2-letter codes.
 COUNTRY_ALIASES: dict[str, str] = {"USA": "US"}
+
+# Order status events streamed by Flink into Bronze (`bronze.*_order_events`, diagram S1).
+# Amazon notifications always use the v0 spelling, even after the batch export moved to the 2026 shape.
+AMAZON_EVENT_STATUS: dict[str, str] = AMAZON_V0_STATUS
+
+# TikTok Shop webhooks write "CANCEL", the batch API writes "CANCELLED".
+TIKTOK_WEBHOOK_STATUS: dict[str, str] = {
+    "UNPAID": PENDING_PAYMENT,
+    "AWAITING_SHIPMENT": AWAITING_SHIPMENT,
+    "IN_TRANSIT": SHIPPED,
+    "DELIVERED": DELIVERED,
+    "COMPLETED": COMPLETED,
+    "CANCEL": CANCELLED,
+}

@@ -7,6 +7,9 @@ Parsing must come before dedup: the same Order may have one v0 copy and one 2026
 key names are normalized to one shape they are not recognized as duplicates. Duplicates sit in different
 `export_date` values, so dedup needs a global window (one shuffle).
 
+After dedup, the latest streamed status event of each Order (Flink, `bronze.amazon_order_events`) replaces
+the batch status when it is newer (`spark_jobs/lib/order_events.py`).
+
 Amazon does not report "delivered", so `order_status` is never `delivered`/`completed`.
 Design: `docs/data-platform/reference/silver.md`.
 
@@ -35,8 +38,10 @@ from pyspark.sql.types import (
 )
 
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
+from spark_jobs.lib.order_events import load_events, overlay_latest_status
 from spark_jobs.lib.order_snapshot_mapping import (
     AMAZON_2026_STATUS,
+    AMAZON_EVENT_STATUS,
     AMAZON_FULFILLMENT,
     AMAZON_V0_STATUS,
     COUNTRY_ALIASES,
@@ -267,6 +272,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="target Silver table, in the `silver` namespace.",
     )
     p.add_argument(
+        "--events-table",
+        default="amazon_order_events",
+        help="Bronze table of streamed status events (Flink); skipped while it does not exist.",
+    )
+    p.add_argument(
         "--shuffle-partitions",
         type=int,
         default=None,
@@ -437,7 +447,9 @@ def main(argv: list[str] | None = None) -> int:
             .select(*OUTPUT_COLUMNS)
         )
         before = lines.count()
-        deduped = dedup(lines)
+        deduped = overlay_latest_status(
+            dedup(lines), load_events(spark, args.events_table, AMAZON_EVENT_STATUS)
+        )
         write_silver(spark, deduped, args.table)
         elapsed = time.monotonic() - started
 

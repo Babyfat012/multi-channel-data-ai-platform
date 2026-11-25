@@ -9,9 +9,11 @@ import pytest
 
 from spark_jobs.lib.order_snapshot_mapping import (
     AMAZON_2026_STATUS,
+    AMAZON_EVENT_STATUS,
     AMAZON_FULFILLMENT,
     AMAZON_V0_STATUS,
     COUNTRY_ALIASES,
+    TIKTOK_WEBHOOK_STATUS,
     WALMART_STATUS,
 )
 
@@ -88,3 +90,20 @@ def test_fulfillment_two_shapes_map_to_one_value_set():
 def test_country_codes():
     """`USA` maps to `US`; other codes are not in the table, so the job keeps them."""
     assert COUNTRY_ALIASES == {"USA": "US"}
+
+
+def test_event_maps_cover_every_status_the_generator_streams():
+    """Every status text Flink can write to `bronze.*_order_events` maps back to the canonical status it came from.
+
+    TikTok webhooks write "CANCEL" (the batch API writes "CANCELLED"); Amazon notifications keep the v0 spelling.
+    """
+    from generator.channels.amazon import STATUS_V0
+    from generator.channels.tiktok import WEBHOOK_STATUS
+
+    for canonical, raw in WEBHOOK_STATUS.items():
+        assert TIKTOK_WEBHOOK_STATUS[raw] == canonical
+    for canonical, raw in STATUS_V0.items():
+        # Amazon folds delivered/completed into "Shipped".
+        assert AMAZON_EVENT_STATUS[raw] == (
+            "shipped" if canonical in ("delivered", "completed") else canonical
+        )

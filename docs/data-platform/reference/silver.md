@@ -100,6 +100,22 @@ reports nothing, and the row count still looks plausible.
 (`overlap_days = 3`), so dedup within one partition catches 0 duplicates. It has to look across
 ≥ ±3 `export_date` values.
 
+### 3.3 After dedup: streamed status events (Amazon, TikTok Shop)
+
+Flink streams order status events into `bronze.amazon_order_events` / `bronze.tiktok_order_events`. After dedup,
+the latest event of each Order (by `event_time`) replaces `order_status`, `channel_status` and `last_updated_time`
+on every line of that Order, **only when it is strictly newer** than the batch `last_updated_time`: an old event
+arriving late never overwrites. `export_date` / `source_file` stay those of the batch copy (they describe the line
+content). Code: `spark_jobs/lib/order_events.py`.
+
+- Events carry no products, so an Order seen **only in events** (created after the last export) gets no Silver line
+  until the next export. The Amazon SCD2 dim still records its versions.
+- The Amazon SCD2 dim reads the events too (`first_observed_export_date` = day Flink wrote the event), so the Gold
+  `amazon_order_version_key` of an event-updated line always finds its version.
+- While an event table does not exist yet (Flink not deployed), the jobs log a warning and use batch status only.
+- Status text differs from the batch: Amazon notifications keep the v0 spelling (`Shipped`), TikTok webhooks write
+  `CANCEL` (batch: `CANCELLED`); see `AMAZON_EVENT_STATUS` / `TIKTOK_WEBHOOK_STATUS`.
+
 ---
 
 ## 4. Data types
