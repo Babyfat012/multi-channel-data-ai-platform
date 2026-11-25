@@ -142,7 +142,7 @@ Data sources:
   mistaken for them).
 - **Errors per MCP tool** (Feature API v8): `mcp_tool_calls_total{tool,outcome=ok|error}` — MCP errors return HTTP 200 with
   `isError`, so they are not visible through `http_requests_total`.
-- **vLLM (model A ×2, B)**: `vllm:generation_tokens_total`, `vllm:num_requests_running`, `vllm:prefix_cache_hits_total` / `vllm:prefix_cache_queries_total` (llama.cpp's `llamacpp:*` before 2026-11-25).
+- **llama.cpp (model A ×2, B)**: `llamacpp:predicted_tokens_seconds`, `llamacpp:requests_processing`, `llamacpp:prompt_tokens_cached_total` / `llamacpp:prompt_tokens_total` (prefix-cache hit).
 - **llm-d EPP**: `llm_d_epp_*` (per-replica queue, average KV use, scorer timings) on port 9090.
 - **kagent**: controller + Agent traces (Helm `otel.tracing`).
 - **Logs**: logs of every pod are shipped to Loki by Fluent Bit; viewed in Grafana Explore (Loki has no UI of its own).

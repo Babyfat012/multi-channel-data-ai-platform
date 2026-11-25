@@ -1,14 +1,14 @@
-# Model A of the Agents' LLM: vLLM CPU (Qwen2.5-1.5B-Instruct) × 2 replicas behind the llm-d EPP, which picks the
-# replica per request (prefix-aware: a replica that already holds the prompt's prefix in its KV cache skips that prefill;
-# then queue length and KV use). Disaggregated prefill/decode is the next llm-d step and needs GPUs: not here.
+# Model A of the Agents' LLM: llama.cpp (Qwen2.5-1.5B-Instruct Q4_K_M) × 2 replicas behind the llm-d EPP, which picks
+# the replica per request. Prefix-aware routing in its approximate form: the EPP remembers which replica served which
+# prompt prefix and sends the same prefix back there, where llama.cpp reuses the slot's cached KV (no model-server
+# integration needed). Precise routing (KV events) and disaggregated prefill/decode need vLLM/SGLang and GPUs: not here.
 #
-#   agentgateway (model qwen2.5-1.5b-instruct → its loopback :3001 route) ─ext_proc→ epp ─→ chosen qwen pod :8000
+#   agentgateway (model qwen2.5-1.5b-instruct → its loopback :3001 route) ─ext_proc→ epp ─→ chosen qwen pod :8080
 #
-# Measured locally (docs/evidence/llmd-poc-20261125/, 0.5B, 2 replicas, shared-prefix load): prefix-cache hit 28% → 56%
-# and TTFT p50 4.36 s → 0.36 s vs. spreading by Service. Branch B (A/B candidate): ab-llm-small.yaml.
-# Sizing: one vLLM CPU replica runs 3 processes that each load torch: 0.5B + 1 GiB KV measured 5.0 GiB; 1.5B adds
-# ~2 GiB of weights and the 2 GiB KV below ⇒ limit 9 GiB. The EKS nodes (2 × r6i.xlarge, 32 GiB) hold A ×2 + B.
-# Local kind: too big for a laptop; scale qwen to 0 and use llm-d-poc.yaml (0.5B) instead.
+# Measured locally (docs/evidence/llmd-poc-llamacpp-20261125/, 0.5B, 2 replicas, shared-prefix load): prefix-cache hit
+# 36% → 64% (the workload's maximum) and TTFT p50 1.96 s → 0.15 s vs. spreading by Service. Branch B: ab-llm-small.yaml.
+# llama.cpp exports llamacpp:requests_processing / requests_deferred but no KV-use gauge, so of the EPP's scorers the
+# prefix one does the work. Sizing: ~1.2–1.6 GiB per replica (Q4 weights + q8_0 KV for 4 slots × 4096 tokens).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -21,15 +21,15 @@ metadata:
   namespace: llm
 spec:
   replicas: 2
-  strategy: {type: Recreate}   # old + new replicas side by side would need twice the RAM
+  strategy: {type: Recreate}
   selector:
     matchLabels: {app: qwen}
   template:
     metadata:
       labels: {app: qwen}      # the EPP's --endpoint-selector
-      annotations:             # Prometheus scrapes vllm:* (tokens, queue, KV use, prefix-cache hits)
+      annotations:             # Prometheus scrapes llamacpp:* (tokens/s, requests in flight, cached prompt tokens)
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8000"
+        prometheus.io/port: "8080"
     spec:
       affinity:                # one replica per node when there are two nodes
         podAntiAffinity:
@@ -39,47 +39,53 @@ spec:
                 topologyKey: kubernetes.io/hostname
                 labelSelector: {matchLabels: {app: qwen}}
       containers:
-        - name: vllm
-          image: docker.io/vllm/vllm-openai-cpu:v0.33.0
+        - name: llama
+          image: ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312  # build b11749
+          # Configuration B after benchmarking (docs/ml-llm-platform/reference/llm_platform_agents.md): 3 threads (4 vCPU EKS node, measured 30/10), 4 slots, flash-attention,
+          # KV cache q8_0 (saves RAM ⇒ room for ctx 16384 = 4 slots × 4096 tokens). Each slot keeps its last prompt's KV:
+          # the prefix cache the EPP routes to.
           args:
-            - Qwen/Qwen2.5-1.5B-Instruct
-            - --served-model-name=qwen2.5-1.5b-instruct
-            - --port=8000
-            - --max-model-len=8192
-            - --dtype=bfloat16
-            - --enable-prefix-caching
-            - --kv-cache-memory-bytes=2147483648   # 2 GiB ≈ 75k tokens (28 KiB/token)
-            # Tool calling for the Agents (llama.cpp needed --jinja for the same).
-            - --enable-auto-tool-choice
-            - --tool-call-parser=hermes
-            # No torch.compile: its warm-up builds C++ kernels on top of the loaded model (OOM-killed in the POC) and
-            # adds minutes to every start.
-            - -O0
-            - --enforce-eager
+            - "-hf"
+            - "Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M"
+            - "--alias"
+            - "qwen2.5-1.5b-instruct"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8080"
+            - "--ctx-size"
+            - "16384"
+            - "--threads"
+            - "3"
+            - "--parallel"
+            - "4"
+            - "--flash-attn"
+            - "on"
+            - "--cache-type-k"
+            - "q8_0"
+            - "--cache-type-v"
+            - "q8_0"
+            - "--jinja"   # chat template with tool calling
+            - "--metrics" # Prometheus /metrics (tokens, latency, cached prompt tokens)
           env:
-            - {name: VLLM_CPU_OMP_THREADS_BIND, value: "nobind"}
-            - {name: OMP_NUM_THREADS, value: "3"}   # 4 vCPU nodes, same as llama.cpp's 3 threads
-            - {name: HF_HOME, value: /cache}
-          ports: [{name: http, containerPort: 8000}]
-          volumeMounts: [{name: cache, mountPath: /cache}, {name: shm, mountPath: /dev/shm}]
+            - {name: LLAMA_CACHE, value: /models}
+          ports: [{name: http, containerPort: 8080}]
+          volumeMounts: [{name: models, mountPath: /models}]
           resources:
-            requests: {cpu: "2", memory: 6Gi}
-            limits: {memory: 9Gi}
-          startupProbe:          # first start downloads ~3 GB
+            requests: {cpu: "1", memory: 1200Mi}
+            limits: {memory: 1600Mi}
+          startupProbe:          # every start downloads ~1 GB (see the volume below)
             httpGet: {path: /health, port: http}
             periodSeconds: 10
-            failureThreshold: 90
+            failureThreshold: 60
           readinessProbe:
             httpGet: {path: /health, port: http}
-            periodSeconds: 5
+            periodSeconds: 10
       volumes:
         # Per-pod download cache: a ReadWriteOnce PVC cannot follow two replicas onto two nodes.
         # ponytail: re-downloads the model on each pod start; a ReadWriteMany cache (EFS) when restarts get frequent.
-        - name: cache
-          emptyDir: {sizeLimit: 6Gi}
-        # Container default /dev/shm is 64 MiB; the vLLM engine's shared-memory queue needs 160 MiB.
-        - name: shm
-          emptyDir: {medium: Memory, sizeLimit: 256Mi}
+        - name: models
+          emptyDir: {sizeLimit: 2Gi}
 ---
 # Plain Service: direct calls and benchmarks only (kube-proxy spreads them). Agents go through agentgateway → EPP.
 apiVersion: v1
@@ -162,7 +168,7 @@ spec:
           args:
             # Pods found by label (no InferencePool CRD: agentgateway runs standalone, nothing else reads a pool).
             - --endpoint-selector=app=qwen
-            - --endpoint-target-ports=8000
+            - --endpoint-target-ports=8080
             - --config-file=/config/epp.yaml
             - --grpc-health-port=9003
             - --secure-serving=false   # in-cluster plaintext gRPC from agentgateway

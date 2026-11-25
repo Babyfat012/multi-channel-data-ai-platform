@@ -1,8 +1,8 @@
-// LLM serving (diagram: "llm-serving"): model A = vLLM CPU × 2 behind the llm-d EPP, branch B = vLLM 0.5B, both behind
+// LLM serving (diagram: "llm-serving"): model A = llama.cpp × 2 behind the llm-d EPP, branch B = llama.cpp 0.5B, both behind
 // agentgateway (infra/k8s/agents/llm.yaml, ab-llm-small.yaml, agentgateway.yaml). Manual job, like the other deploys.
 // Deploy → Smoke (EPP sees every replica, one chat through gateway → EPP) → A/B gate (keep B only if it wins: scale B up,
 // eval A and B on the same SKUs, record keep/drop in agentregistry, B in or out of the gateway split, scale B down if it lost).
-// No automatic rollback: vLLM replicas restart with Recreate, so a bad change is undone by reverting and rerunning.
+// No automatic rollback: the replicas restart with Recreate, so a bad change is undone by reverting and rerunning.
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds(); timeout(time: 90, unit: 'MINUTES') }
@@ -17,10 +17,10 @@ pipeline {
     VAULT_ADDR = 'http://localhost:8200'
   }
   stages {
-    stage('Deploy vLLM + llm-d EPP') {
+    stage('Deploy llama.cpp + llm-d EPP') {
       steps {
         withCredentials([file(credentialsId: params.KUBE_CREDENTIAL, variable: 'KUBECONFIG')]) {
-          // First start downloads the model into each replica (~3 GB): up to 15 minutes.
+          // First start downloads the model into each replica (~1 GB): up to 10 minutes.
           sh '''
             kubectl --context $KCTX apply -f infra/k8s/agents/llm.yaml -f infra/k8s/agents/agentgateway.yaml
             kubectl --context $KCTX -n agentgateway rollout restart deploy/agentgateway

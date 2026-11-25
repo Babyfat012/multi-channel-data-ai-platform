@@ -33,8 +33,8 @@ QUERIES = {
     "mcp_requests": "sum(agentgateway_mcp_requests_total)",
     "a2a_requests": 'sum(agentgateway_requests_total{route=~"default/a2a-.*"})',  # route has a namespace prefix
     "pii_checks": "sum(agentgateway_guardrail_checks_total)",
-    # Model A's vLLM replicas (behind the llm-d EPP): generated tokens/s over the last 5 minutes.
-    "vllm_tokens_per_s": 'sum(rate(vllm:generation_tokens_total{model_name="qwen2.5-1.5b-instruct"}[5m]))',
+    # The llama.cpp gauge drops to 0 on scrapes with no new tokens ⇒ take the 5-minute peak.
+    "llamacpp_tokens_per_s": "max(max_over_time(llamacpp:predicted_tokens_seconds[5m]))",
 }
 
 

@@ -15,8 +15,8 @@ Details in [Conclusion and decision](#conclusion-and-decision).
 
 | Branch | LLM | Agent | File |
 |---|---|---|---|
-| **A** (in use) | `qwen2.5-1.5b-instruct` (vLLM CPU × 2 behind the llm-d EPP, see [LLM inference](llm_inference_platform.md)) | `data-agent`, `default-model-config` | `infra/k8s/agents/llm.yaml`, `data-agent.yaml` |
-| **B** (candidate) | `qwen2.5-0.5b-instruct` (same vLLM image and flags, 1 replica, no EPP) | `data-agent-b`, `ab-small-model-config` — same prompt, same tools | [`ab-llm-small.yaml`](../../infra/k8s/agents/ab-llm-small.yaml), [`ab-data-agent.yaml`](../../infra/k8s/agents/ab-data-agent.yaml) |
+| **A** (in use) | `qwen2.5-1.5b-instruct` (llama.cpp × 2 behind the llm-d EPP, see [LLM inference](llm_inference_platform.md)) | `data-agent`, `default-model-config` | `infra/k8s/agents/llm.yaml`, `data-agent.yaml` |
+| **B** (candidate) | `qwen2.5-0.5b-instruct` (same llama.cpp image, 1 replica, no EPP) | `data-agent-b`, `ab-small-model-config` — same prompt, same tools | [`ab-llm-small.yaml`](../../infra/k8s/agents/ab-llm-small.yaml), [`ab-data-agent.yaml`](../../infra/k8s/agents/ab-data-agent.yaml) |
 
 Traffic is split at **agentgateway** ([`agentgateway.yaml`](../../infra/k8s/agents/agentgateway.yaml)):
 

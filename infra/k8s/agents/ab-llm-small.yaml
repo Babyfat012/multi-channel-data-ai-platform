@@ -1,7 +1,16 @@
-# A/B: branch B = a smaller LLM (Qwen2.5-0.5B-Instruct) on the same vLLM CPU image and settings as branch A
-# (llm.yaml, 1.5B), so only the model differs. agentgateway splits traffic by weight between the two (virtual model
-# `platform-chat`). One replica, called directly (no EPP: nothing to pick between). scripts/llm/ab_gate.py scales it
-# up for the eval and back to 0 if B loses. Measured 5.0 GiB with 1 GiB KV (docs/evidence/llmd-poc-20261125/).
+# A/B: branch B = a smaller LLM (Qwen2.5-0.5B Q4) on the same llama.cpp image as branch A
+# (qwen, 1.5B; llm.yaml). agentgateway splits traffic by weight between the two (virtual model `platform-chat`).
+# One replica, called directly (no EPP: nothing to pick between); scripts/llm/ab_gate.py scales it to 0 if B loses.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-small
+  namespace: llm
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,44 +26,33 @@ spec:
       labels: {app: qwen-small}
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8000"
+        prometheus.io/port: "8080"
     spec:
       containers:
-        - name: vllm
-          image: docker.io/vllm/vllm-openai-cpu:v0.33.0
-          args:
-            - Qwen/Qwen2.5-0.5B-Instruct
-            - --served-model-name=qwen2.5-0.5b-instruct
-            - --port=8000
-            - --max-model-len=8192
-            - --dtype=bfloat16
-            - --enable-prefix-caching
-            - --kv-cache-memory-bytes=1073741824   # 1 GiB ≈ 87k tokens (12 KiB/token)
-            - --enable-auto-tool-choice
-            - --tool-call-parser=hermes
-            - -O0
-            - --enforce-eager
+        - name: llama
+          image: ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312  # build b11749
+          # Same benchmarked configuration as branch A for a fair comparison; only the model differs.
+          args: ["-hf", "Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M", "--alias", "qwen2.5-0.5b-instruct",
+                 "--host", "0.0.0.0", "--port", "8080", "--ctx-size", "8192", "--threads", "4",
+                 "--parallel", "2", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0",
+                 "--jinja", "--metrics"]
           env:
-            - {name: VLLM_CPU_OMP_THREADS_BIND, value: "nobind"}
-            - {name: OMP_NUM_THREADS, value: "3"}
-            - {name: HF_HOME, value: /cache}
-          ports: [{name: http, containerPort: 8000}]
-          volumeMounts: [{name: cache, mountPath: /cache}, {name: shm, mountPath: /dev/shm}]
+            - {name: LLAMA_CACHE, value: /models}
+          ports: [{name: http, containerPort: 8080}]
+          volumeMounts: [{name: models, mountPath: /models}]
           resources:
-            requests: {cpu: "1", memory: 4Gi}
-            limits: {memory: 6Gi}
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {memory: 900Mi}
           startupProbe:
             httpGet: {path: /health, port: http}
             periodSeconds: 10
-            failureThreshold: 90
+            failureThreshold: 60
           readinessProbe:
             httpGet: {path: /health, port: http}
-            periodSeconds: 5
+            periodSeconds: 10
       volumes:
-        - name: cache
-          emptyDir: {sizeLimit: 3Gi}
-        - name: shm
-          emptyDir: {medium: Memory, sizeLimit: 256Mi}
+        - name: models
+          persistentVolumeClaim: {claimName: models-small}
 ---
 apiVersion: v1
 kind: Service

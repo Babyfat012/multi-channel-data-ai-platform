@@ -3,8 +3,9 @@
 # spreads requests) and through agentgateway + EPP (prefix-aware). vLLM replicas restart before each run so both start
 # with an empty cache. Output: out/llmd-poc/<label>/summary.json + prefix-cache counters per replica.
 #   kubectl --context kind-fsds-ml apply -f infra/k8s/agents/llm-d-poc.yaml && scripts/llm/llmd_poc_bench.sh
-# ENGINE=llamacpp (replicas from llm-d-poc-llamacpp.yaml): output in out/llmd-poc-llamacpp/, chat API (the agents' path;
-# agentgateway's llm route turns /v1/completions into /v1/v1/completions), counters from llamacpp:* metrics.
+# ENGINE=llamacpp (replicas from llm-d-poc-llamacpp.yaml): output in out/llmd-poc-llamacpp/, counters from
+# llamacpp:* metrics. Set EPP_URL=http://agentgateway.llm-d-poc.svc.cluster.local:3001 with the inference listener opened
+# (bindAddress 0.0.0.0 + Service port 3001): agentgateway's llm route turns /v1/completions into /v1/v1/completions.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 K=(kubectl --context "${KCTX:-kind-fsds-ml}" -n llm-d-poc)
@@ -38,7 +39,6 @@ run() {  # run <label> <base url>
   "${K[@]}" rollout restart deploy/vllm-a >/dev/null
   "${K[@]}" rollout status deploy/vllm-a --timeout=15m >/dev/null
   sed "s|@@BASE_URL@@|$url|" infra/k8s/benchmark/llmd-poc-prefix.yaml >"$dir/workload.yaml"
-  [ "$ENGINE" = vllm ] || sed -i 's|type: completion$|type: chat|' "$dir/workload.yaml"
   "${K[@]}" create configmap "bench-$label" --from-file=config.yml="$dir/workload.yaml" --dry-run=client -o yaml | "${K[@]}" apply -f - >/dev/null
   "${K[@]}" delete job "bench-$label" --ignore-not-found >/dev/null
   "${K[@]}" apply -f - >/dev/null <<YAML
@@ -65,7 +65,7 @@ YAML
 }
 
 run round-robin http://vllm-a.llm-d-poc.svc.cluster.local:8000
-run epp http://agentgateway.llm-d-poc.svc.cluster.local:3000
+run epp "${EPP_URL:-http://agentgateway.llm-d-poc.svc.cluster.local:3000}"   # llamacpp run: EPP_URL=…:3001 (inference listener opened for the bench; the llm route doubles /v1 on /v1/completions)
 OUT=$OUT python3 - <<'PY'
 import json, os, pathlib
 for label in ("round-robin", "epp"):

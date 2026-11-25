@@ -1,4 +1,4 @@
-"""Smoke test of model A's serving (Jenkins llm-serving): the llm-d EPP sees every vLLM replica, and one chat request
+"""Smoke test of model A's serving (Jenkins llm-serving): the llm-d EPP sees every llama.cpp replica, and one chat request
 through agentgateway (→ loopback route → EPP → replica) answers.
 
 Needs a port-forward to agentgateway and the agent key in the environment (never printed):
