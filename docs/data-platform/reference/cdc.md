@@ -36,21 +36,27 @@ env -u POSTGRES_PASSWORD docker compose --profile cdc up -d debezium-connect kaf
 commit → Kafka time to `out/cdc/probe-*.json`. After the delete, the source table returns to
 its original row count.
 
-Once the topic has events, `dags/dp1_cdc.py` runs
-`spark_jobs/cdc/ingest_walmart_order_changes.py` and `spark_jobs/cdc/validate_walmart_order_changes.py`. The first job reads
-Kafka over an offset range frozen once per `run_id` and stores the JSON under
-`/opt/airflow/platform-control/cdc` in the Airflow driver volume. Both tasks use
+Once the topic has events, the always-on Flink job `lakehouse-bronze-streams`
+([`flink_jobs/lakehouse/bronze_streams.sql`](../../../flink_jobs/lakehouse/bronze_streams.sql)) writes every non-null
+change event into `raw_walmart_cdc_v2`, with the same columns as before. Kafka offsets and Iceberg commits both ride on
+the checkpoint (every minute), and a redeploy stops the job with a savepoint and resumes from it
+([`run_bronze_stream_jobs.py`](../../../scripts/data/run_bronze_stream_jobs.py)), so no offset is read twice or
+skipped. `source_epoch` is still the cluster ID/topic UUID. The first task of `dp_nightly`,
+`check_walmart_cdc_complete` ([`validate_walmart_order_changes.py`](../../../spark_jobs/cdc/validate_walmart_order_changes.py)),
+captures Kafka's end offsets, waits up to 10 minutes for Flink to commit that far, then checks missing/extra/duplicate
+rows, payload, change type, order ID and LSN; a failure stops the chain before Silver.
+
+**Before (until this change):** `dags/dp1_cdc.py` ran `spark_jobs/cdc/ingest_walmart_order_changes.py` (permalinks in
+[CDC v2 results](#cdc-v2-results)) every hour and the validator. The ingest read Kafka over an offset range frozen once
+per `run_id`, stored under `/opt/airflow/platform-control/cdc` in the Airflow driver volume. Both tasks used
 the same boundary, partition set and start-inclusive/end-exclusive offsets;
-a retry does not re-pin latest. V2 records `(source_epoch, topic, partition, offset)`,
-where the epoch is the cluster ID/topic UUID, and uses `read_committed`. The validator reads
-exactly that range and checks missing/extra/duplicate rows, payload, change type, order ID and LSN.
+a retry did not re-pin latest. V2 records `(source_epoch, topic, partition, offset)`,
+where the epoch is the cluster ID/topic UUID, and uses `read_committed`. The validator read
+exactly that range and checked missing/extra/duplicate rows, payload, change type, order ID and LSN.
 
 By default the updated setup selects the new **`raw_walmart_cdc_v2`** table;
 a legacy table without an epoch is rejected, with no automatic migration and no overwrite of the old proof.
-Both CLIs need `--run-id` and `--boundary-dir`. The same POSIX
-control directory must be kept/mounted for the drivers; if the boundary is lost, the validator fails.
-The manifest has a checksum/atomic first-writer and contains no credentials.
-Retention/truncation or a change of source incarnation fails before replay.
+The results below were produced by that Spark path.
 
 The helper has unit regression tests, and **one successful
 Kafka–Spark–Iceberg v2 pass** has been run (section [CDC v2 results](#cdc-v2-results)).
@@ -63,7 +69,7 @@ onward are the **legacy** proof of the `raw_walmart_cdc` table.
 
 ## CDC v2 results
 
-Rerun with the current code (jobs `spark_jobs/cdc/ingest_walmart_order_changes.py`, `spark_jobs/cdc/validate_walmart_order_changes.py`, DAG `dp1_cdc`, setup selecting
+Rerun with the Spark code of that time (jobs `spark_jobs/cdc/ingest_walmart_order_changes.py`, `spark_jobs/cdc/validate_walmart_order_changes.py`, DAG `dp1_cdc`, setup selecting
 `raw_walmart_cdc_v2`). Kafka was recreated because the old container had been removed while freeing
 disk space, so Debezium re-registered the connector (`snapshot.mode=no_data`) and then
 `scripts/evidence/measure_order_snapshots_cdc.py` created three changes `CDC-DEMO-24f0630c0caa`
@@ -100,6 +106,15 @@ env -u POSTGRES_PASSWORD docker compose --profile spark up -d spark-master spark
 env -u POSTGRES_PASSWORD docker compose --profile airflow up -d airflow
 env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow --stage dp1-cdc
 env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflow dags trigger dp1_cdc
+```
+
+With the current code the last line is replaced by deploying the stream job once and running the gate:
+
+```bash
+docker compose build flink-jobmanager      # adds the Iceberg Flink runtime
+env -u POSTGRES_PASSWORD docker compose --profile stream --profile flink up -d --wait kafka flink-jobmanager flink-taskmanager
+python3 -m scripts.data.run_bronze_stream_jobs
+env -u POSTGRES_PASSWORD docker compose --profile airflow exec -T airflow airflow tasks test dp_nightly check_walmart_cdc_complete "$(date -u +%F)"
 ```
 
 Evidence for **commit → Bronze** needs the completion time of the ingest task for the same
@@ -194,8 +209,8 @@ The connector and task 0 are both `RUNNING` on Debezium 3.4.3.Final, stored in
 
 Debezium 3.4.3, PostgreSQL, Kafka, Airflow and Spark run with Compose on EC2 in Sydney; Bronze Iceberg writes to S3.
 Idea: capture the WAL to keep create/update/delete after the batch load, instead of rescanning the whole source table.
-[DAG dp1_cdc](../../../dags/dp1_cdc.py) run `manual__2026-10-28T10:51:33.422898+00:00`:
-[ingest_walmart_cdc](../../../spark_jobs/cdc/ingest_walmart_order_changes.py) freezes the offsets and writes the envelope/provenance;
+[DAG dp1_cdc](https://github.com/Babyfat012/multi-channel-data-ai-platform/blob/f32c8181ceb310ee2443b30ba83e91158fe93ac3/dags/dp1_cdc.py) run `manual__2026-10-28T10:51:33.422898+00:00`:
+[ingest_walmart_cdc](https://github.com/Babyfat012/multi-channel-data-ai-platform/blob/f32c8181ceb310ee2443b30ba83e91158fe93ac3/spark_jobs/cdc/ingest_walmart_order_changes.py) freezes the offsets and writes the envelope/provenance;
 [validate_walmart_cdc](../../../spark_jobs/cdc/validate_walmart_order_changes.py) compares Kafka/Bronze within the exact source epoch.
 Connector configuration: [setup_order_snapshots_debezium.py](../../../scripts/data/setup_order_snapshots_debezium.py).
 

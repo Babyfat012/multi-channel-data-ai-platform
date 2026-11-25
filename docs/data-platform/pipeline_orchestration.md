@@ -14,7 +14,7 @@ The results below come from runs on AWS. They prove that those runs happened; th
 | Diagram | DAG | Trigger |
 |---|---|---|
 | Build the order lakehouse · every night (first step "Check contracts": dp1 validate tasks, [sim-native-v1](reference/data_contracts.md#pipeline-a-dp1--dp2-sim-native-v1)) | [`dp_nightly`](../../dags/dp_nightly.py) → `dp1_bronze` → `dp2_silver` → `dp3_features` → `dp4_warehouse` → `dp3_return_labels` | 01:00 Vietnam time (18:00 UTC), **paused on creation** |
-| Sync Walmart changes · every hour | [`dp1_cdc`](../../dags/dp1_cdc.py) | `@hourly` |
+| Stream to Bronze · always on | not an Airflow DAG: Flink job `lakehouse-bronze-streams` ([`bronze_streams.sql`](../../flink_jobs/lakehouse/bronze_streams.sql)) writes Amazon/TikTok status events and Walmart CDC into Bronze; `dp_nightly` starts with the gate `check_walmart_cdc_complete` | continuous, checkpoint every minute |
 | Refresh ML features · after each new Gold | [`ml_feature_materialize`](../../dags/ml_feature_materialize.py) | Dataset `GOLD_LABELS` ([`platform_datasets.py`](../../dags/platform_datasets.py)), emitted by every successful `dp3_return_labels` run, nightly or by hand |
 | Index the return policy · when the policy changes | [`ml_rag_ingest`](../../dags/ml_rag_ingest.py) | Jenkins `rag-pipeline` after a commit |
 
@@ -24,10 +24,11 @@ The results below come from runs on AWS. They prove that those runs happened; th
   Spark driver shares the Airflow container's RAM. `dp3_features` and `dp4` read only the Gold fact.
 - Why paused: each run still reads the fixed window from Variables (`platform_dp1_amazon_window_*`, `platform_ml_cutoff`),
   so a nightly run reprocesses the same data. Making each run a new simulated day (`data_interval`) is not built.
-- `is_paused_upon_creation` only applies to a DAG Airflow has never seen. `dp1_cdc` and `ml_feature_materialize` already
-  exist unpaused, so their new triggers start as soon as the code is deployed; pause them in the UI to keep them manual.
-- Limits: `dp1_cdc` can overlap the nightly chain (no shared Spark pool yet); its ingest re-reads the topic from the
-  beginning each run, so runs slow down as the topic grows. With `catchup=False`, nights when EC2 is stopped are skipped.
+- `is_paused_upon_creation` only applies to a DAG Airflow has never seen. `ml_feature_materialize` already
+  exists unpaused, so its new trigger starts as soon as the code is deployed; pause it in the UI to keep it manual.
+- The hourly `dp1_cdc` DAG is gone: CDC is pushed continuously, so a scheduler only added up to an hour of delay and
+  re-read the whole topic each run. Airflow keeps only the completeness check, where Silver needs it.
+- Limits: with `catchup=False`, nights when EC2 is stopped are skipped.
 - Checked with Airflow 2.10.5 `DagBag`: no import errors, chain order, 18:00 UTC, Dataset wiring. Not run on AWS yet.
 
 ## On AWS
@@ -476,7 +477,8 @@ coverage see [`gold.md`](reference/gold.md).
 
 ## Additional CDC source for DP1
 
-`dp1_cdc` is a separate DAG that loads the changes (CDC) of the Walmart source table. The task
+Now streamed by Flink (see [Schedules](#schedules-diagram)); the run below is the earlier Spark path.
+`dp1_cdc` was a separate DAG that loaded the changes (CDC) of the Walmart source table. The task
 `ingest_walmart_cdc` reads Kafka by offset and writes into an Iceberg Bronze table, then
 `validate_walmart_cdc` checks it. This DAG does not replace the Batch load path of the five Channels.
 Two successful runs put six events into `lakehouse.bronze.raw_walmart_cdc`. The Validate log records

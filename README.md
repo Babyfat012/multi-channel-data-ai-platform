@@ -67,8 +67,8 @@ flowchart LR
     end
 
     RAW -->|"DP1 · Spark"| BRONZE
-    KAFKA -->|"dp1_cdc · Spark hourly merge"| BRONZE
-    KAFKA --> FLINK["Flink<br/>late arrival · dedup · windows"]
+    KAFKA --> FLINK["Flink · always on<br/>dedup · CDC · late arrival · windows"]
+    FLINK -->|"status events + Walmart CDC"| BRONZE
     GOLD -->|"DP4"| WH[("PostgreSQL warehouse<br/>dim / fact")]
     TRINO["Trino"] -.->|federated SQL| GOLD
     TRINO -.-> WH

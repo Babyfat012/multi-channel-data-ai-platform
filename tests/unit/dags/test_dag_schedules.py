@@ -1,6 +1,7 @@
 """Schedules from the system diagram, checked without Airflow in the venv (ast + source).
 
-nightly chain (paused on creation) → dp3_return_labels emits GOLD_LABELS → ml_feature_materialize; dp1_cdc hourly.
+nightly chain (paused on creation) → dp3_return_labels emits GOLD_LABELS → ml_feature_materialize;
+the nightly chain starts with the CDC gate (Flink streams CDC into Bronze, no hourly Airflow ingest).
 """
 
 from __future__ import annotations
@@ -60,9 +61,11 @@ def test_ml_refresh_waits_for_the_labels_dataset_from_one_shared_object():
     assert uris == ["platform_datasets.py"]
 
 
-def test_cdc_runs_hourly():
-    """Diagram "every hour"; safe to repeat because the ingest MERGEs on the Kafka offset."""
-    assert dag_kwargs("dp1_cdc")["schedule"] == "'@hourly'"
-    assert (
-        "MERGE INTO" in (DAGS.parent / "spark_jobs/cdc/ingest_walmart_order_changes.py").read_text()
-    )
+def test_cdc_is_streamed_by_flink_and_gated_nightly():
+    """No hourly Airflow ingest: Flink writes CDC into Bronze; the nightly chain first checks it is complete."""
+    assert not (DAGS / "dp1_cdc.py").exists()
+    assert "@@CDC_TABLE@@" in (DAGS.parent / "flink_jobs/lakehouse/bronze_streams.sql").read_text()
+    nightly = (DAGS / "dp_nightly.py").read_text()
+    gate = nightly.index('task_id="check_walmart_cdc_complete"')
+    assert gate < nightly.index("for child in CHAIN:")
+    assert "validate_walmart_order_changes.py" in nightly

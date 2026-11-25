@@ -50,7 +50,7 @@ Pipeline code and the role of each task: [Airflow AWS](pipeline_orchestration.md
 
 ### CDC, labels and warehouse
 
-[CDC DAG](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`: task `ingest_walmart_cdc` reads changes
+[CDC DAG](https://github.com/Babyfat012/multi-channel-data-ai-platform/blob/f32c8181ceb310ee2443b30ba83e91158fe93ac3/dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`: task `ingest_walmart_cdc` reads changes
 from Kafka and writes them into `bronze.raw_walmart_cdc_v2`. The validator checks 3 offsets; no missing, extra or wrong-payload messages.
 [CDC probe and explanation](reference/cdc.md#on-aws).
 

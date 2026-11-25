@@ -1,4 +1,5 @@
-FROM flink:1.20.3-scala_2.12
+# Java 17: the Iceberg 1.11 runtime is compiled for it (Flink 1.20 supports Java 17).
+FROM flink:1.20.3-scala_2.12-java17
 
 # SQL Kafka connector compatible with Flink 1.20, shared by the client and the TaskManager.
 # JDBC + driver PostgreSQL: lookup join line_id → SKU cho stream feature (ML Platform).
@@ -6,3 +7,10 @@ RUN wget -q -P /opt/flink/lib \
     https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.4.0-1.20/flink-sql-connector-kafka-3.4.0-1.20.jar \
     https://repo.maven.apache.org/maven2/org/apache/flink/flink-connector-jdbc/3.3.0-1.20/flink-connector-jdbc-3.3.0-1.20.jar \
     https://repo.maven.apache.org/maven2/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar
+# Iceberg sink to the lakehouse (same Iceberg version as Spark): REST catalog (Lakekeeper) + S3FileIO (MinIO keys or
+# the EC2 IAM role). Iceberg's Flink catalog still loads Hadoop Configuration classes, hence the shaded Hadoop client.
+RUN wget -q -P /opt/flink/lib \
+    https://repo.maven.apache.org/maven2/org/apache/iceberg/iceberg-flink-runtime-1.20/1.11.0/iceberg-flink-runtime-1.20-1.11.0.jar \
+    https://repo.maven.apache.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.11.0/iceberg-aws-bundle-1.11.0.jar \
+    https://repo.maven.apache.org/maven2/org/apache/hadoop/hadoop-client-api/3.3.6/hadoop-client-api-3.3.6.jar \
+    https://repo.maven.apache.org/maven2/org/apache/hadoop/hadoop-client-runtime/3.3.6/hadoop-client-runtime-3.3.6.jar
