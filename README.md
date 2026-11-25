@@ -35,11 +35,11 @@ The agent retrieves features, calls the prediction model and looks up the return
 
 ## Architecture
 
-One diagram covers the whole platform: the data platform on EC2 (Docker Compose), the AWS managed services (S3 lakehouse, ECR), the ML + LLM platform on EKS, and CI/CD. All marketplace source data is simulated.
+One diagram covers the whole platform: the data platform on EC2 (Docker Compose), the AWS managed services (S3 lakehouse, ECR), the ML + LLM platform on EKS, and the CI/CD jobs with their steps. Click the picture for the full-size PNG. All marketplace source data is simulated.
 
 [![System architecture](docs/diagrams/system-architecture.png)](docs/diagrams/system-architecture.png)
 
-[PNG](docs/diagrams/system-architecture.png) · [Editable Excalidraw](docs/diagrams/system-architecture.excalidraw) · [Blocks mapped to configuration and docs](docs/diagrams/README.md)
+[Full-size PNG](docs/diagrams/system-architecture.png) · [Editable Excalidraw](docs/diagrams/system-architecture.excalidraw) · [Blocks mapped to configuration and docs](docs/diagrams/README.md)
 
 How to read it: each arrow shows the way the data moves, its colour is the business flow, and its number gives the order inside that flow —
 (B) batch, (S) CDC + streaming, (M) features + training, (R) return-policy RAG, (A) prediction API call, (C) AI chat, (K) control, (O) observability, (D) CI/CD.
