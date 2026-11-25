@@ -111,18 +111,18 @@ def rest(base: str, path: str, body: dict | None = None) -> dict:
         return json.load(response)
 
 
-def stop_with_savepoint(base: str) -> str | None:
+def stop_with_savepoint(base: str, job_name: str = JOB_NAME) -> str | None:
     """Stop the RUNNING job of this name with a savepoint; return its location (None if nothing runs)."""
     running = [
         j
         for j in rest(base, "/jobs/overview")["jobs"]
-        if j["name"] == JOB_NAME and j["state"] == "RUNNING"
+        if j["name"] == job_name and j["state"] == "RUNNING"
     ]
     if not running:
         return None
     if len(running) > 1:
         raise RuntimeError(
-            f"{len(running)} jobs named {JOB_NAME} are RUNNING: fix by hand before redeploying"
+            f"{len(running)} jobs named {job_name} are RUNNING: fix by hand before redeploying"
         )
     job = running[0]["jid"]
     trigger = rest(base, f"/jobs/{job}/stop", {"targetDirectory": SAVEPOINTS, "drain": False})[

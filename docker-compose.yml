@@ -267,6 +267,9 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         jobmanager.memory.process.size: 768m
         rest.address: flink-jobmanager
+        # Prometheus reporter (plugin shipped in the image): lag · checkpoint · freshness alerts on EKS.
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
       # Iceberg S3FileIO of the Bronze stream job (flink_jobs/lakehouse/) reads keys from the environment.
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
@@ -285,6 +288,8 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.memory.process.size: 1024m
         taskmanager.numberOfTaskSlots: 2
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9250
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       AWS_REGION: local-01

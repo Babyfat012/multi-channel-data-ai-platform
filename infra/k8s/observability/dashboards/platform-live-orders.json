@@ -1,0 +1,162 @@
+{
+  "uid": "platform-live-orders",
+  "title": "Live orders / 5 min",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "description": "New orders (first status event) per channel per 5-minute window, counted by Flink job ops-order-counts into Postgres platform_ops.ops.order_counts_window (flink_jobs/ops/order_counts_window.sql). Health row: Flink Prometheus reporter on EC2.",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "New orders per 5 min, by channel",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "platform-ops"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "platform-ops"
+          },
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT window_start AS \"time\", channel AS metric, orders AS value\nFROM ops.order_counts_window\nWHERE $__timeFilter(window_start)\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Minutes since the last closed window",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "platform-ops"
+      },
+      "description": "A window is written when the watermark passes its end (5 min + 30 s). Above ~10 means no new events or the job is down.",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "platform-ops"
+          },
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM (now() AT TIME ZONE 'UTC') - max(window_end)) / 60 AS minutes\nFROM ops.order_counts_window"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Flink: Kafka records not yet read (per job)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 9,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (job_name) (flink_taskmanager_job_task_operator_pendingRecords)",
+          "legendFormat": "{{job_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Flink: completed checkpoints / 5 min (per job)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 9,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "increase(flink_jobmanager_job_numberOfCompletedCheckpoints[5m])",
+          "legendFormat": "{{job_name}}"
+        }
+      ]
+    }
+  ]
+}
