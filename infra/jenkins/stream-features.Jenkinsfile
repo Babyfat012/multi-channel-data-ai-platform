@@ -8,7 +8,7 @@
 // tag; on AWS the PyFlink job code is inside the image) and re-runs Verify.
 
 // Deploy and Verify, used as-is by the stages AND by the rollback, so the two paths cannot drift apart.
-// AWS: the REAL EC2 .env; the Feast registry is managed by DAG feast_apply (Airflow) ⇒ no apply from CI; S3 via IAM.
+// AWS: the REAL EC2 .env; the shared Feast registry is managed by the Jenkins feature-repo job ⇒ no apply here; S3 via IAM.
 DEPLOY_SH = '''
   [ "$DATA_STORAGE" != s3 ] || install -m 600 /repo/.env .env
   if [ "$DATA_STORAGE" = s3 ]; then

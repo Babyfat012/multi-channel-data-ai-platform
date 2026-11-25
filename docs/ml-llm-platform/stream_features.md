@@ -46,8 +46,9 @@ Running on EC2 (the AWS overlay is already set in `COMPOSE_FILE`):
 #   ansible-playbook -i inventory.ini site.yml --ask-vault-pass        (directory infra/aws/ansible)
 # In the EC2 session, cd /opt/platform:
 sudo install -d -o 9999 -g 9999 /mnt/platform-data/flink-ml
-# Point the registry's offline source to the part directory (only the feast_apply task, no Spark export):
-docker compose --profile airflow exec airflow airflow tasks test ml_feature_materialize feast_apply "$(date -u +%F)"
+# Point the registry's offline source to the part directory (what the Jenkins feature-repo job runs, no Spark export):
+docker compose --profile airflow exec airflow python -c \
+  "import sys; sys.path.insert(0, '/opt/airflow/dags'); from ml_feature_materialize import run_feast; run_feast('apply')"
 docker compose --profile stream --profile flink-ml up -d --wait kafka flink-ml-jobmanager flink-ml-taskmanager
 # Delete the old topic: messages from the Oct 30–31 run carry publish-time timestamps, which make the watermark jump incorrectly.
 docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \

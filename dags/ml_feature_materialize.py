@@ -1,4 +1,7 @@
-"""ML Platform: Gold → offline Parquet/training set → apply → load/reconcile a separate batch release, then publish.
+"""ML Platform: Gold → offline Parquet/training set → load/reconcile a separate batch release, then publish.
+
+Feature definitions are registered by the Jenkins `feature-repo` job (`feast plan` → `feast apply`) when
+feature_repo/ changes, not on every new batch: it calls `run_feast` below inside the Airflow container.
 
 `end` is a SIMULATED point in time (default = Gold Cutoff), not wall-clock time: on every run the
 Publisher picks the latest snapshot per SKU up to end; the active release keeps serving while the new one loads.
@@ -66,7 +69,7 @@ def run_feast(*args, **context):
                 command.append("--full-reload")
             subprocess.run(command, cwd=repo, env=env, check=True, timeout=3600)
             return
-        if args[0] == "apply":
+        if args[0] in ("plan", "apply"):
             # The 24h stream view reads Parquet created by the pusher; where the pusher is not running (AWS), create an empty file.
             subprocess.run(
                 [FEAST_PYTHON, "-c", ENSURE_24H], cwd=repo, env=env, check=True, timeout=120
@@ -123,7 +126,6 @@ with DAG(
         packages="{{ var.value.platform_spark_packages }},org.apache.hadoop:hadoop-aws:3.3.4",
         driver_memory="1g",
     )
-    apply = PythonOperator(task_id="feast_apply", python_callable=run_feast, op_args=["apply"])
     materialize = PythonOperator(
         task_id="publish_batch",
         python_callable=run_feast,
@@ -134,4 +136,4 @@ with DAG(
             "{{ (params.end or var.value.platform_ml_cutoff) | replace('Z', '+00:00') }}",
         ],
     )
-    export >> export_training >> apply >> materialize
+    export >> export_training >> materialize

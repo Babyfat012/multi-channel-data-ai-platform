@@ -108,3 +108,21 @@ def test_publication_operator_invokes_isolated_publisher(full_reload):
         run.call_args.kwargs["env"]["FEAST_PUBLICATION_ROOT"] == "s3://test/features/publications"
     )
     assert run.call_args.kwargs["check"] is True
+
+
+def test_dag_no_longer_registers_features():
+    """Definitions change with code, not with data: `feast apply` lives in the Jenkins feature-repo job."""
+    assert "feast_apply" not in DAG
+    jenkinsfile = (ROOT / "infra/jenkins/feature-repo.Jenkinsfile").read_text()
+    assert "run_feast('${command}')" in jenkinsfile
+    assert "FEAST_SH('plan')" in jenkinsfile and "FEAST_SH('apply')" in jenkinsfile
+    assert "'feature-repo'" in (ROOT / "infra/jenkins/jenkins.yaml").read_text()
+
+
+@pytest.mark.parametrize("command", ["plan", "apply"])
+def test_plan_and_apply_create_the_24h_offline_file_first(command):
+    """The 24h stream view needs its Parquet path to exist before Feast reads the definitions."""
+    run_feast, run = _run_feast_with_fake_runtime()
+    run_feast(command)
+    assert run.call_args_list[0].args[0] == ["feast-python", "-c", "ensure_24h"]
+    assert run.call_args_list[1].args[0] == ["feast", command]
