@@ -1,10 +1,10 @@
 # System architecture
 
-[Data platform](architecture-data.png) · [ML + LLM platform](architecture-ml-llm.png) · [CI/CD](architecture-cicd.png) · [Whole platform in one picture](system-architecture.png) (each has an editable `.excalidraw` next to it)
+[Data + ML](architecture-data.png) · [ML + LLM](architecture-ml-llm.png) · [CI/CD](architecture-cicd.png) (each has an editable `.excalidraw` next to it)
 
-One diagram covers Data + ML + LLM + CI/CD with the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams in `components/` (listed in the [root README](../../README.md#component-diagrams-inside-each-service)). Sources are simulated.
+The Data + ML view follows sources through the lakehouse, features, training, model registry and prediction. The ML + LLM view follows chat through agents, LLMs and tools, including the pipelines and stores supplying features, policy text and models. Shared components appear in both views so their flows can be read independently. CI/CD has its own view. Frames retain the EC2, AWS managed services and EKS boundaries. Service internals are left to separate per-service diagrams in `components/` (listed in the [root README](../../README.md#component-diagrams-inside-each-service)). Sources are simulated.
 
-Each box is one service (Compose container, Deployment / Pod, Job or managed service); dashed coloured frames are Kubernetes namespaces or the S3 bucket, grey dashed strips are pipelines and their steps. Each arrow shows the way the data moves (a request and its answer are two arrows); its colour is the business flow and its number, e.g. (B1), gives the order inside that flow. Dotted arrows start or control something without moving data; dashed arrows are CI/CD. The legend is in the Excalidraw file, above the drawing.
+Each box is one service (Compose container, Deployment / Pod, Job or managed service); dashed coloured frames are Kubernetes namespaces or the S3 bucket, grey dashed strips are pipelines and their steps. Each arrow shows the way the data moves (a request and its answer are two arrows); its colour is the business flow and its number, e.g. (B1), gives the order inside that flow. Dotted arrows start or control something without moving data; dashed arrows are CI/CD.
 
 The diagram shows the target operating model: pipelines run on schedules and a new model is registered as a challenger that an ML engineer approves. In the current code the schedules exist (nightly `dp_nightly`, starting with the CDC completeness gate; Flink streams Kafka into Bronze continuously; ML refresh on the `GOLD_LABELS` Dataset) but `dp_nightly` is paused on creation, because each run still processes the fixed window set by Variables, not a new day; the challenger → production approval is the `return-risk` Jenkins pipeline. Deployment status and evidence are in the [AWS validation status](../shared/aws_validation.md).
 
@@ -35,7 +35,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | EC2 · MLflow / CLI + ECR | `return-risk` registry, `scripts/ml/deploy_return_risk.py`, code-only predictor image | Tracking / versioning / production gate; deploy points KServe at the `production` model's S3 files |
 | `ml-serving` / `kserve` | `return-risk` InferenceService 2–3 pods with KEDA / KServe controller | ML inference behind public `/predict`; storage-initializer loads the model (`STORAGE_URI`), predictor validates order lines, reads Feast online, autoscaling |
 | `rag` | pgvector, PVC `pgdata` | Feast vector search / top-k policy chunks |
-| `llm` | `qwen` (vLLM × 2), `epp` (llm-d Endpoint Picker), `qwen-small` (vLLM, branch B) | Prefix-cache-aware routing of model A, benchmark, LLM A/B — [LLM inference](../ml-llm-platform/llm_inference_platform.md) |
+| `llm` | `qwen` (llama.cpp × 2), `epp` (llm-d Endpoint Picker), `qwen-small` (llama.cpp, branch B) | Approximate prefix-cache-aware routing of model A, benchmark, LLM A/B — [LLM inference](../ml-llm-platform/llm_inference_platform.md) |
 | `kagent` | UI, coordinator, data-agent, model-agent, ModelConfig / RemoteMCPServer | Agent tools, A2A orchestration, global model config; KEDA for data-agent / model-agent / coordinator |
 | `agentgateway` | agentgateway | LLM / MCP / A2A gateway, API key / PII / A/B routing; CI applies it only when every agent/tool is registered |
 | `ingress` / `cert-manager` | NGINX controller / certificate controller | NLB / HTTPS / basic auth / rate limit, API / UI / ops routes |

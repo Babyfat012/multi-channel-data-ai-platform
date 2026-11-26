@@ -21,7 +21,7 @@ A data and AI platform for a Seller selling on Amazon, TikTok Shop, Shopify, Wal
 |---|---|---|---|
 | **Data Platform** | Sources → Bronze / Silver / Gold → warehouse; batch, streaming, orchestration and governance | Spark, Kafka, Flink, Debezium, Iceberg, Lakekeeper, PostgreSQL, Trino, Airflow, DataHub | [Data Platform](docs/data-platform/README.md) |
 | **ML Platform** | Feature store, training, model registry, serving and drift monitoring | Feast, Redis, LightGBM, Kubeflow Pipelines, MLflow, KServe, Evidently | [ML Platform](docs/ml-llm-platform/README.md) |
-| **LLM Platform** | LLM inference, RAG, agents, gateway and answer evaluation | vLLM + llm-d EPP, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/ml-llm-platform/README.md) |
+| **LLM Platform** | LLM inference, RAG, agents, gateway and answer evaluation | llama.cpp + llm-d EPP, pgvector, agentgateway, kagent, Langfuse, KEDA | [LLM Platform](docs/ml-llm-platform/README.md) |
 
 On AWS: the Data Platform runs on one EC2 instance (Docker Compose) with data in S3; the ML Platform and LLM Platform run on EKS. Infrastructure is built with Terraform, and EC2 is configured with Ansible.
 
@@ -35,23 +35,23 @@ The agent retrieves features, calls the prediction model and looks up the return
 
 ## Architecture
 
-Three diagrams cover the platform: the data platform on EC2 (Docker Compose), the ML + LLM platform on EKS, and the CI/CD jobs with their steps.
-The AWS managed services (S3 lakehouse, ECR) appear on the edge of both platform diagrams; a line that leaves a diagram ends with "to …" / "from …" naming the box on the other one.
+Three diagrams cover Data + ML (sources through training and prediction), ML + LLM (chat, agents, tools and their feature, policy and model inputs), and CI/CD jobs with their steps.
+Each diagram includes the components needed to follow its flows independently. Shared components appear in both platform diagrams; EC2, AWS managed services and EKS frames show where they run.
 Click a picture for the full-size PNG. All marketplace source data is simulated.
 
-**Data platform** (EC2 + S3)
+**Data + ML** (EC2 + S3 + EKS)
 
-[![Data platform architecture](docs/diagrams/architecture-data.png)](docs/diagrams/architecture-data.png)
+[![Data + ML architecture](docs/diagrams/architecture-data.png)](docs/diagrams/architecture-data.png)
 
-**ML + LLM platform** (S3 + EKS)
+**ML + LLM** (EC2 + S3 + EKS)
 
-[![ML + LLM platform architecture](docs/diagrams/architecture-ml-llm.png)](docs/diagrams/architecture-ml-llm.png)
+[![ML + LLM architecture](docs/diagrams/architecture-ml-llm.png)](docs/diagrams/architecture-ml-llm.png)
 
 **CI/CD** (Jenkins + Vault on EC2)
 
 [![CI/CD architecture](docs/diagrams/architecture-cicd.png)](docs/diagrams/architecture-cicd.png)
 
-Editable Excalidraw: [data](docs/diagrams/architecture-data.excalidraw) · [ML + LLM](docs/diagrams/architecture-ml-llm.excalidraw) · [CI/CD](docs/diagrams/architecture-cicd.excalidraw) · [whole platform in one picture](docs/diagrams/system-architecture.png) · [Blocks mapped to configuration and docs](docs/diagrams/README.md)
+[Blocks mapped to configuration and docs](docs/diagrams/README.md)
 
 How to read it: each arrow shows the way the data moves, its colour is the business flow, and its number gives the order inside that flow —
 (B) batch, (S) CDC + streaming, (M) features + training, (R) return-policy RAG, (A) prediction API call, (C) AI chat, (K) control, (O) observability, (D) CI/CD.
@@ -122,7 +122,7 @@ sequenceDiagram
     participant GW as agentgateway
     participant CO as Coordinator agent
     participant AG as Data / Model agent
-    participant LLM as vLLM Qwen via llm-d EPP (A/B)
+    participant LLM as llama.cpp Qwen via llm-d EPP (A/B)
     participant MCP as MCP server
     participant API as Feature API · Policy API · KServe
 
