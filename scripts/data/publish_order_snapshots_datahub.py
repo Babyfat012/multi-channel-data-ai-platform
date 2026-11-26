@@ -1,16 +1,14 @@
-"""Push tables, Airflow jobs, lineage and completed Validate results to DataHub.
+"""Push tables, jobs (Airflow DAGs, the Flink Bronze stream job) and lineage to DataHub.
 
-Run once DataHub GMS is ready. Does not rerun Spark/Airflow; check data is
-read from the evidence manifest, and each assertion keeps the original run_id in properties.
+Run once DataHub GMS is ready. Check results are not published here: each Airflow validate task reports its own
+result per run (dags/platform_datahub.py), and the Bronze Data Contracts come from
+scripts/data/publish_datahub_contracts.py. The historical manifests in docs/evidence/ stay as evidence only.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-from datetime import datetime
-from pathlib import Path
 
 CHANNELS = ("amazon", "walmart", "tiktok_shop", "shopify", "shopee")
 BRONZE = {c: f"lakehouse.bronze.raw_{c}_orders_dp1" for c in CHANNELS}
@@ -22,8 +20,8 @@ LABELS = "lakehouse.gold.fact_return_labels_dp3"
 # The Walmart-only label table (old dp3_walmart_labels DAG) stays on DataHub as historical evidence;
 # the dp3_return_labels DAG now writes one label table for all five Channels.
 LABELS_LEGACY = "lakehouse.gold.fact_walmart_return_labels_dp3"
-# The dp1_cdc DAG now writes the v2 table (with source_epoch). The v1 table stays on DataHub as historical
-# evidence of the 2026-10-13 run; no job writes to it anymore.
+# Flink (lakehouse-bronze-streams) writes the v2 table (with source_epoch); dp_nightly gates on it. The v1 table
+# stays on DataHub as historical evidence of the 2026-10-13 run; no job writes to it anymore.
 CDC = "lakehouse.bronze.raw_walmart_cdc_v2"
 CDC_LEGACY = "lakehouse.bronze.raw_walmart_cdc"
 # DP4: 30 days of five-Channel Gold on EC2 PostgreSQL (warehouse serving per-SKU lookups, indexed).
@@ -39,18 +37,6 @@ DATASETS = (
     CDC,
     CDC_LEGACY,
     WAREHOUSE,
-)
-FAILURE_PREFIXES = (
-    "invalid",
-    "duplicate",
-    "missing",
-    "extra",
-    "bad_",
-    "multiple_current",
-    "payload_mismatch",
-    "wrong_",
-    "source_invalid",
-    "source_duplicate",
 )
 RAW_AMAZON = "/data/raw/source-exports/channel=amazon/dataset=orders"
 RAW_FILES = {
@@ -97,10 +83,8 @@ def job_map(
     dp2["validate_gold_order_lines"] = ([FACT], [])
     jobs = {
         "dp1_bronze": dp1,
-        "dp1_cdc": {
-            "ingest_walmart_cdc": ([KAFKA_WALMART_CDC], [CDC]),
-            "validate_walmart_cdc": ([CDC], []),
-        },
+        "lakehouse-bronze-streams": {"walmart_cdc_to_bronze": ([KAFKA_WALMART_CDC], [CDC])},
+        "dp_nightly": {"check_walmart_cdc_complete": ([CDC], [])},
         "dp2_silver": dp2,
         "dp3_features": {
             "build_return_features": ([FACT], [FEATURE]),
@@ -114,6 +98,10 @@ def job_map(
         },
     }
     return {dag: tasks for dag, tasks in jobs.items() if dags is None or dag in dags}
+
+
+# Every flow is an Airflow DAG except the always-on Flink job.
+FLOW_PLATFORM = {"lakehouse-bronze-streams": "flink"}
 
 
 def datasets_of(jobs: dict[str, dict[str, tuple[list[str], list[str]]]]) -> list[str]:
@@ -138,33 +126,10 @@ def description(name: str, platform: str) -> str:
     return f"PLATFORM {platform}: {name}"
 
 
-def assertion_urn(item: dict) -> str:
-    """Assertion URN; checks on the v2 table get their own suffix so v1 table history is not overwritten."""
-    suffix = "-v2" if item["dataset"].endswith("_v2") else ""
-    return f"urn:li:assertion:platform-{item['dag_id']}-{item['task_id']}{suffix}"
-
-
-def check_passed(item: dict) -> None:
-    """Refuse to publish SUCCESS when the task has not succeeded or a failure metric is nonzero."""
-    if item["dataset"] not in DATASETS:
-        raise ValueError(f"Assertion table is not in the mapping: {item['dataset']}")
-    if item["state"] != "success":
-        raise ValueError(f"Validate task has not succeeded: {item['task_id']}")
-    if any(
-        value != 0 for key, value in item["metrics"].items() if key.startswith(FAILURE_PREFIXES)
-    ):
-        raise ValueError(f"Validate metrics did not PASS: {item['task_id']}")
-
-
 def main() -> None:
-    """Publish dataset lineage and validation assertions to DataHub GMS."""
-    parser = argparse.ArgumentParser(
-        description="Publish PLATFORM lineage and validation to DataHub"
-    )
+    """Publish datasets, jobs and lineage to DataHub GMS."""
+    parser = argparse.ArgumentParser(description="Publish PLATFORM datasets and lineage to DataHub")
     parser.add_argument("--server", default=os.getenv("DATAHUB_GMS_URL", "http://localhost:8089"))
-    parser.add_argument(
-        "--evidence", type=Path, default=Path("docs/evidence/datahub-validation.json")
-    )
     parser.add_argument(
         "--raw-root",
         help="Root of the real file sources, e.g. s3a://<raw-bucket>/order_snapshots/source-exports (AWS)",
@@ -177,16 +142,13 @@ def main() -> None:
     # No DAG selected: also keep historical tables no job writes anymore (CDC v1), as before.
     names = datasets_of(jobs) + ([] if args.dags else list(DATASETS))
     names = list(dict.fromkeys(names))
-    evidence = json.loads(args.evidence.read_text())
 
     # Import at run time so the file still loads when the client is not installed.
-    from datahub.ingestion.graph.client import DatahubClientConfig, DataHubGraph
     from datahub.metadata.urns import DatasetUrn
     from datahub.sdk import DataFlow, DataHubClient, DataJob, Dataset
 
     token = os.getenv("DATAHUB_GMS_TOKEN")
     client = DataHubClient(server=args.server, token=token)
-    graph = DataHubGraph(config=DatahubClientConfig(server=args.server, token=token))
 
     def urn(name: str) -> DatasetUrn:
         """Resolve a dataset URN using its actual storage platform."""
@@ -203,8 +165,9 @@ def main() -> None:
         )
 
     for dag_id, tasks in jobs.items():
+        platform = FLOW_PLATFORM.get(dag_id, "airflow")
         flow = DataFlow(
-            platform="airflow", name=dag_id, description=f"PLATFORM Airflow DAG {dag_id}"
+            platform=platform, name=dag_id, description=f"PLATFORM {platform} job {dag_id}"
         )
         client.entities.upsert(flow)
         for task_id, (inputs, outputs) in tasks.items():
@@ -220,36 +183,7 @@ def main() -> None:
                 for target in outputs:
                     client.lineage.add_lineage(upstream=urn(source), downstream=urn(target))
 
-    for item in evidence["checks"]:
-        check_passed(item)
-        if item["dataset"] not in names:
-            raise ValueError(f"Assertion on a table outside the selected DAGs: {item['dataset']}")
-        dataset = item["dataset"]
-        metrics = item["metrics"]
-        urn_text = assertion_urn(item)
-        graph.upsert_custom_assertion(
-            urn=urn_text,
-            entity_urn=str(urn(dataset)),
-            type="Airflow Spark Validate",
-            description=f"{item['dag_id']}.{item['task_id']} checks {dataset}",
-            platform_name="PLATFORM Airflow",
-            logic=item["rule"],
-        )
-        completed = datetime.fromisoformat(item["completed_at"].replace("Z", "+00:00"))
-        graph.report_assertion_result(
-            urn=urn_text,
-            timestamp_millis=int(completed.timestamp() * 1000),
-            type="SUCCESS",
-            properties=[
-                {"key": "run_id", "value": item["run_id"]},
-                *({"key": key, "value": str(value)} for key, value in metrics.items()),
-            ],
-        )
-    print(
-        f"DataHub: {len(names)} datasets, "
-        f"{sum(map(len, jobs.values()))} jobs, "
-        f"{len(evidence['checks'])} Validate results"
-    )
+    print(f"DataHub: {len(names)} datasets, {sum(map(len, jobs.values()))} jobs")
 
 
 if __name__ == "__main__":

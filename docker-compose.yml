@@ -253,8 +253,8 @@ services:
               ./out/spark-events:/spark-events]
     mem_limit: 6g
 
-  # Flink SQL reads the replayed Kafka stream to demonstrate watermarks, state and Windows.
-  # Enable this profile only after DP1/DP2 finish, to keep RAM for the TaskManager.
+  # Flink SQL: the always-on Bronze stream job (flink_jobs/lakehouse/, deploy with scripts/data/run_bronze_stream_jobs.py)
+  # and the demos of watermarks, state and Windows (flink_jobs/order_snapshots/).
   flink-jobmanager:
     build:
       context: .
@@ -267,6 +267,13 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         jobmanager.memory.process.size: 768m
         rest.address: flink-jobmanager
+        # Prometheus reporter (plugin shipped in the image): lag · checkpoint · freshness alerts on EKS.
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
+      # Iceberg S3FileIO of the Bronze stream job (flink_jobs/lakehouse/) reads keys from the environment.
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: local-01
     ports: ["${FLINK_UI_PORT:-8082}:8081"]
     volumes: [./flink_jobs:/opt/flink/jobs:ro, ./out/flink:/opt/flink/output]
     mem_limit: 1024m
@@ -281,6 +288,11 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.memory.process.size: 1024m
         taskmanager.numberOfTaskSlots: 2
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9250
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: local-01
     volumes: [./flink_jobs:/opt/flink/jobs:ro, ./out/flink:/opt/flink/output]
     mem_limit: 1280m
 

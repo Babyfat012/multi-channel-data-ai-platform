@@ -1,0 +1,65 @@
+# POC variant: llama.cpp instead of vLLM behind the same llm-d EPP. Apply AFTER llm-d-poc.yaml: it replaces only the
+# replicas (Deployment `vllm-a`, name and label kept so the EPP selector, Service, agentgateway and benchmark stay as they
+# are). Same image and flags as the llama.cpp model server the platform ran before (git 7aa7d9b~1:infra/k8s/agents/llm.yaml),
+# same model size as the vLLM POC (Qwen2.5-0.5B), served as `qwen-poc`.
+#   kubectl --context kind-fsds-ml apply -f infra/k8s/agents/llm-d-poc.yaml -f infra/k8s/agents/llm-d-poc-llamacpp.yaml
+#   ENGINE=llamacpp scripts/llm/llmd_poc_bench.sh
+# Prefix cache: 4 slots per replica, each keeps the KV of its last prompt; llama-server gives a request the idle slot with
+# the most similar cached prompt. The EPP's prefix scorer is router-side (approximate), it needs nothing from the server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-a
+  namespace: llm-d-poc
+spec:
+  replicas: 2
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: vllm-a}
+  template:
+    metadata:
+      labels: {app: vllm-a}
+    spec:
+      containers:
+        - name: vllm   # name kept: `kubectl apply` merges containers by name, so the vLLM container is replaced, not added
+          image: ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312
+          args:
+            - -hf
+            - Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M
+            - --alias
+            - qwen-poc
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --ctx-size
+            - "4096"      # 4 slots × 1024 tokens (the vLLM POC ran --max-model-len=1024)
+            - --parallel
+            - "4"
+            - --threads
+            - "3"
+            - --flash-attn
+            - "on"
+            - --cache-type-k
+            - q8_0
+            - --cache-type-v
+            - q8_0
+            - --jinja
+            - --metrics
+          env:
+            - {name: LLAMA_CACHE, value: /cache}
+          ports: [{name: http, containerPort: 8000}]
+          volumeMounts: [{name: cache, mountPath: /cache}]
+          resources:
+            requests: {cpu: "1", memory: 512Mi}
+            limits: {memory: 1Gi}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+      volumes:
+        - name: cache
+          persistentVolumeClaim: {claimName: hf-cache}

@@ -8,7 +8,7 @@ Infrastructure:
 
 Each result states which environment it ran in and what limitations remain. A result only proves that the run happened; it does not mean the service is still running.
 
-![AWS deployment architecture](../diagrams/system-architecture.png)
+![AWS deployment architecture](../diagrams/architecture-data.png)
 
 ## Page index
 

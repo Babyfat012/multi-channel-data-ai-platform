@@ -179,7 +179,7 @@
   },
   {
    "type": "timeseries",
-   "title": "llama.cpp: generated tokens/s, requests in flight",
+   "title": "LLM model A (llama.cpp × 2 behind llm-d EPP)",
    "gridPos": {
     "x": 0,
     "y": 13,
@@ -199,15 +199,21 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "llamacpp:predicted_tokens_seconds",
+     "expr": "sum(llamacpp:predicted_tokens_seconds{app=\"qwen\"})",
      "legendFormat": "tokens/s"
     },
     {
      "refId": "B",
-     "expr": "llamacpp:requests_processing",
+     "expr": "sum(llamacpp:requests_processing{app=\"qwen\"})",
      "legendFormat": "in flight"
+    },
+    {
+     "refId": "C",
+     "expr": "sum(rate(llamacpp:prompt_tokens_cached_total{app=\"qwen\"}[5m])) / (sum(rate(llamacpp:prompt_tokens_cached_total{app=\"qwen\"}[5m])) + sum(rate(llamacpp:prompt_tokens_total{app=\"qwen\"}[5m])))",
+     "legendFormat": "prefix-cache hit (0–1)"
     }
-   ]
+   ],
+   "description": "Generated tokens/s and requests in flight summed over the qwen replicas; prefix-cache hit = share of prompt tokens a replica took from its cache (the EPP sends a prefix back to the replica that served it; infra/k8s/agents/llm.yaml)."
   },
   {
    "type": "row",

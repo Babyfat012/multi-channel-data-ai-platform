@@ -1,0 +1,2 @@
+vllm-a-64dfc9f94f-45ghr 7504 4096 14
+vllm-a-64dfc9f94f-98xsg 5360 3072 10

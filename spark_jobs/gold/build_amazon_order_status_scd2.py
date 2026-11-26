@@ -1,4 +1,9 @@
-"""Build the SCD2 dimension of Amazon Order status from the Bronze snapshots seen."""
+"""Build the SCD2 dimension of Amazon Order status from the Bronze snapshots and streamed status events.
+
+Every status the Silver table can carry must be a version here, or the Gold fact's
+`amazon_order_version_key` finds no match: Silver takes newer event statuses (`spark_jobs/lib/order_events.py`),
+so the events are versions too. An event's `first_observed_export_date` is the day Flink wrote it to Bronze.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +16,12 @@ from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
-from spark_jobs.lib.order_snapshot_mapping import AMAZON_2026_STATUS, AMAZON_V0_STATUS
+from spark_jobs.lib.order_events import load_events
+from spark_jobs.lib.order_snapshot_mapping import (
+    AMAZON_2026_STATUS,
+    AMAZON_EVENT_STATUS,
+    AMAZON_V0_STATUS,
+)
 from spark_jobs.lib.order_version_key import amazon_order_version_key
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -49,9 +59,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Amazon Order Status SCD2")
     parser.add_argument("--source-table", default="raw_amazon_orders_dp1")
     parser.add_argument("--table", default="dim_amazon_order_dp2")
+    parser.add_argument("--events-table", default="amazon_order_events")
     parser.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
-    for value in (args.source_table, args.table):
+    for value in (args.source_table, args.table, args.events_table):
         if not IDENTIFIER.fullmatch(value):
             parser.error(f"Invalid table name: {value!r}")
 
@@ -78,6 +89,19 @@ def main(argv: list[str] | None = None) -> int:
             .alias("channel_status"),
             F.col("export_date"),
         )
+        events = load_events(spark, args.events_table, AMAZON_EVENT_STATUS)
+        if events is not None:
+            observed = observed.unionByName(
+                events.select(
+                    "order_id",
+                    F.col("event_time").alias("valid_from_ts"),
+                    "order_status",
+                    "channel_status",
+                    F.to_date("ingested_at")
+                    .cast(bronze.schema["export_date"].dataType)
+                    .alias("export_date"),
+                )
+            )
         bad = (
             observed.filter(
                 F.col("order_id").isNull()
@@ -90,7 +114,9 @@ def main(argv: list[str] | None = None) -> int:
             .count()
         )
         if bad:
-            raise ValueError("Amazon Bronze is missing the id, time or status for SCD2")
+            raise ValueError(
+                "Amazon Bronze (snapshots or events) is missing the id, time or status for SCD2"
+            )
 
         versions = observed.groupBy("order_id", "valid_from_ts").agg(
             F.min("export_date").alias("first_observed_export_date"),

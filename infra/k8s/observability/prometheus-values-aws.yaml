@@ -6,6 +6,12 @@ extraScrapeConfigs: |
     static_configs: [{targets: ["10.42.0.151:9100"]}]
   - job_name: ec2-postgres
     static_configs: [{targets: ["10.42.0.151:9187"]}]
+  # Flink Prometheus reporter on EC2 (jobmanager 9249, taskmanager 9250). Not named ec2-*: EC2ExporterDown stays quiet
+  # until the streaming stack runs on EC2 (separate deploy step); the Flink rules below need these series to fire.
+  - job_name: flink-jobmanager
+    static_configs: [{targets: ["10.42.0.151:9249"]}]
+  - job_name: flink-taskmanager
+    static_configs: [{targets: ["10.42.0.151:9250"]}]
 serverFiles:
   alerting_rules.yml:
     groups:
@@ -22,4 +28,24 @@ serverFiles:
           # Gap #17: a replication slot (Debezium) not being read ⇒ Postgres keeps WAL forever ⇒ disk full.
           - alert: PostgresSlotWalRetained
             expr: pg_replication_slot_slot_current_wal_lsn - pg_replication_slot_slot_confirmed_flush_lsn > 1073741824
+            for: 10m
+      # Streaming jobs (lakehouse-bronze-streams, ops-order-counts): lag · checkpoint · freshness.
+      - name: flink-streaming
+        rules:
+          # Both always-on jobs must run; a job that fails over and over ends in FAILED and drops out of this count.
+          - alert: FlinkStreamingJobsNotRunning
+            expr: flink_jobmanager_numRunningJobs < 2
+            for: 5m
+          # Freshness: Iceberg commits and Kafka offsets ride on checkpoints (every 60 s), so no completed checkpoint
+          # for 10 min means Bronze (and the Postgres counts) stopped moving even if the job says RUNNING.
+          - alert: FlinkNoCheckpoint
+            expr: increase(flink_jobmanager_job_numberOfCompletedCheckpoints[10m]) == 0
+            for: 5m
+          - alert: FlinkCheckpointsFailing
+            expr: increase(flink_jobmanager_job_numberOfFailedCheckpoints[10m]) > 0
+            for: 10m
+          # Lag: records in Kafka the source has not read yet. The simulated stream is a few events per second,
+          # so 10k pending for 10 min means the job is stuck or far behind, not a burst.
+          - alert: FlinkKafkaLagHigh
+            expr: sum by (job_name) (flink_taskmanager_job_task_operator_pendingRecords) > 10000
             for: 10m

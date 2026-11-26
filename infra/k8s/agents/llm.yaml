@@ -1,19 +1,18 @@
-# Small CPU LLM with an OpenAI-style API (/v1/chat/completions) for Agents. Local stand-in for llm-d
-# (llm-d needs a GPU ⇒ kept for GCP). Model downloaded once into a PVC; scale to 0 when idle to free RAM.
+# Model A of the Agents' LLM: llama.cpp (Qwen2.5-1.5B-Instruct Q4_K_M) × 2 replicas behind the llm-d EPP, which picks
+# the replica per request. Prefix-aware routing in its approximate form: the EPP remembers which replica served which
+# prompt prefix and sends the same prefix back there, where llama.cpp reuses the slot's cached KV (no model-server
+# integration needed). Precise routing (KV events) and disaggregated prefill/decode need vLLM/SGLang and GPUs: not here.
+#
+#   agentgateway (model qwen2.5-1.5b-instruct → its loopback :3001 route) ─ext_proc→ epp ─→ chosen qwen pod :8080
+#
+# Measured locally (docs/evidence/llmd-poc-llamacpp-20261125/, 0.5B, 2 replicas, shared-prefix load): prefix-cache hit
+# 36% → 64% (the workload's maximum) and TTFT p50 1.96 s → 0.15 s vs. spreading by Service. Branch B: ab-llm-small.yaml.
+# llama.cpp exports llamacpp:requests_processing / requests_deferred but no KV-use gauge, so of the EPP's scorers the
+# prefix one does the work. Sizing: ~1.2–1.6 GiB per replica (Q4 weights + q8_0 KV for 4 slots × 4096 tokens).
 apiVersion: v1
 kind: Namespace
 metadata:
   name: llm
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: models
-  namespace: llm
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests: {storage: 3Gi}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -21,22 +20,30 @@ metadata:
   name: qwen
   namespace: llm
 spec:
-  replicas: 1
-  strategy: {type: Recreate}   # RWO PVC: the old pod must release the volume first
+  replicas: 2
+  strategy: {type: Recreate}
   selector:
     matchLabels: {app: qwen}
   template:
     metadata:
-      labels: {app: qwen}
-      annotations:              # Prometheus scrapes /metrics: tokens/s, requests in flight
+      labels: {app: qwen}      # the EPP's --endpoint-selector
+      annotations:             # Prometheus scrapes llamacpp:* (tokens/s, requests in flight, cached prompt tokens)
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
     spec:
+      affinity:                # one replica per node when there are two nodes
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector: {matchLabels: {app: qwen}}
       containers:
         - name: llama
           image: ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312  # build b11749
           # Configuration B after benchmarking (docs/ml-llm-platform/reference/llm_platform_agents.md): 3 threads (4 vCPU EKS node, measured 30/10), 4 slots, flash-attention,
-          # KV cache q8_0 (saves RAM ⇒ room for ctx 16384 = 4 slots × 4096 tokens).
+          # KV cache q8_0 (saves RAM ⇒ room for ctx 16384 = 4 slots × 4096 tokens). Each slot keeps its last prompt's KV:
+          # the prefix cache the EPP routes to.
           args:
             - "-hf"
             - "Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M"
@@ -59,7 +66,7 @@ spec:
             - "--cache-type-v"
             - "q8_0"
             - "--jinja"   # chat template with tool calling
-            - "--metrics" # Prometheus /metrics (tokens, latency)
+            - "--metrics" # Prometheus /metrics (tokens, latency, cached prompt tokens)
           env:
             - {name: LLAMA_CACHE, value: /models}
           ports: [{name: http, containerPort: 8080}]
@@ -67,7 +74,7 @@ spec:
           resources:
             requests: {cpu: "1", memory: 1200Mi}
             limits: {memory: 1600Mi}
-          startupProbe:          # first start must download ~1 GB
+          startupProbe:          # every start downloads ~1 GB (see the volume below)
             httpGet: {path: /health, port: http}
             periodSeconds: 10
             failureThreshold: 60
@@ -75,9 +82,12 @@ spec:
             httpGet: {path: /health, port: http}
             periodSeconds: 10
       volumes:
+        # Per-pod download cache: a ReadWriteOnce PVC cannot follow two replicas onto two nodes.
+        # ponytail: re-downloads the model on each pod start; a ReadWriteMany cache (EFS) when restarts get frequent.
         - name: models
-          persistentVolumeClaim: {claimName: models}
+          emptyDir: {sizeLimit: 2Gi}
 ---
+# Plain Service: direct calls and benchmarks only (kube-proxy spreads them). Agents go through agentgateway → EPP.
 apiVersion: v1
 kind: Service
 metadata:
@@ -86,3 +96,116 @@ metadata:
 spec:
   selector: {app: qwen}
   ports: [{name: http, port: 8080, targetPort: http}]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: epp
+  namespace: llm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: epp
+  namespace: llm
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: epp
+  namespace: llm
+subjects: [{kind: ServiceAccount, name: epp, namespace: llm}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: epp}
+---
+# llm-d-router v1.0.0 default profile: prefix cache (router-side index of what each replica served) weighs most.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: epp-config
+  namespace: llm
+data:
+  epp.yaml: |
+    apiVersion: llm-d.ai/v1
+    kind: EndpointPickerConfig
+    plugins:
+    - type: queue-scorer
+    - type: kv-cache-utilization-scorer
+    - type: prefix-cache-scorer
+    - type: metrics-data-source
+      parameters: {scheme: http, path: /metrics, insecureSkipVerify: true}
+    - type: core-metrics-extractor
+    schedulingProfiles:
+    - name: default
+      plugins:
+      - {pluginRef: queue-scorer, weight: 2}
+      - {pluginRef: kv-cache-utilization-scorer, weight: 2}
+      - {pluginRef: prefix-cache-scorer, weight: 3}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epp
+  namespace: llm
+spec:
+  replicas: 1   # ponytail: single EPP and agentgateway is fail-closed ⇒ EPP down = model A down; 2 replicas + HA mode later
+  selector:
+    matchLabels: {app: epp}
+  template:
+    metadata:
+      labels: {app: epp}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: epp
+      containers:
+        - name: epp
+          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v1.0.0
+          args:
+            # Pods found by label (no InferencePool CRD: agentgateway runs standalone, nothing else reads a pool).
+            - --endpoint-selector=app=qwen
+            - --endpoint-target-ports=8080
+            - --config-file=/config/epp.yaml
+            - --grpc-health-port=9003
+            - --secure-serving=false   # in-cluster plaintext gRPC from agentgateway
+            - --metrics-endpoint-auth=false
+            - --tracing=false
+            - --zap-encoder=json
+          env:
+            - name: NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: POD_NAME   # required at startup
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          ports:
+            - {name: ext-proc, containerPort: 9002}
+            - {name: health, containerPort: 9003}
+            - {name: metrics, containerPort: 9090}
+          readinessProbe:          # same gRPC health service names as the llm-d-router chart
+            grpc: {port: 9003, service: readiness}
+            periodSeconds: 5
+          livenessProbe:
+            grpc: {port: 9003, service: liveness}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts: [{name: config, mountPath: /config}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: config
+          configMap: {name: epp-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epp
+  namespace: llm
+spec:
+  selector: {app: epp}
+  ports:
+    - {name: ext-proc, port: 9002, targetPort: ext-proc, appProtocol: http2}
+    - {name: metrics, port: 9090, targetPort: metrics}

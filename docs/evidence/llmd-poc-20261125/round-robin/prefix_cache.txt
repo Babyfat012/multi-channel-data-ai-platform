@@ -1,0 +1,2 @@
+vllm-a-7b5d5cbbc-sdmmk 8576 3072 16
+vllm-a-7b5d5cbbc-xvgtb 4288 512 8

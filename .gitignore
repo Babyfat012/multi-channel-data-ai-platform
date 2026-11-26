@@ -61,3 +61,6 @@ docs/learning/
 # Component diagram sources (built by local scripts/diagrams/); only the PNGs are published
 docs/diagrams/components/*.excalidraw
 docs/diagrams/components/*.svg
+
+# Old one-picture overview, replaced by the three architecture-*.png diagrams
+docs/diagrams/system-architecture.*

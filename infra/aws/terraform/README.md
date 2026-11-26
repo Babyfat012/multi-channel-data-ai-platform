@@ -7,7 +7,7 @@ Terraform ≥1.6, provider `hashicorp/aws` `~> 6.0` (exact version pinned in
 Builds: VPC `10.42.0.0/16` + 1 public subnet + Internet Gateway, a security group
 with **no inbound ports**, one `t3.xlarge` Ubuntu 24.04 EC2, one gp3 data EBS,
 an IAM role (instance profile, no access key), 2 S3 buckets (`raw`, `lakehouse`),
-an optional budget. Diagram: [`docs/diagrams/system-architecture.png`](../../../docs/diagrams/system-architecture.png).
+an optional budget. Diagram: [`docs/diagrams/architecture-data.png`](../../../docs/diagrams/architecture-data.png).
 
 Before running, check the AWS profile's permissions, quota and the instance/region settings of the deployment account per the [runbook](../../../docs/shared/aws_deploy.md). The repo has no evidence yet of an EC2 launch on AWS.
 

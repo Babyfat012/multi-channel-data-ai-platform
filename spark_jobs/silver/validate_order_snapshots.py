@@ -13,6 +13,7 @@ import sys
 
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -113,6 +114,17 @@ def main(argv: list[str] | None = None) -> int:
             errors.append(f"{invalid_count:,} rows with missing values or wrong run_id/schema")
         if duplicate_groups:
             errors.append("Order Line keys still duplicated")
+        emit(
+            target,
+            not errors,
+            {
+                "source_orders": source_count,
+                "dataset_rows": target_count,
+                "invalid_rows": invalid_count,
+                "duplicate_keys": int(bool(duplicate_groups)),
+            },
+            "Order Line >= source Orders; required columns, run_id and keys valid; no duplicate keys",
+        )
         if errors:
             raise ValueError("Silver validate failed: " + "; ".join(errors))
         print("Silver validate: PASS")

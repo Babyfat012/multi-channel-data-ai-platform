@@ -1,0 +1,2 @@
+vllm-a-87597cdd5-plpsp 6428 2046 12
+vllm-a-87597cdd5-v4pvp 6430 2560 12

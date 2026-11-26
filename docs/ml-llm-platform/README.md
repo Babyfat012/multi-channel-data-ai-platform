@@ -8,7 +8,7 @@ The infrastructure has two parts:
 
 Each result states which environment it ran in and what limitations remain. The docs only record runs that happened; they do not claim the services are still up.
 
-![AWS deployment architecture](../diagrams/system-architecture.png)
+![AWS deployment architecture](../diagrams/architecture-ml-llm.png)
 
 ## Component index
 

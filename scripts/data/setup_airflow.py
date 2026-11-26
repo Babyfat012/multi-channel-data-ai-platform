@@ -3,7 +3,7 @@
 Stages (each one only adds its own Variables; rerunning converges to the same config):
   base        Spark connection, DP1 Amazon/Walmart, Iceberg maintenance, ML cutoff, feature store
   dp1-files   DP1 for the three newer batch Channels (TikTok Shop, Shopify, Shopee)
-  dp1-cdc     DP1 CDC extension (Walmart change events)
+  dp1-cdc     CDC gate of dp_nightly (Walmart change events Flink streams into Bronze)
   dp2-silver  DP2 Silver + Gold tables for Amazon/Walmart
   dp2-files   DP2 Silver for the three newer Channels
   dp3         DP3 feature tables

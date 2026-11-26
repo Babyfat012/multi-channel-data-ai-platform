@@ -1,0 +1,36 @@
+# inference-perf workload for the llm-d POC (scripts/llm/llmd_poc_bench.sh): 8 groups share a 512-token system prompt,
+# 3 questions each. Per replica the KV cache holds ~2.7k tokens: round-robin sends all 8 prefixes (4k tokens) to both
+# replicas and they evict each other; prefix-aware routing can keep 4 groups per replica (2k tokens) cached.
+# On CPU a 512-token prefill miss takes ~12 s, a hit ~1 s, so the load stays at 0.1 request/s.
+load:
+  type: constant
+  stages:
+  - rate: 0.1
+    duration: 240
+  request_timeout: 180
+  num_workers: 2
+api:
+  type: completion
+  streaming: true
+server:
+  type: vllm
+  model_name: qwen-poc
+  base_url: @@BASE_URL@@
+  ignore_eos: true
+tokenizer:
+  pretrained_model_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+data:
+  type: shared_prefix
+  shared_prefix:
+    num_groups: 8
+    num_prompts_per_group: 3
+    system_prompt_len: 512
+    question_len: 24
+    output_len: 8
+report:
+  request_lifecycle:
+    summary: true
+    per_stage: true
+storage:
+  local_storage:
+    path: /out

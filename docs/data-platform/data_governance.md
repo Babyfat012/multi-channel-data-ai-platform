@@ -13,8 +13,8 @@ DataHub 1.7.0.1 runs with Compose on EC2. The metadata publish of six DAGs wrote
 assertions (data quality rules) into DataHub, all PASS. The information is loaded by two scripts:
 
 - The [publisher](../../scripts/data/publish_order_snapshots_datahub.py) declares lineage based on the inputs/outputs of each DAG.
-- The [validation builder](../../scripts/evidence/build_order_snapshots_datahub_validation.py) takes the check results from the logs
-  of Airflow tasks that succeeded.
+- At the time, a validation builder (removed in 2026-11, see [Check results per run](#check-results-per-run-since-2026-11))
+  took the check results from the logs of Airflow tasks that succeeded.
 
 The [AWS manifest](../evidence/aws/datahub-validation-aws-20261029.json) records the run_id, task_id, rule and measurements of each check.
 The Quality tab screenshots only show that the assertions have a green check. For the run_id and detailed numbers, read the manifest; do not infer them
@@ -50,7 +50,7 @@ Pipeline code and the role of each task: [Airflow AWS](pipeline_orchestration.md
 
 ### CDC, labels and warehouse
 
-[CDC DAG](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`: task `ingest_walmart_cdc` reads changes
+[CDC DAG](https://github.com/Babyfat012/multi-channel-data-ai-platform/blob/f32c8181ceb310ee2443b30ba83e91158fe93ac3/dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`: task `ingest_walmart_cdc` reads changes
 from Kafka and writes them into `bronze.raw_walmart_cdc_v2`. The validator checks 3 offsets; no missing, extra or wrong-payload messages.
 [CDC probe and explanation](reference/cdc.md#on-aws).
 
@@ -87,6 +87,31 @@ Local records keep their original environment and do not replace cloud evidence.
 
 ## DataHub — lineage and data validation of DP1/DP2/DP3
 
+## Check results per run (since 2026-11)
+
+The sections below are **historical** evidence: results read back from Airflow logs after the fact. That path is
+removed. Now every validate task reports its own result to DataHub when it ends, PASS or FAIL:
+
+1. The Spark validator prints one line `DATAHUB_ASSERTION {json}` per check, before it fails
+   ([`spark_jobs/lib/assertion_result.py`](../../spark_jobs/lib/assertion_result.py)).
+2. `PlatformSparkSubmitOperator` picks these lines out of the spark-submit output and, when the task ends, sends
+   `upsertCustomAssertion` + `reportAssertionResult` (with `run_id`, metrics and the log link) to GMS
+   ([`dags/platform_datahub.py`](../../dags/platform_datahub.py), stdlib only). DataHub is where results are
+   looked at, not the gate: with `DATAHUB_GMS_URL` unset or DataHub down, the task only logs a warning.
+3. Assertion urns stay `platform-<dag>-<task>`, so the history of the old assertions continues. The Gold fact check is
+   four assertions (`…-validate_gold_order_lines-no_label_leakage`, `-rows_match_silver`, `-key_amount_rules`,
+   `-unique_order_line_key`).
+
+**Bronze Data Contracts.** [`scripts/data/publish_datahub_contracts.py`](../../scripts/data/publish_datahub_contracts.py)
+turns `contracts/registry.json` into one Data Contract per Bronze table: a schema assertion (`DATA_SCHEMA`, the
+payload JSON Schema; Amazon = `anyOf` of its two active shapes) plus the Bronze row/provenance check. The Jenkins `ci`
+job runs it when `contracts/**` changes (stage UNSTABLE, never red, if DataHub is down). DataHub OSS stores contracts
+but does not evaluate them (that is DataHub Cloud), so the Bronze validate task reports the schema result itself,
+against the fixed urn `urn:li:assertion:platform-contract-schema-<channel>`.
+
+**Not verified yet:** reporting against a running GMS (no DataHub was up during the change; the proposals were
+checked with the real SDK `acryl-datahub==1.7.0.14` in `--dry-run`, the GraphQL calls only in unit tests).
+
 ## Evidence scope
 
 DataHub GMS `v1.7.0.1` received **21 datasets** (22 after adding the CDC v2 table), **29 Airflow jobs** and **15 assertions**
@@ -97,8 +122,8 @@ Bronze → Silver → Gold → features through the Airflow jobs' inputs/outputs
 dataset lineage edges. The CDC branch connects the Kafka topic to a separate Bronze table.
 
 The assertions read the results of **completed** runs from the Airflow logs in the volume `platform_airflow-data`;
-Spark is not rerun at publish time. `scripts/evidence/build_order_snapshots_datahub_validation.py`
-only accepts attempts that have the line `Marking task as SUCCESS`, extracts the measurements and timestamps,
+Spark is not rerun at publish time. The validation builder (removed since)
+only accepted attempts that have the line `Marking task as SUCCESS`, extracts the measurements and timestamps,
 checks the PASS condition and then writes
 [`evidence/datahub-validation.json`](../evidence/datahub-validation.json). Each assertion
 in DataHub keeps the `run_id` and the original metrics of the SUCCESS result. This is an evidence
@@ -170,20 +195,7 @@ a run after the code change; the CDC v1 check is still the earlier run.
 
 ![DP3 assertion showing Passing, the latest result being the run after the code change](../images/datahub/v2/dp3-validation.png)
 
-Reproducing the v2 set (once the runs above are in the Airflow volume):
-
-```bash
-docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
-  python:3.12-slim python scripts/evidence/build_order_snapshots_datahub_validation.py \
-  --logs-root /logs/logs --output docs/evidence/datahub-validation-v2.json \
-  --run dp1_cdc=manual__2026-10-18T05:14:10+00:00 \
-  --run dp3_features=manual__2026-10-18T05:24:29+00:00 \
-  --cdc-table lakehouse.bronze.raw_walmart_cdc_v2
-"$HOME/.local/share/uv/tools/acryl-datahub/bin/python" \
-  scripts/data/publish_order_snapshots_datahub.py --server http://127.0.0.1:8089 \
-  --evidence docs/evidence/datahub-validation-v2.json
-.venv/bin/python scripts/evidence/capture_order_snapshots_datahub_evidence.py --profile v2
-```
+The v2 set was produced with the validation builder, removed since; it cannot be reproduced from the current code.
 
 ## How to reproduce on a machine with DataHub quickstart set up
 
@@ -201,12 +213,11 @@ docker compose --env-file "$HOME/.datahub/quickstart/.local-secrets.env" \
   --profile quickstart -f "$HOME/.datahub/quickstart/docker-compose.yml" \
   -f infra/docker/datahub-compose.override.yml -p datahub up -d
 
-docker run --rm -v platform_airflow-data:/logs:ro -v "$PWD":/work -w /work \
-  python:3.12-slim python scripts/evidence/build_order_snapshots_datahub_validation.py \
-  --logs-root /logs/logs
-
 "$HOME/.local/share/uv/tools/acryl-datahub/bin/python" \
   scripts/data/publish_order_snapshots_datahub.py --server http://127.0.0.1:8089
+"$HOME/.local/share/uv/tools/acryl-datahub/bin/python" -m scripts.data.publish_datahub_contracts \
+  --server http://127.0.0.1:8089
+# then run the DAGs with DATAHUB_GMS_URL set in the Airflow container: each validate task reports its result
 .venv/bin/python scripts/evidence/capture_order_snapshots_datahub_evidence.py
 ```
 

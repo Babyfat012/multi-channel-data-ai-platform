@@ -1,0 +1,24 @@
+# EKS only (deploy_observability loads it when KCTX is not kind-*): adds the EC2 PostgreSQL datasource for the
+# "Live orders / 5 min" dashboard. Role grafana_ro can only SELECT schema ops of DB platform_ops
+# (scripts/data/run_ops_order_counts.py). Password: Secret grafana-postgres-ro, made by deploy_observability from
+# GRAFANA_RO_PASSWORD; optional, so Grafana still starts without it (the datasource then fails to connect).
+# Helm merges maps but replaces lists, so the three datasources of grafana-values.yaml are repeated here.
+envValueFrom:
+  GRAFANA_RO_PASSWORD:
+    secretKeyRef: {name: grafana-postgres-ro, key: password, optional: true}
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - {name: Prometheus, uid: prometheus, type: prometheus, access: proxy, isDefault: true,
+         url: http://prometheus-server.observability.svc.cluster.local}
+      - {name: Loki, uid: loki, type: loki, access: proxy, url: http://loki.observability.svc.cluster.local:3100}
+      - {name: Jaeger, uid: jaeger, type: jaeger, access: proxy, url: http://jaeger.observability.svc.cluster.local:16686}
+      - name: Platform ops (Postgres)
+        uid: platform-ops
+        type: grafana-postgresql-datasource
+        access: proxy
+        url: 10.42.0.151:5432
+        user: grafana_ro
+        jsonData: {database: platform_ops, sslmode: disable, postgresVersion: 1500, timescaledb: false}
+        secureJsonData: {password: $GRAFANA_RO_PASSWORD}

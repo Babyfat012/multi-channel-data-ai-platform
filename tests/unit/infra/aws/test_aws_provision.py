@@ -614,6 +614,8 @@ def test_wave2_prometheus_pulls_ec2_exporters_with_alerts():
     assert {j["job_name"]: j["static_configs"][0]["targets"] for j in jobs} == {
         "ec2-node": ["10.42.0.151:9100"],
         "ec2-postgres": ["10.42.0.151:9187"],
+        "flink-jobmanager": ["10.42.0.151:9249"],
+        "flink-taskmanager": ["10.42.0.151:9250"],
     }
     rules = {
         r["alert"]: r["expr"]
@@ -624,15 +626,14 @@ def test_wave2_prometheus_pulls_ec2_exporters_with_alerts():
     assert 'mountpoint="/mnt/platform-data"' in rules["EC2DataDiskAlmostFull"]
     assert "> 0.8" in rules["EC2DataDiskAlmostFull"]
     assert "confirmed_flush_lsn > 1073741824" in rules["PostgresSlotWalRetained"]
-    from scripts.shared.deploy_observability import prometheus_values
+    assert rules["FlinkStreamingJobsNotRunning"] == "flink_jobmanager_numRunningJobs < 2"
+    assert "numberOfCompletedCheckpoints[10m]) == 0" in rules["FlinkNoCheckpoint"]
+    from scripts.shared.deploy_observability import values as chart_values
 
-    assert "infra/k8s/observability/prometheus-values-aws.yaml" not in prometheus_values(
-        "kind-platform"
-    )
-    assert prometheus_values("platform-apps")[-2:] == [
-        "-f",
-        "infra/k8s/observability/prometheus-values-aws.yaml",
-    ]
+    for chart in ("prometheus", "grafana"):
+        aws_file = f"infra/k8s/observability/{chart}-values-aws.yaml"
+        assert aws_file not in chart_values("kind-platform", chart)
+        assert chart_values("platform-apps", chart)[-2:] == ["-f", aws_file]
 
 
 def test_letsencrypt_first_issue_opens_then_closes_each_route():

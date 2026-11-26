@@ -1,7 +1,7 @@
 # Data & AI Platform: deployed Data Platform architecture
 
 The platform consolidates data from a Seller's five Channels into three layers: Bronze, Silver,
-Gold. The [deployment diagram](../diagrams/system-architecture.png) shows the containers and data
+Gold. The [deployment diagram](../diagrams/architecture-data.png) shows the containers and data
 flows; the [terminology](terminology.md) defines the layers and business objects.
 
 ## Iceberg, MinIO and the REST catalog

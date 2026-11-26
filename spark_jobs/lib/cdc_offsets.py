@@ -1,23 +1,12 @@
-"""Freeze a local CDC batch's Kafka incarnation and exclusive offset endpoints.
+"""Kafka incarnation (cluster id + topic UUID) and exclusive offset endpoints of the Walmart CDC topic.
 
-The shared driver directory is a POSIX control store, not an object-store URI.
-This protects retries of one batch; it is not a cross-table publication protocol.
+The nightly gate (spark_jobs/cdc/validate_walmart_order_changes.py) captures them once, then checks that
+Bronze holds every event in that range.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
-import tempfile
-from pathlib import Path
-
-
-def _digest(value):
-    """SHA-256 hex of a value serialized as sorted, compact JSON."""
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
 
 
 def _validate(snapshot):
@@ -44,67 +33,6 @@ def _validate(snapshot):
             or not 0 <= start <= end
         ):
             raise ValueError("Invalid Kafka offset range")
-
-
-def _path(directory, run_id, topic):
-    """Return the boundary file path for one run and topic; refuse object-store URIs."""
-    if not isinstance(run_id, str) or not run_id.strip():
-        raise ValueError("run_id is required")
-    if "://" in str(directory):
-        raise ValueError("CDC boundary directory must be a shared POSIX directory")
-    return Path(directory) / (_digest([run_id, topic]) + ".json")
-
-
-def load_boundary(directory, run_id, observed):
-    """Read the ingestion boundary and fail if its original source is unavailable."""
-    _validate(observed)
-    frozen = json.loads(_path(directory, run_id, observed["topic"]).read_text())
-    unsigned = {key: value for key, value in frozen.items() if key != "checksum"}
-    if frozen.get("checksum") != _digest(unsigned):
-        raise ValueError("CDC boundary checksum mismatch")
-    _validate(frozen)
-    if frozen.get("format_version") != 1 or frozen.get("run_id") != run_id:
-        raise ValueError("CDC boundary format/run mismatch")
-    for key in ("topic", "cluster_id", "topic_id"):
-        if frozen[key] != observed[key]:
-            raise ValueError(f"Kafka source incarnation changed: {key}")
-    for partition, start in frozen["starting_offsets"].items():
-        if (
-            partition not in observed["starting_offsets"]
-            or observed["starting_offsets"][partition] > start
-            or observed["ending_offsets"][partition] < frozen["ending_offsets"][partition]
-        ):
-            raise ValueError("Frozen Kafka range lost to retention, reset or truncation")
-    return frozen
-
-
-def freeze_boundary(directory, run_id, observed):
-    """First writer wins atomically; retry never advances a run's endpoint."""
-    _validate(observed)
-    path = _path(directory, run_id, observed["topic"])
-    if path.exists():
-        return load_boundary(directory, run_id, observed)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frozen = {"format_version": 1, "run_id": run_id, **observed}
-    frozen["checksum"] = _digest(frozen)
-    descriptor, temporary = tempfile.mkstemp(prefix=".cdc-", dir=path.parent)
-    try:
-        with os.fdopen(descriptor, "w") as stream:
-            json.dump(frozen, stream, sort_keys=True)
-            stream.flush()
-            os.fsync(stream.fileno())
-        try:
-            os.link(temporary, path)
-            directory_fd = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except FileExistsError:
-            pass
-    finally:
-        os.unlink(temporary)
-    return load_boundary(directory, run_id, observed)
 
 
 def kafka_read_options(boundary):
@@ -169,3 +97,18 @@ def capture_kafka_boundary(spark, bootstrap, topic):
         if consumer is not None:
             consumer.close()
         admin.close()
+
+
+def gate_failures(
+    source: int, rows: int, unique: int, missing: int, extra: int, mismatched: int, invalid: int
+) -> list[str]:
+    """Why Bronze does not match the captured Kafka range; empty means PASS. An empty range passes (no changes)."""
+    checks = {
+        "events missing from Bronze": missing,
+        "Bronze rows not in Kafka": extra,
+        "duplicate offsets": rows - unique,
+        "payload differs from Kafka": mismatched,
+        "malformed rows": invalid,
+        "row count differs from Kafka": rows != source,
+    }
+    return [name for name, bad in checks.items() if bad]

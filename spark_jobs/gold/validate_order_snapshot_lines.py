@@ -1,4 +1,9 @@
-"""Validate row counts, keys, money and label boundaries of the Gold fact."""
+"""Validate row counts, keys, money and label boundaries of the Gold fact.
+
+Four checks, each reported as its own DataHub assertion (diagram "Check Gold"): no label leakage ·
+rows = 5 Silver tables · key + amount rules · unique order_line_key. All four are measured before failing,
+so a failed run shows which ones broke.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +13,7 @@ import sys
 
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -48,8 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         table = f"{CATALOG}.gold.{args.table}"
         fact = spark.table(table)
         forbidden = {"label", "delivered_at", "label_available_at"}
-        if forbidden.intersection(fact.columns):
-            raise ValueError("Gold fact contains answer columns or the real delivery time")
+        leaked = sorted(forbidden.intersection(fact.columns))
 
         expected = {
             channel: metadata_rows(spark, f"{CATALOG}.silver.{getattr(args, f'{channel}_source')}")
@@ -59,8 +64,8 @@ def main(argv: list[str] | None = None) -> int:
             row["channel"]: row["count"] for row in fact.groupBy("channel").count().collect()
         }
         print(f"Silver rows: {expected}; Gold rows: {observed}")
-        if observed != expected or metadata_rows(spark, table) != sum(expected.values()):
-            raise ValueError("Gold row count does not match the five Silver tables")
+        snapshot_rows = metadata_rows(spark, table)
+        rows_match = observed == expected and snapshot_rows == sum(expected.values())
 
         bad = (
             fact.filter(
@@ -98,6 +103,43 @@ def main(argv: list[str] | None = None) -> int:
             fact.groupBy("order_line_key").count().filter(F.col("count") > 1).limit(1).count()
         )
         print(f"Gold invalid={bad}, duplicate_order_line_key={duplicates}")
+        emit(
+            table,
+            not leaked,
+            {"answer_columns": len(leaked), "columns": ",".join(leaked)},
+            "No label / delivered_at / label_available_at column in the Gold fact",
+            name="no_label_leakage",
+        )
+        emit(
+            table,
+            rows_match,
+            {
+                "silver_rows": sum(expected.values()),
+                "gold_rows": sum(observed.values()),
+                "snapshot_rows": snapshot_rows,
+                "bad_channel_counts": sum(observed.get(c) != n for c, n in expected.items()),
+            },
+            "Gold rows per Channel = rows of each of the 5 Silver tables",
+            name="rows_match_silver",
+        )
+        emit(
+            table,
+            not bad,
+            {"invalid_rows": bad},
+            "Keys, required values, run_id, Amazon version key, quantity > 0, net >= 0, gross - discount = net",
+            name="key_amount_rules",
+        )
+        emit(
+            table,
+            not duplicates,
+            {"duplicate_order_line_key": duplicates},
+            "order_line_key is unique",
+            name="unique_order_line_key",
+        )
+        if leaked:
+            raise ValueError("Gold fact contains answer columns or the real delivery time")
+        if not rows_match:
+            raise ValueError("Gold row count does not match the five Silver tables")
         if bad or duplicates:
             raise ValueError("Validate Gold fact failed")
         print("Validate Gold fact: PASS")

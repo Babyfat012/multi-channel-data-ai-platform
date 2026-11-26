@@ -60,9 +60,9 @@ Limitations and sources of the numbers:
 Spark run with Compose on EC2 in Sydney; the Bronze Iceberg table is written to S3. The idea is to read the WAL (PostgreSQL's
 write-ahead log) to keep every create/update/delete that happens after the batch load, instead of rescanning the whole source table.
 
-DAG [dp1_cdc](../../dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`, has two steps:
+DAG [dp1_cdc](https://github.com/Babyfat012/multi-channel-data-ai-platform/blob/f32c8181ceb310ee2443b30ba83e91158fe93ac3/dags/dp1_cdc.py), run `manual__2026-10-28T10:51:33.422898+00:00`, had two steps (since replaced by the always-on Flink job [`bronze_streams.sql`](../../flink_jobs/lakehouse/bronze_streams.sql) and the `dp_nightly` gate, see [CDC reference](reference/cdc.md)):
 
-1. [ingest_walmart_cdc](../../spark_jobs/cdc/ingest_walmart_order_changes.py) pins a fixed offset range to read, then
+1. [ingest_walmart_cdc](https://github.com/Babyfat012/multi-channel-data-ai-platform/blob/f32c8181ceb310ee2443b30ba83e91158fe93ac3/spark_jobs/cdc/ingest_walmart_order_changes.py) pins a fixed offset range to read, then
    writes the envelope (the full change message) together with provenance (source information) into Bronze.
 2. [validate_walmart_cdc](../../spark_jobs/cdc/validate_walmart_order_changes.py) compares Kafka with Bronze, only within the exact
    source epoch of that run.

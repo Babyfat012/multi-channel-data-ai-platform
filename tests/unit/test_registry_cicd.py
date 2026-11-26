@@ -499,7 +499,24 @@ def test_jenkins_ci_runs_exactly_what_github_actions_runs():
         line.strip() for s in steps if "run" in s for line in s["run"].splitlines() if line.strip()
     ]
     assert actions[0] == "uv sync --frozen"
-    assert jenkins_commands("ci") == [f"uv sync --frozen --python {python}", *actions[1:]]
+    tests = [c for c in jenkins_commands("ci") if c not in CONTRACT_PUBLISH]
+    assert tests == [f"uv sync --frozen --python {python}", *actions[1:]]
+
+
+CONTRACT_PUBLISH = {
+    "uv run --with acryl-datahub==1.7.0.14 python -m scripts.data.publish_datahub_contracts"
+}
+
+
+def test_ci_publishes_contracts_only_on_contract_changes_and_never_turns_red():
+    """The Jenkins-only DataHub step: last, gated on contracts/**, and a DataHub outage only marks it UNSTABLE."""
+    text = read("infra/jenkins/ci.Jenkinsfile")
+    stages = re.findall(r"stage\('([^']+)'\)", text)
+    assert stages[-1] == "Publish contracts to DataHub"
+    publish = text[text.index("stage('Publish contracts to DataHub')") :]
+    assert "when { changeset 'contracts/**' }" in publish
+    assert "catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE')" in publish
+    assert set(jenkins_commands("ci")) & CONTRACT_PUBLISH == CONTRACT_PUBLISH
 
 
 def test_only_ci_polls_and_it_never_deploys():

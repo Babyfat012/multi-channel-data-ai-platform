@@ -36,7 +36,7 @@ The four tasks do the following:
 
 1. `export_sku_daily` calls [export SKU features](../../spark_jobs/gold/export_sku_daily_features.py).
 2. `export_training_lines` calls [export training set](../../spark_jobs/gold/export_training_lines.py), keeping only labels available before the 2026-06-30 Cutoff.
-3. `feast_apply` registers the [feature repo](../../feature_repo/feature_store.yaml). This task's log shows credentials are taken from the EC2 IAM role.
+3. `feast_apply` registers the [feature repo](../../feature_repo/feature_store.yaml). This task's log shows credentials are taken from the EC2 IAM role. (Task of the DAG at the time of this run; registering definitions has since moved to the Jenkins [`feature-repo`](../../infra/jenkins/feature-repo.Jenkinsfile) job, `feast plan` → `feast apply`, run when `feature_repo/` changes, because new data does not change the definitions.)
 4. `materialize_incremental` loads the new time range of `sku_return_daily` into Redis. (Task name at the time of this run; the DAG now runs `publish_batch` instead, see [Data path](#data-path).)
 
 ![Airflow ml_feature_materialize: export_sku_daily, export_training_lines, feast_apply, materialize_incremental all success](../evidence/aws/ml-feature-materialize-graph-20261029.png)

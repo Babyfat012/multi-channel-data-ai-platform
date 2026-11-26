@@ -8,12 +8,15 @@ import sys
 
 from pyspark.sql import functions as F
 
+from spark_jobs.lib.assertion_result import emit
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
-def validate_feature_frames(fact, features, run_id):
+def validate_feature_frames(
+    fact, features, run_id, table="lakehouse.gold.feat_order_line_return_dp3"
+):
     """Compare logical rows and identities; this is not full PIT/availability proof."""
     fact_rows = fact.count()
     actual = features.count()
@@ -70,9 +73,17 @@ def validate_feature_frames(fact, features, run_id):
         wrong_event_time=wrong_time,
     )
     print(result)
-    if fact_rows != actual or any(
+    passed = fact_rows == actual and not any(
         result[key] for key in result if key not in {"fact_rows", "feature_rows"}
-    ):
+    )
+    emit(
+        table,
+        passed,
+        result,
+        "Feature and Gold share the same Order Line key set, no duplicate keys, "
+        "event_timestamp = Gold created_at, no label leakage",
+    )
+    if not passed:
         raise ValueError("Validate offline features failed")
     return result
 
@@ -93,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         source = f"{CATALOG}.gold.{args.source_table}"
         target = f"{CATALOG}.gold.{args.table}"
         features = spark.table(target)
-        validate_feature_frames(spark.table(source), features, args.run_id)
+        validate_feature_frames(spark.table(source), features, args.run_id, target)
         print("Validate feature offline: PASS")
         return 0
     finally:

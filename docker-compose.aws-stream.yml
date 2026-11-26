@@ -1,4 +1,4 @@
-# Run Kafka + Flink (Stream) or Kafka + Debezium (CDC dp1_cdc) on EC2, time-shared with Spark.
+# Run Kafka + Flink (Stream, incl. the always-on Bronze stream job) and Kafka + Debezium (CDC) on EC2, next to Spark.
 # Layer on top of the two base files:
 #   docker compose -f docker-compose.yml -f docker-compose.aws.yml -f docker-compose.aws-stream.yml \
 #     --profile stream --profile flink up -d kafka flink-jobmanager flink-taskmanager
@@ -24,6 +24,13 @@ services:
     profiles: !override [flink]
     scale: 1
     cpus: "1"
+    # No MinIO keys on AWS: the Bronze stream job writes S3 with the EC2 IAM role.
+    environment: !override
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 768m
+        rest.address: flink-jobmanager
+      AWS_REGION: ${AWS_REGION:?AWS_REGION_required}
     ports: !override
       - "127.0.0.1:${FLINK_UI_PORT:-8082}:8081"
     volumes: !override
@@ -34,11 +41,12 @@ services:
     scale: 1
     cpus: "2"
     # The base file's 1 GB (laptop size) runs out of heap on stream A checkpoints: dedup state of ~401k Returns + 24h HOP window.
-    environment:
+    environment: !override
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.memory.process.size: 4096m
         taskmanager.numberOfTaskSlots: 6
+      AWS_REGION: ${AWS_REGION:?AWS_REGION_required}
     mem_limit: 4608m
     volumes: !override
       - ./flink_jobs:/opt/flink/jobs:ro

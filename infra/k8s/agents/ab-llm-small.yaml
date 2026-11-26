@@ -1,6 +1,6 @@
 # A/B: branch B = a smaller LLM (Qwen2.5-0.5B Q4) on the same llama.cpp image as branch A
-# (qwen, 1.5B). agentgateway splits traffic by weight between the two (virtual model `platform-chat`).
-# Separate PVC: PVC `models` is RWO and attached to the qwen pod. Scale to 0 when done to free RAM.
+# (qwen, 1.5B; llm.yaml). agentgateway splits traffic by weight between the two (virtual model `platform-chat`).
+# One replica, called directly (no EPP: nothing to pick between); scripts/llm/ab_gate.py scales it to 0 if B loses.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

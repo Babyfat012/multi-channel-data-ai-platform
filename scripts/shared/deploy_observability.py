@@ -18,11 +18,11 @@ REPOS = {
 }
 
 
-def prometheus_values(kctx: str) -> list[str]:
-    """EKS adds the EC2 exporter scrape + alert rules; kind has no EC2, so no false alarms."""
-    files = [f"{VALUES}/prometheus-values.yaml"]
+def values(kctx: str, chart: str) -> list[str]:
+    """EKS adds `<chart>-values-aws.yaml` (EC2 scrape + alert rules, EC2 Postgres datasource); kind has no EC2."""
+    files = [f"{VALUES}/{chart}-values.yaml"]
     if not kctx.startswith("kind-"):
-        files.append(f"{VALUES}/prometheus-values-aws.yaml")
+        files.append(f"{VALUES}/{chart}-values-aws.yaml")
     return [arg for f in files for arg in ("-f", f)]
 
 
@@ -45,6 +45,17 @@ def main() -> None:
                 "kind": "Secret",
                 "metadata": {"name": "grafana-admin", "namespace": "observability"},
                 "stringData": {"admin-user": "admin", "admin-password": secrets.token_hex(12)},
+            },
+        )
+    # Read-only Postgres password for the Live orders dashboard (EKS only); same value the EC2 role was created with.
+    if not kctx.startswith("kind-") and os.environ.get("GRAFANA_RO_PASSWORD"):
+        apply(
+            kc,
+            {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": "grafana-postgres-ro", "namespace": "observability"},
+                "stringData": {"password": os.environ["GRAFANA_RO_PASSWORD"]},
             },
         )
     dashboards = run(
@@ -70,7 +81,7 @@ def main() -> None:
             "prometheus-community/prometheus",
             "--version",
             "29.36.2",
-            *prometheus_values(kctx),
+            *values(kctx, "prometheus"),
             "--wait",
         ]
     )
@@ -119,8 +130,7 @@ def main() -> None:
             "grafana/grafana",
             "--version",
             "10.5.15",
-            "-f",
-            f"{VALUES}/grafana-values.yaml",
+            *values(kctx, "grafana"),
             "--wait",
         ]
     )

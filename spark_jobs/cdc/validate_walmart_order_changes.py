@@ -1,4 +1,9 @@
-"""Validate that CDC Bronze contains every non-null Kafka event once."""
+"""Nightly gate: CDC Bronze holds every non-null Walmart change event in Kafka, exactly once.
+
+Flink writes the topic into Bronze continuously (flink_jobs/lakehouse/bronze_streams.sql), committing on each
+checkpoint. The gate captures Kafka's end offsets once, waits up to --wait-minutes for Flink to commit that far,
+then fails the nightly chain (before Silver) on any missing, extra, duplicate, changed or malformed row.
+"""
 
 from __future__ import annotations
 
@@ -6,18 +11,21 @@ import argparse
 import os
 import re
 import sys
+import time
 
 from pyspark.sql import functions as F
 
-from spark_jobs.lib.cdc_offsets import capture_kafka_boundary, kafka_read_options, load_boundary
+from spark_jobs.lib.assertion_result import emit
+from spark_jobs.lib.cdc_offsets import capture_kafka_boundary, gate_failures, kafka_read_options
 from spark_jobs.lib.iceberg_session import CATALOG, build_spark
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+KEYS = ["topic", "kafka_partition", "kafka_offset"]
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Compare CDC Bronze rows and unique offsets with the Kafka source topic."""
-    parser = argparse.ArgumentParser(description="Validate CDC Bronze")
+    """Compare CDC Bronze rows and unique offsets with the Kafka range captured at start."""
+    parser = argparse.ArgumentParser(description="Gate: CDC Bronze complete")
     parser.add_argument(
         "--bootstrap", default=os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
     )
@@ -25,19 +33,16 @@ def main(argv: list[str] | None = None) -> int:
         "--topic", default=os.environ.get("KAFKA_TOPIC", "platform_cdc.walmart.orders")
     )
     parser.add_argument("--table", default="raw_walmart_cdc_v2")
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--boundary-dir", required=True)
+    # Flink commits every minute; 10 minutes also covers a job restart from its last checkpoint.
+    parser.add_argument("--wait-minutes", type=float, default=10)
     args = parser.parse_args(argv)
     if not IDENTIFIER.fullmatch(args.table):
         parser.error(f"Invalid table name: {args.table!r}")
 
     spark = build_spark("validate-walmart-cdc", shuffle_partitions=4)
     try:
-        boundary = load_boundary(
-            args.boundary_dir,
-            args.run_id,
-            capture_kafka_boundary(spark, args.bootstrap, args.topic),
-        )
+        boundary = capture_kafka_boundary(spark, args.bootstrap, args.topic)
+        table = f"{CATALOG}.bronze.{args.table}"
         source = (
             spark.read.format("kafka")
             .option("kafka.bootstrap.servers", args.bootstrap)
@@ -50,10 +55,8 @@ def main(argv: list[str] | None = None) -> int:
                 F.col("offset").alias("kafka_offset"),
                 F.col("value").cast("string").alias("source_json"),
             )
+            .persist()
         )
-        bronze = spark.table(f"{CATALOG}.bronze.{args.table}")
-        if "source_epoch" not in bronze.columns:
-            raise ValueError("Legacy CDC table has no source epoch")
         in_range = F.lit(False)
         for partition, start in boundary["starting_offsets"].items():
             in_range = in_range | (
@@ -61,16 +64,27 @@ def main(argv: list[str] | None = None) -> int:
                 & (F.col("kafka_offset") >= start)
                 & (F.col("kafka_offset") < boundary["ending_offsets"][partition])
             )
-        bronze = bronze.filter(
-            (F.col("source_epoch") == boundary["cluster_id"] + "/" + boundary["topic_id"])
-            & (F.col("topic") == args.topic)
-            & in_range
-        )
-        keys = ["topic", "kafka_partition", "kafka_offset"]
+        epoch = boundary["cluster_id"] + "/" + boundary["topic_id"]
+
+        def bronze_range():
+            """Bronze rows of this Kafka incarnation and range, re-read so new Flink commits are seen."""
+            spark.sql(f"REFRESH TABLE {table}")
+            return spark.table(table).filter(
+                (F.col("source_epoch") == epoch) & (F.col("topic") == args.topic) & in_range
+            )
+
+        deadline = time.monotonic() + args.wait_minutes * 60
+        while True:
+            bronze = bronze_range()
+            missing = source.join(bronze.select(*KEYS), KEYS, "left_anti").count()
+            if not missing or time.monotonic() > deadline:
+                break
+            print(f"waiting for Flink to commit {missing:,} more events")
+            time.sleep(30)
         source_count = source.count()
         result = bronze.agg(
             F.count("*").alias("rows"),
-            F.countDistinct(F.struct(*[F.col(key) for key in keys])).alias("unique_offsets"),
+            F.countDistinct(F.struct(*[F.col(key) for key in KEYS])).alias("unique_offsets"),
             F.sum(
                 F.when(
                     F.col("event_json").isNull()
@@ -82,17 +96,11 @@ def main(argv: list[str] | None = None) -> int:
                 ).otherwise(0)
             ).alias("invalid_rows"),
         ).first()
-        missing = source.join(bronze.select(*keys), keys, "left_anti").count()
-        extra = bronze.join(source.select(*keys), keys, "left_anti").count()
+        extra = bronze.join(source.select(*KEYS), KEYS, "left_anti").count()
         mismatched = (
-            source.join(bronze, keys)
+            source.join(bronze, KEYS)
             .filter(~F.col("source_json").eqNullSafe(F.col("event_json")))
             .count()
-        )
-        load_boundary(
-            args.boundary_dir,
-            args.run_id,
-            capture_kafka_boundary(spark, args.bootstrap, args.topic),
         )
         rows = int(result["rows"])
         unique = int(result["unique_offsets"])
@@ -101,17 +109,25 @@ def main(argv: list[str] | None = None) -> int:
             f"Kafka={source_count:,}, Bronze={rows:,}, unique offsets={unique:,}, "
             f"missing={missing:,}, extra={extra:,}, payload mismatch={mismatched:,}, invalid={invalid:,}"
         )
-        if (
-            source_count <= 0
-            or rows != source_count
-            or unique != rows
-            or missing
-            or extra
-            or mismatched
-            or invalid
-        ):
-            raise ValueError("Validate CDC Bronze failed")
-        print("Validate CDC Bronze: PASS")
+        failed = gate_failures(source_count, rows, unique, missing, extra, mismatched, invalid)
+        emit(
+            table,
+            not failed,
+            {
+                "source_rows": source_count,
+                "dataset_rows": rows,
+                "unique_offsets": unique,
+                "missing_rows": missing,
+                "extra_rows": extra,
+                "payload_mismatch_rows": mismatched,
+                "invalid_rows": invalid,
+            },
+            "Within the frozen offset range and source epoch: Kafka = Bronze = unique offsets; "
+            "no missing, no extra, payload matches, no invalid",
+        )
+        if failed:
+            raise ValueError("CDC Bronze gate failed: " + ", ".join(failed))
+        print("CDC Bronze gate: PASS")
         return 0
     finally:
         spark.stop()
