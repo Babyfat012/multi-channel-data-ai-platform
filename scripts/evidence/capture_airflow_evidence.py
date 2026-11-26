@@ -96,7 +96,6 @@ def main() -> None:
         choices=(
             "dp1_bronze",
             "dp2_silver",
-            "dp1_cdc",
             "dp3_features",
             "dp3_return_labels",
             "platform_runtime_config_check",
