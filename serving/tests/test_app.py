@@ -718,7 +718,7 @@ def test_zero_history_and_zero_stream_are_not_system_failure(client):
 
 def test_published_snapshot_distinguishes_missing_expected_sku(client, store):
     """A SKU in the publication but missing online is unavailable; a SKU outside it is only not_available."""
-    from feature_repo.publication import FeatureResult, Release
+    from feature_store.publication import FeatureResult, Release
 
     release = Release("release-a", 1, "registry", "offline", "2026-06-30", frozenset({"sku-00001"}))
 

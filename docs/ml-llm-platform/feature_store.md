@@ -4,20 +4,20 @@ This page covers incremental materialization from the offline store to the onlin
 from the offline store (Parquet files on S3, used for training) to the online store (Redis, used when serving requests).
 "Incremental" means each run copies only the new time range since the previous run, not everything from scratch.
 
-Code / configuration: [DAG](../../dags/ml_feature_materialize.py), [Feast](../../feature_repo/feature_store.yaml).
+Code / configuration: [DAG](../../dags/ml_feature_materialize.py), [Feast](../../feature_store/feature_store.yaml).
 
 The results below come from AWS runs; they do not confirm that the service is currently running.
 
 ### On AWS
 
 The `ml_feature_materialize` DAG on Airflow EC2 once failed at the `feast_apply` task. Cause:
-- The `feast apply` command imports every `.py` file in `feature_repo/`, including the helper script `replay_return_events.py`.
+- The `feast apply` command imports every `.py` file in `feature_store/`, including the helper script `replay_return_events.py`.
 - That script uses `datetime.UTC`, which only exists from Python 3.11.
 - Airflow's Feast venv runs Python 3.10, so the import failed.
 
 ![feast_apply error: ImportError cannot import name 'UTC' from 'datetime'](../evidence/aws/airflow-feast-apply-utc-error-20261030.png)
 
-Fix: add [`feature_repo/.feastignore`](../../feature_repo/.feastignore) so Feast skips the two scripts that are not
+Fix: add [`feature_store/.feastignore`](../../feature_store/.feastignore) so Feast skips the two scripts that are not
 feature definitions; covered by test `test_feast_apply_skips_helper_scripts`. On rerun all four tasks are green and Redis has
 `DBSIZE` 2000 (2,000 keys, one key per SKU).
 
@@ -36,7 +36,7 @@ The four tasks do the following:
 
 1. `export_sku_daily` calls [export SKU features](../../spark_jobs/gold/export_sku_daily_features.py).
 2. `export_training_lines` calls [export training set](../../spark_jobs/gold/export_training_lines.py), keeping only labels available before the 2026-06-30 Cutoff.
-3. `feast_apply` registers the [feature repo](../../feature_repo/feature_store.yaml). This task's log shows credentials are taken from the EC2 IAM role. (Task of the DAG at the time of this run; registering definitions has since moved to the Jenkins [`feature-repo`](../../infra/jenkins/feature-repo.Jenkinsfile) job, `feast plan` → `feast apply`, run when `feature_repo/` changes, because new data does not change the definitions.)
+3. `feast_apply` registers the [feature repo](../../feature_store/feature_store.yaml). This task's log shows credentials are taken from the EC2 IAM role. (Task of the DAG at the time of this run; registering definitions has since moved to the Jenkins [`feature-repo`](../../infra/jenkins/feature-repo.Jenkinsfile) job, `feast plan` → `feast apply`, run when `feature_store/` changes, because new data does not change the definitions.)
 4. `materialize_incremental` loads the new time range of `sku_return_daily` into Redis. (Task name at the time of this run; the DAG now runs `publish_batch` instead, see [Data path](#data-path).)
 
 ![Airflow ml_feature_materialize: export_sku_daily, export_training_lines, feast_apply, materialize_incremental all success](../evidence/aws/ml-feature-materialize-graph-20261029.png)
@@ -46,7 +46,7 @@ The four tasks do the following:
 ![feast_apply log: deploys sku_return_daily and sku_return_24h, takes credentials from IAM Role platform-data-platform-vm, Done](../evidence/aws/ml-feature-materialize-feast-apply-log-20261029.png)
 
 The receipt records two errors fixed in this run: a duplicated `run_id` column when exporting training lines, and a missing
-`feature_repo` mount when running `feast_apply`. That is why the Gantt chart still shows failed attempts while the Graph shows the final state as success.
+`feature_store` mount when running `feast_apply`. That is why the Gantt chart still shows failed attempts while the Graph shows the final state as success.
 
 Note: at this point the offline store of `sku_return_24h` is still empty. A successful `feast_apply` only proves that the feature definitions
 were registered; it does not prove that the stream pusher wrote data. The stream run has its own evidence: [Streaming Feature](stream_features.md).
@@ -71,7 +71,7 @@ How Redis is split (one standalone Redis, several numbered DBs):
 - The manifest sets `maxmemory-policy noeviction`, so loading does not automatically evict old data from RAM when it is full.
 - RAM for both copies must be measured before enabling this on the cloud; the current limit is still 256 MB.
 
-**Write side.** The `publish_batch` task at the end of the DAG calls `feature_repo/publish_batch.py`, which follows these steps:
+**Write side.** The `publish_batch` task at the end of the DAG calls `feature_store/publish_batch.py`, which follows these steps:
 
 1. Hold the writer lock (only one writing process at a time) in Redis DB0, then read the "active" pointer on S3
    (the pointer says which copy is being served).
@@ -91,7 +91,7 @@ The publisher does not materialize incrementally into the candidate slot, becaus
 in full before publication. The guard function of the old incremental flow is still used to check the active copy; this function does not
 delete the registry or self-heal. DB1/DB2 hold only batches; DB0 must never be flushed.
 
-**Read side.** The Feature API and KServe share the reader `feature_repo/publication.py`:
+**Read side.** The Feature API and KServe share the reader `feature_store/publication.py`:
 
 - The S3 pointer is cached for 5 seconds. Each batch read pins one manifest/registry/DB set, which does not change midway.
 - The reader holds a lease (a time-limited read right) in Redis, at most 30 seconds. Results are returned only if the lease is still
@@ -137,8 +137,8 @@ set (`export_training_lines.py`, the KFP input), then step ②, and finally step
 
 | Component | File |
 |---|---|
-| Feature definitions (entity `sku`, view `sku_return_daily`) | [`feature_repo/features.py`](../../feature_repo/features.py) |
-| Feast configuration (reads environment variables) | [`feature_repo/feature_store.yaml`](../../feature_repo/feature_store.yaml) |
+| Feature definitions (entity `sku`, view `sku_return_daily`) | [`feature_store/features.py`](../../feature_store/features.py) |
+| Feast configuration (reads environment variables) | [`feature_store/feature_store.yaml`](../../feature_store/feature_store.yaml) |
 | Function computing the daily snapshot | `sku_daily_features` in [`spark_jobs/lib/order_snapshot_ml.py`](../../spark_jobs/lib/order_snapshot_ml.py) |
 | Spark job exporting Parquet | [`spark_jobs/gold/export_sku_daily_features.py`](../../spark_jobs/gold/export_sku_daily_features.py) |
 | kind cluster + Redis | [`infra/k8s/kind-config.yaml`](../../infra/k8s/kind-config.yaml), [`infra/k8s/feature-store/redis.yaml`](../../infra/k8s/feature-store/redis.yaml) |
@@ -213,7 +213,7 @@ This must be tested before closing D3. If Redis was already empty, a new PVC doe
 
 The operator runs every step on the cloud. Vault S1 and endpoint D4 must be handled before enabling the pipeline.
 
-1. Deploy the DAG code and `feature_repo` to EC2. Run the DAG to create the first publication, then check the record and data.
+1. Deploy the DAG code and `feature_store` to EC2. Run the DAG to create the first publication, then check the record and data.
 2. Build and push the Feature API and predictor images with the publication module. The deploy script passes
    `FEAST_PUBLICATION_ROOT=s3://<bucket>/feature-store/publications` to both readers.
 3. Check the following cases:

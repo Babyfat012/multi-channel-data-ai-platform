@@ -17,7 +17,7 @@ At this scope only three sources have renderers: `amazon.orders`, `walmart.order
 | `seller.skus` | 2,000 | 2,000 | 0% | 1 | 225,470 |
 | **Total** | | | | | **100,012,790,412** |
 
-Total **100,012,790,412 bytes = 100.01 GB** decimal (93.14 GiB). These are the raw bytes in the manifest, confirmed to match the actual bytes on disk (`tests/unit/generator/test_generate_order_snapshots.py`), not the `df` number (which shows GiB and differs by 7.4%).
+Total **100,012,790,412 bytes = 100.01 GB** decimal (93.14 GiB). These are the raw bytes in the manifest, confirmed to match the actual bytes on disk (`tests/unit/data_generator/test_generate_order_snapshots.py`), not the `df` number (which shows GiB and differs by 7.4%).
 
 ## Small run for detailed measurement
 
@@ -31,7 +31,7 @@ The deep-dive tables (skew by city/category, cardinality, schema evolution by da
 set -a; . ./.env; set +a
 export AWS_ACCESS_KEY_ID=$MINIO_ROOT_USER AWS_SECRET_ACCESS_KEY=$MINIO_ROOT_PASSWORD \
        FSSPEC_S3_ENDPOINT_URL=http://localhost:$MINIO_API_PORT
-uv run python -m generator report --source s3://platform \
+uv run python -m data_generator report --source s3://platform \
     --dsn "postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB"
 ```
 
@@ -211,14 +211,14 @@ PostgreSQL has 10,949,058 Walmart rows and 2,000 SKUs.
 The DataHub screenshot only shows that the S3 source datasets have metadata registered; it does not show byte counts or histograms.
 The byte and row counts above come from the receipt; the skew rates, unique/total, duplicates and schema before/after in the previous sections
 belong to the local report. The section below remeasures those four properties **on the AWS data itself**.
-[Generator code](../../../generator/__main__.py), [100 GB configuration](../../../configs/scale-100gb.yaml),
+[Generator code](../../../data_generator/__main__.py), [100 GB configuration](../../../configs/scale-100gb.yaml),
 [local manifest for comparison](../../evidence/batch-100gb-manifest.json).
 
 ### Data properties measured on AWS
 
 Measured with Trino on EC2 (catalog `lakehouse` = Iceberg S3) on the loaded 100 GB Amazon tables: Bronze
 `raw_amazon_orders_dp1` (original payload) and Silver `stg_amazon_order_lines_dp2` (split into Order Lines, schema normalized).
-SQL: [`sql/profile_amazon_aws.sql`](../../../sql/profile_amazon_aws.sql); full output:
+SQL: [`trino/queries/profile_amazon_aws.sql`](../../../trino/queries/profile_amazon_aws.sql); full output:
 [`amazon-data-profile-trino-20261031.txt`](../../evidence/aws/amazon-data-profile-trino-20261031.txt) (ran in 2 minutes 13 seconds).
 Duplicate rates and sizes come from the `run_manifest.json` the generator wrote to S3 directly on EC2
 (`s3://…-raw/order_snapshots/run_manifest.json`, `dataset_version` `38a1f7b3…`).

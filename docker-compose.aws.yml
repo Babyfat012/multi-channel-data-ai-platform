@@ -76,7 +76,7 @@ services:
       PYSPARK_DRIVER_PYTHON: /usr/local/bin/python
     volumes: !override
       - ./spark_jobs:/opt/spark_jobs:ro
-      - ./generator:/opt/generator:ro
+      - ./data_generator:/opt/data_generator:ro
       - ./contracts:/opt/contracts:ro
       - ./sql:/opt/sql:ro
       - /mnt/platform-data/spark-events:/spark-events
@@ -105,7 +105,7 @@ services:
       SPARK_WORKER_OPTS: -Dspark.worker.cleanup.enabled=true -Dspark.worker.cleanup.interval=600 -Dspark.worker.cleanup.appDataTtl=1800
     volumes: !override
       - ./spark_jobs:/opt/spark_jobs:ro
-      - ./generator:/opt/generator:ro
+      - ./data_generator:/opt/data_generator:ro
       - ./contracts:/opt/contracts:ro
       - ./sql:/opt/sql:ro
       - /mnt/platform-data/spark-events:/spark-events
@@ -135,7 +135,7 @@ services:
       SPARK_WORKER_OPTS: -Dspark.worker.cleanup.enabled=true -Dspark.worker.cleanup.interval=600 -Dspark.worker.cleanup.appDataTtl=1800
     volumes: !override
       - ./spark_jobs:/opt/spark_jobs:ro
-      - ./generator:/opt/generator:ro
+      - ./data_generator:/opt/data_generator:ro
       - ./contracts:/opt/contracts:ro
       - ./sql:/opt/sql:ro
       - /mnt/platform-data/spark-events:/spark-events
@@ -178,11 +178,11 @@ services:
       SPARK_EXECUTOR_MEMORY: 2g
     volumes: !override
       - ./spark_jobs:/opt/spark_jobs:ro
-      - ./generator:/opt/generator:ro
+      - ./data_generator:/opt/data_generator:ro
       - ./contracts:/opt/contracts:ro
       - ./sql:/opt/sql:ro
       # Feast definitions for ml_feature_materialize (feast apply/materialize run in this container).
-      - ./feature_repo:/opt/feature_repo:ro
+      - ./feature_store:/opt/feature_store:ro
       - ./rag:/opt/rag/rag:ro
       - /mnt/platform-data/spark-events:/spark-events
       - /mnt/platform-data/airflow:/opt/airflow

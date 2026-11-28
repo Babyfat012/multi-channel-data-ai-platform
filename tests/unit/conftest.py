@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from generator.config import GeneratorConfig, parse_config
+from data_generator.config import GeneratorConfig, parse_config
 
 
 @pytest.fixture

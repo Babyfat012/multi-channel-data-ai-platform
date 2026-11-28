@@ -1,11 +1,11 @@
-# KServe return-risk predictor (code-only image): contains ml/ and feature_repo/, while KServe downloads the model via STORAGE_URI into /mnt/models at startup.
+# KServe return-risk predictor (code-only image): contains ml/ and feature_store/, while KServe downloads the model via STORAGE_URI into /mnt/models at startup.
 # Built by scripts/ml/deploy_return_risk.py from the repo root (.dockerignore trims the context), on platform-train (already has LightGBM + Feast) to share layers.
 ARG BASE_IMAGE=platform-train:0.1.0
 FROM ${BASE_IMAGE}
 USER root
 RUN pip install --no-cache-dir "kserve==0.21.0"
 COPY ml /opt/ml/ml
-COPY feature_repo /opt/feature_repo
+COPY feature_store /opt/feature_store
 ENV MODEL_PATH=/mnt/models/model.lgb
 ENV PYTHONPATH=/opt:/opt/ml
 USER 65534

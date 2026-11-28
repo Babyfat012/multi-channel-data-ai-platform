@@ -5,7 +5,7 @@
 # (raw bytes of the raw batch data). The factor is NOT derived from `default.yaml` but measured with a
 # trial run of 40,000 Orders/day (x10): it produced 4,697,556,950 bytes, so
 # 100.0 GB / 4,697,556,950 x 40,000 = 851,506. The trial run also confirmed that the manifest total
-# equals the actual bytes on disk (see `tests/unit/generator/test_generate_order_snapshots.py`).
+# equals the actual bytes on disk (see `tests/unit/data_generator/test_generate_order_snapshots.py`).
 #
 # Why decimal 100.0 GB and not 100 GiB: `/data` has 98 GiB usable.
 # 100 GiB does not fit; 100.0 GB = 93.1 GiB fits with ~5 GiB to spare.

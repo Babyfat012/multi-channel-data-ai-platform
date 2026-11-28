@@ -8,7 +8,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 RUN pip install --no-cache-dir "apache-flink==2.2.1" "feast[redis,aws]==0.66.0" "pytest==8.4.2"
 RUN wget -q -P /opt/flink/lib \
     https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/5.0.0-2.2/flink-sql-connector-kafka-5.0.0-2.2.jar
-COPY feature_repo /opt/feature_repo
+COPY feature_store /opt/feature_store
 COPY flink_jobs/ml /opt/flink/jobs/ml
-ENV FEAST_REPO_PATH=/opt/feature_repo
+ENV FEAST_REPO_PATH=/opt/feature_store
 USER flink

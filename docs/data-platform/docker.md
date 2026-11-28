@@ -65,10 +65,10 @@ This document describes how the generator is packaged as an image, how the simul
 | `minio` | `quay.io/minio/minio` (date-pinned release) | Object storage holding the Channels' file exports | Runs continuously. API on port 9000, console on port 9001 |
 | `minio-init` | same as above (includes `mc`) | Creates the `platform` bucket | Runs once |
 | `postgres` | `postgres:15` | Another department's system: `walmart.orders`, `seller.skus` | Runs continuously, port 5432 |
-| `generator-batch` | `platform-generator` (built from `Dockerfile`) | `generator.generate_order_snapshots`: generates history and writes it straight into MinIO | Runs once, after `minio-init` |
+| `generator-batch` | `platform-generator` (built from `Dockerfile`) | `data_generator.generate_order_snapshots`: generates history and writes it straight into MinIO | Runs once, after `minio-init` |
 | `generator-load` | `platform-generator` | `load-postgres`: reads `pg-load/` on MinIO and loads it into PostgreSQL | Runs once, after `generator-batch` and once `postgres` is ready |
 | `kafka` (profile `stream`) | `apache/kafka:3.9.1` | Single-node Kafka in KRaft mode. Inside Compose it is `kafka:9092`, from the host `localhost:9094` | Runs continuously |
-| `generator-stream` (profile `stream`) | `platform-generator` | `generator.publish_order_snapshot_events`: publishes messages after the `cutoff` into Kafka and writes `stream_manifest.json` to MinIO | Runs until publishing is done, after `kafka` is ready |
+| `generator-stream` (profile `stream`) | `platform-generator` | `data_generator.publish_order_snapshot_events`: publishes messages after the `cutoff` into Kafka and writes `stream_manifest.json` to MinIO | Runs until publishing is done, after `kafka` is ready |
 
 Ordering is guaranteed with `depends_on` using `service_healthy` (MinIO and PostgreSQL have healthchecks) and `service_completed_successfully` (the run-once steps).
 
@@ -100,7 +100,7 @@ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
 set -a; . ./.env; set +a
 export AWS_ACCESS_KEY_ID=$MINIO_ROOT_USER AWS_SECRET_ACCESS_KEY=$MINIO_ROOT_PASSWORD \
        FSSPEC_S3_ENDPOINT_URL=http://localhost:$MINIO_API_PORT
-uv run python -m generator report --source s3://platform \
+uv run python -m data_generator report --source s3://platform \
     --dsn "postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB"
 ```
 

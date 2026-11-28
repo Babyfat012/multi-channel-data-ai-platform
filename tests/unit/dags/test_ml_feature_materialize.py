@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from feature_repo.check_online_store import check_incremental_online_store
+from feature_store.check_online_store import check_incremental_online_store
 
 ROOT = Path(__file__).resolve().parents[3]
 DAG = (ROOT / "dags/ml_feature_materialize.py").read_text()
@@ -80,7 +80,7 @@ def _run_feast_with_fake_runtime():
         "subprocess": SimpleNamespace(run=run),
         "tempfile": SimpleNamespace(TemporaryDirectory=directory),
         "shutil": SimpleNamespace(copytree=Mock(return_value="/tmp/guard-test/repo")),
-        "REPO": "/opt/feature_repo",
+        "REPO": "/opt/feature_store",
         "FEAST": "feast",
         "FEAST_PYTHON": "feast-python",
         "ENSURE_24H": "ensure_24h",
@@ -91,7 +91,7 @@ def _run_feast_with_fake_runtime():
 
 def test_feast_apply_excludes_guard_helper():
     """Feast apply imports only feature definitions, not the check script."""
-    assert "check_online_store.py" in (ROOT / "feature_repo/.feastignore").read_text().splitlines()
+    assert "check_online_store.py" in (ROOT / "feature_store/.feastignore").read_text().splitlines()
 
 
 @pytest.mark.parametrize("full_reload", [False, True])

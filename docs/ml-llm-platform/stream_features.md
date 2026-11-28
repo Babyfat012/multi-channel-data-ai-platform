@@ -56,7 +56,7 @@ docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-topics.sh --b
 python3 -m scripts.ml.run_stream_feature_jobs                       # submit 2 jobs
 # Mount the new script: the script is baked into the platform-feast image, and the old image replays messages WITHOUT event time.
 docker compose --profile stream --profile ml-stream run --rm -T --no-deps \
-  -v "$PWD/feature_repo/replay_return_events.py:/opt/feature_repo/replay_return_events.py:ro" feast-pusher \
+  -v "$PWD/feature_store/replay_return_events.py:/opt/feature_store/replay_return_events.py:ro" feast-pusher \
   python replay_return_events.py < ~/return_events.jsonl     # replays 401,129 Returns
 # Check: CreateTime must be June 2026 (1782…), not the run time.
 docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
@@ -74,7 +74,7 @@ docker compose --profile stream exec -T kafka /opt/kafka/bin/kafka-console-consu
 The first version had a silent bug: the watermark was generated **after** merging messages from all 3 partitions. The fast-reading partition pushed the watermark
 ahead of the slow-reading partitions, so messages from the slow partitions were treated as late and **dropped, while the job still reported
 RUNNING**. With only some windows closed, the result was already missing 1,193 windows, and 37,284 windows did not match the independent count (column `wrong_or_missing` of [`stream_feature_reconcile.py`](../../scripts/evidence/stream_feature_reconcile.py): wrong counts or missing windows).
-Fix: event time is taken from the Kafka record timestamp (set by [`replay_return_events.py`](../../feature_repo/replay_return_events.py)),
+Fix: event time is taken from the Kafka record timestamp (set by [`replay_return_events.py`](../../feature_store/replay_return_events.py)),
 the watermark is generated at the source for each partition separately, and idleness is enabled (a partition with no new messages does not hold
 the watermark still).
 
@@ -134,7 +134,7 @@ The diagram below goes through 5 steps, numbered ① to ⑤ (`⋈` is a join of 
 
 ```text
 Trino (EC2) ──① Gold: fact_return_labels_dp3 ⋈ fact_order_lines_dp2, label=1, 3 days before 2026-06-30
-   │            sql/ml/return_events_replay.sql → ~/return_events.jsonl (401,129 rows)
+   │            trino/queries/ml/return_events_replay.sql → ~/return_events.jsonl (401,129 rows)
    ▼
 replay_return_events.py ──② Kafka order_snapshots.return_events (3 partitions, total offset 401,129)
    ▼
@@ -209,9 +209,9 @@ The offline file on S3 was read back with [`offline_store_proof.sh`](../../scrip
 
 The final window stops at 06-29 22:00, not 06-30 00:00. Reason: the watermark always lags the latest event by 1 hour, and
 the stream never ends by itself, so the later windows were never closed. Job code: [`sku_return_feature_a.sql`](../../flink_jobs/ml/sku_return_feature_a.sql),
-replay: [`replay_return_events.py`](../../feature_repo/replay_return_events.py),
-[`return_events_replay.sql`](../../sql/ml/return_events_replay.sql), pusher:
-[`push_stream_features.py`](../../feature_repo/push_stream_features.py).
+replay: [`replay_return_events.py`](../../feature_store/replay_return_events.py),
+[`return_events_replay.sql`](../../trino/queries/ml/return_events_replay.sql), pusher:
+[`push_stream_features.py`](../../feature_store/push_stream_features.py).
 
 ## CI/CD
 

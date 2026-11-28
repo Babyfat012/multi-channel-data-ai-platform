@@ -21,7 +21,7 @@ Source text, chunks and embeddings are stored on S3; pgvector runs on EKS; Airfl
 
 The two screenshots above show the pipeline ran on AWS and that the lineage (a map of where data comes from and goes to) is in DataHub.
 To make the publish step work, two bugs were fixed: how ASCII characters are escaped in aspect values, and the union type of `DataJobInfo.type`.
-Processing and governance code: [rag/pipeline.py](../../rag/pipeline.py); feature store: [Feast RAG](../../rag/feature_repo/feature_store.yaml).
+Processing and governance code: [rag/pipeline.py](../../rag/pipeline.py); feature store: [Feast RAG](../../rag/feature_store/feature_store.yaml).
 
 ## On AWS
 
@@ -99,7 +99,7 @@ s3://platform/rag/raw/*.md ──chunk──► s3://platform/rag/chunks_text.pa
 | Source documents (simulated, with a note at the top of each file) | [`rag/corpus/`](../../rag/corpus/seller-return-playbook.md) |
 | Chunking + embedding | [`rag/chunking.py`](../../rag/chunking.py) |
 | Pipeline steps + validate + DataHub lineage | [`rag/pipeline.py`](../../rag/pipeline.py) |
-| Second Feast (Postgres/pgvector online store) | [`rag/feature_repo/features.py`](../../rag/feature_repo/features.py), [`feature_store.yaml`](../../rag/feature_repo/feature_store.yaml) |
+| Second Feast (Postgres/pgvector online store) | [`rag/feature_store/features.py`](../../rag/feature_store/features.py), [`feature_store.yaml`](../../rag/feature_store/feature_store.yaml) |
 | Airflow DAG | [`dags/ml_rag_ingest.py`](../../dags/ml_rag_ingest.py) |
 | pgvector in kind | [`infra/k8s/rag/pgvector.yaml`](../../infra/k8s/rag/pgvector.yaml) |
 | Tests (chunk, lineage) | [`rag/tests/`](../../rag/tests/test_chunking.py) |

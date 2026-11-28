@@ -10,7 +10,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
-COPY generator ./generator
+COPY data_generator ./data_generator
 # --no-editable: install the generator as a package in .venv, so the next stage needs no source code.
 # --reinstall-package: uv's cache only looks at pyproject.toml, not the code. Without this flag
 # a code change without a pyproject.toml change leaves the image with the old cached generator.
@@ -28,4 +28,4 @@ COPY --from=build /app/.venv /app/.venv
 COPY configs ./configs
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1
 USER nobody
-ENTRYPOINT ["python", "-m", "generator"]
+ENTRYPOINT ["python", "-m", "data_generator"]

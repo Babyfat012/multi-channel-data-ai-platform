@@ -7,4 +7,4 @@ FROM python:3.12
 WORKDIR /app
 COPY . .
 RUN pip install -r requirements.lock && pip install --no-deps .
-ENTRYPOINT ["python", "-m", "generator"]
+ENTRYPOINT ["python", "-m", "data_generator"]

@@ -97,8 +97,8 @@ def test_event_maps_cover_every_status_the_generator_streams():
 
     TikTok webhooks write "CANCEL" (the batch API writes "CANCELLED"); Amazon notifications keep the v0 spelling.
     """
-    from generator.channels.amazon import STATUS_V0
-    from generator.channels.tiktok import WEBHOOK_STATUS
+    from data_generator.channels.amazon import STATUS_V0
+    from data_generator.channels.tiktok import WEBHOOK_STATUS
 
     for canonical, raw in WEBHOOK_STATUS.items():
         assert TIKTOK_WEBHOOK_STATUS[raw] == canonical

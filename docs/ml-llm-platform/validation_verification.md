@@ -101,7 +101,7 @@ The DAG, ML and feature publication modules are outside the Web API scope, so th
 
 The script exports the code and tests **exactly at the head commit** to a temporary directory, then creates a separate mutmut configuration containing only the
 selected files. The working tree and the original configuration are not modified; uncommitted changes are not in this export.
-`also_copy` includes `rag` and `feature_repo` so the API can import internal modules; these modules are not mutated.
+`also_copy` includes `rag` and `feature_store` so the API can import internal modules; these modules are not mutated.
 Note: the script selects by **changed file** and still mutates the whole file, not just the changed lines.
 
 Run from the repo root with Python 3.12 and the dependencies in `serving/requirements-dev.txt`:

@@ -204,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         if source_rows == 0:
             print(
                 f"{SOURCE_TABLE} is EMPTY. Load it first with:\n"
-                "  uv run python -m generator load-postgres --source /data/raw "
+                "  uv run python -m data_generator load-postgres --source /data/raw "
                 "--sample-days 20 --dsn postgresql://<user>:<pass>@localhost:5432/sources",
                 file=sys.stderr,
             )

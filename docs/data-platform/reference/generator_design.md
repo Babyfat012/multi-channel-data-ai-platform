@@ -201,7 +201,7 @@ would have to stay open for ~20 simulated days and receive rows from all 20 of t
 point could anyone say "day d is done and fully on disk".
 
 Partitioning is unchanged: the directory is still the export date, so Spark, Iceberg, Trino and
-`generator/report.py` receive exactly the same set of rows as when each directory had a single file.
+`data_generator/report.py` receive exactly the same set of rows as when each directory had a single file.
 
 ### Resuming after an interruption
 
@@ -230,8 +230,8 @@ ignores markers and regenerates from day 1.
 
 This is correct because each simulated day draws its own random numbers from
 `(seed, "batch_exports", day)` and does not read the previous day's state
-(`tests/unit/generator/core/test_simulate.py::test_a_day_does_not_depend_on_previous_days`), so day `d` produces
-the same data whether the run started at day 1 or jumped in at day `d`. `tests/unit/generator/test_generate_order_snapshots_resume.py`
+(`tests/unit/data_generator/core/test_simulate.py::test_a_day_does_not_depend_on_previous_days`), so day `d` produces
+the same data whether the run started at day 1 or jumped in at day `d`. `tests/unit/data_generator/test_generate_order_snapshots_resume.py`
 locks in that promise by comparing byte for byte a continuous run and an interrupted one.
 
 ## 9. Buyers, currency and time
@@ -327,8 +327,8 @@ The generator exports a separate table of true labels, not only recorded in the 
 
 The data quality report has two parts:
 
-- **The `generator/report.py` module** holds the measurement logic, with docstrings and unit tests, using DuckDB (lightweight, has `approx_count_distinct`, can read both MinIO and PostgreSQL). With `--dsn`, Walmart and the SKU catalog are read from PostgreSQL; without it, the `pg-load/` files are read.
-- **The `python -m generator report` command** prints the measurement tables to the terminal for screenshots, or as Markdown (`--markdown`) to paste into documents. A charting notebook is deferred: it needs Jupyter and a plotting library, while text tables are enough for screenshots.
+- **The `data_generator/report.py` module** holds the measurement logic, with docstrings and unit tests, using DuckDB (lightweight, has `approx_count_distinct`, can read both MinIO and PostgreSQL). With `--dsn`, Walmart and the SKU catalog are read from PostgreSQL; without it, the `pg-load/` files are read.
+- **The `python -m data_generator report` command** prints the measurement tables to the terminal for screenshots, or as Markdown (`--markdown`) to paste into documents. A charting notebook is deferred: it needs Jupyter and a plotting library, while text tables are enough for screenshots.
 - **Stream** has two sources of numbers: `stream_manifest.json` holds the totals of an emission, while `scripts/evidence/measure_order_snapshots_stream.py` replays the Stream in memory and prints a concrete example of each problem (a pair of duplicate messages, the most delayed message, a table of Orders per hour on the livestream day).
 - **Screenshots and reports** are split by timeline, each side with its own document and image directory: Batch in [data-quality-report-batch.md](data_quality_report_batch.md) with `docs/images/batch/`, Stream in [data-quality-report-stream.md](data_quality_report_stream.md) with `docs/images/stream/`. Each image comes with an explanation of what it proves.
 
@@ -396,7 +396,7 @@ The following parts use the generator's data: SCD2 dimensions and dim–fact rel
 
 ## 15. Implementation
 
-This section records what already has code: where the code lives, how to run it, and why it is written that way. Each file in `generator/` has a description at the top that explains in more detail.
+This section records what already has code: where the code lives, how to run it, and why it is written that way. Each file in `data_generator/` has a description at the top that explains in more detail.
 
 ### Progress
 
@@ -413,9 +413,9 @@ This section records what already has code: where the code lives, how to run it,
 ```bash
 uv sync                                                   # install libraries into .venv
 uv run pytest -q                                          # run tests, a few seconds
-uv run python -m generator batch --config configs/small.yaml     # small data, about 1 second, written to ./out/small
-uv run python -m generator batch --config configs/default.yaml --output s3://...   # full scale
-uv run python -m generator report --source ./out/small                # quality report from local files
+uv run python -m data_generator batch --config configs/small.yaml     # small data, about 1 second, written to ./out/small
+uv run python -m data_generator batch --config configs/default.yaml --output s3://...   # full scale
+uv run python -m data_generator report --source ./out/small                # quality report from local files
 ```
 
 To run the whole source environment (MinIO, PostgreSQL, generate and load data) with Docker Compose, see [Docker.md](../docker.md).
@@ -428,22 +428,22 @@ The code is split exactly along the three layers in [section 2](#2-three-layer-a
 
 | File | Layer | Job |
 |---|---|---|
-| `generator/config.py` | | Reads YAML into dataclasses, errors on mistyped keys |
-| `generator/core/storefronts.py` | Core | Constants: 7 Storefronts (currency, cities, Channel-fulfilled share), 8 categories (target return rate, price range) |
-| `generator/core/rngs.py` | Core | A separate random number generator for each part, so the same seed always gives the same data |
-| `generator/core/catalog.py` | Core | Generates SKUs, SKU Defect Propensity, Zipf popularity and the sale-day distribution |
-| `generator/core/model.py` | Core | `Order`, `OrderLine`, `Buyer`, and `Order.status_at(t)` |
-| `generator/core/returns.py` | Core | Logistic function for return probability, return delay, label |
-| `generator/core/simulate.py` | Core | Generates Orders day by day with their entire lifecycle |
-| `generator/delivery/batch_exports.py` | Delivery | Which export date an Order lands in, duplicate injection |
-| `generator/channels/amazon.py`, `walmart.py` | Renderer | Draws Orders as the Channel's native records |
-| `generator/channels/tiktok.py` | Renderer | TikTok Shop webhook type 1 (order status change) for the Stream |
-| `generator/delivery/stream_events.py` | Delivery | Turns status changes after `cutoff` into messages: arrival time, lateness, duplicates, pacing |
-| `generator/publish_order_snapshot_events.py` | | The `generator.publish_order_snapshot_events` command: emits to Kafka or to files, measures and writes `stream_manifest.json` |
-| `generator/generate_order_snapshots.py` | | Wires the three layers together, writes files, writes the manifest |
-| `generator/storage.py` | | Writes and reads a local directory or MinIO through fsspec |
-| `generator/load_postgres.py` | | The `load-postgres` command: loads `pg-load/` into `walmart.orders` and `seller.skus` with `COPY` |
-| `generator/report.py` | | The `report` command: re-measures Batch data quality with DuckDB, next to the answer key in the manifest |
+| `data_generator/config.py` | | Reads YAML into dataclasses, errors on mistyped keys |
+| `data_generator/core/storefronts.py` | Core | Constants: 7 Storefronts (currency, cities, Channel-fulfilled share), 8 categories (target return rate, price range) |
+| `data_generator/core/rngs.py` | Core | A separate random number generator for each part, so the same seed always gives the same data |
+| `data_generator/core/catalog.py` | Core | Generates SKUs, SKU Defect Propensity, Zipf popularity and the sale-day distribution |
+| `data_generator/core/model.py` | Core | `Order`, `OrderLine`, `Buyer`, and `Order.status_at(t)` |
+| `data_generator/core/returns.py` | Core | Logistic function for return probability, return delay, label |
+| `data_generator/core/simulate.py` | Core | Generates Orders day by day with their entire lifecycle |
+| `data_generator/delivery/batch_exports.py` | Delivery | Which export date an Order lands in, duplicate injection |
+| `data_generator/channels/amazon.py`, `walmart.py` | Renderer | Draws Orders as the Channel's native records |
+| `data_generator/channels/tiktok.py` | Renderer | TikTok Shop webhook type 1 (order status change) for the Stream |
+| `data_generator/delivery/stream_events.py` | Delivery | Turns status changes after `cutoff` into messages: arrival time, lateness, duplicates, pacing |
+| `data_generator/publish_order_snapshot_events.py` | | The `data_generator.publish_order_snapshot_events` command: emits to Kafka or to files, measures and writes `stream_manifest.json` |
+| `data_generator/generate_order_snapshots.py` | | Wires the three layers together, writes files, writes the manifest |
+| `data_generator/storage.py` | | Writes and reads a local directory or MinIO through fsspec |
+| `data_generator/load_postgres.py` | | The `load-postgres` command: loads `pg-load/` into `walmart.orders` and `seller.skus` with `COPY` |
+| `data_generator/report.py` | | The `report` command: re-measures Batch data quality with DuckDB, next to the answer key in the manifest |
 | `scripts/evidence/measure_order_snapshots_stream.py` | | Replays the Stream in memory, printing concrete examples of duplicates, lateness and burst for screenshots |
 
 ### Four key ideas of the approach
@@ -474,7 +474,7 @@ The return rates match the targets because every effect in the logistic function
 
 ### Stream
 
-The `generator.publish_order_snapshot_events` command regenerates about the last 20 days before `cutoff` (to catch old Orders that still change status), then continues for `days_stream` days. Each status change of an Amazon or TikTok Shop Order within `[cutoff, stream_end)` becomes one message:
+The `data_generator.publish_order_snapshot_events` command regenerates about the last 20 days before `cutoff` (to catch old Orders that still change status), then continues for `days_stream` days. Each status change of an Amazon or TikTok Shop Order within `[cutoff, stream_end)` becomes one message:
 
 | Topic | Shape | Dedup key | Problem |
 |---|---|---|---|
@@ -513,7 +513,7 @@ Measured on the `configs/default.yaml` run into Kafka through Compose (`STREAM_S
 
 ### Configuration keys in use
 
-The generator reads YAML into dataclasses in `generator/config.py`. Keys absent from the file take their default value. A mistyped key stops the command with an error instead of being ignored. Two sample files: `configs/small.yaml` (a test run of a few seconds) and `configs/default.yaml` (full scale).
+The generator reads YAML into dataclasses in `data_generator/config.py`. Keys absent from the file take their default value. A mistyped key stops the command with an error instead of being ignored. Two sample files: `configs/small.yaml` (a test run of a few seconds) and `configs/default.yaml` (full scale).
 
 | Key | Default | Meaning | Related data problem |
 |---|---|---|---|
@@ -547,7 +547,7 @@ Concept drift for the livestream (higher apparel return rate) is added in step 4
 
 ### Run results
 
-The numbers below come from the `configs/default.yaml` run through Docker Compose: `generator-batch` writes to MinIO (102 seconds), `generator-load` loads PostgreSQL (3 seconds). Then `python -m generator report --source s3://platform --dsn ... --markdown` runs on the host, reading Amazon from MinIO and Walmart and `seller.skus` from PostgreSQL. The `_truth` columns come from `run_manifest.json`.
+The numbers below come from the `configs/default.yaml` run through Docker Compose: `generator-batch` writes to MinIO (102 seconds), `generator-load` loads PostgreSQL (3 seconds). Then `python -m data_generator report --source s3://platform --dsn ... --markdown` runs on the host, reading Amazon from MinIO and Walmart and `seller.skus` from PostgreSQL. The `_truth` columns come from `run_manifest.json`.
 
 Screenshots (the `report` command terminal, MinIO console, DBeaver or `psql`) are in `docs/images/batch/` and embedded in [data-quality-report-batch.md](data_quality_report_batch.md).
 
@@ -706,7 +706,7 @@ Size after storage, by storage location and format.
 
 The `files` numbers below were measured before each simulated day had its own file; now each
 `export_date=` directory has many part files, so the file count is roughly an order of magnitude larger, while `size_mb`
-is nearly unchanged. Re-run `uv run python -m generator report` to get the new numbers.
+is nearly unchanged. Re-run `uv run python -m data_generator report` to get the new numbers.
 
 | dataset | storage | format | files | size_mb |
 |---|---|---|---|---|
@@ -731,5 +731,5 @@ the [stream manifest](../../evidence/aws/stream-manifest-20261028.json) records 
 The S3 source metadata screenshot and Flink receiving records confirm parts of the data path;
 AWS characteristic numbers and limitations are recorded in [batch on AWS](data_quality_report_batch.md#on-aws)
 and [stream on AWS](data_quality_report_stream.md#on-aws).
-[Generator code](../../../generator/__main__.py), [batch config](../../../configs/scale-100gb.yaml), [stream config](../../../configs/default.yaml).
+[Generator code](../../../data_generator/__main__.py), [batch config](../../../configs/scale-100gb.yaml), [stream config](../../../configs/default.yaml).
 There is no separate AWS report on batch skew/cardinality/schema/duplicates yet; local histograms are not used in place of a cloud capture.

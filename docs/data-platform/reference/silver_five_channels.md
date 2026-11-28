@@ -7,7 +7,7 @@ This is small data for testing the pipeline, not a replacement for the 100 GB ra
 Amazon/Walmart in `/data/raw`. The `out/` directory is not committed; regenerate it with:
 
 ```bash
-.venv/bin/python -m generator batch --config configs/small.yaml --output ./out/channels-small
+.venv/bin/python -m data_generator batch --config configs/small.yaml --output ./out/channels-small
 env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow --stage dp1-files
 env -u POSTGRES_PASSWORD python3 -m scripts.data.setup_airflow --stage dp2-files
 ```

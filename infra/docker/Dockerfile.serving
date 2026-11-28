@@ -9,11 +9,11 @@ ENV RAG_MODEL_CACHE=/opt/models
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/models')" \
     && chmod -R a+rX /opt/models
 COPY rag/__init__.py rag/chunking.py rag/pipeline.py /opt/rag/
-COPY rag/feature_repo /opt/rag/feature_repo
+COPY rag/feature_store /opt/rag/feature_store
 COPY serving/app.py serving/schemas.py serving/features.py serving/policy.py serving/mcp_server.py /opt/serving/
-COPY feature_repo /opt/feature_repo
+COPY feature_store /opt/feature_store
 WORKDIR /opt
-ENV FEAST_REPO_PATH=/opt/feature_repo
+ENV FEAST_REPO_PATH=/opt/feature_store
 USER 65534
 EXPOSE 8000
 CMD ["uvicorn", "serving.app:app", "--host", "0.0.0.0", "--port", "8000"]

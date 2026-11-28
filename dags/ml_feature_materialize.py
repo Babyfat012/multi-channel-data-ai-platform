@@ -1,7 +1,7 @@
 """ML Platform: Gold → offline Parquet/training set → load/reconcile a separate batch release, then publish.
 
 Feature definitions are registered by the Jenkins `feature-repo` job (`feast plan` → `feast apply`) when
-feature_repo/ changes, not on every new batch: it calls `run_feast` below inside the Airflow container.
+feature_store/ changes, not on every new batch: it calls `run_feast` below inside the Airflow container.
 
 `end` is a SIMULATED point in time (default = Gold Cutoff), not wall-clock time: on every run the
 Publisher picks the latest snapshot per SKU up to end; the active release keeps serving while the new one loads.
@@ -29,7 +29,7 @@ ENSURE_24H = (
     "import os; from push_stream_features import ensure_offline_file; "
     "ensure_offline_file(os.environ['FEAST_SKU_RETURN_24H_PATH'])"
 )
-REPO = "/opt/feature_repo"
+REPO = "/opt/feature_store"
 # Gold A Cutoff: the simulated "now" of the ML exports (Airflow Variable platform_ml_cutoff).
 CUTOFF = "{{ var.value.platform_ml_cutoff }}"
 # Spark writes via s3a://, Feast reads the same location via s3://.

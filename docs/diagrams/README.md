@@ -12,7 +12,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 
 | Group in the diagram | Function | Configuration / docs |
 |---|---|---|
-| Batch ingestion | Offline generator; skew, evolution, duplicates; source storage | `generator/`, [generator](../data-platform/data_generator.md) |
+| Batch ingestion | Offline generator; skew, evolution, duplicates; source storage | `data_generator/`, [generator](../data-platform/data_generator.md) |
 | Spark | Baseline, skew, schema evolution, dedup; pipeline integration | `spark_jobs/`, [Spark](../data-platform/processing_jobs.md) |
 | Kafka / Flink | Stream to Bronze (dedup status events, Walmart CDC); live new-order counts per 5 min → PostgreSQL `ops.order_counts_window` → Grafana | `flink_jobs/lakehouse/`, `flink_jobs/ops/`, [Flink](../data-platform/processing_jobs.md) |
 | Lakekeeper / S3 / Iceberg | Catalog, zones, SCD2, labels, features, compaction / partitioning | [Storage](../data-platform/data_storage.md), [Schema](../data-platform/schema_design.md) |
@@ -44,7 +44,7 @@ The diagram shows the target operating model: pipelines run on schedules and a n
 | `ate-system` / `kagent` | Substrate controllers / SandboxAgent + WorkerPool | Sandbox / gVisor / shared warm worker / golden snapshot |
 | EC2 · Jenkins / Vault + IaC | CI pipelines, secret KV, Terraform / Ansible | Test / build / deploy / eval; coverage / EP-BVA / mutation / property-based / Locust; security |
 
-Configuration sources: `infra/k8s/`, `infra/helm/serving-api/`, `infra/jenkins/`, `scripts/`, `ml/`, `serving/`, `rag/`, `feature_repo/`.
+Configuration sources: `infra/k8s/`, `infra/helm/serving-api/`, `infra/jenkins/`, `scripts/`, `ml/`, `serving/`, `rag/`, `feature_store/`.
 
 **No staging environment (decision).** CI/CD has no separate test environment with an approval step before release: a second
 Compose stack and set of EKS namespaces on an EC2 machine and node group that are already short of RAM and disk would cost out

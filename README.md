@@ -213,16 +213,16 @@ Top-level folders grouped by platform. Python packages keep their names (they ar
 
 | Group | Folder | What it holds |
 |---|---|---|
-| **Data Platform** | `generator/` | Synthetic data for five Channels (skew, schema evolution, duplicates, late arrival) |
+| **Data Platform** | `data_generator/` | Synthetic data for five Channels (skew, schema evolution, duplicates, late arrival) |
 | | `configs/` | Generator data profiles (small → 100 GB), Iceberg maintenance config |
 | | `contracts/` | Data contracts and per-Channel schemas |
 | | `spark_jobs/` | Spark batch: Bronze, Silver, Gold, CDC, Iceberg maintenance |
 | | `flink_jobs/` | Flink streaming: late arrival, dedup, windows, 24h features |
-| | `sql/`, `trino/` | Warehouse SQL and Trino federation |
+| | `trino/` | Trino catalogs (local, AWS) and the SQL queries run through Trino (`trino/queries/`) |
 | | `dags/` | Airflow pipelines DP1–DP4, feature materialization, RAG |
-| **ML Platform** | `feature_repo/` | Feast: feature views, TTL, stream push to offline/online stores |
+| **ML Platform** | `feature_store/` | Feast: feature views, TTL, stream push to offline/online stores |
 | | `ml/` | Training (Kubeflow), evaluation, drift (Evidently), KServe predictor |
-| | `serving/` | Feature API, Policy API (FastAPI) and the MCP server agents call |
+| | `serving/` | Serving layer: Feature API, Policy API (FastAPI) and the MCP server agents call; the model predictor itself is `ml/serve.py` on KServe |
 | **LLM Platform** | `rag/` | Document chunking, embedding and retrieval |
 | **Infrastructure** | `infra/docker/` | All Dockerfiles (the generator image is `infra/docker/Dockerfile`) |
 | | `infra/aws/` | Terraform (EC2, S3, ECR, EKS) and Ansible roles for EC2 |

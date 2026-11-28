@@ -123,8 +123,8 @@ content). Code: `spark_jobs/lib/order_events.py`.
 ### 4.1 Money = `decimal(14,2)`, both Channels
 
 **Real bounds:**
-- max base price 300 USD (`generator/core/storefronts.py:99`, electronics category `(20, 300)`)
-- max quantity 4 (`generator/core/simulate.py:302`)
+- max base price 300 USD (`data_generator/core/storefronts.py:99`, electronics category `(20, 300)`)
+- max quantity 4 (`data_generator/core/simulate.py:302`)
 - Amazon/Walmart price factors 1.00 / 0.80 / 0.95
 
 => one row ≤ ~1,200. `decimal(14,2)` is more than enough.
@@ -149,8 +149,8 @@ source only provides **net**, so the Walmart table has **only** `line_net_amount
 Only Amazon has `order_total_amount`.
 
 **Reason:** the line price **means different things** in the two Channels — Amazon `ItemPrice` is **before** discount
-(`generator/channels/amazon.py:157`, discount separate at `:158`); Walmart `chargeAmount` is
-**after** discount (`generator/channels/walmart.py:103`). They must not share one name,
+(`data_generator/channels/amazon.py:157`, discount separate at `:158`); Walmart `chargeAmount` is
+**after** discount (`data_generator/channels/walmart.py:103`). They must not share one name,
 otherwise Gold would sum two different things into one place.
 
 **Cost:** three different names force query authors to know which one they are summing; but that is exactly
@@ -179,7 +179,7 @@ or not. Without pinning, the same data on a machine in a different time zone yie
 v0 has `IsPrime` (bool); the 2026 shape has `programs` (array). Silver uses **one** `is_prime` column
 of type `boolean`; the 2026 shape is parsed by checking whether the array contains `PRIME`.
 
-**Decisive fact:** `generator/channels/amazon.py:189`
+**Decisive fact:** `data_generator/channels/amazon.py:189`
 `"programs": ["PRIME"] if order.is_prime else []` — the array has only **two** possibilities, exactly one
 bool, no more than one bit of information.
 
@@ -205,7 +205,7 @@ room to stay faithful; `country` has only **one** column, so that column must be
 ## 5. Five keys dropped in Amazon's 2026 shape: keep 3, drop 2
 
 **Dropped from Silver entirely:** `is_business_order`, `is_replacement_order`. In the v0 shape they are constant
-`False` (`generator/channels/amazon.py:142-143`) => every row is the same, there is nothing for a model
+`False` (`data_generator/channels/amazon.py:142-143`) => every row is the same, there is nothing for a model
 to learn (zero variance). Bronze still keeps the raw payload, so nothing is lost permanently.
 
 **Kept:** `number_of_items_shipped`, `number_of_items_unshipped` (Order level), `quantity_shipped`
@@ -245,7 +245,7 @@ spelling will **undercount**, with no error. => **Do not filter on the raw colum
 
 **A consequence of the source, recorded for completeness:** Amazon **never** emits `delivered`/`completed` (a
 delivered order is still `Shipped`). Walmart has a real `Delivered` with `statusDate`, **but** `COMPLETED` is also
-written as `Delivered` (`generator/channels/walmart.py:38-39`) — so for completed orders,
+written as `Delivered` (`data_generator/channels/walmart.py:38-39`) — so for completed orders,
 `statusDate` is the **completion** time, not the delivery time. That is why the Silver column is named
 `status_changed_at`, **not** `delivered_at` — see section 8.2.
 
@@ -279,7 +279,7 @@ These three items used to be in the "undecided" section. They are now settled, w
 **Settled (chosen by the user):** keep `buyer_id`, `is_guest`. Drop `customer_email_id`, `order_type`.
 
 **Reasons for dropping:**
-- `order_type` is **always `"REGULAR"`** — hardcoded in `generator/channels/walmart.py:119`, and the whole repo
+- `order_type` is **always `"REGULAR"`** — hardcoded in `data_generator/channels/walmart.py:119`, and the whole repo
   has no second value. A single-valued column carries no information.
 - `customer_email_id` is a hashed email (`walmart.py:114`), duplicating the *identity* role of `buyer_id`
   while adding one more personal-data column to guard.
@@ -288,7 +288,7 @@ These three items used to be in the "undecided" section. They are now settled, w
 there. To use them again, edit the Silver job and rerun from Bronze — it costs **effort**, not **data**.
 
 **Cost of KEEPING — the easy-to-miss part:**
-- `is_guest` **carries no signal about the Return Label in this data**: `generator/core/returns.py`
+- `is_guest` **carries no signal about the Return Label in this data**: `data_generator/core/returns.py`
   does not read `buyer` (grep: not a single line). Put it into the feature table and a model may still pick up
   a spurious correlation — a column that *looks* useful but is actually noise. This must be stated clearly at the
   feature layer, so later readers do not assume it is a vetted feature.
@@ -301,7 +301,7 @@ there. To use them again, edit the Silver job and rerun from Bronze — it costs
 **Settled:** `stg_walmart_order_lines` has a `status_changed_at` column (UTC timestamp) taken from `statusDate`.
 Silver does **not** create a `delivered_at` column.
 
-**Reason:** `generator/channels/walmart.py:34-39` maps **both `DELIVERED` and `COMPLETED`** to
+**Reason:** `data_generator/channels/walmart.py:34-39` maps **both `DELIVERED` and `COMPLETED`** to
 the same text `"Delivered"`, and `statusDate` is the time of the **most recent status change**
 (`walmart.py:77,107` — `epoch_millis(change.at)`). So for a completed order, `statusDate` is
 the **completion** time, not the **delivery** time, and the payload **cannot distinguish the two cases**.
@@ -321,14 +321,14 @@ Order. Only `stg_amazon_order_lines` has this column; `stg_walmart_order_lines` 
 
 **Reason for the name:** [terminology and data layers](../../shared/terminology.md) chose **Fulfillment Method** as project vocabulary, with
 `_Avoid_: Shipping type, logistics mode`. `fulfilled_by` is not used because it is the **raw key name** in
-Amazon's 2026 shape (`generator/channels/amazon.py:178`) — using a raw name for a canonical column would mix two
+Amazon's 2026 shape (`data_generator/channels/amazon.py:178`) — using a raw name for a canonical column would mix two
 layers, exactly the mistake section 6 avoided by splitting the two status columns.
 
 **Reason for the level:** [terminology and data layers](../../shared/terminology.md) defines it per Order Line, but the data **does not exist at that level**:
-`generator/core/model.py:102` puts `fulfillment` on the `Order` class (`model.py:88`), while the
+`data_generator/core/model.py:102` puts `fulfillment` on the `Order` class (`model.py:88`), while the
 `OrderLine` class (`model.py:60`) has no such field. Amazon publishes it at the Order level in both shapes
 (`amazon.py:135` `FulfillmentChannel`, `amazon.py:178` `fulfillment.fulfilledBy`). Walmart:
-grepping `fulfill` in `generator/channels/walmart.py` returns **nothing** — this Channel publishes nothing.
+grepping `fulfill` in `data_generator/channels/walmart.py` returns **nothing** — this Channel publishes nothing.
 
 **Cost:**
 - The column sits at Order Line grain but its value is only correct at the Order level, so it **cannot describe** an
@@ -476,7 +476,7 @@ then 04-10..04-14 drop to ~**418 MB**. The 2026 shape is more compact because it
 
 **The schema switch point is export day 100 = 2026-04-10**, set in
 `offline_problems.amazon_orders_api_switch_day: 100` (`configs/default.yaml:23`,
-`generator/channels/amazon.py:85-89`). The 180-day range splits into **99 v0 days + 81 days in the 2026 shape**.
+`data_generator/channels/amazon.py:85-89`). The 180-day range splits into **99 v0 days + 81 days in the 2026 shape**.
 A misleading name, written down so nobody misreads it again: `"2026-01-01"` is the **NAME** of the new schema
 version (`amazon.py:48` `SCHEMA_2026 = "orders-2026-01-01"`), **not the switch date**.
 The size drop 475 -> 418 MB exactly at 04-10 is independent evidence for that switch point.
