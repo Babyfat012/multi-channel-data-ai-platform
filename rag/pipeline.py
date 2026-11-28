@@ -26,7 +26,7 @@ from pathlib import Path
 from rag.chunking import MODEL, chunk_markdown, embed
 
 FEATURE_VIEW = "policy_chunks"
-REPO = Path(__file__).resolve().parent / "feature_repo"
+REPO = Path(__file__).resolve().parent / "feature_store"
 DAG_ID = "ml_rag_ingest"
 # Sample question → the document that must rank first in search; catches wrong embeddings/indexes.
 PROBES = {

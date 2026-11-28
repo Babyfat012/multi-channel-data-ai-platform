@@ -55,7 +55,7 @@ Returns `{"predictions": [{"seller_sku", "score", "abstain", "reason", "model_ve
   `abstain: true, reason: no_history`; with 1-19 lines it returns `abstain: true, reason: too_few_samples`.
   Both still include the score for reference.
 - The predictor reads the daily features with the same rule as the Feature API (`daily_status` in
-  `feature_repo/publication.py`). If the row is missing or incomplete (count, positive count, or the rate when count > 0),
+  `feature_store/publication.py`). If the row is missing or incomplete (count, positive count, or the rate when count > 0),
   it does not call LightGBM for that row and returns `score: null, abstain: true, reason: feature_data_unavailable`.
   The predictor does not treat a missing count as 0.
 - In a batch with both rows that have counts and rows that don't, only rows with counts are scored; the result order matches the input.

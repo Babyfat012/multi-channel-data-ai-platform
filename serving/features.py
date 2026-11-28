@@ -8,7 +8,7 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from feature_repo.publication import daily_status, load_published_store
+from feature_store.publication import daily_status, load_published_store
 from serving.schemas import FeatureRequest, FeatureResponse, SkuFeatures
 
 # Look up each view separately: if one view fails or is not registered, its features are None
@@ -25,7 +25,7 @@ def load_store():
     """Load Feast only in a real run, so tests do not need feast installed."""
     from feast import FeatureStore
 
-    repo = os.environ.get("FEAST_REPO_PATH", "feature_repo")
+    repo = os.environ.get("FEAST_REPO_PATH", "feature_store")
     if os.environ.get("FEAST_PUBLICATION_ROOT"):
         return load_published_store(repo)
     return FeatureStore(repo)

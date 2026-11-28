@@ -2,7 +2,7 @@
 
 Callers (MCP server, or clients through the ingress `/predict`) send only the order attributes; the predictor
 validates them, joins SKU features from Redis and scores. This is the trust boundary for prediction input.
-Daily features are read with `feature_repo.publication.daily_status`, the same rule as the Feature API:
+Daily features are read with `feature_store.publication.daily_status`, the same rule as the Feature API:
 - missing or incomplete (count, positive, rate) ⇒ no scoring, score=null, reason=feature_data_unavailable;
 - 0 labeled lines ⇒ abstain, reason=no_history; fewer than MIN_HISTORY ⇒ abstain, reason=too_few_samples
   (Q38). Both still include the score for reference.
@@ -18,7 +18,7 @@ from kserve import Model, ModelServer
 from kserve.errors import InvalidInput
 from prometheus_client import Counter, Histogram
 
-from feature_repo.publication import FeatureDataUnavailable, daily_status, load_published_store
+from feature_store.publication import FeatureDataUnavailable, daily_status, load_published_store
 from ml.train_lib import FEAST_FEATURES, FEATURES, add_order_features
 
 # Business metrics, exposed at /metrics next to KServe's default latency metrics (scraped by Prometheus).
@@ -97,7 +97,7 @@ class ReturnRisk(Model):
         from feast import FeatureStore
 
         self.booster = lgb.Booster(model_file=os.environ.get("MODEL_PATH", "/mnt/models/model.lgb"))
-        repo = os.environ.get("FEAST_REPO", "/opt/feature_repo")
+        repo = os.environ.get("FEAST_REPO", "/opt/feature_store")
         self.store = (
             load_published_store(repo)
             if os.environ.get("FEAST_PUBLICATION_ROOT")

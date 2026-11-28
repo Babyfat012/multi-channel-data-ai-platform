@@ -1,6 +1,6 @@
 """Print evidence of the three Stream problems, compact enough for one screenshot.
 
-This is the counterpart of `python -m generator report` on the Batch side: `report`
+This is the counterpart of `python -m data_generator report` on the Batch side: `report`
 re-reads the data written to MinIO and PostgreSQL, while this script replays the Stream
 in memory (no Kafka needed) and shows a concrete example of each problem.
 
@@ -18,9 +18,9 @@ import dataclasses
 import json
 import sys
 
-from generator.config import load_config
-from generator.core.simulate import Simulator
-from generator.delivery.stream_events import TOPICS, stream_messages
+from data_generator.config import load_config
+from data_generator.core.simulate import Simulator
+from data_generator.delivery.stream_events import TOPICS, stream_messages
 
 RULE = "=" * 78
 

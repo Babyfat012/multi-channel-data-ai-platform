@@ -10,7 +10,7 @@ from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 
 DATASET_VERSION = "order_snapshots"
-# Same table as generator/core/storefronts.py CURRENCY_DECIMALS (Spark does not ship the generator).
+# Same table as data_generator/core/storefronts.py CURRENCY_DECIMALS (Spark does not ship the generator).
 CURRENCY_DECIMALS = {"USD": 2, "GBP": 2, "EUR": 2, "VND": 0}
 WINDOW_DAYS = 90
 

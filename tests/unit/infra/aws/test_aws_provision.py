@@ -267,7 +267,7 @@ def test_aws_feast_uses_s3_iam_and_eks_redis():
     volumes = yaml.load((ROOT / "docker-compose.aws.yml").read_text(), Loader=ComposeLoader)[
         "services"
     ]["airflow"]["volumes"]
-    assert "./feature_repo:/opt/feature_repo:ro" in volumes  # volumes !override dropped it once
+    assert "./feature_store:/opt/feature_store:ro" in volumes  # volumes !override dropped it once
     template = (ANSIBLE / "roles/app/templates/env.j2").read_text()
     assert "PLATFORM_FEAST_REDIS={{ feast_redis | default('10.42.0.121:30379')" in template
     dag = (ROOT / "dags/ml_feature_materialize.py").read_text()
@@ -566,7 +566,7 @@ def test_code_only_sync_tag_covers_bind_mounted_code():
     volumes = yaml.load((ROOT / "docker-compose.aws.yml").read_text(), Loader=ComposeLoader)[
         "services"
     ]["airflow"]["volumes"]
-    for code in ("./dags:", "./spark_jobs:", "./scripts:", "./feature_repo:"):
+    for code in ("./dags:", "./spark_jobs:", "./scripts:", "./feature_store:"):
         assert any(v.startswith(code) for v in volumes), code
 
 
@@ -708,17 +708,17 @@ def test_wave4_stream_feature_a_keeps_kafka_on_ebs_and_pushes_with_iam():
 def test_wave4_flink_a_reads_replayed_topic_without_postgres_lookup():
     """Variant A: reads exactly the topic the replay script publishes, writes the topic the pusher reads, no JDBC; the submit script picks the SQL."""
     sql = (ROOT / "flink_jobs/ml/sku_return_feature_a.sql").read_text()
-    replay = (ROOT / "feature_repo/replay_return_events.py").read_text()
+    replay = (ROOT / "feature_store/replay_return_events.py").read_text()
     topic = replay.split('TOPIC = "')[1].split('"')[0]
     assert f"'topic' = '{topic}'" in sql and "'topic' = 'ml.sku_return_24h'" in sql
     assert "jdbc" not in sql.lower() and "@@PG_" not in sql
-    pusher = (ROOT / "feature_repo/push_stream_features.py").read_text()
+    pusher = (ROOT / "feature_store/push_stream_features.py").read_text()
     assert '"FEAST_PUSH_TOPIC", "ml.sku_return_24h"' in pusher
     from scripts.ml.run_sku_return_feature import DEFAULT_SQL, render
 
     assert DEFAULT_SQL == "flink_jobs/ml/sku_return_feature_a.sql"
     assert render(sql) == sql  # variant A has no @@PG_ placeholders ⇒ no credentials needed
-    replay_sql = (ROOT / "sql/ml/return_events_replay.sql").read_text()
+    replay_sql = (ROOT / "trino/queries/ml/return_events_replay.sql").read_text()
     assert "l.label = 1" in replay_sql and "ORDER BY l.label_available_at" in replay_sql
 
 

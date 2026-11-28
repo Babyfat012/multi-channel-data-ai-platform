@@ -5,7 +5,7 @@
   mcp       MCP server   (serving/mcp_server.py) agent tools, a thin client over the two APIs + KServe
   all       every route in one process (local runs and tests)
 
-Run: `uvicorn serving.app:app` from the repo root. Features need `FEAST_REPO_PATH` (feature_repo/) plus the variables
+Run: `uvicorn serving.app:app` from the repo root. Features need `FEAST_REPO_PATH` (feature_store/) plus the variables
 `feature_store.yaml` reads (FEAST_REGISTRY, FEAST_REDIS); policy needs `FEAST_RAG_REGISTRY` (+ RAG_PG_*).
 """
 

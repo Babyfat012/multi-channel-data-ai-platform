@@ -21,7 +21,7 @@ The batch sources live on S3 and on the EC2 PostgreSQL. According to the [AWS re
 The DataHub screenshot only shows that the source datasets on S3 have metadata declared; it does not show byte counts or histograms.
 The byte and row counts above come from the receipt. The skew, unique/total, duplicate and before/after schema figures in earlier
 sections are numbers from the local report. The section below re-measures those four characteristics **on the AWS data itself**.
-[Generator code](../../generator/__main__.py), [100 GB configuration](../../configs/scale-100gb.yaml),
+[Generator code](../../data_generator/__main__.py), [100 GB configuration](../../configs/scale-100gb.yaml),
 [local manifest for comparison](../evidence/batch-100gb-manifest.json).
 
 ### Data characteristics measured on AWS
@@ -32,7 +32,7 @@ are read:
 - Bronze `raw_amazon_orders_dp1`: the raw payload.
 - Silver `stg_amazon_order_lines_dp2`: split into individual Order Lines (product rows in an order) with a normalized schema.
 
-SQL: [`sql/profile_amazon_aws.sql`](../../sql/profile_amazon_aws.sql). Full output:
+SQL: [`trino/queries/profile_amazon_aws.sql`](../../trino/queries/profile_amazon_aws.sql). Full output:
 [`amazon-data-profile-trino-20261031.txt`](../evidence/aws/amazon-data-profile-trino-20261031.txt) (total run time 2 minutes
 13 seconds). The duplicate rate and sizes come from `run_manifest.json`, the file the generator writes to S3 while running on EC2
 (`s3://…-raw/order_snapshots/run_manifest.json`, `dataset_version` `38a1f7b3…`).
@@ -73,7 +73,7 @@ This Stream run: the generator publishes into Kafka (running with Compose on EC2
 Amazon delay is the gap between `EventTime` and the time the message is received. TikTok duplicates keep the same
 `tts_notification_id` as the original message. Livestream burst (a sales surge during a livestream): 148.5 Orders/hour versus 25.2
 Orders/hour normally, 5.89× according to the manifest.
-[Generator code](../../generator/__main__.py), [configuration](../../configs/default.yaml),
+[Generator code](../../data_generator/__main__.py), [configuration](../../configs/default.yaml),
 [measurement script](../../scripts/evidence/measure_order_snapshots_stream.py).
 
 ![Flink 1.20.3 Completed Jobs: baseline Amazon, late Amazon, two dedup jobs and the window job all FINISHED](../evidence/aws/flink-completed-jobs-20261028.png)

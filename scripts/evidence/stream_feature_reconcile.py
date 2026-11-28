@@ -17,7 +17,7 @@ SHOW = ("BEA-01708", "ELE-01084", "APP-00042")
 
 def main():
     """Recount the HOP 24h/1h windows from the source file, then compare with S3 and Redis."""
-    sys.path[:0] = ["/opt/flink/jobs/ml", "/opt/feature_repo"]
+    sys.path[:0] = ["/opt/flink/jobs/ml", "/opt/feature_store"]
     import pyarrow.parquet as pq
     import sku_return_feature as job
     from feast import FeatureStore
@@ -63,7 +63,7 @@ def main():
             latest[sku] = max(closed_windows)[1]
             allowed[sku] = {latest[sku]} | {v for e, v in windows if e > end}
     skus = sorted(allowed)
-    store = FeatureStore(os.environ.get("FEAST_REPO_PATH", "/opt/feature_repo"))
+    store = FeatureStore(os.environ.get("FEAST_REPO_PATH", "/opt/feature_store"))
     values = store.get_online_features(
         features=["sku_return_24h:approved_returns_24h"],
         entity_rows=[{"seller_sku": s} for s in skus],

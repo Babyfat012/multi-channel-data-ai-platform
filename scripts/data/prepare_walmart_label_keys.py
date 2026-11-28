@@ -14,7 +14,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from generator.channels.base import native_digits
+from data_generator.channels.base import native_digits
 
 
 def main() -> None:

@@ -1,7 +1,7 @@
 """Policy API: return-policy chunks from the Feast RAG store (pgvector), by question or by chunk id.
 
 Owns the RAG data: the only service that reads pgvector. Enabled only when `FEAST_RAG_REGISTRY` is set
-(+ RAG_PG_*, see `rag/feature_repo/feature_store.yaml`); otherwise every route answers 503.
+(+ RAG_PG_*, see `rag/feature_store/feature_store.yaml`); otherwise every route answers 503.
 """
 
 import asyncio

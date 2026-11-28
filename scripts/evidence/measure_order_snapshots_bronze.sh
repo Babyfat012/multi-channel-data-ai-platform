@@ -18,7 +18,7 @@
 #   wal   — the real Walmart table, final configuration.
 # The first two runs write to `raw_walmart_orders_smoke` so the real table is not overwritten.
 # PostgreSQL must be loaded first:
-#   uv run python -m generator load-postgres --source /data/raw --sample-days 20 \
+#   uv run python -m data_generator load-postgres --source /data/raw --sample-days 20 \
 #     --dsn postgresql://<user>:<pass>@localhost:5432/sources
 #
 # Brief 02 (handle skew) has its own trio, NOT part of `all`. All three run on the SAME 20 sample

@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 import pandas as pd
 import pytest
 
-from feature_repo.publication import (
+from feature_store.publication import (
     BATCH_FIELDS,
     FeatureDataUnavailable,
     PublicationBusy,
@@ -18,10 +18,10 @@ from feature_repo.publication import (
     ReleaseCache,
     make_store,
 )
-from feature_repo.publication import (
+from feature_store.publication import (
     redis_client as feast_redis_client,
 )
-from feature_repo.publish_batch import latest_expected, reconcile
+from feature_store.publish_batch import latest_expected, reconcile
 
 
 @pytest.fixture

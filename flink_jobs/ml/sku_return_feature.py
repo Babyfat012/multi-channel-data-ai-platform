@@ -168,7 +168,7 @@ def _store():
     if _STORE is None:
         from feast import FeatureStore
 
-        _STORE = FeatureStore(os.environ.get("FEAST_REPO_PATH", "/opt/feature_repo"))
+        _STORE = FeatureStore(os.environ.get("FEAST_REPO_PATH", "/opt/feature_store"))
     return _STORE
 
 

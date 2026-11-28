@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from feature_repo.publication import (
+from feature_store.publication import (
     BATCH_FIELDS,
     FeatureDataUnavailable,
     FeatureResult,
@@ -17,7 +17,7 @@ from feature_repo.publication import (
     ReleaseCache,
     redis_database,
 )
-from feature_repo.publish_batch import latest_expected, publish_candidate, reconcile
+from feature_store.publish_batch import latest_expected, publish_candidate, reconcile
 
 
 def release(name="a", database=1):
@@ -359,7 +359,7 @@ def test_catalog_keeps_old_pointer_on_conflicting_publish():
     """A publisher holding a stale ETag must not overwrite a newer pointer."""
     from botocore.exceptions import ClientError
 
-    from feature_repo.publication import S3Catalog
+    from feature_store.publication import S3Catalog
 
     source = S3Catalog("s3://test/publications", MemoryS3())
     assert source.pointer() == (None, None)
@@ -373,8 +373,8 @@ def test_catalog_keeps_old_pointer_on_conflicting_publish():
 @pytest.mark.parametrize("corrupt", [False, True])
 def test_publisher_command_validates_before_switching_active(monkeypatch, tmp_path, corrupt):
     """Run the whole command with fake transport: failed validation keeps A and cleans the candidate, never flushing active."""
-    from feature_repo import publish_batch as command
-    from feature_repo.publication import S3Catalog
+    from feature_store import publish_batch as command
+    from feature_store.publication import S3Catalog
 
     source = S3Catalog("s3://test/publications", MemoryS3())
     source.publish(document(), None)

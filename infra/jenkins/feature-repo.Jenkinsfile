@@ -1,4 +1,4 @@
-// CI/CD for the Feast feature definitions (feature_repo/): test → feast plan → feast apply.
+// CI/CD for the Feast feature definitions (feature_store/): test → feast plan → feast apply.
 // Registering features is a code change, not a data change: this job runs when features.py / feature_store.yaml change,
 // started by hand like the other deploy jobs (the human approval). The nightly DAG ml_feature_materialize only loads data.
 // plan/apply run INSIDE the running Airflow container through the DAG's own run_feast(), so they use exactly the

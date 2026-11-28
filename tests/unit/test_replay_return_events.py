@@ -2,7 +2,7 @@
 
 import pytest
 
-from feature_repo.replay_return_events import event_ms, to_event
+from feature_store.replay_return_events import event_ms, to_event
 
 
 @pytest.mark.parametrize(
@@ -41,7 +41,7 @@ def test_feast_apply_skips_helper_scripts():
     """`feast apply` imports every .py in the repo (Python 3.10 in Airflow) ⇒ scripts other than features.py must be in .feastignore."""
     from pathlib import Path
 
-    repo = Path(__file__).resolve().parents[2] / "feature_repo"
+    repo = Path(__file__).resolve().parents[2] / "feature_store"
     ignored = {
         line.split("#")[0].strip() for line in (repo / ".feastignore").read_text().splitlines()
     }

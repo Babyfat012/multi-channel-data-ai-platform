@@ -246,7 +246,7 @@ services:
               ./dags:/opt/airflow/dags:ro,
               ./scripts:/opt/platform/scripts:ro,
               ./sql:/opt/sql:ro, ./spark_jobs:/opt/spark_jobs:ro, ./contracts:/opt/contracts:ro, /data/raw:/data/raw:ro,
-              ./feature_repo:/opt/feature_repo:ro, ./rag:/opt/rag/rag:ro,
+              ./feature_store:/opt/feature_store:ro, ./rag:/opt/rag/rag:ro,
               /data/raw/ground-truth:/data/ground-truth:ro,
               ./out/ground-truth-bridge:/data/ground-truth-bridge:ro,
               ./out/channels-small/source-exports:/data/channels-small/source-exports:ro,

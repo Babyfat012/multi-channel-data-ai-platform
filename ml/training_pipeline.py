@@ -52,7 +52,7 @@ def load_features(entity_path: str, features: dsl.Output[dsl.Dataset]):
 
     fs = s3fs.S3FileSystem()
     entity = pd.read_parquet(entity_path.removeprefix("s3://"), filesystem=fs)
-    store = FeatureStore("/opt/feature_repo")
+    store = FeatureStore("/opt/feature_store")
     # Feast's file offline store joins each line with EVERY daily snapshot of the SKU before PIT filtering:
     # 360k lines × ~180 days ≈ 65M intermediate rows ⇒ OOM. Call in batches, same result as a single call.
     # Limitation: fixed 20k batches; for larger data use the Spark offline store.

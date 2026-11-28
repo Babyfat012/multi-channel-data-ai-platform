@@ -59,7 +59,7 @@ pipeline {
     stage('Test') {
       steps {
         sh 'uv sync --frozen'
-        sh 'uv run ruff format --check feature_repo ml flink_jobs tests/flink && uv run ruff check feature_repo ml flink_jobs tests/flink'
+        sh 'uv run ruff format --check feature_store ml flink_jobs tests/flink && uv run ruff check feature_store ml flink_jobs tests/flink'
         // Feast logic + view definitions; Spark tests for daily features run in the Airflow image.
         sh 'uv run pytest -q tests/unit/test_docstrings.py'
         sh '''docker run --rm --network none --read-only --tmpfs /tmp:rw,exec,size=1g \

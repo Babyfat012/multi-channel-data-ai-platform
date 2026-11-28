@@ -76,7 +76,7 @@ Duplicate webhooks: there are community discussions about Shopify calling a webh
 
 **Buyer.** `customer` can be null for guest checkouts.
 
-**Batch renderer in the repo.** `generator/channels/shopify.py` emits one
+**Batch renderer in the repo.** `data_generator/channels/shopify.py` emits one
 REST `order` response per JSONL line, including `line_items` and `customer=null` for
 guests. It keeps the pre-discount `price` and each line's `total_discount`;
 `fulfillment_status` only says the goods were fulfilled and does not imply an actual delivery
@@ -160,7 +160,7 @@ Source: the official documentation pages at `partner.tiktokshop.com`, read throu
 
 **Buyer.** The order-level `user_id` is a buyer ID scoped to TikTok Shop and cannot be used across Channels.
 
-**Batch renderer in the repo.** `generator/channels/tiktok_batch.py` renders
+**Batch renderer in the repo.** `data_generator/channels/tiktok_batch.py` renders
 Get Order Detail 202309 as a `data.orders` response containing one Order per
 JSONL line. The same Order shares its ID with the existing TikTok Shop webhook. The snapshot
 keeps the API status `CANCELLED`; the webhook keeps the text `CANCEL`. `payment.seller_discount`
@@ -190,7 +190,7 @@ Source: the official documentation pages at `open.shopee.com`, read through a br
 
 **Shopee push (webhook): not needed.** The project's design assumes Shopee arrives via polling (see [Domain.md](../../shared/domain.md)), so the push payload is not needed for the generator. Push code 3 (order status update) has only been seen in developer discussions, level **Low**, not used.
 
-**Batch renderer in the repo.** `generator/channels/shopee.py` emits
+**Batch renderer in the repo.** `data_generator/channels/shopee.py` emits
 `response.order_list` with one Order per JSONL line, with `item_list`, VND prices
 as integers and `order_item_id` for joining the ground truth. Because the Order schema has no
 actual delivery date, the renderer projects both core statuses `DELIVERED` and `COMPLETED` onto

@@ -18,8 +18,8 @@ from scripts.common import ROOT, apply, env, kubectl, load_env, run
 
 NS = "ml-serving"
 CODE_FILES = [
-    "feature_repo/feature_store.yaml",
-    "feature_repo/.feastignore",
+    "feature_store/feature_store.yaml",
+    "feature_store/.feastignore",
     "infra/docker/Dockerfile.serve",
 ]
 
@@ -28,7 +28,7 @@ def code_digest() -> str:
     """Hash of the code baked into the image: same code ⇒ same tag, changed code ⇒ new tag."""
     files = [
         *sorted((ROOT / "ml").glob("*.py")),
-        *sorted((ROOT / "feature_repo").glob("*.py")),
+        *sorted((ROOT / "feature_store").glob("*.py")),
         *(ROOT / f for f in CODE_FILES),
     ]
     hasher = hashlib.sha256()

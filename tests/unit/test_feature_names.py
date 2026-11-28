@@ -18,8 +18,8 @@ def _call_kwargs(node):
 
 
 def feast_views():
-    """{view name: field names} from every `FeatureView(...)` in feature_repo/features.py."""
-    tree = ast.parse((ROOT / "feature_repo/features.py").read_text())
+    """{view name: field names} from every `FeatureView(...)` in feature_store/features.py."""
+    tree = ast.parse((ROOT / "feature_store/features.py").read_text())
     views = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "FeatureView":

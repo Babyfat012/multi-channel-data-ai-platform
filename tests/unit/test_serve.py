@@ -184,7 +184,7 @@ def test_order_of_rows_kept_for_many_skus():
 
 def test_publication_failure_returns_unavailable_without_scoring():
     """A broken batch pointer/lease must abstain from predicting, not disguise it as insufficient history."""
-    from feature_repo.publication import FeatureDataUnavailable
+    from feature_store.publication import FeatureDataUnavailable
 
     m = model({"sku-1": 1000})
     m.store.get_online_features = Mock(side_effect=FeatureDataUnavailable("not published"))

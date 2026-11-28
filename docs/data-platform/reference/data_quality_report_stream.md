@@ -22,7 +22,7 @@ uv run python scripts/evidence/measure_order_snapshots_stream.py        # print 
 Two sources of numbers in this report:
 
 - **Totals** are counted by the generator while emitting and written to `stream_manifest.json` on MinIO. The number of messages in Kafka is recounted with `kafka-get-offsets.sh` to confirm no messages are lost or extra.
-- **Concrete examples** come from `scripts/evidence/measure_order_snapshots_stream.py`, which replays the Stream in memory (no Kafka needed) and points out one real case for each problem. It is the counterpart of the `python -m generator report` command on the Batch side.
+- **Concrete examples** come from `scripts/evidence/measure_order_snapshots_stream.py`, which replays the Stream in memory (no Kafka needed) and points out one real case for each problem. It is the counterpart of the `python -m data_generator report` command on the Batch side.
 
 ## Measurement results
 
@@ -238,7 +238,7 @@ The small source `out/channels-small` generates all five Channels for the **Batc
 
 ## Assumptions and open items
 
-- **The Amazon notification shape is an assumption, level Low.** The official SP-API Notifications documentation could not be read, so the field names were chosen by the project following `ORDER_CHANGE`. This note is also at the top of `generator/channels/amazon.py` and in [channel-sources.md](channel_sources.md). The TikTok Shop webhook shape comes from official documentation, level High.
+- **The Amazon notification shape is an assumption, level Low.** The official SP-API Notifications documentation could not be read, so the field names were chosen by the project following `ORDER_CHANGE`. This note is also at the top of `data_generator/channels/amazon.py` and in [channel-sources.md](channel_sources.md). The TikTok Shop webhook shape comes from official documentation, level High.
 - Amazon notifications in the Stream always use Orders v0-style status values (`Shipped`) and do not change with the schema switch date as the Batch does.
 - The livestream so far only causes a burst, not concept drift (apparel return rate nearly doubling). That part is done in step 4.
 - Shopify (webhook, 1.5% duplicates), Walmart and Shopee (polling, arriving in batches every 5 to 15 minutes) are not in the Stream yet.
@@ -259,7 +259,7 @@ this is a separate cloud run and does not use the `STREAM_SPEED=60` pace of the 
 
 Lateness is Amazon `EventTime` compared with arrival time; TikTok duplicates keep the same `tts_notification_id`.
 Livestream burst: 148.5 Orders/hour vs 25.2 in a normal hour, ratio 5.89 per the manifest.
-[Generator code](../../../generator/__main__.py), [configuration](../../../configs/default.yaml),
+[Generator code](../../../data_generator/__main__.py), [configuration](../../../configs/default.yaml),
 [measurement script](../../../scripts/evidence/measure_order_snapshots_stream.py).
 
 ![Flink 1.20.3 Completed Jobs: Amazon baseline, Amazon late, two dedup jobs and the window job all FINISHED](../../evidence/aws/flink-completed-jobs-20261028.png)

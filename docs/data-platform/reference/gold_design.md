@@ -10,14 +10,14 @@ The Gold fact, Amazon SCD2, features and label bridge have been verified in
 - All five Silver tables store **one row per product in an order**. Each sales
   Channel has its own table.
 - Amazon order data only has an **estimated delivery** window; there is no actual delivery time
-  (`generator/channels/amazon.py`, `spark_jobs/silver/build_amazon_order_snapshots.py`).
+  (`data_generator/channels/amazon.py`, `spark_jobs/silver/build_amazon_order_snapshots.py`).
 - The data generator writes `"Delivered"` for both the **delivered** and **completed** statuses
-  of Walmart (`generator/channels/walmart.py`). So `status_changed_at` may
+  of Walmart (`data_generator/channels/walmart.py`). So `status_changed_at` may
   be the completion time and cannot be treated with certainty as `delivered_at` (delivery time).
 - Answer data about returns (`label`), delivery time (`delivered_at`) and
   the time the answer becomes available (`label_available_at`) is kept separately in
   `ground-truth/labels`. The table `ground-truth/order_line_keys` maps internal IDs to each
-  Channel's IDs (`generator/generate_order_snapshots.py`). The answer exists only after the 30-day deadline.
+  Channel's IDs (`data_generator/generate_order_snapshots.py`). The answer exists only after the 30-day deadline.
 - Walmart's `purchase_order_id` was once duplicated across two different orders. To
   uniquely identify a product line you must use
   `purchase_order_id`, `customer_order_id`, `line_number` together (`docs/data-platform/reference/silver.md` section 3.1).
@@ -109,7 +109,7 @@ versions. **Chosen: A.**
 
 ## ✅ Q5 — SCD2 version start timestamp
 
-After Q4, checking `generator/channels/amazon.py` showed that each Amazon snapshot writes
+After Q4, checking `data_generator/channels/amazon.py` showed that each Amazon snapshot writes
 `LastUpdateDate` or `lastUpdatedTime` from the `change.at` of the currently visible status.
 So there are two real source timestamps for `valid_from_ts`:
 
